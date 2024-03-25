@@ -225,6 +225,7 @@ class OllamaClient(metaclass=SingletonMeta):
                         prompt_info = data["prompt"][:200].replace("\n", "")
                         # print(f"{CYAN}{request_info}\tPrompt: {prompt_info}{ENDC}")
 
+                    print("Ollama is generating response...")
                     response = requests.post(url, json=data, timeout=timeout, stream=stream)
 
                     # Log duration for generate endpoint
@@ -293,26 +294,20 @@ class OllamaClient(metaclass=SingletonMeta):
         include_start_response_str: bool = True,
         ignore_cache: bool = False,
         stream: bool = False,
+        local: bool = None,
         **kwargs,
     ) -> str:
         
-        if (isinstance(prompt,Chat) and ("mixtral" in model or "llama" in model)): #  groq api interface to lower local llm usage
+        if (isinstance(prompt,Chat) and ("mixtral" == model) and not local): #  groq api interface to lower local llm usage
             cached_completion = self._get_cached_completion(model, str(temperature), prompt._to_dict(), [])
             if cached_completion:
                 return cached_completion
             # print ("!!! USING GROQ !!!")
-            if "llama" in model:
-                response = GroqChat.generate_response(prompt, "llama2-70b-4096", temperature)
-            else:
-                response = GroqChat.generate_response(prompt, temperature=temperature)
+            response = GroqChat.generate_response(prompt, temperature=temperature)
             # print ("GROQ COMPLETION: ", response)
             self._update_cache(model, str(temperature), prompt._to_dict(), [], response)
             if response:
                 return response
-        
-        
-        if ("mixtral" in model): # this is stupid but helps for faster and reliable use of this tool
-            model = "dolphin-mistral"
         
         str_temperature:str = str(temperature)
         try:
@@ -375,8 +370,6 @@ class OllamaClient(metaclass=SingletonMeta):
                     "stream": stream,
                     **kwargs,
                 }
-                
-                # Groq Key: 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
                 
             response = self._send_request("POST", "generate", data, stream)
         except Exception as e:

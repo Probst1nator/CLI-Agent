@@ -8,11 +8,11 @@
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
-            "program": "${file}",
+            "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                // "--llm","dolphin-mixtral","--local"
+                "l"
             ]
         }
     ]

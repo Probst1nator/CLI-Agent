@@ -23,12 +23,12 @@ class GroqChat:
         try:
             # Initialize the Groq client with an API key
             client = Groq(api_key=os.getenv('GROQ_API_KEY'))
-            
+            print("Groq-Api is generating response...")
             # Create a chat completion with the provided model and messages
             chat_completion = client.chat.completions.create(messages=chat.to_groq_format(), model=model, temperature=temperature)
             
             # If successful, extract and return the content of the first choice's message
             return chat_completion.choices[0].message.content
         except Exception as e:
-            print(f"Groq Api error: {e}")
+            print(f"Groq-Api error: {e}")
             return None

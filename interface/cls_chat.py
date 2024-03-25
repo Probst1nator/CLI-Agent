@@ -115,7 +115,7 @@ class Chat:
             json.dump(self._to_dict(), file, indent=4)
 
     @classmethod
-    def load_from_json(cls, file_path):
+    def load_from_json(cls, file_path: str = "./cache/chat_session_main.json"):
         """Load a Chat instance from a JSON file."""
         with open(file_path, "r") as file:
             data_dict = json.load(file)
@@ -137,6 +137,7 @@ class Chat:
             content = message["content"]
             chat_instance.add_message(role, content)
         return chat_instance
+    
     def to_json(self) -> str:
         return json.dumps(self._to_dict())
 
