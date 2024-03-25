@@ -1,6 +1,6 @@
 from typing import Iterator
 
-from interface.cls_chat import Chat, Role
+from interface.cls_llm_messages import Chat, Role
 from interface.cls_ollama_client import OllamaClient
 
 

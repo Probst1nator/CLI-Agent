@@ -5,6 +5,7 @@ from typing import List, Optional, Tuple, Union
 
 from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
+from tooling import run_command
 
 
 class FewShotProvider:
@@ -14,7 +15,7 @@ class FewShotProvider:
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
-    def few_shot_SuggestAgentStrategy(self, userRequest: str, llm: str, temperature:float = 0.7) -> Tuple[str,Chat]:
+    def few_shot_SuggestAgentStrategy(self, userRequest: str, llm: str, temperature:float = 0.7, **kwargs) -> Tuple[str,Chat]:
         chat: Chat = Chat(
             # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
             f"As an autonomous CLI assistant for Ubuntu, your role is to autonomously fulfill user requests using the host's command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
@@ -77,7 +78,7 @@ xrandr --output DP-0 --brightness 0.1
 
         chat.add_message(
             Role.USER,
-            "show me a picture of a pupy"
+            "show me a puppy"
         )
         
         example_response = """I can show you a picture of a puppy by opening firefox with a corresponding google image search url already entered:
@@ -102,6 +103,40 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
         
         chat.add_message(
             Role.USER,
+            "What is the current working directory?"
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            """To find the working directory I will execute the following:
+```bash
+pwd
+```"""  ),
+        
+        chat.add_message(
+            Role.USER,
+            run_command("pwd") + "\n\nThanks, can you also show the files in this directory?"
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            """Of course! To show the files in the working directory I will execute this:
+```bash
+ls
+```"""  ),
+        
+        chat.add_message(
+            Role.USER,
+            run_command("ls")
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "The command has worked. Anything else I can help with?",
+        )
+        
+        chat.add_message(
+            Role.USER,
             userRequest
         )
         
@@ -110,6 +145,7 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
             llm,
             temperature=temperature,
             ignore_cache=False,
+            **kwargs
         )
         
         chat.add_message(
@@ -117,4 +153,3 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
             response,
         )
         return response, chat
-
