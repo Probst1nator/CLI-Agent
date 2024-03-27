@@ -30,9 +30,9 @@ def run_command(command: str) -> Dict[str, Any]:
             # Conditional checks on result can be implemented here as needed
             result_formatted = command + "\n\n"
             if (result["output"]):
-                result_formatted = f"'''cmd_output{result['output']}'''\n"
+                result_formatted = f"'''cmd_output\n{result['output']}'''\n"
             if (result["error"]):
-                result_formatted = f"'''cmd_error{result['error']}'''\n"
+                result_formatted = f"'''cmd_error\n{result['error']}'''\n"
 
             return result_formatted
     except subprocess.CalledProcessError as e:
