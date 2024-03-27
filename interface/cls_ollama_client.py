@@ -236,7 +236,7 @@ class OllamaClient(metaclass=SingletonMeta):
                         # print(f"{CYAN}{request_info}\tPrompt: {prompt_info}{ENDC}")
 
                     if endpoint == "generate":
-                        print("Ollama is generating a response...")
+                        print(f"Ollama/({data['model']})is generating a response...")
                     response = requests.post(url, json=data, timeout=timeout, stream=stream)
 
                     # Log duration for generate endpoint

@@ -103,7 +103,6 @@ def parse_cli_args():
     parser.add_argument("-local", action="store_true",
                         help="Use the local backend for the Ollama language model processing.")
     parser.add_argument("-llm", type=str, nargs='?', const='dolphin-mistral',
-                    default='dolphin-mistral',
                     help='Specify the Ollama model to use. '
                     'Examples: ["dolphin-mixtral","dolphin-mistral","dolphin-phi"]')
     # parser.add_argument("--speak", action="store_true",
