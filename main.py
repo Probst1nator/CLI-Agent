@@ -9,6 +9,7 @@ import sys
 import time
 from typing import Any, Dict, List
 
+from dotenv import load_dotenv
 from termcolor import colored
 
 from interface.cls_chat import Chat, Role
@@ -133,7 +134,11 @@ script_directory = "/home/prob/repos/CLI-Agent/"
 print(script_directory)
 
 def main():
+    load_dotenv()
     args = parse_cli_args()
+    if not os.getenv('GROQ_API_KEY'):
+        print("No Groq Key was found in the .env file. Falling back to Ollama.")
+        args.local = True
     # Initialize session and context_chat based on the previous script's structure
     session = OllamaClient()
     context_chat = None

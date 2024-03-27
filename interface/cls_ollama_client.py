@@ -322,6 +322,9 @@ class OllamaClient(metaclass=SingletonMeta):
             if response:
                 return response
         
+        if not model:
+            model = "openhermes"
+        
         str_temperature:str = str(temperature)
         try:
             template_str = self._get_template(model)
