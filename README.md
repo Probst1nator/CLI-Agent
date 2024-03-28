@@ -1,26 +1,38 @@
-# Simple CLI-Agent using Groq-API and Ollama Backends
+# Simple CLI Agent Using Groq-API and Ollama Backends
 
-This project introduces a CLI (Command Line Interface) Agent leveraging the Groq-API and Ollama backends, based on the Local Language Model Toolkit Project I've developed.
+This project introduces a CLI (Command Line Interface) Agent that leverages the Groq-API and Ollama backends. It is part of the Local Language Model Toolkit Project that I have developed.
 
 ## Getting Started
 
 ### Prerequisites
 
-- **Operating System:** Currently, only Ubuntu is supported.
+- **Operating System:** Currently, this project only supports Ubuntu.
 
 ### Installation
 
-1. **Using the Installer Script**
+There are two ways to install and run the CLI Agent: using Docker or running it manually.
 
-   To add the CLI-Agent to your system, execute the `installer.sh` script:
+#### Using Docker (Optional)
+
+1. Run the Ollama backend in a Docker container:
+
+   ```bash
+   sudo docker run -d --name ollama --restart always -p 5000:11434 ollama/ollama:latest
+   ```
+
+   Alternatively, you can configure your Groq API details in the `.env` file.
+
+#### Using the Installer Script
+
+1. To add the CLI Agent to your command line, execute the `installer.sh` script:
 
    ```bash
    ./installer.sh
    ```
 
-2. **Running Manually**
+#### Running Manually
 
-   Alternatively, you can run the Agent manually by executing `main.py`:
+1. Alternatively, you can run the Agent manually by executing `main.py`:
 
    ```bash
    python3 ./main.py
@@ -28,7 +40,7 @@ This project introduces a CLI (Command Line Interface) Agent leveraging the Groq
 
 ### Features
 
-- **Command Suggestions:** The Agent suggests commands and, upon your confirmation, executes them. It will then discuss and act based on the output of these commands.
+- **Command Suggestions:** The Agent suggests commands and, upon your confirmation, executes them. It discusses and acts based on the output of these commands.
 
 ## Contributing
 
