@@ -5,4 +5,5 @@ torch==2.0.1
 transformers
 websockets==11.0.3
 python-dotenv
-
+termcolor
+groq

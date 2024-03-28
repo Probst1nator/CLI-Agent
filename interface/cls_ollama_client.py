@@ -268,6 +268,22 @@ class OllamaClient(metaclass=SingletonMeta):
                 time.sleep(1)  # Backoff before retrying
         raise RuntimeError("Request failed after retries or due to an unsupported method.")
 
+    def apply_color(self, string: str):
+        if ("`" in string):
+            self.saved_block_delimiters += string
+            string = ""
+        if (self.saved_block_delimiters.count("`")>=3):
+            self.color_red = not self.color_red
+            string = colored(self.saved_block_delimiters, "red")
+            self.saved_block_delimiters = ""
+        elif (len(self.saved_block_delimiters)>=3):
+            string = colored(self.saved_block_delimiters, "light_blue")
+            self.saved_block_delimiters = ""
+        if (self.color_red):
+            string = colored(string, "red")
+        else:
+            string = colored(string, "light_blue")
+        return string
 
     def _get_template(self, model: str) -> str:
         data = {"name": model}
@@ -314,6 +330,8 @@ class OllamaClient(metaclass=SingletonMeta):
         if (isinstance(prompt,Chat) and not model and not local): #  groq api interface to lower local llm usage
             cached_completion = self._get_cached_completion(model, str(temperature), prompt._to_dict(), [])
             if cached_completion:
+                for char in cached_completion:
+                    print(self.apply_color(char), end="")
                 return cached_completion
             # print ("!!! USING GROQ !!!")
             response = GroqChat.generate_response(prompt, temperature=temperature)
@@ -353,6 +371,8 @@ class OllamaClient(metaclass=SingletonMeta):
                     if (cached_completion == ""):
                         raise Exception("Error: This ollama request errored last time as well.")
                     print(f"Cache hit! For: {model}")
+                    for char in cached_completion:
+                        print(self.apply_color(char))
                     if include_start_response_str:
                         return start_response_with + cached_completion
                     else:
@@ -394,22 +414,6 @@ class OllamaClient(metaclass=SingletonMeta):
             print(e)
             return ""
 
-        def apply_color(string: str):
-            if ("`" in string):
-                self.saved_block_delimiters += string
-                string = ""
-            if (self.saved_block_delimiters.count("`")>=3):
-                self.color_red = not self.color_red
-                string = colored(self.saved_block_delimiters, "red")
-                self.saved_block_delimiters = ""
-            elif (len(self.saved_block_delimiters)>=3):
-                string = colored(self.saved_block_delimiters, "light_blue")
-                self.saved_block_delimiters = ""
-            if (self.color_red):
-                string = colored(string, "red")
-            else:
-                string = colored(string, "light_blue")
-            return string
 
         # Revised approach to handle streaming JSON responses
         full_response = ""
@@ -419,7 +423,7 @@ class OllamaClient(metaclass=SingletonMeta):
                     json_obj = json.loads(line.decode("utf-8"))
                     next_string = json_obj.get("response", "")
                     full_response += next_string
-                    print(apply_color(next_string), end="")
+                    print(self.apply_color(next_string), end="")
                     if json_obj.get("done", False):
                         print()
                         break
