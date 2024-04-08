@@ -65,15 +65,13 @@ Monitors: 2
 """,
         )
 
-        example_response = """The command was successful and returned inforation for 2 different monitors. To set the brightness of both to 10% I will execute the below commands:
+        chat.add_message(
+            Role.ASSISTANT,
+            """The command was successful and returned information for 2 different monitors. Now we can set them to 10% by executing these commands:
 ```bash
 xrandr --output HDMI-0 --brightness 0.1
 xrandr --output DP-0 --brightness 0.1
-```"""
-
-        chat.add_message(
-            Role.ASSISTANT,
-            example_response,
+```""",
         )
 
         chat.add_message(
@@ -81,14 +79,12 @@ xrandr --output DP-0 --brightness 0.1
             "show me a puppy"
         )
         
-        example_response = """I can show you a picture of a puppy by opening firefox with a corresponding google image search url already entered:
+        chat.add_message(
+            Role.ASSISTANT,
+            """I can show you a picture of a puppy by opening firefox with a corresponding google image search url already entered:
 ```bash
 firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
 ```"""
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            example_response
         )
         
         chat.add_message(
@@ -120,14 +116,14 @@ pwd
         
         chat.add_message(
             Role.ASSISTANT,
-            """Of course! To show the files in the working directory I will execute this:
+            """Of course! The files in the working directory can be listed by executing this:
 ```bash
 ls
 ```"""  ),
         
         chat.add_message(
             Role.USER,
-            run_command("ls")
+            run_command("ls", False)
         )
         
         chat.add_message(

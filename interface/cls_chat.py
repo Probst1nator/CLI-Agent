@@ -113,7 +113,7 @@ class Chat:
         # Convert the Chat object to a dictionary and save it as JSON
         with open(file_path, "w") as file:
             json.dump(self._to_dict(), file, indent=4)
-
+        
     @classmethod
     def load_from_json(cls, file_path: str = "./cache/chat_session_main.json"):
         """Load a Chat instance from a JSON file."""

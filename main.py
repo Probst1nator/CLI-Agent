@@ -11,12 +11,19 @@ from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from termcolor import colored
+from prompt_toolkit.widgets import RadioList, Frame, CheckboxList
+from typing import List
+from typing import List, Callable
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout, HSplit
+from prompt_toolkit.widgets import Frame, CheckboxList
 
 from interface.cls_chat import Chat, Role
 from interface.cls_few_shot_factory import FewShotProvider
 from interface.cls_ollama_client import OllamaClient
 from tooling import run_command
-
+from prompt_toolkit.widgets import Frame, CheckboxList, Label
 # def setup_sandbox():
 #     sandbox_dir = "./sandbox/"
 #     if os.path.exists(sandbox_dir):
@@ -25,31 +32,46 @@ from tooling import run_command
 
 # setup_sandbox()
 
-def extract_llm_snippets(response: str) -> dict:
+
+def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
     bash_snippets: List[str] = []
     python_snippets: List[str] = []
+    other_snippets: List[str] = []
+    all_blocks = response.split("```")  # Split by the start of any code block
+
     bash_blocks = response.split("```bash")
     python_blocks = response.split("```python")
     
     # Extract bash snippets
     if len(bash_blocks) > 1:
-        for snippet_block in bash_blocks[1:]:  # Skip the first chunk as it's before the first marker
-            snippet_text = snippet_block.split("```")[0]  # Extract command text before the closing marker
+        for snippet_block in bash_blocks[1:]:
+            snippet_text = snippet_block.split("```")[0]
             for snippet in snippet_text.split("\n"):
                 trimmed_snippet = snippet.strip()
-                if trimmed_snippet:  # Add command if it's not empty or whitespace
+                if trimmed_snippet:
                     bash_snippets.append(trimmed_snippet)
     
     # Extract python snippets
     if len(python_blocks) > 1:
-        for snippet_block in python_blocks[1:]:  # Skip the first chunk as it's before the first marker
-            snippet_text = snippet_block.split("```")[0]  # Extract command text before the closing marker
+        for snippet_block in python_blocks[1:]:
+            snippet_text = snippet_block.split("```")[0]
             for snippet in snippet_text.split("\n"):
                 trimmed_snippet = snippet.strip()
-                if trimmed_snippet:  # Add command if it's not empty or whitespace
+                if trimmed_snippet:
                     python_snippets.append(trimmed_snippet)
-    
-    return {"bash": bash_snippets, "python": python_snippets}
+
+    # Identify and extract other snippets
+    for i in range(1, len(all_blocks), 2):  # Iterate over code blocks, skipping non-code text
+        snippet_text = all_blocks[i].split("\n", 1)
+        if len(snippet_text) > 1:
+            # Determine if the block is neither bash nor python
+            if not all_blocks[i].startswith("bash") and not all_blocks[i].startswith("python"):
+                for snippet in snippet_text[1].split("\n"):
+                    trimmed_snippet = snippet.strip()
+                    if trimmed_snippet:
+                        other_snippets.append(trimmed_snippet)
+
+    return {"bash": bash_snippets, "python": python_snippets, "other": other_snippets}
 
 
 def recolor_response(response: str, start_string_sequence:str, end_string_sequence:str, color: str = "red"):
@@ -93,6 +115,43 @@ def recolor_response(response: str, start_string_sequence:str, end_string_sequen
     return colored(response[last_end_index:], 'light_blue')
 
 
+def recolor(text: str, start_string_sequence: str, end_string_sequence: str, color: str = "red") -> str:
+    """
+    Returns the response with different colors, with text between
+    start_string_sequence and end_string_sequence colored differently.
+    Handles multiple instances of such sequences.
+
+    :param response: The entire response string to recolor.
+    :param start_string_sequence: The string sequence marking the start of the special color zone.
+    :param end_string_sequence: The string sequence marking the end of the special color zone.
+    :param color: The color to use for text within the special color zone.
+    :return: The colored response string.
+    """
+    last_end_index = 0
+    colored_response = ""
+    while True:
+        start_index = text.find(start_string_sequence, last_end_index)
+        if start_index == -1:
+            # Append the rest of the response if no more start sequences found
+            colored_response += colored(text[last_end_index:], 'light_blue')
+            break
+
+        end_index = text.find(end_string_sequence, start_index + len(start_string_sequence))
+        if end_index == -1:
+            # Append the rest of the response if no corresponding end sequence found
+            colored_response += colored(text[last_end_index:], 'light_blue')
+            break
+
+        # Append text before the current start sequence
+        colored_response += colored(text[last_end_index:start_index], 'light_blue')
+
+        # Append the special color zone text
+        colored_response += colored(text[start_index:end_index + len(end_string_sequence)], color)
+
+        # Update last_end_index for the next iteration
+        last_end_index = end_index + len(end_string_sequence)
+
+    return colored_response
 
 def parse_cli_args():
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
@@ -129,8 +188,42 @@ def parse_cli_args():
 
     return args
 
-script_directory = "/home/prob/repos/CLI-Agent/"
-print(script_directory)
+
+def select_and_execute_commands(commands: List[str]) -> str:
+    checkbox_list = CheckboxList(
+        values=[(cmd, cmd) for i, cmd in enumerate(commands)],default_values=[cmd for cmd in commands]
+    )
+    bindings = KeyBindings()
+
+    @bindings.add("q")
+    def _quit(event) -> None:
+        """Trigger command execution if "Execute Commands" is selected."""
+        app.exit(result=checkbox_list.current_values )
+
+    # Instruction message
+    instructions = Label(text="Press 'q' to continue.")
+
+    # Define the layout with the instructions
+    root_container = HSplit([
+        Frame(title="Select commands to execute, in order", body=checkbox_list),
+        instructions  # Add the instructions to the layout
+    ])
+    layout = Layout(root_container)
+
+    # Create the application
+    app = Application(layout=layout, key_bindings=bindings, full_screen=False)
+
+    # Run the application and get the selected option(s)
+    selected_commands = app.run()
+    
+    # Execute selected commands and collect their outputs
+    outputs = [run_command(cmd) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
+    
+    return "\n".join(outputs)
+
+
+data_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
+os.makedirs(data_dir, exist_ok=True)
 
 def main():
     load_dotenv()
@@ -144,10 +237,10 @@ def main():
     user_request = ""
     
     if args.cg:
-        context_chat = Chat.load_from_json(f"{script_directory}/cache/global_chat.json")
+        context_chat = Chat.load_from_json(f"{data_dir}/global_chat.json")
     elif (args.c):
-        context_chat = Chat.load_from_json(f"{script_directory}/cache/last_chat.json")
-    
+        context_chat = Chat.load_from_json(f"{data_dir}/last_chat.json")
+
     while True:
         user_request += input(colored("Enter your request: ", 'yellow'))
         if user_request.lower() == 'quit':
@@ -163,10 +256,11 @@ def main():
             llm_response, context_chat = FewShotProvider.few_shot_SuggestAgentStrategy(user_request, args.llm, local=args.local, stream=True)
         
         if args.cg:
-            context_chat.save_to_json(f"{script_directory}/cache/global_chat.json")
+            context_chat.save_to_json(f"{data_dir}/global_chat.json")
         else:
-            context_chat.save_to_json(f"{script_directory}/cache/last_chat.json")
+            context_chat.save_to_json(f"{data_dir}/last_chat.json")
             
+        
             
             
         snippets = extract_llm_snippets(llm_response)
@@ -192,16 +286,20 @@ def main():
             except KeyboardInterrupt:
                 print(colored("\nExecution aborted by the user.", 'red'))
                 continue  # Skip the execution of commands and start over
-
-            
-        # Execute commands extracted from the llm_response
-        user_request = ""
-        for snippet in snippets["bash"]:
-            print(colored(f"Executing command: {snippet}\n" + "# " * 10, 'green'))
-            user_request += run_command(snippet)
-            print(colored(user_request, 'green'))
+        
+        
+        user_request = select_and_execute_commands(snippets["bash"] + snippets["other"])
+        print(recolor(user_request, "```cmd_output","```", "green"))
+        # # Execute commands extracted from the llm_response
+        # user_request = ""
+        # for snippet in snippets["bash"]:
+        #     print(colored(f"Executing command: {snippet}\n" + "# " * 10, 'green'))
+        #     user_request += run_command(snippet)
+        #     print(colored(user_request, 'green'))
             
         user_request += "\n\n"
         
 if __name__ == "__main__":
     main()
+
+

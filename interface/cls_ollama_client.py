@@ -80,7 +80,9 @@ class OllamaClient(metaclass=SingletonMeta):
     def __init__(self, base_url: str = BASE_URL):
         self.base_url = base_url
         # self._ensure_container_running()
-        self.cache_file = "./cache/ollama_cache.json"
+        cache_dir = os.path.expanduser('~/.local/share/cli-agent') + "/cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        self.cache_file = f"{cache_dir}/ollama_cache.json"
         self.cache = self._load_cache()
 
     def _ensure_container_running(self):
@@ -167,7 +169,6 @@ class OllamaClient(metaclass=SingletonMeta):
 
     def _load_cache(self):
         """Load cache from a file."""
-        os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
         if not os.path.exists(self.cache_file):
             return {}  # Return an empty dictionary if file not found
 
@@ -193,8 +194,11 @@ class OllamaClient(metaclass=SingletonMeta):
         """Update the cache with new completion."""
         cache_key = self._generate_hash(model, temperature, prompt, images)
         self.cache[cache_key] = completion
-        with open(self.cache_file, "w") as json_file:
-            json.dump(self.cache, json_file, indent=4)
+        try:
+            with open(self.cache_file, "w") as json_file:
+                json.dump(self.cache, json_file, indent=4)
+        except:
+            pass
 
     def _send_request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None, stream: bool = False) -> requests.Response:
         """Send an HTTP request to the given endpoint with detailed colored logging and optional streaming."""
@@ -236,7 +240,7 @@ class OllamaClient(metaclass=SingletonMeta):
                         # print(f"{CYAN}{request_info}\tPrompt: {prompt_info}{ENDC}")
 
                     if endpoint == "generate":
-                        print(f"Ollama/({data['model']})is generating a response...")
+                        print(f"Ollama/({data['model']}) is generating a response...")
                     response = requests.post(url, json=data, timeout=timeout, stream=stream)
 
                     # Log duration for generate endpoint
@@ -332,6 +336,7 @@ class OllamaClient(metaclass=SingletonMeta):
             if cached_completion:
                 for char in cached_completion:
                     print(self.apply_color(char), end="")
+                print()
                 return cached_completion
             # print ("!!! USING GROQ !!!")
             response = GroqChat.generate_response(prompt, temperature=temperature)
