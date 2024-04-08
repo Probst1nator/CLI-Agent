@@ -7,3 +7,5 @@ websockets==11.0.3
 python-dotenv
 termcolor
 groq
+prompt-toolkit
+psutil
