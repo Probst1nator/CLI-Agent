@@ -144,7 +144,7 @@ class OllamaClient(metaclass=SingletonMeta):
             
             subprocess.run(
                 # ["ollama", "pull", model_name],
-                ["docker", "exec", OLLAMA_CONTAINER_NAME, "ollama", "pull", model_name],
+                ["sudo", "docker", "exec", OLLAMA_CONTAINER_NAME, "ollama", "pull", model_name],
                 check=True,
                 text=True,
             )

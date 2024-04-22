@@ -9,3 +9,4 @@ termcolor
 groq
 prompt-toolkit
 psutil
+colorama
