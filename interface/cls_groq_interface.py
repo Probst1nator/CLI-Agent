@@ -49,7 +49,7 @@ class GroqChat:
             client = Groq(api_key=os.getenv('GROQ_API_KEY'))
             print("Groq-Api is generating response...")
             # Create a chat completion with the provided model and messages
-            chat_completion = client.chat.completions.create(messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True)
+            chat_completion = client.chat.completions.create(messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>")
             
             # Create a generator for the stream
             # generator = client.chat.completions.with_streaming_response.create(stream=True, messages=chat.to_groq_format(), model=model, temperature=temperature)

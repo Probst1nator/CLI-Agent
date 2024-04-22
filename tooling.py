@@ -1,8 +1,10 @@
 import subprocess
-import sys
-from typing import Any, Dict, List
-
 from termcolor import colored
+from typing import List, Callable, Any, Dict, List
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout, HSplit
+from prompt_toolkit.widgets import Frame, CheckboxList, Label
 
 
 def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
@@ -56,3 +58,39 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
             result_formatted += f"\n```cmd_error\n{result['error']}```"
 
         return result_formatted
+    
+
+def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False) -> str:
+    if not skip_user_confirmation:
+        checkbox_list = CheckboxList(
+            values=[(cmd, cmd) for i, cmd in enumerate(commands)],default_values=[cmd for cmd in commands]
+        )
+        bindings = KeyBindings()
+
+        @bindings.add("q")
+        def _quit(event) -> None:
+            """Trigger command execution if "Execute Commands" is selected."""
+            app.exit(result=checkbox_list.current_values )
+
+        # Instruction message
+        instructions = Label(text="Press 'q' to continue.")
+
+        # Define the layout with the instructions
+        root_container = HSplit([
+            Frame(title="Select commands to execute, in order", body=checkbox_list),
+            instructions  # Add the instructions to the layout
+        ])
+        layout = Layout(root_container)
+
+        # Create the application
+        app = Application(layout=layout, key_bindings=bindings, full_screen=False)
+
+        # Run the application and get the selected option(s)
+        selected_commands = app.run()
+    else:
+        selected_commands = commands
+    # Execute selected commands and collect their outputs
+    outputs = [run_command(cmd) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
+    
+    return "'''bash_out" + "\n".join(outputs) + "\n'''"
+

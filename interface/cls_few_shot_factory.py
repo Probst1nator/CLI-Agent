@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple, Union
 
 from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
-from tooling import run_command
+from tooling import run_command, select_and_execute_commands
 
 
 class FewShotProvider:
@@ -94,7 +94,7 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
         
         chat.add_message(
             Role.ASSISTANT,
-            "Happy to be of service! Please don't hesitate to keep the work coming! ;)",
+            "Happy to be of service. Is there anything else I may help you with?",
         )
         
         chat.add_message(
@@ -104,31 +104,31 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
         
         chat.add_message(
             Role.ASSISTANT,
-            """To find the working directory I will execute the following:
+            """To find the working directory execute the following:
 ```bash
 pwd
 ```"""  ),
         
         chat.add_message(
             Role.USER,
-            run_command("pwd") + "\n\nThanks, can you also show the files in this directory?"
+            select_and_execute_commands(["pwd"], True) + "\n\nThanks, can you also show the files in this directory?"
         )
         
         chat.add_message(
             Role.ASSISTANT,
-            """Of course! The files in the working directory can be listed by executing this:
+            """Of course! To list the files in the working directory simply execute this:
 ```bash
 ls
 ```"""  ),
         
         chat.add_message(
             Role.USER,
-            run_command("ls", False)
+            select_and_execute_commands("ls", True)
         )
         
         chat.add_message(
             Role.ASSISTANT,
-            "The command has worked. Anything else I can help with?",
+            "The command ran successfully. Anything else you need help with?",
         )
         
         chat.add_message(

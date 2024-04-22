@@ -11,19 +11,12 @@ from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from termcolor import colored
-from prompt_toolkit.widgets import RadioList, Frame, CheckboxList
 from typing import List
-from typing import List, Callable
-from prompt_toolkit.application import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout, HSplit
-from prompt_toolkit.widgets import Frame, CheckboxList
 
 from interface.cls_chat import Chat, Role
 from interface.cls_few_shot_factory import FewShotProvider
 from interface.cls_ollama_client import OllamaClient
-from tooling import run_command
-from prompt_toolkit.widgets import Frame, CheckboxList, Label
+from tooling import run_command, select_and_execute_commands
 # def setup_sandbox():
 #     sandbox_dir = "./sandbox/"
 #     if os.path.exists(sandbox_dir):
@@ -188,40 +181,6 @@ def parse_cli_args():
 
     return args
 
-
-def select_and_execute_commands(commands: List[str]) -> str:
-    checkbox_list = CheckboxList(
-        values=[(cmd, cmd) for i, cmd in enumerate(commands)],default_values=[cmd for cmd in commands]
-    )
-    bindings = KeyBindings()
-
-    @bindings.add("q")
-    def _quit(event) -> None:
-        """Trigger command execution if "Execute Commands" is selected."""
-        app.exit(result=checkbox_list.current_values )
-
-    # Instruction message
-    instructions = Label(text="Press 'q' to continue.")
-
-    # Define the layout with the instructions
-    root_container = HSplit([
-        Frame(title="Select commands to execute, in order", body=checkbox_list),
-        instructions  # Add the instructions to the layout
-    ])
-    layout = Layout(root_container)
-
-    # Create the application
-    app = Application(layout=layout, key_bindings=bindings, full_screen=False)
-
-    # Run the application and get the selected option(s)
-    selected_commands = app.run()
-    
-    # Execute selected commands and collect their outputs
-    outputs = [run_command(cmd) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
-    
-    return "\n".join(outputs)
-
-
 data_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
 os.makedirs(data_dir, exist_ok=True)
 
@@ -260,7 +219,7 @@ def main():
         else:
             context_chat.save_to_json(f"{data_dir}/last_chat.json")
             
-        
+        user_request = ""
             
             
         snippets = extract_llm_snippets(llm_response)
@@ -273,7 +232,7 @@ def main():
         
         if args.f is None:
             user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow'))
-            if user_input.lower() == "n":
+            if not (user_input == "" or user_input.lower() == "y"):
                 continue
         else:
             try:
@@ -286,7 +245,6 @@ def main():
             except KeyboardInterrupt:
                 print(colored("\nExecution aborted by the user.", 'red'))
                 continue  # Skip the execution of commands and start over
-        
         
         user_request = select_and_execute_commands(snippets["bash"] + snippets["other"])
         print(recolor(user_request, "```cmd_output","```", "green"))
