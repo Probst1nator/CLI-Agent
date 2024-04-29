@@ -7,32 +7,12 @@ from groq import Groq
 from termcolor import colored
 
 from interface.cls_chat import Chat
+from tooling import cls_tooling
 
 # Load the environment variables from .env file
 load_dotenv()
 
 class GroqChat:
-
-    saved_block_delimiters: str = ""
-    color_red: bool = False
-    
-    def apply_color(self, string: str) -> str:
-        if ("`" in string):
-            self.saved_block_delimiters += string
-            string = ""
-        if (self.saved_block_delimiters.count("`")>=3):
-            self.color_red = not self.color_red
-            string = colored(self.saved_block_delimiters, "red")
-            self.saved_block_delimiters = ""
-        elif (len(self.saved_block_delimiters)>=3):
-            string = colored(self.saved_block_delimiters, "light_blue")
-            self.saved_block_delimiters = ""
-        elif (self.color_red):
-            string = colored(string, "red")
-        elif (not self.color_red):
-            string = colored(string, "light_blue")
-        return string
-    
     @staticmethod
     def generate_response(chat: Chat, model: str = "llama3-70b-8192", temperature: float = 0.7) -> str:
         """
@@ -60,7 +40,7 @@ class GroqChat:
 
             # Iterate through the stream and print each token
             full_response = ""
-            token_keeper = GroqChat()
+            token_keeper = cls_tooling()
             for chunk in chat_completion:
                 token = chunk.choices[0].delta.content
                 if (token):

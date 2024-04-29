@@ -68,45 +68,45 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
     return {"bash": bash_snippets, "python": python_snippets, "other": other_snippets}
 
 
-def recolor_response(response: str, start_string_sequence:str, end_string_sequence:str, color: str = "red"):
-    """
-    Prints the response with different colors, with text between
-    start_string_sequence and end_string_sequence colored differently.
-    Handles multiple instances of such sequences.
+# def recolor_response(response: str, start_string_sequence:str, end_string_sequence:str, color: str = "red"):
+#     """
+#     Prints the response with different colors, with text between
+#     start_string_sequence and end_string_sequence colored differently.
+#     Handles multiple instances of such sequences.
 
-    :param response: The entire response string to recolor.
-    :param start_string_sequence: The string sequence marking the start of the special color zone.
-    :param end_string_sequence: The string sequence marking the end of the special color zone.
-    """
-    last_end_index = 0
-    while True:
-        start_index = response.find(start_string_sequence, last_end_index)
-        if start_index == -1:
-            break  # No more start sequences found
+#     :param response: The entire response string to recolor.
+#     :param start_string_sequence: The string sequence marking the start of the special color zone.
+#     :param end_string_sequence: The string sequence marking the end of the special color zone.
+#     """
+#     last_end_index = 0
+#     while True:
+#         start_index = response.find(start_string_sequence, last_end_index)
+#         if start_index == -1:
+#             break  # No more start sequences found
 
-        # Adjust the search for the end by adding the length of the start sequence
-        # to ensure we're searching beyond its overlap with the end sequence
-        adjusted_start_for_end_search = start_index + len(start_string_sequence)
-        end_index = response.find(end_string_sequence, adjusted_start_for_end_search)
+#         # Adjust the search for the end by adding the length of the start sequence
+#         # to ensure we're searching beyond its overlap with the end sequence
+#         adjusted_start_for_end_search = start_index + len(start_string_sequence)
+#         end_index = response.find(end_string_sequence, adjusted_start_for_end_search)
         
-        if end_index == -1:
-            break  # No corresponding end sequence found
+#         if end_index == -1:
+#             break  # No corresponding end sequence found
 
-        # The actual end_index should include the length of the end string to capture it fully
-        end_index += len(end_string_sequence)
+#         # The actual end_index should include the length of the end string to capture it fully
+#         end_index += len(end_string_sequence)
 
-        # Print the part of the response before the current start sequence in light blue
-        print(colored(response[last_end_index:start_index], 'light_blue'), end="")
+#         # Print the part of the response before the current start sequence in light blue
+#         print(colored(response[last_end_index:start_index], 'light_blue'), end="")
         
-        # Then, print the part from the start to the end sequence in red
-        print(colored(response[start_index:end_index], color), end="")
+#         # Then, print the part from the start to the end sequence in red
+#         print(colored(response[start_index:end_index], color), end="")
 
-        # Update last_end_index to search for the next sequence after the current end
-        last_end_index = end_index
+#         # Update last_end_index to search for the next sequence after the current end
+#         last_end_index = end_index
 
 
-    # Print any remaining text after the last end sequence in light blue
-    return colored(response[last_end_index:], 'light_blue')
+#     # Print any remaining text after the last end sequence in light blue
+#     return colored(response[last_end_index:], 'light_blue')
 
 
 def recolor(text: str, start_string_sequence: str, end_string_sequence: str, color: str = "red") -> str:
@@ -202,7 +202,7 @@ def main():
         context_chat = Chat.load_from_json(f"{data_dir}/last_chat.json")
 
     while True:
-        user_request += input(colored("Enter your request: ", 'yellow'))
+        user_request += input(colored("Enter your request: ", 'blue', attrs=["bold"]))
         if user_request.lower() == 'quit':
             print(colored("Exiting...", "red"))
             break
@@ -234,9 +234,6 @@ def main():
             
         snippets = extract_llm_snippets(llm_response)
         
-        # llm_response = recolor_response(llm_response, "```bash", "```", "red")
-        # print(llm_response)
-        
         if not snippets["bash"]:
             continue  # or other logic to handle non-command responses
         
@@ -257,7 +254,8 @@ def main():
                 continue  # Skip the execution of commands and start over
         
         user_request = select_and_execute_commands(snippets["bash"] + snippets["other"])
-        print(recolor(user_request, "```cmd_output","```", "green"))
+        blue_out = recolor(user_request, "```bash_out","```", "green")
+        print(recolor(blue_out, "\t#", "successfully", "green"))
         # # Execute commands extracted from the llm_response
         # user_request = ""
         # for snippet in snippets["bash"]:
