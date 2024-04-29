@@ -16,7 +16,8 @@ from typing import List
 from interface.cls_chat import Chat, Role
 from interface.cls_few_shot_factory import FewShotProvider
 from interface.cls_ollama_client import OllamaClient
-from tooling import run_command, select_and_execute_commands
+from interface.cls_web_scraper import WebScraper
+from tooling import select_and_execute_commands, fetch_search_results, get_first_site_content
 # def setup_sandbox():
 #     sandbox_dir = "./sandbox/"
 #     if os.path.exists(sandbox_dir):
@@ -154,9 +155,9 @@ def parse_cli_args():
     )
     parser.add_argument("-local", action="store_true",
                         help="Use the local backend for the Ollama language model processing.")
-    parser.add_argument("-llm", type=str, nargs='?', const='dolphin-mistral',
+    parser.add_argument("-llm", type=str, nargs='?', const='phi3',
                     help='Specify the Ollama model to use. '
-                    'Examples: ["dolphin-mixtral","dolphin-mistral","dolphin-phi"]')
+                    'Examples: ["dolphin-mixtral","phi3"]')
     # parser.add_argument("--speak", action="store_true",
     #                     help="Enable text-to-speech for agent responses.")
     parser.add_argument("-c", action="store_true",
@@ -207,12 +208,21 @@ def main():
             break
 
         # Assuming FewShotProvider and extract_llm_commands are defined as per the initial setup
+        if (False):
+            term = FewShotProvider.few_shot_TextToTerm(user_request)
+            scraper = WebScraper()
+            texts = scraper.search_and_extract_texts(term, 3)
+            print(texts)
+            summarization: str = ". ".join(session.generate_completion(f"Summarize the most relevant information accurately and densely:\n'''txt\n{texts}\n'''", "mixtral").split(". ")[1:])
+            print(summarization)
+        
         if (context_chat):
             context_chat.add_message(Role.USER, user_request)
             llm_response = session.generate_completion(context_chat, args.llm, local=args.local, stream=True)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            llm_response, context_chat = FewShotProvider.few_shot_SuggestAgentStrategy(user_request, args.llm, local=args.local, stream=True)
+            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(user_request, args.llm, local=args.local, stream=True)
+            # llm_response, context_chat = FewShotProvider.few_shot_FunctionCallingAgent(user_request, args.llm, local=args.local, stream=True)
         
         if args.cg:
             context_chat.save_to_json(f"{data_dir}/global_chat.json")

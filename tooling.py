@@ -11,6 +11,7 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
     output_lines = []  # List to accumulate output lines
 
     try:
+        print(colored(command, 'light_green'))
         with subprocess.Popen(command, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) as process:
             if process.stdout is not None:
                 if verbose:
@@ -93,4 +94,36 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     outputs = [run_command(cmd) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
     
     return "'''bash_out" + "\n".join(outputs) + "\n'''"
+import subprocess
+from typing import List, Tuple, Optional
 
+def fetch_search_results(query: str) -> List[str]:
+    # Build the URL for DuckDuckGo search
+    url = f"https://duckduckgo.com/?q={query}"
+    
+    # Execute w3m command to fetch and dump search results
+    try:
+        result = subprocess.run(['w3m', '-dump', url], text=True, capture_output=True)
+        return filter_top_results(result.stdout)
+    except subprocess.SubprocessError as e:
+        print(f"Failed to execute w3m: {e}")
+        return ""
+
+def filter_top_results(results: str, num_results: int = 5) -> List[str]:
+    results_arr: list[str] = []
+    for i in range(1,num_results+1):
+        start_i = results.index(f"\n{i}. ")
+        end_i = results.index(f"\n{i+1}. ")
+        results_arr.append(results[start_i:end_i])
+    
+    return results_arr
+
+def get_first_site_content(url: str) -> str:
+    # Fetch and return the content of the first site
+    try:
+        result = subprocess.run(['w3m', '-dump', url], text=True, capture_output=True)
+        return result.stdout
+    except subprocess.SubprocessError as e:
+        print(f"Failed to load URL {url}: {e}")
+        return ""
+    

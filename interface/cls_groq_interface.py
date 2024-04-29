@@ -34,7 +34,7 @@ class GroqChat:
         return string
     
     @staticmethod
-    def generate_response(chat: Chat, model: str = "mixtral-8x7b-32768", temperature: float = 0.7) -> str:
+    def generate_response(chat: Chat, model: str = "llama3-70b-8192", temperature: float = 0.7) -> str:
         """
         Generates a response using the Groq API based on the provided model and messages, with error handling and retries.
 
@@ -43,6 +43,10 @@ class GroqChat:
         :return: A string containing the generated response.
         """
         
+        if ("mixtral" in model):
+            model = "mixtral-8x7b-32768"
+        elif("70b"in model or "llama" in model):
+            model = "llama3-70b-8192"
         
         try:
             # Initialize the Groq client with an API key
