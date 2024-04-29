@@ -12,3 +12,4 @@ psutil
 colorama
 bs4
 duckduckgo_search
+ollama

@@ -123,12 +123,10 @@ class Chat:
         return cls.from_dict(data_dict)
 
     def _to_dict(self):
-        return {
-            "messages": [
+        return [
                 {"role": role.value, "content": content}
                 for role, content in self.messages
             ]
-        }
 
     @classmethod
     def from_dict(cls, data_dict):

@@ -143,7 +143,7 @@ pwd
         
         chat.add_message(
             Role.USER,
-            select_and_execute_commands(["pwd"], True) + "\n\nThanks, can you also show the files in this directory?"
+            select_and_execute_commands(["pwd"], True, False) + "\n\nThanks, can you also show the files in this directory?"
         )
         
         chat.add_message(
@@ -155,7 +155,7 @@ ls
         
         chat.add_message(
             Role.USER,
-            select_and_execute_commands("ls", True)
+            select_and_execute_commands(["ls"], True, False)
         )
         
         chat.add_message(

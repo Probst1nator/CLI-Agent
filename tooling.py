@@ -6,12 +6,12 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, HSplit
 from prompt_toolkit.widgets import Frame, CheckboxList, Label
 
-
 def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
     output_lines = []  # List to accumulate output lines
 
     try:
-        print(colored(command, 'light_green'))
+        if (verbose):
+            print(colored(command, 'light_green'))
         with subprocess.Popen(command, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) as process:
             if process.stdout is not None:
                 if verbose:
@@ -41,7 +41,7 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
             if (result["error"] and result["exit_code"] != 0):
                 result_formatted += f"\n```cmd_error\n{result['error']}```"
             if (not result["output"] and result["exit_code"] == 0):
-                result_formatted += f"\n# Command executed successfully"
+                result_formatted += "\t# Command executed successfully"
 
             return result_formatted
     except subprocess.CalledProcessError as e:
@@ -61,7 +61,7 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
         return result_formatted
     
 
-def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False) -> str:
+def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose:bool = True) -> str:
     if not skip_user_confirmation:
         checkbox_list = CheckboxList(
             values=[(cmd, cmd) for i, cmd in enumerate(commands)],default_values=[cmd for cmd in commands]
@@ -91,11 +91,9 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     else:
         selected_commands = commands
     # Execute selected commands and collect their outputs
-    outputs = [run_command(cmd) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
+    outputs = [run_command(cmd, verbose) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
     
-    return "'''bash_out" + "\n".join(outputs) + "\n'''"
-import subprocess
-from typing import List, Tuple, Optional
+    return "'''bash_out\n" + "\n".join(outputs) + "\n'''"
 
 def fetch_search_results(query: str) -> List[str]:
     # Build the URL for DuckDuckGo search
@@ -127,3 +125,24 @@ def get_first_site_content(url: str) -> str:
         print(f"Failed to load URL {url}: {e}")
         return ""
     
+class cls_tooling:
+    saved_block_delimiters: str = ""
+    color_red: bool = False
+
+    def apply_color(self, string: str):
+        if "`" in string:
+            self.saved_block_delimiters += string
+            string = ""
+        if self.saved_block_delimiters.count("`") >= 3:
+            self.color_red = not self.color_red
+            string = colored(self.saved_block_delimiters, "light_red")
+            self.saved_block_delimiters = ""
+        elif len(self.saved_block_delimiters) >= 3:
+            string = colored(self.saved_block_delimiters, "magenta")
+            self.saved_block_delimiters = ""
+        if self.color_red:
+            string = colored(string, "light_red")
+        else:
+            string = colored(string, "magenta")
+        return string
+
