@@ -7,7 +7,19 @@ from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
 from tooling import run_command, select_and_execute_commands
 
+# class Agent:
+#     tools:List[str] = []
 
+#     def __init__():
+#         pass
+    
+#     def chat(prompt:str) -> str:
+#         few_shot_chat:Chat = Chat("You are an ai-agent. Use strategic step by step planning to advance your current state toward optimal actions.")
+#         user_prompt: str = "Please pick you next action to take:"
+#         few_shot_chat.add_message(Role.USER, user_prompt)
+#         OllamaClient().generate_completion(few_shot_chat)
+    
+    
 class FewShotProvider:
     session = OllamaClient()
 
@@ -15,7 +27,27 @@ class FewShotProvider:
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
-    def few_shot_SuggestAgentStrategy(self, userRequest: str, llm: str, temperature:float = 0.7, **kwargs) -> Tuple[str,Chat]:
+    def few_shot_TextToTerm(self, prompt: str, **kwargs) -> str:
+        chat: Chat = Chat("You are a text to keyword converting engine. Summarize the user given text into a term fit for google search.")
+        chat.add_message(Role.USER, "I would like to know more about search engine optimization.")
+        chat.add_message(Role.ASSISTANT, "search engine optimization")
+        chat.add_message(Role.USER, "What is todays weather like in Nuremberg?")
+        chat.add_message(Role.ASSISTANT, "Nürnberg Wetter")
+        chat.add_message(Role.USER, "Tell me the latest developments in artificial intelligence.")
+        chat.add_message(Role.ASSISTANT, "latest AI developments")
+        chat.add_message(Role.USER, prompt)
+        response: str = self.session.generate_completion(
+            chat,
+            "mixtral",
+            temperature=0.6,
+            **kwargs
+        )
+        
+        return response
+        
+            
+    @classmethod
+    def few_shot_CmdAgent(self, userRequest: str, llm: str, temperature:float = 0.7, **kwargs) -> Tuple[str,Chat]:
         chat: Chat = Chat(
             # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
             f"As an autonomous CLI assistant for Ubuntu, your role is to autonomously fulfill user requests using the host's command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
@@ -140,7 +172,6 @@ ls
             chat,
             llm,
             temperature=temperature,
-            ignore_cache=False,
             **kwargs
         )
         

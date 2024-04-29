@@ -20,8 +20,9 @@ class Chat:
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
 
-    def add_message(self, role: Role, content: str):
+    def add_message(self, role: Role, content: str) -> "Chat":
         self.messages.append((role, content))
+        return self
 
     def __getitem__(self, key):
         return self.messages[key]
