@@ -38,34 +38,37 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
     
     # Extract bash snippets
     if len(bash_blocks) > 1:
+        multiline_command = ""
+        is_multiline: bool = False
         for snippet_block in bash_blocks[1:]:
             snippet_text = snippet_block.split("```")[0]
-            for snippet in snippet_text.split("\n"):
-                trimmed_snippet = snippet.strip()
-                if trimmed_snippet:
-                    bash_snippets.append(trimmed_snippet)
-    
-    # Extract python snippets
-    if len(python_blocks) > 1:
-        for snippet_block in python_blocks[1:]:
-            snippet_text = snippet_block.split("```")[0]
-            for snippet in snippet_text.split("\n"):
-                trimmed_snippet = snippet.strip()
-                if trimmed_snippet:
-                    python_snippets.append(trimmed_snippet)
 
+            
+            for line in snippet_text.split("\n"):
+                if (is_multiline or ("echo" in snippet_text and snippet_text.count('"')==1)): # Detected start of multi line command
+                    is_multiline = True
+                    multiline_command += snippet_text
+                    print("ADDING TO MULTILINE: " + snippet_text)
+                    if ('" > ' in snippet_text):
+                        bash_snippets.append(multiline_command)
+                        multiline_command = ""
+                        is_multiline = False                
+                else:
+                    trimmed_snippet = line.strip()
+                    if trimmed_snippet:
+                        bash_snippets.append(trimmed_snippet)
+    
     # Identify and extract other snippets
     for i in range(1, len(all_blocks), 2):  # Iterate over code blocks, skipping non-code text
         snippet_text = all_blocks[i].split("\n", 1)
         if len(snippet_text) > 1:
             # Determine if the block is neither bash nor python
-            if not all_blocks[i].startswith("bash") and not all_blocks[i].startswith("python"):
-                for snippet in snippet_text[1].split("\n"):
-                    trimmed_snippet = snippet.strip()
-                    if trimmed_snippet:
-                        other_snippets.append(trimmed_snippet)
+            for line in snippet_text[1].split("\n"):
+                trimmed_snippet = line.strip()
+                if trimmed_snippet:
+                    other_snippets.append(trimmed_snippet)
 
-    return {"bash": bash_snippets, "python": python_snippets, "other": other_snippets}
+    return {"bash": bash_snippets, "other": other_snippets}
 
 
 # def recolor_response(response: str, start_string_sequence:str, end_string_sequence:str, color: str = "red"):
@@ -160,6 +163,8 @@ def parse_cli_args():
                     'Examples: ["dolphin-mixtral","phi3"]')
     # parser.add_argument("--speak", action="store_true",
     #                     help="Enable text-to-speech for agent responses.")
+    parser.add_argument("-e", action="store_true",
+                        help="Experimental")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-cg", action="store_true",
@@ -253,7 +258,7 @@ def main():
                 print(colored("\nExecution aborted by the user.", 'red'))
                 continue  # Skip the execution of commands and start over
         
-        user_request = select_and_execute_commands(snippets["bash"] + snippets["other"])
+        user_request = select_and_execute_commands(snippets["bash"])
         blue_out = recolor(user_request, "```bash_out","```", "green")
         print(recolor(blue_out, "\t#", "successfully", "green"))
         # # Execute commands extracted from the llm_response

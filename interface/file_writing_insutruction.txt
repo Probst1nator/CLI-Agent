@@ -1,0 +1,94 @@
+Enter your request: how do i make onedrive and syncthing automatically start on boot?
+Groq-Api is generating response...
+INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+To make OneDrive and Syncthing automatically start on boot in Ubuntu, you can add them as systemd services. Here are the commands to do so:
+```bash
+sudo systemctl enable onedrive
+sudo systemctl start onedrive
+
+sudo systemctl enable syncthing
+sudo systemctl start syncthing
+```
+
+
+
+sudo systemctl start onedrive
+[sudo] password for prob: 
+sudo systemctl start syncthing
+sudo systemctl enable onedrive
+sudo systemctl enable syncthing
+'''bash_out
+sudo systemctl start onedrive
+```cmd_error
+Failed to start onedrive.service: Unit onedrive.service not found.
+```
+sudo systemctl start syncthing
+```cmd_error
+Failed to start syncthing.service: Unit syncthing.service not found.
+```
+sudo systemctl enable onedrive
+```cmd_error
+Failed to enable unit: Unit file onedrive.service does not exist.
+```
+sudo systemctl enable syncthing
+```cmd_error
+Failed to enable unit: Unit file syncthing.service does not exist.
+```
+'''
+Enter your request: 
+
+
+It seems that the services don't exist yet. Let's create them. 
+
+First, create the service file for OneDrive:
+```bash
+sudo nano /etc/systemd/system/onedrive.service
+```
+Add the following content and save:
+```
+[Unit]
+Description=OneDrive
+After=network.target
+
+[Service]
+User=<your_username>
+ExecStart=/usr/bin/onedrive
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+Replace `<your_username with your actual username.
+
+Next, create the service file for Syncthing:
+>````bash
+sudo nano /etc/systemd/system/syncthing.service
+```
+Add the following content and save:
+```
+[Unit]
+Description=Syncthing
+After=network.target
+
+[Service]
+User=<your_username>
+ExecStart=/usr/bin/syncthing
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+Again, replace `<your_username with your actual username.
+
+Then, reload the systemd daemon and enable the services:
+>````bash
+sudo systemctl daemon-reload
+sudo systemctl enable onedrive
+sudo systemctl enable syncthing
+```
+Finally, start the services:
+```bash
+sudo systemctl start onedrive
+sudo systemctl start syncthing
+```
+This should create and enable the services, allowing them to start on boot.
