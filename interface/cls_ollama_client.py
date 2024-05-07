@@ -114,7 +114,7 @@ class OllamaClient(metaclass=SingletonMeta):
     def __init__(self, base_url: str = BASE_URL):
         self.base_url = base_url
         # self._ensure_container_running()
-        cache_dir = os.path.expanduser("~/.local/share/cli-agent") + "/cache"
+        cache_dir = os.path.expanduser("~/cli-agent") + "/cache"
         os.makedirs(cache_dir, exist_ok=True)
         self.cache_file = f"{cache_dir}/ollama_cache.json"
         self.cache = self._load_cache()
@@ -291,8 +291,7 @@ class OllamaClient(metaclass=SingletonMeta):
         # GROQ - END
 
         # OLLAMA - START
-        if not model:
-            model = "phi3"
+        model = "phi3"
 
         str_temperature: str = str(temperature)
         try:

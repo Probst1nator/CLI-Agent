@@ -131,7 +131,7 @@ class Chat:
     @classmethod
     def from_dict(cls, data_dict):
         chat_instance = cls()
-        for message in data_dict["messages"]:
+        for message in data_dict:
             role = Role[message["role"].upper()]
             content = message["content"]
             chat_instance.add_message(role, content)

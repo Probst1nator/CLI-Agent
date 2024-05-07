@@ -50,7 +50,8 @@ class FewShotProvider:
     def few_shot_CmdAgent(self, userRequest: str, llm: str, temperature:float = 0.7, **kwargs) -> Tuple[str,Chat]:
         chat: Chat = Chat(
             # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
-            f"As an autonomous CLI assistant for Ubuntu, your role is to autonomously fulfill user requests using the host's command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
+            # f"The autonomous CLI assistant for Ubuntu, autonomously fulfills user requests using it's hosts command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
+            "Designed for autonomy, this Ubuntu command line interface (CLI) assistant intelligently addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively gathering vital CLI information to ensure the creation of perfectly structured and easily executable instructions."
         )
         
 
@@ -131,12 +132,35 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
         
         chat.add_message(
             Role.USER,
-            "What is the current working directory?"
+            "Setup a config file for running syncthing automatically in the background"
+        )
+        chat.add_message(
+            Role.ASSISTANT,
+            '''To setup syncthing as you specified I will create a configuration file for autostarting Syncthing. Here is the command:
+```bash
+echo -e "[Desktop Entry]
+Type=Application
+Exec=syncthing
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true" > ~/.config/autostart/syncthing.desktop
+```'''
+        )
+
+        chat.add_message(
+            Role.USER,
+            '''```bash_out
+echo -e "[Desktop Entry]
+Type=Application
+Exec=syncthing
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true" > ~/.config/autostart/syncthing.desktop # Executed Successfully```'''  + "\nThanks! What is the current working directory?"
         )
         
         chat.add_message(
             Role.ASSISTANT,
-            """To find the working directory execute the following:
+            """To find the working directory we'll execute this command:
 ```bash
 pwd
 ```"""  ),
@@ -148,19 +172,45 @@ pwd
         
         chat.add_message(
             Role.ASSISTANT,
-            """Of course! To list the files in the working directory simply execute this:
+            """Of course! To list the files in the working directory let's run the following command:
 ```bash
 ls
 ```"""  ),
         
         chat.add_message(
             Role.USER,
-            select_and_execute_commands(["ls"], True, False)
+            select_and_execute_commands(["ls"], True, False) + "\n\nThank you! Please now calculate the sum of 5 and 10"
         )
         
         chat.add_message(
             Role.ASSISTANT,
-            "The command ran successfully. Anything else you need help with?",
+            '''Sure! To perform a calculation I will utilise a python script. First, let's create the script:
+```bash
+echo -e "# Define a function to calculate the sum of two numbers
+def calculate_sum(a, b):
+    return a + b
+
+# Calculate the sum of 5 and 10
+result = calculate_sum(5, 10)
+print(result)" > ./sum_calc.py
+```
+Now we can run the script like this:
+```bash
+python3 sum_calc.py
+```
+The result of 5 + 10 will be displayed in the output.''',
+        )
+        
+        chat.add_message(
+            Role.USER,
+            """```bash_out
+15
+```"""
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "The command ran successfully, anything else you need help with?",
         )
         
         chat.add_message(

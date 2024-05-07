@@ -37,9 +37,11 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
             # Conditional checks on result can be implemented here as needed
             result_formatted = command
             if (result["output"]):
-                result_formatted += f"\n```cmd_output\n{result['output']}```"
+                # result_formatted += f"\n```cmd_output\n{result['output']}```"
+                result_formatted += f"\n{result['output']}"
             if (result["error"] and result["exit_code"] != 0):
-                result_formatted += f"\n```cmd_error\n{result['error']}```"
+                # result_formatted += f"\n```cmd_error\n{result['error']}```"
+                result_formatted += f"\n{result['error']}"
             if (not result["output"] and result["exit_code"] == 0):
                 result_formatted += "\t# Command executed successfully"
 
@@ -54,9 +56,11 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
         # Conditional checks on result can be implemented here as needed
         result_formatted = command
         if (result["output"]):
-            result_formatted += f"\n```cmd_output\n{result['output']}```"
+            # result_formatted += f"\n```cmd_output\n{result['output']}```"
+            result_formatted += f"\n{result['output']}"
         if (result["error"]):
-            result_formatted += f"\n```cmd_error\n{result['error']}```"
+            # result_formatted += f"\n```cmd_error\n{result['error']}```"
+            result_formatted += f"\n{result['error']}"
 
         return result_formatted
     
@@ -93,7 +97,7 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     # Execute selected commands and collect their outputs
     outputs = [run_command(cmd, verbose) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
     
-    return "'''bash_out\n" + "\n".join(outputs) + "\n'''"
+    return "```bash_response\n" + "\n".join(outputs) + "\n```"
 
 def fetch_search_results(query: str) -> List[str]:
     # Build the URL for DuckDuckGo search

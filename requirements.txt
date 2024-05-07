@@ -13,3 +13,4 @@ colorama
 bs4
 duckduckgo_search
 ollama
+dspy-ai
