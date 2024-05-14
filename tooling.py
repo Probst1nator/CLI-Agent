@@ -6,7 +6,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, HSplit
 from prompt_toolkit.widgets import Frame, CheckboxList, Label
 
-def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
+def run_command(command: str, verbose: bool = True, include_cmd: bool = False) -> Dict[str, Any]:
     output_lines = []  # List to accumulate output lines
 
     try:
@@ -35,17 +35,19 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
             }
             
             # Conditional checks on result can be implemented here as needed
-            result_formatted = command
+            result_formatted: str = ""
+            if (include_cmd):
+                result_formatted = command
             if (result["output"]):
                 # result_formatted += f"\n```cmd_output\n{result['output']}```"
                 result_formatted += f"\n{result['output']}"
             if (result["error"] and result["exit_code"] != 0):
                 # result_formatted += f"\n```cmd_error\n{result['error']}```"
                 result_formatted += f"\n{result['error']}"
-            if (not result["output"] and result["exit_code"] == 0):
-                result_formatted += "\t# Command executed successfully"
+            # if (not result["output"] and result["exit_code"] == 0):
+            #     result_formatted += "\t# Command executed successfully"
 
-            return result_formatted
+            return result_formatted.strip()
     except subprocess.CalledProcessError as e:
         # If a command fails, this block will be executed
         result = {
@@ -54,7 +56,9 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
             'exit_code': e.returncode
         }
         # Conditional checks on result can be implemented here as needed
-        result_formatted = command
+        result_formatted: str = ""
+        if (include_cmd):
+            result_formatted = command
         if (result["output"]):
             # result_formatted += f"\n```cmd_output\n{result['output']}```"
             result_formatted += f"\n{result['output']}"
@@ -62,7 +66,7 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
             # result_formatted += f"\n```cmd_error\n{result['error']}```"
             result_formatted += f"\n{result['error']}"
 
-        return result_formatted
+        return result_formatted.strip()
     
 
 def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose:bool = True) -> str:

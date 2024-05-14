@@ -19,7 +19,23 @@ from tooling import run_command, select_and_execute_commands
 #         few_shot_chat.add_message(Role.USER, user_prompt)
 #         OllamaClient().generate_completion(few_shot_chat)
     
-    
+def programm_of_thought(streaming_response: str) -> str:
+    bash_count: int = streaming_response.count("```bash\n")
+    bash_out_count: int = streaming_response.count("```bash_out\n")
+    signifiers_count = streaming_response.count("```")
+    # print(f"bash_count: {bash_count}, bash_out_count: {bash_out_count}")
+    if (bash_count > bash_out_count and signifiers_count % 2 == 0):
+        last_bash_block = streaming_response.rsplit("```bash\n", 1)[-1]
+        last_bash_block = last_bash_block.split("```")[0]
+        cmds = last_bash_block.strip().split("\n")
+        output = ""
+        for cmds in cmds:
+            output += run_command(last_bash_block, verbose=False, include_cmd=False) + "\n"
+        output = output.strip()
+        return f"\n```bash_out\n{output}\n```\n"
+    return ""
+
+
 class FewShotProvider:
     session = OllamaClient()
 
@@ -198,6 +214,9 @@ Now we can run the script like this:
 ```bash
 python3 sum_calc.py
 ```
+```bash_out
+15
+```
 The result of 5 + 10 will be displayed in the output.''',
         )
         
@@ -218,15 +237,60 @@ The result of 5 + 10 will be displayed in the output.''',
             userRequest
         )
         
-        response: str = self.session.generate_completion(
-            chat,
-            llm,
-            temperature=temperature,
-            **kwargs
-        )
+        response: str 
+        if ("phi3" not in llm):
+            response = self.session.generate_completion(
+                chat,
+                llm,
+                temperature=temperature,
+                **kwargs
+            )
+        else:
+            response = self.deep_thinking_module(chat, llm)
         
         chat.add_message(
             Role.ASSISTANT,
             response,
         )
         return response, chat
+    
+
+    @classmethod
+    def deep_thinking_module(self, chat: Chat, llm: str) -> str:
+        ideas: List[str] = []
+        print("Generating ideas...")
+        for i in range(3):
+            ideas.append(self.session.generate_completion(chat, llm, temperature=0.6, verbose=False, ignore_cache=True))
+        master_chat: Chat = Chat("The assistant considers the different thoughts to implement a strategic plan to approach best solutions.")
+        master_chat.add_message(Role.USER, "What are the different ideas you have?")
+        master_chat.add_message(Role.ASSISTANT, "\n".join([f"```{i}.idea\n{thought}\n```"  for i, thought in enumerate(ideas)]))
+        master_chat.add_message(Role.USER, "Please come up with an optimal plan to solve the problem.")
+        master_thought = self.session.generate_completion(chat, llm, temperature=0.6, start_response_with="Let's think about this, step by step.\n", include_start_response_str=False, token_stream_func=programm_of_thought)
+        return master_thought
+    
+    # @classmethod
+    # def programm_of_thought(self, chat: Chat, llm: str) -> str:
+
+        
+    # def web_retrieval(self, **kwargs) -> str:
+    #     chat: Chat = Chat()
+    #     contexts: List[str] = []
+    #     for key, value in kwargs.items():
+    #         contexts.append(f"```{key}\n{value}\n```")
+            
+    #     contexts = sorted(contexts, key=len)
+    #     context = "\n".join(contexts)
+        
+    #     chat.add_message(Role.USER, context)
+    #     understanding = self.session.generate_completion(chat,"llama3-gradient:8b", start_response_with="Let's understand the given context step by step.\n")
+    #     chat = Chat()
+    #     few_shot_toType(dataType="List[string]", context = f"Please provide 3 closely related keywords to search information for the discussed domain on the web.\n{understanding}")
+    #     key_words = self.session.generate_completion(chat,"llama3-gradient:8b", start_response_with="Let's understand the given context step by step.\n")
+    
+    # def few_shot_toType(self, dataType: str, context:str) -> str:
+    #     chat: Chat = Chat("The assistant may only respond in json notation. It is unable to respond in any other format.")
+    #     chat.add_message(Role.USER, f"What are the most common programming languages used for mathematical optimization?\nThe required json type is: List[str]")
+    #     chat.add_message(Role.ASSISTANT, f"['Python', 'Julia', 'R', 'Matlab', 'C++']")
+    #     chat.add_message(Role.USER, f"What is todays date?\nThe required json type is: str")
+        
+        

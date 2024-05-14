@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import ollama
 import psutil
@@ -249,6 +249,8 @@ class OllamaClient(metaclass=SingletonMeta):
         include_start_response_str: bool = True,
         ignore_cache: bool = False,
         local: bool = None,
+        verbose: bool = True,
+        token_stream_func: Optional[Callable[[str], str]] = lambda x: "",
         **kwargs,
     ) -> str:
         tooling = cls_tooling()
@@ -262,7 +264,7 @@ class OllamaClient(metaclass=SingletonMeta):
         # GROQ - START
         if (
             not local
-            and ("llama3" in model or "mixtral" in model or model == "")
+            and (("llama3" in model and not "gradient" in model) or "mixtral" in model or model == "")
             and "dolphin" not in model
         ):
             if not model:
@@ -276,8 +278,10 @@ class OllamaClient(metaclass=SingletonMeta):
             )
             if cached_completion:
                 for char in cached_completion:
-                    print(tooling.apply_color(char), end="")
-                print()
+                    if (verbose):
+                        print(tooling.apply_color(char), end="")
+                if (verbose):
+                    print()
                 return cached_completion
             # print ("!!! USING GROQ !!!")
             response = GroqChat.generate_response(prompt, model, temperature)
@@ -303,7 +307,7 @@ class OllamaClient(metaclass=SingletonMeta):
                 )
 
             # Check cache first
-            if ignore_cache:
+            if not ignore_cache:
                 cached_completion = self._get_cached_completion(
                     model, str_temperature, prompt, images
                 )
@@ -313,8 +317,10 @@ class OllamaClient(metaclass=SingletonMeta):
                             "Error: This ollama request errored last time as well."
                         )
                     for char in cached_completion:
-                        print(tooling.apply_color(char), end="")
-                    print()
+                        if (verbose):
+                            print(tooling.apply_color(char), end="")
+                    if (verbose):
+                        print()
                     if include_start_response_str:
                         return start_response_with + cached_completion
                     else:
@@ -356,17 +362,33 @@ class OllamaClient(metaclass=SingletonMeta):
                 model,
                 data["messages"],
                 True,
-                options=ollama.Options(num_thread=self.available_thread_count()),
+                options=ollama.Options(num_thread=self.available_thread_count(), num_ctx = 256000 if "gradient" in model else None),
             )
 
             # Revised approach to handle streaming JSON responses
             full_response = ""
-            for line in response_stream:
+            current_stream = list(response_stream)  # Convert generator to list if changes are anticipated
+            for line in current_stream:
                 next_string = line["message"]["content"]
+                if (verbose):
+                    print(tooling.apply_color(next_string), end="")
                 full_response += next_string
-                print(tooling.apply_color(next_string), end="")
-            print()
-
+                additional_string = token_stream_func(full_response)
+                if (additional_string):
+                    for char in additional_string:
+                        print(tooling.apply_color(char), end="")
+                    full_response += additional_string
+                    prompt.messages[-1] = (Role.ASSISTANT, full_response)
+                    data["messages"] = prompt._to_dict()
+                    response_stream = ollama.chat(
+                        model,
+                        data["messages"],
+                        True,
+                        options=ollama.Options(num_thread=self.available_thread_count(), num_ctx = 256000 if "gradient" in model else None),
+                    )
+            if (verbose):
+                print()
+            print(full_response)
             # Update cache
             self._update_cache(
                 model,

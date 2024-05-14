@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                // "-llm", "phi3"
+                "-llm", "phi3"
                 // "-c"
             ]
         }
