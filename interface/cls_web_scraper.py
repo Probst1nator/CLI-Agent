@@ -1,14 +1,12 @@
 import base64
 import logging
 import random
-import time
 from io import BytesIO
-from typing import Callable, List, Optional
+from typing import List, Optional
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
-
 from duckduckgo_search import DDGS
 from PIL import Image
 

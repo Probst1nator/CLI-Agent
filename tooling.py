@@ -1,10 +1,12 @@
 import subprocess
-from termcolor import colored
-from typing import List, Callable, Any, Dict, List
+from typing import Any, Dict, List
+
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout, HSplit
-from prompt_toolkit.widgets import Frame, CheckboxList, Label
+from prompt_toolkit.layout import HSplit, Layout
+from prompt_toolkit.widgets import CheckboxList, Frame, Label
+from termcolor import colored
+
 
 def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
     output_lines = []  # List to accumulate output lines

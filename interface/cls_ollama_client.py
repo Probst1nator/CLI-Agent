@@ -4,11 +4,9 @@ import io
 import json
 import logging
 import os
-import re
 import subprocess
-import time
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Dict, List, Sequence, Union
 
 import ollama
 import psutil
