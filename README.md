@@ -52,12 +52,6 @@ The first major public release of CLI-Agent includes the following features:
 
 You can download the release assets, including the source code and installation scripts, from the [GitHub Releases page](https://github.com/Probst1nator/CLI-Agent/releases).
 
-To manually download the latest release tarball:
-
-```bash
-wget https://github.com/your-username/CLI-Agent/releases/download/v1.0.0/CLI-Agent-v1.0.0.tar.gz
-```
-
 ## Contributing
 
 Your thoughts, feedback, and contributions are highly appreciated. Whether you're proposing changes, committing updates, or sharing ideas, every form of engagement enriches the project. Feel free to get involved.
