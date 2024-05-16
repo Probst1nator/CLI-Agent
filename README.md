@@ -12,28 +12,28 @@ The large langue model needs to be hosted somewhere, I recommend the Groq-API fo
 Add your GROQ_API_KEY to the .env file, you can get one here:
 
 Run the Ollama backend in a Docker container:
-   \`\`\`bash
+   ```bash
    sudo docker run -d --name ollama --restart always -p 5000:11434 ollama/ollama:latest
-   \`\`\`
+   ```
 
 
 #### Run from script
 
 1. The easiest way to use the Agent is like this:
 
-   \`\`\`bash
+   ```bash
    chmod +x ./easy_runner.sh
    ./easy_runner.sh
-   \`\`\`
+   ```
 
 #### Run from cli
 
-1. To add the CLI Agent to your command line, execute the \`add_alias_to_bash.sh\` script:
+1. To add the CLI Agent to your command line, execute the `add_alias_to_bash.sh` script:
 
-   \`\`\`bash
+   ```bash
    chmod +x ./installer.sh
    ./installer.sh
-   \`\`\`
+   ```
 
 ### Features
 
@@ -54,9 +54,9 @@ You can download the release assets, including the source code and installation 
 
 To manually download the latest release tarball:
 
-\`\`\`bash
+```bash
 wget https://github.com/your-username/CLI-Agent/releases/download/v1.0.0/CLI-Agent-v1.0.0.tar.gz
-\`\`\`
+```
 
 ## Contributing
 
