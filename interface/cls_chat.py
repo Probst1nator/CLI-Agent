@@ -4,7 +4,7 @@ import os
 from enum import Enum
 from typing import Dict, List, Tuple
 
-from colorama import Fore, Style
+from termcolor import colored
 from jinja2 import Template
 
 
@@ -47,11 +47,11 @@ class Chat:
     def to_format_ChatML(self):
         for msg in self.messages:
             if msg[0] == Role.SYSTEM:
-                prompt = f"<|im_start|>system\n{msg[1]}<|im_end|>\n"
+                prompt = f"system\n{msg[1]}\n"
             if msg[0] == Role.USER:
-                prompt += f"<|im_start|>user\n{msg[1]}<|im_end|>\n"
+                prompt += f"user\n{msg[1]}\n"
             if msg[0] == Role.ASSISTANT:
-                prompt += f"<|im_start|>assistant\n{msg[1]}<|im_end|>\n"
+                prompt += f"assistant\n{msg[1]}\n"
         return prompt.strip()
 
     def to_openai_chat(self) -> List[Dict[str, str]]:
@@ -96,15 +96,12 @@ class Chat:
         Print the chat messages with colored roles.
         """
         for role, content in self.messages:
-            if isinstance(role, Role):
-                role_value = role.value
-            else:
-                role_value = role  # Assuming it's a string
-            if role == Role.ASSISTANT or role == Role.SYSTEM:
-                formatted_content = f"{Fore.BLUE}{content}{Style.RESET_ALL}"
+            role_value = role.value if isinstance(role, Role) else role
+            if role in {Role.ASSISTANT, Role.SYSTEM}:
+                formatted_content = colored(content, 'blue')
                 print(f"{formatted_content} :{role_value}")
             else:
-                formatted_role = f"{Fore.GREEN}{role_value}{Style.RESET_ALL}"
+                formatted_role = colored(role_value, 'green')
                 print(f"{formatted_role}: {content}")
 
     def save_to_json(self, file_path: str = "./cache/chat_session_main.json"):
