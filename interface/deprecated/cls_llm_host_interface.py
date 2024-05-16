@@ -4,9 +4,9 @@ import os
 
 import openai
 from dotenv import load_dotenv
+from websocket_client.oobabooga_client import OobaboogaClient
 
 from interface.cls_chat import Chat, Role
-from websocket_client.oobabooga_client import OobaboogaClient
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")

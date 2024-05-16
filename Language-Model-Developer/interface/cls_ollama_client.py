@@ -3,8 +3,7 @@ import logging
 import os
 import subprocess
 import time
-from enum import Enum
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Optional
 
 import requests
 from jinja2 import Template

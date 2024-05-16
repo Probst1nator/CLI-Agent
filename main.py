@@ -3,21 +3,20 @@
 
 import argparse
 import os
-import shutil
-import subprocess
 import sys
 import time
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from dotenv import load_dotenv
 from termcolor import colored
-from typing import List
 
 from interface.cls_chat import Chat, Role
 from interface.cls_few_shot_factory import FewShotProvider
 from interface.cls_ollama_client import OllamaClient
 from interface.cls_web_scraper import WebScraper
-from tooling import select_and_execute_commands, fetch_search_results, get_first_site_content
+from tooling import (fetch_search_results, get_first_site_content,
+                     select_and_execute_commands)
+
 # def setup_sandbox():
 #     sandbox_dir = "./sandbox/"
 #     if os.path.exists(sandbox_dir):
