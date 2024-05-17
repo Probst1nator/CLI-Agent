@@ -257,7 +257,7 @@ def main():
                 print(colored("\nExecution aborted by the user.", 'red'))
                 continue  # Skip the execution of commands and start over
         
-        user_request = select_and_execute_commands(snippets["bash"])
+        user_request = select_and_execute_commands(snippets["bash"], args.f is not None) 
         blue_out = recolor(user_request, "```bash_out","```", "green")
         print(recolor(blue_out, "\t#", "successfully", "green"))
         # # Execute commands extracted from the llm_response
