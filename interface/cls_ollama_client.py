@@ -17,6 +17,7 @@ from termcolor import colored
 
 from interface.cls_chat import Chat, Role
 from interface.cls_groq_interface import GroqChat
+from interface.cls_openai_interface import OpenAIChat
 from tooling import cls_tooling
 
 
@@ -256,8 +257,8 @@ class OllamaClient(metaclass=SingletonMeta):
         prompt.add_message(Role.ASSISTANT, start_response_with)
         if not model:
             model = ""
-
-        # GROQ - START
+        
+        #! GROQ - START
         if (
             not local
             and ("llama3" in model or "mixtral" in model or model == "")
@@ -286,9 +287,27 @@ class OllamaClient(metaclass=SingletonMeta):
                     return start_response_with + response
                 else:
                     return response
-        # GROQ - END
-
-        # OLLAMA - START
+        #! GROQ - END
+        #! OpenAI - START
+        if "gpt" in model.lower():
+            cached_completion = self._get_cached_completion(
+                model, str(temperature), prompt, []
+            )
+            if cached_completion:
+                for char in cached_completion:
+                    print(tooling.apply_color(char), end="")
+                print()
+                return cached_completion
+            
+            response = OpenAIChat.generate_response(prompt, model, temperature)
+            self._update_cache(model, str(temperature), prompt, [], response)
+            if response:
+                if include_start_response_str:
+                    return start_response_with + response
+                else:
+                    return response
+        #! OpenAI - END
+        #! OLLAMA - START
         model = "phi3"
 
         str_temperature: str = str(temperature)
@@ -384,6 +403,7 @@ class OllamaClient(metaclass=SingletonMeta):
                 self._update_cache(model, str_temperature, prompt, images, "")
             print(e)
             return ""
+        #! OLLAMA - END
 
 
 # ollama_client = OllamaClient()
