@@ -197,7 +197,7 @@ def main():
         print("No Groq (free!) or OpenAi Api key was found in the '.env' file. Falling back to Ollama locally.")
         args.local = True
     
-    if (not args.llm): #! TEST: remove this block if too expensive
+    if (not args.llm and os.getenv('OPENAI_API_KEY')): #! TEST: remove this block if too expensive
         args.llm = "gpt-4o"
         # args.llm = "gpt-3.5-turbo-0125"
         
