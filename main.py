@@ -192,10 +192,16 @@ os.makedirs(data_dir, exist_ok=True)
 def main():
     load_dotenv()
     args = parse_cli_args()
-    if not os.getenv('GROQ_API_KEY'):
-        print("No Groq Key was found in the .env file. Falling back to Ollama.")
+    
+    if not os.getenv('GROQ_API_KEY') and not os.getenv('OPENAI_API_KEY'):
+        print("No Groq (free!) or OpenAi Api key was found in the '.env' file. Falling back to Ollama locally.")
         args.local = True
-    # Initialize session and context_chat based on the previous script's structure
+    
+    if (not args.llm): #! TEST: remove this block if too expensive
+        args.llm = "gpt-4o"
+        # args.llm = "gpt-3.5-turbo-0125"
+        
+        
     session = OllamaClient()
     context_chat = None
     user_request = ""
