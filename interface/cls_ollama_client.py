@@ -261,7 +261,7 @@ class OllamaClient(metaclass=SingletonMeta):
         #! GROQ - START
         if (
             not local
-            and ("llama3" in model or "mixtral" in model or model == "")
+            and ("llama3" in model or "mixtral" in model or not model)
             and "dolphin" not in model
         ):
             if not model:
@@ -308,7 +308,8 @@ class OllamaClient(metaclass=SingletonMeta):
                     return response
         #! OpenAI - END
         #! OLLAMA - START
-        model = "phi3"
+        if not model:
+            model = "phi3"
 
         str_temperature: str = str(temperature)
         try:
