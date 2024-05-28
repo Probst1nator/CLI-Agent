@@ -1,5 +1,5 @@
 
-# Simple CLI Agent Using Groq-API and Ollama Backends
+# CLI Agent Using Groq-API and Ollama Backends
 
 This project introduces a CLI (Command Line Interface) Agent that leverages the Groq-API and Ollama backends. It is part of the Local Language Model Toolkit Project that I have developed.
 
