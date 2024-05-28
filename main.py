@@ -156,7 +156,7 @@ def parse_cli_args():
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
     parser.add_argument("-local", action="store_true",
-                        help="Use the local backend for the Ollama language model processing.")
+                        help="Use the local Ollama backend for language processing.")
     parser.add_argument("-llm", type=str, nargs='?', const='phi3',
                     help='Specify the Ollama model to use. '
                     'Examples: ["dolphin-mixtral","phi3"]')
@@ -164,14 +164,14 @@ def parse_cli_args():
     #                     help="Enable text-to-speech for agent responses.")
     parser.add_argument("-i", action="store_true",
                         help="Use most intelligent available model(s) for processing.")
-    parser.add_argument("-e", action="store_true",
-                        help="Experimental")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-f", nargs='?', const=10, default=None, type=int,
                     help="Enables fully automatic command execution without user confirmation. "
                     "Because this is dangerous, any generated command is only executed after a being shown for 10 seconds, by default. "
                     "Add a custom integer to change this delay.")
+    parser.add_argument("-e", action="store_true",
+                        help="Experimental")
 
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -197,7 +197,7 @@ def main():
         print("No Groq- (free!) or OpenAi-Api key was found in the '.env' file. Falling back to Ollama locally.")
         args.local = True
     
-    if (args.i and os.getenv('OPENAI_API_KEY')):
+    if (not args.local and args.i and os.getenv('OPENAI_API_KEY')):
         args.llm = "gpt-4o"
         # args.llm = "gpt-3.5-turbo-0125"
         
