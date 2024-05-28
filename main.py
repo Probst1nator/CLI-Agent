@@ -59,10 +59,10 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
     
     # Identify and extract other snippets
     for i in range(1, len(all_blocks), 2):  # Iterate over code blocks, skipping non-code text
-        snippet_text = all_blocks[i].split("\n", 1)
-        if len(snippet_text) > 1:
+        text_snippets = all_blocks[i].split("\n", 1)
+        if len(text_snippets) > 1:
             # Determine if the block is neither bash nor python
-            for line in snippet_text[1].split("\n"):
+            for line in text_snippets[1].split("\n"):
                 trimmed_snippet = line.strip()
                 if trimmed_snippet:
                     other_snippets.append(trimmed_snippet)
@@ -162,12 +162,12 @@ def parse_cli_args():
                     'Examples: ["dolphin-mixtral","phi3"]')
     # parser.add_argument("--speak", action="store_true",
     #                     help="Enable text-to-speech for agent responses.")
+    parser.add_argument("-i", action="store_true",
+                        help="Use most intelligent available model(s) for processing.")
     parser.add_argument("-e", action="store_true",
                         help="Experimental")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-cg", action="store_true",
-                        help="Continue a global conversation, shared across sessions.")
     parser.add_argument("-f", nargs='?', const=10, default=None, type=int,
                     help="Enables fully automatic command execution without user confirmation. "
                     "Because this is dangerous, any generated command is only executed after a being shown for 10 seconds, by default. "
@@ -194,32 +194,30 @@ def main():
     args = parse_cli_args()
     
     if not os.getenv('GROQ_API_KEY') and not os.getenv('OPENAI_API_KEY'):
-        print("No Groq (free!) or OpenAi Api key was found in the '.env' file. Falling back to Ollama locally.")
+        print("No Groq- (free!) or OpenAi-Api key was found in the '.env' file. Falling back to Ollama locally.")
         args.local = True
     
-    if (not args.llm and os.getenv('OPENAI_API_KEY')): #! TEST: remove this block if too expensive
+    if (args.i and os.getenv('OPENAI_API_KEY')):
         args.llm = "gpt-4o"
         # args.llm = "gpt-3.5-turbo-0125"
         
         
     session = OllamaClient()
     context_chat = None
-    user_request = ""
+    next_prompt = ""
     
-    if args.cg:
-        context_chat = Chat.load_from_json(f"{data_dir}/global_chat.json")
-    elif (args.c):
+    if (args.c):
         context_chat = Chat.load_from_json(f"{data_dir}/last_chat.json")
 
     while True:
-        user_request += input(colored("Enter your request: ", 'blue', attrs=["bold"]))
-        if user_request.lower() == 'quit':
+        next_prompt += input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+        if next_prompt.lower() == 'quit':
             print(colored("Exiting...", "red"))
             break
 
         # Assuming FewShotProvider and extract_llm_commands are defined as per the initial setup
         if (False):
-            term = FewShotProvider.few_shot_TextToTerm(user_request)
+            term = FewShotProvider.few_shot_TextToTerm(next_prompt)
             scraper = WebScraper()
             texts = scraper.search_and_extract_texts(term, 3)
             print(texts)
@@ -227,20 +225,16 @@ def main():
             print(summarization)
         
         if (context_chat):
-            context_chat.add_message(Role.USER, user_request)
+            context_chat.add_message(Role.USER, next_prompt)
             llm_response = session.generate_completion(context_chat, args.llm, local=args.local, stream=True)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(user_request, args.llm, local=args.local, stream=True)
+            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, stream=True)
             # llm_response, context_chat = FewShotProvider.few_shot_FunctionCallingAgent(user_request, args.llm, local=args.local, stream=True)
         
-        if args.cg:
-            context_chat.save_to_json(f"{data_dir}/global_chat.json")
-        else:
-            context_chat.save_to_json(f"{data_dir}/last_chat.json")
+        context_chat.save_to_json(f"{data_dir}/last_chat.json")
             
-        user_request = ""
-            
+        next_prompt = ""
             
         snippets = extract_llm_snippets(llm_response)
         
@@ -263,8 +257,8 @@ def main():
                 print(colored("\nExecution aborted by the user.", 'red'))
                 continue  # Skip the execution of commands and start over
         
-        user_request = select_and_execute_commands(snippets["bash"], args.f is not None) 
-        blue_out = recolor(user_request, "```bash_out","```", "green")
+        next_prompt = select_and_execute_commands(snippets["bash"], args.f is not None) 
+        blue_out = recolor(next_prompt, "```bash_out","```", "green")
         print(recolor(blue_out, "\t#", "successfully", "green"))
         # # Execute commands extracted from the llm_response
         # user_request = ""
@@ -273,7 +267,7 @@ def main():
         #     user_request += run_command(snippet)
         #     print(colored(user_request, 'green'))
             
-        user_request += "\n\n"
+        next_prompt += "\n\n"
         
 if __name__ == "__main__":
     main()
