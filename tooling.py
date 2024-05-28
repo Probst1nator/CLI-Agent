@@ -1,14 +1,17 @@
 import subprocess
+import sys
 from typing import Any, Dict, List
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import CheckboxList, Frame, Label
+import pyperclip
 from termcolor import colored
+import time
 
 
-def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
+def run_command(command: str, verbose: bool = True) -> str:
     output_lines = []  # List to accumulate output lines
 
     try:
@@ -65,22 +68,34 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, Any]:
             result_formatted += f"\n{result['error']}"
 
         return result_formatted
-    
 
-def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose:bool = True) -> str:
+
+
+def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose: bool = True) -> str:
     if not skip_user_confirmation:
         checkbox_list = CheckboxList(
-            values=[(cmd, cmd) for i, cmd in enumerate(commands)],default_values=[cmd for cmd in commands]
+            values=[(cmd, cmd) for i, cmd in enumerate(commands)],
+            default_values=[cmd for cmd in commands]
         )
         bindings = KeyBindings()
 
         @bindings.add("q")
         def _quit(event) -> None:
             """Trigger command execution if "Execute Commands" is selected."""
-            app.exit(result=checkbox_list.current_values )
+            app.exit(result=checkbox_list.current_values)
+
+        @bindings.add("c")
+        def _copy_and_quit(event) -> None:
+            """Copy selected commands and quit."""
+            selected_commands = " && ".join(checkbox_list.current_values)
+            pyperclip.copy(selected_commands)
+            app.exit(result=["exit"])
+            # time.sleep(0.2)
+            # print("\n\n\nSelected commands copied to clipboard.")
+            # sys.exit(0)  # Quit the whole Python process
 
         # Instruction message
-        instructions = Label(text="Press 'q' to continue.")
+        instructions = Label(text="Press 'q' to execute commands or 'c' to copy selected commands and quit.")
 
         # Define the layout with the instructions
         root_container = HSplit([
@@ -90,16 +105,22 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
         layout = Layout(root_container)
 
         # Create the application
-        app = Application(layout=layout, key_bindings=bindings, full_screen=False)
+        app:Application = Application(layout=layout, key_bindings=bindings, full_screen=False)
 
         # Run the application and get the selected option(s)
         selected_commands = app.run()
+        if selected_commands == ["exit"]:
+            print(colored("Selected commands copied to clipboard.", "light_green"))
+            sys.exit(0)
     else:
         selected_commands = commands
+
     # Execute selected commands and collect their outputs
     outputs = [run_command(cmd, verbose) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
     
     return "```bash_response\n" + "\n".join(outputs) + "\n```"
+
+
 
 def fetch_search_results(query: str) -> List[str]:
     # Build the URL for DuckDuckGo search
@@ -111,7 +132,7 @@ def fetch_search_results(query: str) -> List[str]:
         return filter_top_results(result.stdout)
     except subprocess.SubprocessError as e:
         print(f"Failed to execute w3m: {e}")
-        return ""
+        return []
 
 def filter_top_results(results: str, num_results: int = 5) -> List[str]:
     results_arr: list[str] = []
