@@ -40,18 +40,18 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
         multiline_command = ""
         is_multiline: bool = False
         for snippet_block in bash_blocks[1:]:
-            snippet_text = snippet_block.split("```")[0]
-
+            script = snippet_block.split("```")[0]
             
-            for line in snippet_text.split("\n"):
-                if (is_multiline or ("echo" in snippet_text and snippet_text.count('"')==1)): # Detected start of multi line command
+            for line in script.split("\n"):
+                line = line.strip()
+                if is_multiline or "echo -e " in line and line.count('"') == 1 or "<<EOF" in line:
+                    # Start of a multiline command or continuation
                     is_multiline = True
-                    multiline_command += snippet_text
-                    print("ADDING TO MULTILINE: " + snippet_text)
-                    if ('" > ' in snippet_text):
-                        bash_snippets.append(multiline_command)
+                    multiline_command += line + "\n"
+                    if '"> ' in line or line == "EOF":
+                        bash_snippets.append(multiline_command.strip())
                         multiline_command = ""
-                        is_multiline = False                
+                        is_multiline = False
                 else:
                     trimmed_snippet = line.strip()
                     if trimmed_snippet:
@@ -158,8 +158,7 @@ def parse_cli_args():
     parser.add_argument("-local", action="store_true",
                         help="Use the local Ollama backend for language processing.")
     parser.add_argument("-llm", type=str, nargs='?', const='phi3',
-                    help='Specify the Ollama model to use. '
-                    'Examples: ["dolphin-mixtral","phi3"]')
+                        help='Specify the Ollama model to use. ' 'Examples: ["dolphin-mixtral","phi3"]')
     # parser.add_argument("--speak", action="store_true",
     #                     help="Enable text-to-speech for agent responses.")
     parser.add_argument("-i", action="store_true",
@@ -167,9 +166,9 @@ def parse_cli_args():
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-f", nargs='?', const=10, default=None, type=int,
-                    help="Enables fully automatic command execution without user confirmation. "
-                    "Because this is dangerous, any generated command is only executed after a being shown for 10 seconds, by default. "
-                    "Add a custom integer to change this delay.")
+                        help="""Enables autonomous command execution without user confirmation. 
+Because this is dangerous, any generated command is only executed after a being shown for 10 seconds, by default.
+Add a custom integer to change this delay.""")
     parser.add_argument("-e", action="store_true",
                         help="Experimental")
 
@@ -197,16 +196,15 @@ def main():
         print("No Groq- (free!) or OpenAi-Api key was found in the '.env' file. Falling back to Ollama locally.")
         args.local = True
     
-    if (not args.local and args.i and os.getenv('OPENAI_API_KEY')):
+    if not args.local and args.i and os.getenv('OPENAI_API_KEY'):
         args.llm = "gpt-4o"
         # args.llm = "gpt-3.5-turbo-0125"
-        
         
     session = OllamaClient()
     context_chat = None
     next_prompt = ""
     
-    if (args.c):
+    if args.c:
         context_chat = Chat.load_from_json(f"{data_dir}/last_chat.json")
 
     while True:
@@ -214,17 +212,56 @@ def main():
         if next_prompt.lower() == 'quit':
             print(colored("Exiting...", "red"))
             break
-
+        
+        
+        # Check if the -i parameter is activated
+        if next_prompt.endswith("--r"):
+            context_chat.messages.pop()
+            next_prompt = context_chat.messages[-1][1]
+            print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
+        if next_prompt.endswith("--i"):
+            next_prompt = next_prompt[:-3]
+            args.i = not args.i
+            if (args.i and not args.local):
+                args.llm = "gpt-4o"
+            print(colored(f"# cli-agent: KeyBinding detected: Intelligence toggled {args.i}, type (--h) for info", "green"))
+            continue
+        if next_prompt.endswith("--f"):
+            next_prompt = next_prompt[:-3]
+            args.f = not args.f
+            print(colored(f"# cli-agent: KeyBinding detected: Autonmous command execution toggled {args.f}, type (--h) for info", "green"))
+            continue
+        if next_prompt.endswith("--e"):
+            next_prompt = next_prompt[:-3]
+            args.e = not args.e
+            print(colored(f"# cli-agent: KeyBinding detected: Experimental mode toggled {args.e}, type (--h) for info", "green"))
+            continue
+        if next_prompt.endswith("--h"):
+            next_prompt = next_prompt[:-3]
+            print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
+# cli-agent: KeyBindings:
+# cli-agent: --r: Regenerates the last response.
+# cli-agent: --i: Toggles the most intelligent model available for processing.
+# cli-agent: --f: Toggles autonomous command execution without user confirmation.
+# cli-agent: --e: Toggles experimental mode.
+# cli-agent: --h: Shows this help message.
+# cli-agent: Type 'quit' to exit the program.
+"""))
+            continue
+            
+            
         # Assuming FewShotProvider and extract_llm_commands are defined as per the initial setup
-        if (False):
+        if False:
             term = FewShotProvider.few_shot_TextToTerm(next_prompt)
             scraper = WebScraper()
             texts = scraper.search_and_extract_texts(term, 3)
             print(texts)
-            summarization: str = ". ".join(session.generate_completion(f"Summarize the most relevant information accurately and densely:\n'''txt\n{texts}\n'''", "mixtral").split(". ")[1:])
+            summarization = ". ".join(session.generate_completion(
+                f"Summarize the most relevant information accurately and densely:\n'''txt\n{texts}\n'''", 
+                "mixtral").split(". ")[1:])
             print(summarization)
         
-        if (context_chat):
+        if context_chat:
             context_chat.add_message(Role.USER, next_prompt)
             llm_response = session.generate_completion(context_chat, args.llm, local=args.local, stream=True)
             context_chat.add_message(Role.ASSISTANT, llm_response)
@@ -233,6 +270,7 @@ def main():
             # llm_response, context_chat = FewShotProvider.few_shot_FunctionCallingAgent(user_request, args.llm, local=args.local, stream=True)
         
         context_chat.save_to_json(f"{data_dir}/last_chat.json")
+
             
         next_prompt = ""
             
