@@ -1,21 +1,22 @@
+# CLI Agent Using Groq-API, Ollama, and OpenAI Backends
 
-# CLI Agent Using Groq-API and Ollama Backends
-
-This project introduces a CLI (Command Line Interface) Agent that leverages the Groq-API and Ollama backends. It is part of the Local Language Model Toolkit Project that I have developed.
+This project introduces a CLI (Command Line Interface) Agent that leverages the Groq-API, Ollama, and OpenAI backends. It is part of the Local Language Model Toolkit Project that I have developed.
 
 ## Getting Started
 
 #### Docker/ Groq
 
-The large langue model needs to be hosted somewhere, I recommend the Groq-API for quick and powerful model responses but Ollama is also supported.
+The large language model needs to be hosted somewhere. I recommend the Groq-API for quick and powerful model responses, but Ollama and OpenAI are also supported.
 
-Add your GROQ_API_KEY to the .env file, you can get one here:
+Add your `GROQ_API_KEY` and `OPENAI_API_KEY` to the `.env` file, you can get one here:
+
+- [Groq-API Key](https://example.com/groq-api-key)
+- [OpenAI API Key](https://beta.openai.com/signup/)
 
 Run the Ollama backend in a Docker container:
    ```bash
    sudo docker run -d --name ollama --restart always -p 5000:11434 ollama/ollama:latest
    ```
-
 
 #### Run from script
 
@@ -41,11 +42,11 @@ Run the Ollama backend in a Docker container:
 
 ### Release Information
 
-#### Latest Release: v1.0.0
+#### Latest Release: v1.1.0
 
-The first major public release of CLI-Agent includes the following features:
+The latest release of CLI-Agent includes the following features:
 
-- Initial integration with Groq-API and Ollama backends
+- Initial integration with Groq-API, Ollama, and OpenAI backends
 - Command suggestion and execution functionality
 - Support for Ubuntu operating system
 - Installation options via Docker or manual setup
