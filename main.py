@@ -48,7 +48,7 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
                     # Start of a multiline command or continuation
                     is_multiline = True
                     multiline_command += line + "\n"
-                    if '"> ' in line or line.strip() == "EOF":
+                    if '"> ' in line or'" > ' in line or line.strip() == "EOF" :
                         bash_snippets.append(multiline_command.strip())
                         multiline_command = ""
                         is_multiline = False
@@ -223,7 +223,11 @@ def main():
             next_prompt = next_prompt[:-3]
             args.i = not args.i
             if (args.i and not args.local):
+                args.alt_llm = args.llm
                 args.llm = "gpt-4o"
+            elif (args.alt_llm):
+                args.llm = args.alt_llm
+                args.alt_llm = None
             print(colored(f"# cli-agent: KeyBinding detected: Intelligence toggled {args.i}, type (--h) for info", "green"))
             continue
         if next_prompt.endswith("--f"):
