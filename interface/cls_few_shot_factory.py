@@ -54,7 +54,7 @@ class FewShotProvider:
 
         chat.add_message(
             Role.USER,
-            """How can i display my system temperature?""",
+            """Please view my system temperature""",
         )
 
         example_response = """To view your system's temperature via the Ubuntu command line interface, the sensors command from the lm-sensors package can be utilized. The required commands to achieve this are listed below:
@@ -74,7 +74,7 @@ sensors
             """set screen brightness to 10%""",
         )
 
-        example_response = """Setting the screen brightness to 10% using the Ubuntu commandline requires us to first find the name of your display using xrandr.
+        example_response = """Setting the screen brightness to 10% requires to first find the name of the display using xrandr.
 ```bash
 xrandr --listmonitors
 ```
@@ -97,7 +97,7 @@ Monitors: 2
 
         chat.add_message(
             Role.ASSISTANT,
-            """The command was successful and returned information for 2 different monitors. Now we can set them to 10% by executing these commands:
+            """Great! The command was successful and returned information for 2 different monitors. Now let's set each of them to 10% by executing these commands:
 ```bash
 xrandr --output HDMI-0 --brightness 0.1
 xrandr --output DP-0 --brightness 0.1
@@ -270,7 +270,7 @@ sudo ./recovery_script.sh
         
         chat.add_message(
             Role.ASSISTANT,
-            "Glad to hear that the script worked for you, happy to help! :)\nIs there anything else you would like me to take care of?"
+            "Happy to help! :)\nIs there anything else you would like me to take care of?"
         )
         
         chat.add_message(

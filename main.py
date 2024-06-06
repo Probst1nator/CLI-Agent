@@ -44,17 +44,17 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
             
             for line in script.split("\n"):
                 line = line.strip()
-                if is_multiline or "echo -e " in line and line.count('"') == 1 or "<<EOF" in line:
+                if is_multiline or ("echo -e " in line and line.count('"') == 1) or ("<<" in line and "EOF" in line):
                     # Start of a multiline command or continuation
                     is_multiline = True
                     multiline_command += line + "\n"
-                    if '"> ' in line or line == "EOF":
+                    if '"> ' in line or line.strip() == "EOF":
                         bash_snippets.append(multiline_command.strip())
                         multiline_command = ""
                         is_multiline = False
                 else:
                     trimmed_snippet = line.strip()
-                    if trimmed_snippet:
+                    if trimmed_snippet and not trimmed_snippet.startswith("#"):
                         bash_snippets.append(trimmed_snippet)
     
     # Identify and extract other snippets
