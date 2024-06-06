@@ -308,7 +308,7 @@ class OllamaClient(metaclass=SingletonMeta):
                     return response
         #! OpenAI - END
         #! OLLAMA - START
-        if not model:
+        if not model or "gpt" in str(model).lower():
             model = "phi3"
 
         str_temperature: str = str(temperature)
