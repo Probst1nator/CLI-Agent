@@ -14,8 +14,7 @@ from interface.cls_chat import Chat, Role
 from interface.cls_few_shot_factory import FewShotProvider
 from interface.cls_ollama_client import OllamaClient
 from interface.cls_web_scraper import WebScraper
-from tooling import (fetch_search_results, get_first_site_content,
-                     select_and_execute_commands)
+from tooling import fetch_search_results, select_and_execute_commands, ScreenCapture, gather_intel
 
 # def setup_sandbox():
 #     sandbox_dir = "./sandbox/"
@@ -149,6 +148,8 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
 
     return colored_response
 
+
+
 def parse_cli_args():
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
     parser = argparse.ArgumentParser(
@@ -165,7 +166,7 @@ def parse_cli_args():
                         help="Use most intelligent available model(s) for processing.")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-f", nargs='?', const=10, default=None, type=int,
+    parser.add_argument("-a", nargs='?', const=10, default=None, type=int,
                         help="""Enables autonomous command execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a being shown for 10 seconds, by default.
 Add a custom integer to change this delay.""")
@@ -185,9 +186,6 @@ Add a custom integer to change this delay.""")
 
     return args
 
-data_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
-os.makedirs(data_dir, exist_ok=True)
-
 def main():
     load_dotenv()
     args = parse_cli_args()
@@ -205,11 +203,14 @@ def main():
     next_prompt = ""
     
     if args.c:
-        context_chat = Chat.load_from_json(f"{data_dir}/last_chat.json")
+        context_chat = Chat.load_from_json()
 
+    prompt_context_augmentation: str = ""
+    alt_llm = None
+    
     while True:
-        next_prompt += input(colored("Enter your request: ", 'blue', attrs=["bold"]))
-        if next_prompt.lower() == 'quit':
+        next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+        if next_prompt.lower().endswith('quit'):
             print(colored("Exiting...", "red"))
             break
         
@@ -219,40 +220,87 @@ def main():
             context_chat.messages.pop()
             next_prompt = context_chat.messages[-1][1]
             print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
+            
+        if next_prompt.startswith("--p"):
+            next_prompt = next_prompt[:-3]
+            print(colored(f"# cli-agent: KeyBinding detected: Starting ScreenCapture, type (--h) for info", "green"))
+            screenCapture = ScreenCapture()
+            region_image_base64 = screenCapture.return_captured_region_image()
+            fullscreen_image_base64 = screenCapture.return_fullscreen_image()
+            # session.generate_completion("Put words to the contents of the image for a blind user.", "gpt-4o", )
+        
         if next_prompt.endswith("--i"):
             next_prompt = next_prompt[:-3]
             args.i = not args.i
             if (args.i and not args.local):
-                args.alt_llm = args.llm
+                alt_llm = args.llm
                 args.llm = "gpt-4o"
             elif (args.alt_llm):
-                args.llm = args.alt_llm
-                args.alt_llm = None
+                args.llm = alt_llm
+                alt_llm = None
             print(colored(f"# cli-agent: KeyBinding detected: Intelligence toggled {args.i}, type (--h) for info", "green"))
             continue
-        if next_prompt.endswith("--f"):
+        
+        if next_prompt.endswith("--l"):
             next_prompt = next_prompt[:-3]
-            args.f = not args.f
-            print(colored(f"# cli-agent: KeyBinding detected: Autonmous command execution toggled {args.f}, type (--h) for info", "green"))
+            args.local = not args.local
+            print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, type (--h) for info", "green"))
             continue
+        
+        if next_prompt.startswith("--f"):
+            search_string = input("Please enter your search string: ")
+            next_prompt = next_prompt[:-3]
+            print(colored(f"# cli-agent: KeyBinding detected: Gathering intel please hold...", "green"))
+            next_prompt = f"I'd like to know more about the term {search_string} in the context of this directory. Please use the following summary to explain it to me:"
+            prompt_context_augmentation += gather_intel(search_string)
+        
+        if next_prompt.endswith("--a"):
+            next_prompt = next_prompt[:-3]
+            args.a = not args.a
+            print(colored(f"# cli-agent: KeyBinding detected: Autonomous command execution toggled {args.a}, type (--h) for info", "green"))
+            continue
+        
+        if next_prompt.endswith("--s"):
+            next_prompt = next_prompt[:-3]
+            sliced_chat = context_chat[-3,-2]
+            sliced_chat.save_to_json("saved_few_shots.json", True)
+            print(colored(f"# cli-agent: KeyBinding detected: Saved most recent prompt->response pair, type (--h) for info", "green"))
+            continue
+        
+        if next_prompt.endswith("--so"):
+            next_prompt = next_prompt[:-3]
+            assert isinstance(context_chat, Chat) # does not fix the blue squiggly line but can't hurt
+            context_chat.save_to_json("saved_few_shots.json", False)
+            print(colored(f"# cli-agent: KeyBinding detected: Wrote chat to saved prompt->response pairs, type (--h) for info", "green"))
+            continue
+        
         if next_prompt.endswith("--e"):
             next_prompt = next_prompt[:-3]
             args.e = not args.e
+            context_chat = None
             print(colored(f"# cli-agent: KeyBinding detected: Experimental mode toggled {args.e}, type (--h) for info", "green"))
             continue
+        
         if next_prompt.endswith("--h"):
             next_prompt = next_prompt[:-3]
             print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
 # cli-agent: KeyBindings:
 # cli-agent: --r: Regenerates the last response.
+# cli-agent: --p: Add a screenshot to the next prompt.
+# cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --i: Toggles the most intelligent model available for processing.
-# cli-agent: --f: Toggles autonomous command execution without user confirmation.
+# cli-agent: --f: Gather understanding of the search string given the working directory as context.
+# cli-agent: --a: Toggles autonomous command execution.
+# cli-agent: --s: Saves the most recent prompt->response pair.
+# cli-agent: --so: Overwrite the saved prompt->response pairs with this chat.
 # cli-agent: --e: Toggles experimental mode.
 # cli-agent: --h: Shows this help message.
 # cli-agent: Type 'quit' to exit the program.
 """))
             continue
             
+        if prompt_context_augmentation:
+            next_prompt +=  f"\n\n'''\n{prompt_context_augmentation}\n'''" # append contents from previous iteration to the end of the new prompt
             
         # Assuming FewShotProvider and extract_llm_commands are defined as per the initial setup
         if False:
@@ -270,27 +318,28 @@ def main():
             llm_response = session.generate_completion(context_chat, args.llm, local=args.local, stream=True)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, stream=True)
+            if (args.e):
+                llm_response, context_chat = FewShotProvider.few_shot_CmdAgentExperimental(next_prompt, args.llm, local=args.local, stream=True)
+            else:
+                llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, stream=True)
             # llm_response, context_chat = FewShotProvider.few_shot_FunctionCallingAgent(user_request, args.llm, local=args.local, stream=True)
         
-        context_chat.save_to_json(f"{data_dir}/last_chat.json")
+        context_chat.save_to_json()
 
-            
-        next_prompt = ""
             
         snippets = extract_llm_snippets(llm_response)
         
         if not snippets["bash"]:
             continue  # or other logic to handle non-command responses
         
-        if args.f is None:
+        if args.a is None:
             user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow'))
             if not (user_input == "" or user_input.lower() == "y"):
                 continue
         else:
             try:
-                print(colored(f"Command will be executed in {args.f} seconds, press Ctrl+C to abort.", 'yellow'))
-                for remaining in range(args.f, 0, -1):
+                print(colored(f"Command will be executed in {args.a} seconds, press Ctrl+C to abort.", 'yellow'))
+                for remaining in range(args.a, 0, -1):
                     sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
                     sys.stdout.flush()
                     time.sleep(1)
@@ -299,17 +348,14 @@ def main():
                 print(colored("\nExecution aborted by the user.", 'red'))
                 continue  # Skip the execution of commands and start over
         
-        next_prompt = select_and_execute_commands(snippets["bash"], args.f is not None) 
-        blue_out = recolor(next_prompt, "```bash_out","```", "green")
-        print(recolor(blue_out, "\t#", "successfully", "green"))
+        prompt_context_augmentation, execution_summarization = select_and_execute_commands(snippets["bash"], args.a is not None) 
+        print(recolor(execution_summarization, "\t#", "successfully", "green"))
         # # Execute commands extracted from the llm_response
         # user_request = ""
         # for snippet in snippets["bash"]:
         #     print(colored(f"Executing command: {snippet}\n" + "# " * 10, 'green'))
         #     user_request += run_command(snippet)
         #     print(colored(user_request, 'green'))
-            
-        next_prompt += "\n\n"
         
 if __name__ == "__main__":
     main()

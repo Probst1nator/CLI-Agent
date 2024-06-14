@@ -1,6 +1,8 @@
+import os
+import re
 import subprocess
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -10,8 +12,11 @@ import pyperclip
 from termcolor import colored
 import time
 
+from interface.cls_chat import Chat, Role
+from interface.cls_ollama_client import OllamaClient
 
-def run_command(command: str, verbose: bool = True) -> str:
+
+def run_command(command: str, verbose: bool = True) -> Tuple[str,str]:
     output_lines = []  # List to accumulate output lines
 
     try:
@@ -19,8 +24,10 @@ def run_command(command: str, verbose: bool = True) -> str:
             print(colored(command, 'light_green'))
         with subprocess.Popen(command, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) as process:
             if process.stdout is not None:
-                if verbose:
-                    for line in process.stdout:
+                output_string = ""
+                for line in process.stdout:
+                    output_string += line
+                    if verbose:
                         print(line, end='')  # Print lines as they are received
 
             # Wait for the process to terminate and capture remaining output, if any
@@ -50,7 +57,7 @@ def run_command(command: str, verbose: bool = True) -> str:
             if (not result["output"] and result["exit_code"] == 0):
                 result_formatted += "\t# Command executed successfully"
 
-            return result_formatted
+            return result_formatted, output_string
     except subprocess.CalledProcessError as e:
         # If a command fails, this block will be executed
         result = {
@@ -67,11 +74,11 @@ def run_command(command: str, verbose: bool = True) -> str:
             # result_formatted += f"\n```cmd_error\n{result['error']}```"
             result_formatted += f"\n{result['error']}"
 
-        return result_formatted
+        return result_formatted, ""
 
 
 
-def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose: bool = True) -> str:
+def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose: bool = True) -> Tuple[str,str]:
     if not skip_user_confirmation:
         checkbox_list = CheckboxList(
             values=[(cmd, cmd) for i, cmd in enumerate(commands)],
@@ -116,9 +123,19 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
         selected_commands = commands
 
     # Execute selected commands and collect their outputs
-    outputs = [run_command(cmd, verbose) for cmd in selected_commands if cmd in commands]  # Ensure "Execute Commands" is not executed
+    results = []
     
-    return "```bash_response\n" + "\n".join(outputs) + "\n```"
+    # Execute selected commands and collect their outputs
+    formatted_results: List[str] = []
+    for cmd in selected_commands:
+        if cmd in commands:
+            result, output = run_command(cmd, verbose)
+            results.append(result)
+            formatted_results.append(f"```cmd\n{result}\n```\n```cmd_log\n{output}\n```")
+    
+    execution_summarization = "```execution_summarization\n" + "\n".join(results) + "\n```"
+    
+    return "\n\n".join(formatted_results), execution_summarization
 
 
 
@@ -140,44 +157,156 @@ def filter_top_results(results: str, num_results: int = 5) -> List[str]:
         start_i = results.index(f"\n{i}. ")
         end_i = results.index(f"\n{i+1}. ")
         results_arr.append(results[start_i:end_i])
-    
     return results_arr
 
-def get_first_site_content(url: str) -> str:
-    # Fetch and return the content of the first site
-    try:
-        result = subprocess.run(['w3m', '-dump', url], text=True, capture_output=True)
-        return result.stdout
-    except subprocess.SubprocessError as e:
-        print(f"Failed to load URL {url}: {e}")
-        return ""
+def remove_ansi_escape_sequences(text: str) -> str:
+    """Remove ANSI escape sequences from the text."""
+    ansi_escape = re.compile(r'''
+        (?:\x1B[@-_])|                  # ESC followed by a character between @ and _
+        (?:\x1B\[0-9;]*[ -/]*[@-~])|   # ESC [ followed by zero or more digits or semicolons, then a character between @ and ~
+        (?:\x1B\][0-9]*;?[ -/]*[^\a]*\a)  # ESC ] followed by zero or more digits, an optional semicolon, any non-BEL characters, and a BEL
+    ''', re.VERBOSE)
+    return ansi_escape.sub('', text)
+
+def read_from_terminal(num_lines: int, file_path: str = "/tmp/terminal_output.txt") -> List[str]:
+    """Read the last `num_lines` from the file at `file_path`, removing ANSI sequences."""
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+        # Remove ANSI sequences from each line
+        cleaned_lines = [remove_ansi_escape_sequences(line) for line in lines[-num_lines:]]
+        return cleaned_lines
+
+
+
+import tkinter as tk
+from PIL import ImageGrab, Image, ImageTk
+import os
+import base64
+
+class ScreenCapture:
+    def __init__(self) -> None:
+        self.user_cli_agent_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
+        os.makedirs(self.user_cli_agent_dir, exist_ok=True)
+        
+        self.fullscreen_image_path = os.path.join(self.user_cli_agent_dir, "fullscreen.png")
+        self.captured_region_path = os.path.join(self.user_cli_agent_dir, "captured_region.png")
+        
+        self.capture_fullscreen()
+
+        self.root = tk.Tk()
+        self.root.title("Draw Rectangle to Capture Region")
+        self.root.attributes('-fullscreen', True)
+
+        self.image = Image.open(self.fullscreen_image_path)
+        self.tk_image = ImageTk.PhotoImage(self.image)
+
+        self.canvas = tk.Canvas(self.root, cursor="cross", bg='black')
+        self.canvas.pack(fill=tk.BOTH, expand=tk.YES)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+
+        self.canvas.bind("<ButtonPress-1>", self.on_button_press)
+        self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_button_release)
+
+        self.root.mainloop()
+
+    def on_button_press(self, event: tk.Event) -> None:
+        self.start_x = event.x
+        self.start_y = event.y
+        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline='red', width=2)
+
+    def on_mouse_drag(self, event: tk.Event) -> None:
+        cur_x, cur_y = (event.x, event.y)
+        self.canvas.coords(self.rect, self.start_x, self.start_y, cur_x, cur_y)
+
+    def on_button_release(self, event: tk.Event) -> None:
+        end_x, end_y = (event.x, event.y)
+        self.capture_region(self.start_x, self.start_y, end_x, end_y)
+        self.root.destroy()
+
+    def capture_region(self, start_x: int, start_y: int, end_x: int, end_y: int) -> None:
+        cropped_image = self.image.crop((start_x, start_y, end_x, end_y))
+        cropped_image.save(self.captured_region_path)
+        print(f"Region captured and saved as '{self.captured_region_path}'")
+
+    def capture_fullscreen(self) -> None:
+        screen = ImageGrab.grab()
+        screen.save(self.fullscreen_image_path)
+        print(f"Fullscreen captured and saved as '{self.fullscreen_image_path}'")
+
+    def return_fullscreen_image(self) -> str:
+        with open(self.fullscreen_image_path, "rb") as fullscreen_file:
+            fullscreen_image = base64.b64encode(fullscreen_file.read()).decode("utf-8")
+        return fullscreen_image
+
+    def return_captured_region_image(self) -> str:
+        with open(self.captured_region_path, "rb") as region_file:
+            captured_region_image = base64.b64encode(region_file.read()).decode("utf-8")
+        return captured_region_image
+
+
+def search_files_for_term(search_term: str) -> List[Tuple[str, str]]:
+    """
+    Search for a given term in all files within the current working directory and its subdirectories.
+    Args:
+        search_term (str): The term to search for.
+    Returns:
+        List[Tuple[str, str]]: A list of tuples containing the relative file paths and the matching content.
+    """
+    result: List[Tuple[str, str]] = []
+    # Compile the regex pattern for case insensitive search
+    pattern = re.compile(re.escape(search_term), re.IGNORECASE)
     
-class cls_tooling:
-    saved_block_delimiters: str = ""
-    color_red: bool = False
+    # Get the current working directory
+    working_directory = os.getcwd()
+    for root, dirs, files in os.walk(working_directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            # Check if the file name contains any blacklisted substrings
+            blacklisted_substrings = ["pycache", ".git", ".venv", "node_modules", ".idea", ".vscode", ".ipynb_checkpoints", "env"]
+            if any(substring in file_path for substring in blacklisted_substrings):
+                continue
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                try:
+                    content = f.read()
+                    if pattern.search(content):
+                        relative_path = os.path.relpath(file_path, working_directory)
+                        result.append((relative_path, content))
+                except Exception as e:
+                    # Handle exceptions if any file cannot be read
+                    print(f"Error reading {file_path}: {e}")
+    return result
 
-    def apply_color(self, string: str, return_remaining: bool = False):
-        last_red: bool = False
-        if "`" in string:
-            self.saved_block_delimiters += string
-            string = ""
-            if self.saved_block_delimiters.count("`") == 3:
-                self.color_red = not self.color_red
-                string = self.saved_block_delimiters
-                self.saved_block_delimiters = ""
-                last_red = True
-        else:
-            string = self.saved_block_delimiters + string
-            self.saved_block_delimiters = ""
-        # elif len(self.saved_block_delimiters) >= 3:
-        #     string = self.saved_block_delimiters
-        #     self.saved_block_delimiters = ""
-        if (return_remaining):
-            string = self.saved_block_delimiters + string
-            self.saved_block_delimiters = ""
-        if self.color_red or last_red:
-            string = colored(string, "light_red")
-        else:
-            string = colored(string, "magenta")
-        return string
+def gather_intel(search_term: str) -> str:
+    path_contents: List[tuple[str,str]] = search_files_for_term(search_term)
+    if (len(path_contents)):
+        return f"No files containing the term '{search_term}' could be found."
+    path_contents.sort(key=lambda x: len(x[1]), reverse=True) # Sort by length of content, descending
+    print(f"Found {len(path_contents)} files with the search term.")
+    filtered_path_contents = [(path, content) for path, content in path_contents if len(content) < 10000]
+    print(f"Filtered to {len(filtered_path_contents)} files with the search term.")
+    if len(filtered_path_contents) > 5:
+        filtered_path_contents = filtered_path_contents[:5]
+    print(f"Refiltered to {len(filtered_path_contents)} files with the search term.")
+    
+    session = OllamaClient()
+    chat = Chat("In this conversation the user provides content which is incrementally reviewed and understood by the assistant. The assistant provides detailed, yet concise, responses.")   
+    for path, content in filtered_path_contents:
+        print(f"Path: {path}")
+        # print(f"Content: {content}")
+        fileending = path.split(".")[-1]
+        prompt = f"Please infer the likely context of the given file: {path}\n'''{fileending}\”{content}\n'''"
+        chat.add_message(Role.USER, prompt)
+        response = session.generate_completion(chat, "llama3-gradient", local=True)
+        chat.add_message(Role.ASSISTANT, response)
+        chat.add_message(Role.USER, f"Please explain all ocurrences of '{search_term}' in the file. Work ocurrence by ocurrence and provide a contextual explanation.")
+        response = session.generate_completion(chat, "llama3-gradient", local=True)
+        chat.add_message(Role.ASSISTANT, response)
+        chat.messages.pop(-3)
+        chat.messages.pop(-3)
 
+    chat.add_message(Role.USER, f"Explain '{search_term}' in detail.")
+    intel = session.generate_completion(chat, "mixtral", f"Sure! Baed on our conversation")
+    
+    return intel
+    

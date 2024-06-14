@@ -3,7 +3,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from termcolor import colored
 from interface.cls_chat import Chat
-from tooling import cls_tooling
+from cls_custom_coloring import CustomColoring
 
 # Load the environment variables from .env file
 load_dotenv()
@@ -34,7 +34,7 @@ class OpenAIChat:
 
             # Create a generator for the stream
             full_response = ""
-            token_keeper = cls_tooling()
+            token_keeper = CustomColoring()
             for chunk in stream:
                 token = chunk.choices[0].delta.content
                 if (token):

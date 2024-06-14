@@ -24,7 +24,7 @@ class FewShotProvider:
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
-    def few_shot_TextToTerm(self, prompt: str, **kwargs) -> str:
+    def few_shot_TextToKey(self, prompt: str, **kwargs) -> str:
         chat: Chat = Chat("You are a text to keyword converting engine. Summarize the user given text into a term fit for google search.")
         chat.add_message(Role.USER, "I would like to know more about search engine optimization.")
         chat.add_message(Role.ASSISTANT, "search engine optimization")
@@ -39,16 +39,27 @@ class FewShotProvider:
             temperature=0.6,
             **kwargs
         )
-        
+
         return response
-        
-            
+
+
+    @classmethod
+    def few_shot_CmdAgentExperimental(self, userRequest: str, llm: str, temperature:float = 0.7, **kwargs) -> Tuple[str,Chat]:
+        chat = Chat.load_from_json("saved_few_shots.json")
+        response: str = self.session.generate_completion(
+            chat,
+            llm,
+            temperature=temperature,
+            **kwargs
+        )
+        return response, chat
+
     @classmethod
     def few_shot_CmdAgent(self, userRequest: str, llm: str, temperature:float = 0.7, **kwargs) -> Tuple[str,Chat]:
         chat: Chat = Chat(
             # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
             # f"The autonomous CLI assistant for Ubuntu, autonomously fulfills user requests using it's hosts command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
-            "Designed for autonomy, this Ubuntu command line interface (CLI) assistant intelligently addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively gathering vital CLI information to ensure the creation of perfectly structured and easily executable instructions."
+            "Designed for autonomy, this Ubuntu command line interface (CLI) assistant intelligently addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled otherwise."
         )
         
 
@@ -164,7 +175,7 @@ pwd
         
         chat.add_message(
             Role.USER,
-            select_and_execute_commands(["pwd"], True, False) + "\n\nThanks, can you also show the files in this directory?"
+            select_and_execute_commands(["pwd"], True, False)[0] + "\n\nThanks, can you also show the files in this directory?"
         )
         
         chat.add_message(
@@ -176,7 +187,7 @@ ls
         
         chat.add_message(
             Role.USER,
-            select_and_execute_commands(["ls"], True, False) + "\n\nThank you! Please now calculate the sum of 5 and 10"
+            select_and_execute_commands(["ls"], True, False)[0] + "\n\nThank you! Please now calculate the sum of 5 and 10"
         )
         
         chat.add_message(
