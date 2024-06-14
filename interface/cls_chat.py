@@ -2,7 +2,7 @@ import json
 import math
 import os
 from enum import Enum
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 from termcolor import colored
 from jinja2 import Template
@@ -15,6 +15,8 @@ class Role(Enum):
 
 
 class Chat:
+    user_cli_agent_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
+    os.makedirs(user_cli_agent_dir, exist_ok=True)
     def __init__(self, instruction_message: str = ""):
         self.messages: List[Tuple[Role, str]] = []
         if instruction_message:
@@ -24,8 +26,24 @@ class Chat:
         self.messages.append((role, content))
         return self
 
-    def __getitem__(self, key):
-        return self.messages[key]
+    def __getitem__(self, key: Union[int, slice, Tuple[int, ...]]) -> "Chat":
+        if isinstance(key, (int, slice)):
+            sliced_messages = self.messages[key]
+            if isinstance(sliced_messages, tuple):
+                sliced_messages = [sliced_messages]
+            new_chat = Chat()
+            new_chat.messages = sliced_messages
+            return new_chat
+        elif isinstance(key, tuple):
+            new_chat = Chat()
+            for index in key:
+                if isinstance(index, int):
+                    new_chat.messages.append(self.messages[index])
+                else:
+                    raise TypeError("Invalid index type inside tuple.")
+            return new_chat
+        else:
+            raise TypeError("Invalid argument type.")
 
     def __str__(self):
         return json.dumps(
@@ -104,17 +122,28 @@ class Chat:
                 formatted_role = colored(role_value, 'green')
                 print(f"{formatted_role}: {content}")
 
-    def save_to_json(self, file_path: str = "./cache/chat_session_main.json"):
+    def save_to_json(self, file_name: str = "recent_chat.json", append: bool = False):
         """Save the Chat instance to a JSON file."""
+        file_path = os.path.join(self.user_cli_agent_dir,file_name)
         # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        if append:
+            few_shot_prompts = Chat.load_from_json(file_name)
+            few_shot_prompts.add_message(self.messages[0][0], self.messages[0][1])
+            few_shot_prompts.add_message(self.messages[1][0], self.messages[1][1])
+        else:
+            few_shot_prompts = self
+
         # Convert the Chat object to a dictionary and save it as JSON
         with open(file_path, "w") as file:
-            json.dump(self._to_dict(), file, indent=4)
-        
+            json.dump(few_shot_prompts._to_dict(), file, indent=4)
+
+
     @classmethod
-    def load_from_json(cls, file_path: str = "./cache/chat_session_main.json"):
+    def load_from_json(cls, file_name: str = "recent_chat.json"):
         """Load a Chat instance from a JSON file."""
+        file_path = os.path.join(cls.user_cli_agent_dir,file_name)
         with open(file_path, "r") as file:
             data_dict = json.load(file)
         return cls.from_dict(data_dict)
