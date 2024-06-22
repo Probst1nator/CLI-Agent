@@ -18,6 +18,7 @@ from termcolor import colored
 from interface.cls_chat import Chat, Role
 from interface.cls_groq_interface import GroqChat
 from interface.cls_openai_interface import OpenAIChat
+from interface.cls_anthropic_interface import AnthropicChat
 from cls_custom_coloring import CustomColoring
 
 
@@ -235,6 +236,7 @@ class OllamaClient(metaclass=SingletonMeta):
         if thread_count > 10:
             thread_count -= 1
         return thread_count
+    
 
     def generate_completion(
         self,
@@ -247,16 +249,62 @@ class OllamaClient(metaclass=SingletonMeta):
         include_start_response_str: bool = True,
         ignore_cache: bool = False,
         local: bool = None,
+        force_free: bool = False,
+        silent: bool = False,
         **kwargs,
     ) -> str:
         tooling = CustomColoring()
-        
+
         if isinstance(prompt, str):
             prompt = Chat(instruction).add_message(Role.USER, prompt)
         prompt.add_message(Role.ASSISTANT, start_response_with)
         if not model:
             model = ""
-        
+
+        #! Anthropic - START
+        if "claude" in model.lower():
+            cached_completion = self._get_cached_completion(
+                model, str(temperature), prompt, []
+            )
+            if cached_completion:
+                if not silent:
+                    for char in cached_completion:
+                        print(tooling.apply_color(char), end="")
+                    print()
+                return cached_completion
+
+            response = AnthropicChat.generate_response(prompt, model, temperature, silent)
+            self._update_cache(model, str(temperature), prompt, [], response)
+            if response:
+                if include_start_response_str:
+                    return start_response_with + response
+                else:
+                    return response
+        #! Anthropic - END
+
+        #! OpenAI - START
+        if "gpt" in model.lower() and (force_free or local):
+            model = ""
+        if "gpt" in model.lower():
+            cached_completion = self._get_cached_completion(
+                model, str(temperature), prompt, []
+            )
+            if cached_completion:
+                if not silent:
+                    for char in cached_completion:
+                        print(tooling.apply_color(char), end="")
+                    print()
+                return cached_completion
+
+            response = OpenAIChat.generate_response(prompt, model, temperature)
+            self._update_cache(model, str(temperature), prompt, [], response)
+            if response:
+                if include_start_response_str:
+                    return start_response_with + response
+                else:
+                    return response
+        #! OpenAI - END
+
         #! GROQ - START
         if (
             not local
@@ -273,42 +321,28 @@ class OllamaClient(metaclass=SingletonMeta):
                 model, str(temperature), prompt, []
             )
             if cached_completion:
-                for char in cached_completion:
-                    print(tooling.apply_color(char), end="")
-                print()
+                if not silent:
+                    for char in cached_completion:
+                        print(tooling.apply_color(char), end="")
+                    print()
                 return cached_completion
             # print ("!!! USING GROQ !!!")
-            response = GroqChat.generate_response(prompt, model, temperature)
+            response = GroqChat.generate_response(prompt, model, temperature, silent)
             # print ("GROQ COMPLETION: ", response)
-            self._update_cache(model, str(temperature), prompt, [], response)
-            if response:
-                if (include_start_response_str):
-                    return start_response_with + response
-                else:
-                    return response
-        #! GROQ - END
-        #! OpenAI - START
-        if "gpt" in model.lower():
-            cached_completion = self._get_cached_completion(
-                model, str(temperature), prompt, []
-            )
-            if cached_completion:
-                for char in cached_completion:
-                    print(tooling.apply_color(char), end="")
-                print()
-                return cached_completion
-            
-            response = OpenAIChat.generate_response(prompt, model, temperature)
             self._update_cache(model, str(temperature), prompt, [], response)
             if response:
                 if include_start_response_str:
                     return start_response_with + response
                 else:
                     return response
-        #! OpenAI - END
+        #! GROQ - END
+
         #! OLLAMA - START
         if not model or "gpt" in str(model).lower():
             model = "phi3"
+            
+        if not silent:
+            print("Ollama-Api is generating response... using model: " + model)
 
         str_temperature: str = str(temperature)
         try:
@@ -329,9 +363,10 @@ class OllamaClient(metaclass=SingletonMeta):
                         raise Exception(
                             "Error: This ollama request errored last time as well."
                         )
-                    for char in cached_completion:
-                        print(tooling.apply_color(char), end="")
-                    print()
+                    if not silent:
+                        for char in cached_completion:
+                            print(tooling.apply_color(char), end="")
+                        print()
                     if include_start_response_str:
                         return start_response_with + cached_completion
                     else:
@@ -366,8 +401,8 @@ class OllamaClient(metaclass=SingletonMeta):
                     **kwargs,
                 }
 
-            if not self._is_model_available(data["model"]):
-                self._download_model(data["model"])
+            if not self._is_model_available(model):
+                self._download_model(model)
 
             response_stream = ollama.chat(
                 model,
@@ -381,8 +416,10 @@ class OllamaClient(metaclass=SingletonMeta):
             for line in response_stream:
                 next_string = line["message"]["content"]
                 full_response += next_string
-                print(tooling.apply_color(next_string), end="")
-            print()
+                if not silent:
+                    print(tooling.apply_color(next_string), end="")
+            if not silent:
+                print()
 
             # Update cache
             self._update_cache(
@@ -406,4 +443,4 @@ class OllamaClient(metaclass=SingletonMeta):
         #! OLLAMA - END
 
 
-# ollama_client = OllamaClient()
+    # ollama_client = OllamaClient()

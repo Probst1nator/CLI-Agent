@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import List, Tuple
 
 from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
@@ -44,18 +44,23 @@ class FewShotProvider:
 
 
     @classmethod
-    def few_shot_CmdAgentExperimental(self, userRequest: str, llm: str, temperature:float = 0.7, **kwargs) -> Tuple[str,Chat]:
+    def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, temperature:float = 0.7, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
         chat = Chat.load_from_json("saved_few_shots.json")
+        if optimize:
+            chat.optimize(self.session, model=model, local=local, kwargs=kwargs)
+        chat.add_message(Role.USER, userRequest)
         response: str = self.session.generate_completion(
             chat,
-            llm,
+            model,
             temperature=temperature,
+            local=local,
             **kwargs
         )
+        chat.add_message(Role.ASSISTANT, response)
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, llm: str, temperature:float = 0.7, **kwargs) -> Tuple[str,Chat]:
+    def few_shot_CmdAgent(self, userRequest: str, model: str, temperature:float = 0.7, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
         chat: Chat = Chat(
             # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
             # f"The autonomous CLI assistant for Ubuntu, autonomously fulfills user requests using it's hosts command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
@@ -192,7 +197,7 @@ ls
         
         chat.add_message(
             Role.ASSISTANT,
-            '''Sure! To perform a calculation I will utilise a python script. First, let's create the script:
+            '''Sure! To perform a calculation I will utilise a python script. Let's create the script and run it:
 ```bash
 echo -e "# Define a function to calculate the sum of two numbers
 def calculate_sum(a, b):
@@ -201,9 +206,6 @@ def calculate_sum(a, b):
 # Calculate the sum of 5 and 10
 result = calculate_sum(5, 10)
 print(result)" > ./sum_calc.py
-```
-Now we can run the script like this:
-```bash
 python3 sum_calc.py
 ```
 The result of 5 + 10 will be displayed in the output.''',
@@ -227,7 +229,7 @@ The result of 5 + 10 will be displayed in the output.''',
         )
 
         chat.add_message(
-            Role.ASSISTANT,"""Sure, here's a streamlined script that minimizes user interaction to address your request:
+            Role.ASSISTANT,"""Sure, we'll need to utilise a shell script to minimize user interaction, here is the script to recover the partition and restore the files:
 ```bash
 echo -e "#!/bin/bash
 
@@ -265,12 +267,9 @@ sudo mount /dev/sda1 /home
 rm -f ${testdisk_script}
 
 echo "Recovery process completed. Recovered files are located in ~/recovered_files." > ./recovery_script.sh
-```
-```bash
 chmod +x ./recovery_script.sh
-```
-```bash
 sudo ./recovery_script.sh
+rm ./recovery_script.sh
 ```"""
         )
         
@@ -283,6 +282,9 @@ sudo ./recovery_script.sh
             Role.ASSISTANT,
             "Happy to help! :)\nIs there anything else you would like me to take care of?"
         )
+
+        if optimize:
+            chat.optimize(self.session, model=model, local=local, kwargs=kwargs)
         
         chat.add_message(
             Role.USER,
@@ -291,7 +293,7 @@ sudo ./recovery_script.sh
         
         response: str = self.session.generate_completion(
             chat,
-            llm,
+            model,
             temperature=temperature,
             **kwargs
         )

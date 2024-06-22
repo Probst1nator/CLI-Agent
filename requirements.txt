@@ -11,3 +11,4 @@ bs4
 duckduckgo_search
 openai
 pyperclip
+anthropic

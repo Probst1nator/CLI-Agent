@@ -10,7 +10,7 @@ load_dotenv()
 
 class OpenAIChat:
     @staticmethod
-    def generate_response(chat: Chat, model: str = "gpt-4o", temperature: float = 0.7) -> str:
+    def generate_response(chat: Chat, model: str = "gpt-4o", temperature: float = 0.7, silent:bool = False) -> str:
         """
         Generates a response using the OpenAI API based on the provided model and messages, with error handling and retries.
 
@@ -22,7 +22,9 @@ class OpenAIChat:
         try:
             # Initialize the OpenAI client with an API key
             client = OpenAI(api_key = os.getenv('OPENAI_API_KEY'))
-            print("OpenAI API is generating response...")
+            
+            if not silent:
+                print("OpenAI API is generating response... using model: " + model)
 
             # Create a chat completion with the provided model and messages
             stream = client.chat.completions.create(
