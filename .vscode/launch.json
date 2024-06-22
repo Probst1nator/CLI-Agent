@@ -14,7 +14,8 @@
             "justMyCode": true,
             "args": [
                 // "-llm", "phi3"
-                "-c"
+                // "-c"
+                "-o"
             ]
         }
     ]

@@ -34,6 +34,7 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
     bash_blocks = response.split("```bash")
     python_blocks = response.split("```python")
     
+    
     # Extract bash snippets
     if len(bash_blocks) > 1:
         multiline_command = ""
@@ -153,24 +154,26 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
 def parse_cli_args():
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
     parser = argparse.ArgumentParser(
-        description="Enhanced AI CLI-Agent with backend options and more.",
+        description="AI CLI-Agent with backend options and more.",
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
-    parser.add_argument("-local", action="store_true",
+    parser.add_argument("-l", "--local", action="store_true",
                         help="Use the local Ollama backend for language processing.")
-    parser.add_argument("-llm", type=str, nargs='?', const='phi3',
-                        help='Specify the Ollama model to use. ' 'Examples: ["dolphin-mixtral","phi3"]')
+    parser.add_argument("-llm", type=str, nargs='?', const='llama3',
+                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["dolphin-mixtral","phi3", "llama3]')
     # parser.add_argument("--speak", action="store_true",
     #                     help="Enable text-to-speech for agent responses.")
-    parser.add_argument("-i", action="store_true",
+    parser.add_argument("-i", "--intelligent", action="store_true",
                         help="Use most intelligent available model(s) for processing.")
+    parser.add_argument("-o", "--optimize", action="store_true",
+                        help="Enable optimizations.")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-a", nargs='?', const=10, default=None, type=int,
+    parser.add_argument("-a", "--auto", nargs='?', const=10, default=None, type=int,
                         help="""Enables autonomous command execution without user confirmation. 
-Because this is dangerous, any generated command is only executed after a being shown for 10 seconds, by default.
-Add a custom integer to change this delay.""")
-    parser.add_argument("-e", action="store_true",
+Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
+Add a custom integer to change this delay.""", metavar="DELAY")
+    parser.add_argument("-e", "--experimental", action="store_true",
                         help="Experimental")
 
     # Parse known arguments and capture any unrecognized ones
@@ -190,11 +193,13 @@ def main():
     load_dotenv()
     args = parse_cli_args()
     
+    print(args)
+    
     if not os.getenv('GROQ_API_KEY') and not os.getenv('OPENAI_API_KEY'):
         print("No Groq- (free!) or OpenAi-Api key was found in the '.env' file. Falling back to Ollama locally.")
         args.local = True
     
-    if not args.local and args.i and os.getenv('OPENAI_API_KEY'):
+    if not args.local and args.intelligent and os.getenv('OPENAI_API_KEY'):
         args.llm = "gpt-4o"
         # args.llm = "gpt-3.5-turbo-0125"
         
@@ -217,8 +222,11 @@ def main():
         
         # Check if the -i parameter is activated
         if next_prompt.endswith("--r"):
+            if len(context_chat.messages) < 2:
+                print(colored(f"# cli-agent: No chat history found, cannot regenerate last response.", "red"))
+                continue
             context_chat.messages.pop()
-            next_prompt = context_chat.messages[-1][1]
+            next_prompt = context_chat.messages.pop()[1]
             print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
             
         if next_prompt.startswith("--p"):
@@ -229,16 +237,28 @@ def main():
             fullscreen_image_base64 = screenCapture.return_fullscreen_image()
             # session.generate_completion("Put words to the contents of the image for a blind user.", "gpt-4o", )
         
-        if next_prompt.endswith("--i"):
+        if next_prompt.endswith("--openai"):
             next_prompt = next_prompt[:-3]
-            args.i = not args.i
-            if (args.i and not args.local):
+            args.intelligent = not args.intelligent
+            if (args.intelligent and not args.local):
                 alt_llm = args.llm
                 args.llm = "gpt-4o"
             elif (args.alt_llm):
                 args.llm = alt_llm
                 alt_llm = None
-            print(colored(f"# cli-agent: KeyBinding detected: Intelligence toggled {args.i}, type (--h) for info", "green"))
+            print(colored(f"# cli-agent: KeyBinding detected: Intelligence toggled {args.intelligent}, type (--h) for info", "green"))
+            continue
+        
+        if next_prompt.endswith("--i"):
+            next_prompt = next_prompt[:-3]
+            args.intelligent = not args.intelligent
+            if (args.intelligent and not args.local):
+                alt_llm = args.llm
+                args.llm = "claude-3-5-sonnet"
+            elif (args.alt_llm):
+                args.llm = alt_llm
+                alt_llm = None
+            print(colored(f"# cli-agent: KeyBinding detected: Intelligence toggled {args.intelligent}, type (--h) for info", "green"))
             continue
         
         if next_prompt.endswith("--l"):
@@ -256,8 +276,8 @@ def main():
         
         if next_prompt.endswith("--a"):
             next_prompt = next_prompt[:-3]
-            args.a = not args.a
-            print(colored(f"# cli-agent: KeyBinding detected: Autonomous command execution toggled {args.a}, type (--h) for info", "green"))
+            args.auto = not args.auto
+            print(colored(f"# cli-agent: KeyBinding detected: Autonomous command execution toggled {args.auto}, type (--h) for info", "green"))
             continue
         
         if next_prompt.endswith("--s"):
@@ -274,11 +294,17 @@ def main():
             print(colored(f"# cli-agent: KeyBinding detected: Wrote chat to saved prompt->response pairs, type (--h) for info", "green"))
             continue
         
+        if next_prompt.endswith("--o"):
+            next_prompt = next_prompt[:-3]
+            args.optimize = not args.optimize
+            print(colored(f"# cli-agent: KeyBinding detected: Optimizer mode toggled {args.optimize}, type (--h) for info", "green"))
+            continue
+        
         if next_prompt.endswith("--e"):
             next_prompt = next_prompt[:-3]
-            args.e = not args.e
+            args.experimental = not args.experimental
             context_chat = None
-            print(colored(f"# cli-agent: KeyBinding detected: Experimental mode toggled {args.e}, type (--h) for info", "green"))
+            print(colored(f"# cli-agent: KeyBinding detected: Experimental mode toggled {args.experimental}, type (--h) for info", "green"))
             continue
         
         if next_prompt.endswith("--h"):
@@ -288,11 +314,13 @@ def main():
 # cli-agent: --r: Regenerates the last response.
 # cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
-# cli-agent: --i: Toggles the most intelligent model available for processing.
+# cli-agent: --i: Use the most intelligent model (Claude 3.5 Sonnet).
+# cli-agent: --openai: Use GPT4o.
 # cli-agent: --f: Gather understanding of the search string given the working directory as context.
 # cli-agent: --a: Toggles autonomous command execution.
 # cli-agent: --s: Saves the most recent prompt->response pair.
 # cli-agent: --so: Overwrite the saved prompt->response pairs with this chat.
+# cli-agent: --o: Toggles llm optimizer.
 # cli-agent: --e: Toggles experimental mode.
 # cli-agent: --h: Shows this help message.
 # cli-agent: Type 'quit' to exit the program.
@@ -318,10 +346,10 @@ def main():
             llm_response = session.generate_completion(context_chat, args.llm, local=args.local, stream=True)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            if (args.e):
-                llm_response, context_chat = FewShotProvider.few_shot_CmdAgentExperimental(next_prompt, args.llm, local=args.local, stream=True)
+            if (args.experimental):
+                llm_response, context_chat = FewShotProvider.few_shot_CmdAgentExperimental(next_prompt, args.llm, local=args.local, optimize=args.optimize, stream=True)
             else:
-                llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, stream=True)
+                llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, optimize=args.optimize, stream=True)
             # llm_response, context_chat = FewShotProvider.few_shot_FunctionCallingAgent(user_request, args.llm, local=args.local, stream=True)
         
         context_chat.save_to_json()
@@ -332,14 +360,14 @@ def main():
         if not snippets["bash"]:
             continue  # or other logic to handle non-command responses
         
-        if args.a is None:
+        if args.auto is None:
             user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow'))
             if not (user_input == "" or user_input.lower() == "y"):
                 continue
         else:
             try:
-                print(colored(f"Command will be executed in {args.a} seconds, press Ctrl+C to abort.", 'yellow'))
-                for remaining in range(args.a, 0, -1):
+                print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
+                for remaining in range(args.auto, 0, -1):
                     sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
                     sys.stdout.flush()
                     time.sleep(1)
@@ -348,7 +376,7 @@ def main():
                 print(colored("\nExecution aborted by the user.", 'red'))
                 continue  # Skip the execution of commands and start over
         
-        prompt_context_augmentation, execution_summarization = select_and_execute_commands(snippets["bash"], args.a is not None) 
+        prompt_context_augmentation, execution_summarization = select_and_execute_commands(snippets["bash"], args.auto is not None) 
         print(recolor(execution_summarization, "\t#", "successfully", "green"))
         # # Execute commands extracted from the llm_response
         # user_request = ""

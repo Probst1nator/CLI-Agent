@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Union
 from termcolor import colored
 from jinja2 import Template
 
+import json
 
 class Role(Enum):
     SYSTEM = "system"
@@ -25,6 +26,59 @@ class Chat:
     def add_message(self, role: Role, content: str) -> "Chat":
         self.messages.append((role, content))
         return self
+    
+    def optimize(self, session, model: str = None, local:bool = None, iterations: int = 1, **kwargs):
+        for iteration in range(iterations):
+            for i, msg in enumerate(self.messages):
+                if msg[0] == Role.SYSTEM:
+                    continue
+                if msg[0] == Role.USER:
+                    prompt = msg[1]
+                if msg[0] == Role.ASSISTANT:
+                    response = msg[1]
+                    
+                    optimization_instructions: List[str]
+                    if "```" in response:
+                        optimization_instructions = [
+                            "Suggested commands are required to run fully without requiring any user interaction. (Examples: `apt-get install -y python3` or `yes | command`)", 
+                            "The commands are executed autonomously and in isolation from each other. Never rely on the state of the system from previous commands.", 
+                            "The response should be as concise as possible while still being clear, do not include duplicate suggestions.",
+                            "Commands need to be in a block starting with ```bash and ending with ```.",
+                            "Only bash blocks are supported, other languages must always be contained within a bash command.",
+                            "Multiline bash commands (e.g., when writing to files) must use 'EOF' or 'echo -e' to indicate multiline input.",
+                            "Relative paths like './' are not supported (except for '~/'), ensure only absolute paths (or '~/') are used.",
+                            ]
+                        optimization_instruction = "\n".join([f"{i}. {inst}" for i,inst in enumerate(optimization_instructions)])
+                    else:
+                        optimization_instructions = [
+                            "The response should be friendly and engaging.",
+                            "The response should be concise and to the point.",
+                            "The response should be informative and helpful.",
+                            "The response should include emphatic emojis.",
+                        ]
+                        optimization_instruction = "\n".join([f"{i}. {inst}" for i,inst in enumerate(optimization_instructions)])
+                    
+                    
+                    chat = Chat("The system examines the request and rates the suggested response, it also provides feedback on how to improve the response.")
+                    optimization_prompt = f"{optimization_instruction}\n```REQUEST\n{prompt}\n```\n```RESPONSE\n{response}\n```"
+                    chat.add_message(Role.USER, optimization_prompt)
+                    optimization_suggestions = session.generate_completion(chat, silent=True, model=model, force_free=True, local=local, kwargs=kwargs)
+                    chat.add_message(Role.ASSISTANT, optimization_suggestions)
+                    
+                    chat.messages[0] = (Role.SYSTEM, "The system incorporates the suggestions and provides a improved response.")
+                    
+                    chat.add_message(Role.USER, "I am going to repeat the request, please act on the suggestions and provide a enhanced response.")
+                    chat.add_message(Role.ASSISTANT, "Sure! Please repeat the request and I will provide an improved response.")
+                    chat.add_message(Role.USER, prompt)
+                    improved_response = session.generate_completion(chat, silent=True, model=model, force_free=True, local=local, kwargs=kwargs)
+                    self.messages[i] = (Role.ASSISTANT, improved_response)
+                    
+                    # optimized_responses_path = os.path.join(self.user_cli_agent_dir, "optimized_responses.json")
+                    # with open(optimized_responses_path, 'r') as file:
+                    #     data = json.load(file)
+                
+                
+                
 
     def __getitem__(self, key: Union[int, slice, Tuple[int, ...]]) -> "Chat":
         if isinstance(key, (int, slice)):
