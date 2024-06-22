@@ -26,7 +26,7 @@ class AnthropicChat:
                 model = "claude-3-5-sonnet-20240620"
             
             if not silent:
-                print("Anthropic API is generating response... using model: " + model)
+                print("Anthropic API: <" + colored(model,"green") + "> is generating response...")
 
             l_chat = Chat()
             l_chat.messages = chat.messages

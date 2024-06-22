@@ -341,7 +341,7 @@ class OllamaClient(metaclass=SingletonMeta):
             model = "phi3"
             
         if not silent:
-            print("Ollama-Api is generating response... using model: " + model)
+            print("Ollama-Api: <" + colored(model,"green") + "> is generating response...")
 
         str_temperature: str = str(temperature)
         try:

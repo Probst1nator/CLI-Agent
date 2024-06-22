@@ -34,7 +34,7 @@ class GroqChat:
             # Initialize the Groq client with an API key
             client = Groq(api_key=os.getenv('GROQ_API_KEY'))
             if not silent:
-                print("Groq-Api is generating response... using model: " + model)
+                print("Groq-Api: <" + colored(model,"green") + "> is generating response...")
             # Create a chat completion with the provided model and messages
             chat_completion = client.chat.completions.create(messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>")
             
