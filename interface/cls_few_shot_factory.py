@@ -223,64 +223,74 @@ The result of 5 + 10 will be displayed in the output.''',
             "The command ran successfully the result is '15'. Anything else I can service for you?",
         )
         
+#         chat.add_message(
+#             Role.USER,
+#             "My home partition on Linux is corrupted and unmounted. Can you provide a script to recover it and restore my files? The partition is located at /dev/sda1."
+#         )
+
+#         chat.add_message(
+#             Role.ASSISTANT,"""Sure, we'll need to utilise a shell script to minimize user interaction, here is the script to recover the partition and restore the files:
+# ```bash
+# echo -e "#!/bin/bash
+
+# # Install necessary recovery tools
+# sudo apt update
+# sudo apt install -y testdisk extundelete
+
+# # Create a temporary script for TestDisk
+# testdisk_script=$(mktemp)
+# cat << EOF > ${testdisk_script}
+# log
+# select /dev/sda
+# part  None
+# search!
+# write
+# y
+# EOF
+
+# # Run the TestDisk script to recover the partition
+# sudo testdisk < ${testdisk_script}
+
+# # Unmount the partition if necessary
+# sudo umount /dev/sda1
+
+# # Create a directory to store recovered files
+# mkdir -p ~/recovered_files
+
+# # Run Extundelete to recover all files
+# sudo extundelete /dev/sda1 --restore-all --output-dir ~/recovered_files
+
+# # Remount the partition
+# sudo mount /dev/sda1 /home
+
+# # Clean up the temporary script
+# rm -f ${testdisk_script}
+
+# echo "Recovery process completed. Recovered files are located in ~/recovered_files." > ./recovery_script.sh
+# chmod +x ./recovery_script.sh
+# sudo ./recovery_script.sh
+# rm ./recovery_script.sh
+# ```"""
+#         )
+        
+#         chat.add_message(
+#             Role.USER,
+#             "Thanks! I executed your script manually and it worked perfectly, I've removed the script now."
+#         )
+        
+#         chat.add_message(
+#             Role.ASSISTANT,
+#             "Happy to help! :)\nIs there anything else you would like me to take care of?"
+#         )
+
         chat.add_message(
             Role.USER,
-            "My home partition on Linux is corrupted and unmounted. Can you provide a script to recover it and restore my files? The partition is located at /dev/sda1."
+            "Are you enjoying our interaction thus far?"
         )
 
-        chat.add_message(
-            Role.ASSISTANT,"""Sure, we'll need to utilise a shell script to minimize user interaction, here is the script to recover the partition and restore the files:
-```bash
-echo -e "#!/bin/bash
-
-# Install necessary recovery tools
-sudo apt update
-sudo apt install -y testdisk extundelete
-
-# Create a temporary script for TestDisk
-testdisk_script=$(mktemp)
-cat << EOF > ${testdisk_script}
-log
-select /dev/sda
-part  None
-search!
-write
-y
-EOF
-
-# Run the TestDisk script to recover the partition
-sudo testdisk < ${testdisk_script}
-
-# Unmount the partition if necessary
-sudo umount /dev/sda1
-
-# Create a directory to store recovered files
-mkdir -p ~/recovered_files
-
-# Run Extundelete to recover all files
-sudo extundelete /dev/sda1 --restore-all --output-dir ~/recovered_files
-
-# Remount the partition
-sudo mount /dev/sda1 /home
-
-# Clean up the temporary script
-rm -f ${testdisk_script}
-
-echo "Recovery process completed. Recovered files are located in ~/recovered_files." > ./recovery_script.sh
-chmod +x ./recovery_script.sh
-sudo ./recovery_script.sh
-rm ./recovery_script.sh
-```"""
-        )
-        
-        chat.add_message(
-            Role.USER,
-            "Thanks! I executed your script manually and it worked perfectly, I've removed the script now."
-        )
-        
         chat.add_message(
             Role.ASSISTANT,
-            "Happy to help! :)\nIs there anything else you would like me to take care of?"
+            "Absolutely, I'm always here and ready to assist. 😁 If you have more questions or any requests I can take care of, just let me know! I aim to provide clear, concise responses and commands tailored to your needs. Your satisfaction is my top priority! ✨"
         )
 
         if optimize:

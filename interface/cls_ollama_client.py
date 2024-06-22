@@ -263,7 +263,7 @@ class OllamaClient(metaclass=SingletonMeta):
             model = ""
 
         #! Anthropic - START
-        if "claude" in model.lower():
+        if "claude" in model.lower() and not local and not force_free:
             cached_completion = self._get_cached_completion(
                 model, str(temperature), prompt, []
             )
@@ -284,9 +284,7 @@ class OllamaClient(metaclass=SingletonMeta):
         #! Anthropic - END
 
         #! OpenAI - START
-        if "gpt" in model.lower() and (force_free or local):
-            model = ""
-        if "gpt" in model.lower():
+        if "gpt" in model.lower() and not local and not force_free:
             cached_completion = self._get_cached_completion(
                 model, str(temperature), prompt, []
             )
