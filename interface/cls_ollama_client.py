@@ -257,7 +257,8 @@ class OllamaClient(metaclass=SingletonMeta):
 
         if isinstance(prompt, str):
             prompt = Chat(instruction).add_message(Role.USER, prompt)
-        prompt.add_message(Role.ASSISTANT, start_response_with)
+        if (start_response_with):
+            prompt.add_message(Role.ASSISTANT, start_response_with)
         if not model:
             model = ""
 
@@ -296,7 +297,7 @@ class OllamaClient(metaclass=SingletonMeta):
                     print()
                 return cached_completion
 
-            response = OpenAIChat.generate_response(prompt, model, temperature)
+            response = OpenAIChat.generate_response(prompt, model, temperature, silent)
             self._update_cache(model, str(temperature), prompt, [], response)
             if response:
                 if include_start_response_str:
@@ -308,12 +309,12 @@ class OllamaClient(metaclass=SingletonMeta):
         #! GROQ - START
         if (
             not local
-            and ("llama3" in model or "mixtral" in model or not model)
+            and ("llama3" in model or "mixtral" in model or "70b" in model or not model)
             and "dolphin" not in model
         ):
             if not model:
                 if len(prompt.to_json()) < 20000:
-                    model = "llama3"
+                    model = "llama3-70b"
                 else:
                     model = "mixtral"
 
@@ -338,7 +339,7 @@ class OllamaClient(metaclass=SingletonMeta):
         #! GROQ - END
 
         #! OLLAMA - START
-        if not model or "gpt" in str(model).lower():
+        if not model or "gpt" in str(model).lower() or "claude" in str(model).lower():
             model = "phi3"
             
         if not silent:

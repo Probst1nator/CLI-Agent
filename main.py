@@ -195,13 +195,16 @@ def main():
     
     print(args)
     
-    if not os.getenv('GROQ_API_KEY') and not os.getenv('OPENAI_API_KEY'):
-        print("No Groq- (free!) or OpenAi-Api key was found in the '.env' file. Falling back to Ollama locally.")
+    if not os.getenv('GROQ_API_KEY') and not os.getenv('OPENAI_API_KEY') and not os.getenv('ANTHROPIC_API_KEY'):
+        print("No Groq- (free!) or other-Api key was found in the '.env' file. Falling back to Ollama locally...")
         args.local = True
     
-    if not args.local and args.intelligent and os.getenv('OPENAI_API_KEY'):
-        args.llm = "gpt-4o"
-        # args.llm = "gpt-3.5-turbo-0125"
+    if not args.local and args.intelligent:
+        if os.getenv('ANTHROPIC_API_KEY'):
+            args.llm = "claude-3-5-sonnet"
+        elif os.getenv('OPENAI_API_KEY'):
+            args.llm = "gpt-4o"
+        
         
     session = OllamaClient()
     context_chat = None
