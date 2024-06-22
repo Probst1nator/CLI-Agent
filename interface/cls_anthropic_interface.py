@@ -1,44 +1,57 @@
 import os
+from typing import Optional
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from cls_custom_coloring import CustomColoring
+from interface.cls_chat import Chat, Role
 
 load_dotenv()
 
 class AnthropicChat:
     @staticmethod
-    def generate_response(chat, model="claude-3-5-sonnet-20240620", temperature=0.7, silent=False):
+    def generate_response(chat: Chat, model: str = "claude-3-5-sonnet-20240620", temperature: float = 0.7, silent: bool = False) -> Optional[str]:
         """
         Generates a response using the Anthropic API based on the provided model and messages, with error handling and retries.
 
-        :param model: The model string to use for generating the response.
         :param chat: An instance of a chat class containing the messages.
+        :param model: The model string to use for generating the response.
         :param temperature: Controls the randomness of the response.
         :param silent: If True, suppresses print statements.
-        :return: A string containing the generated response.
+        :return: A string containing the generated response or None if an error occurs.
         """
         try:
-            client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+            client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=5.0)
+            
+            if "claude-3-5-sonnet" in model:
+                model = "claude-3-5-sonnet-20240620"
             
             if not silent:
                 print("Anthropic API is generating response... using model: " + model)
 
-            response = client.completions.create(
-                model=model,
-                messages=chat.to_anthropic_format(),
-                temperature=temperature,
-                stream=True,
-            )
+            l_chat = Chat()
+            l_chat.messages = chat.messages
 
-            full_response = ""
-            for chunk in response:
-                token = chunk.choices[0].delta.content
-                if token:
+            system_message = ""
+            if l_chat.messages[0][0] == Role.SYSTEM:
+                system_message = l_chat.messages[0][1]
+                l_chat.messages = l_chat.messages[1:]
+    
+            with client.messages.stream(
+                model=model,
+                max_tokens=1024,
+                system=system_message,
+                messages=l_chat.to_groq_format(),
+                temperature=temperature,
+            ) as stream:
+                full_response = ""
+                token_keeper = CustomColoring()
+                for token in stream.text_stream:
                     if not silent:
-                        print(token, end="")
+                        print(token_keeper.apply_color(token), end="")
                     full_response += token
-            if not silent:
-                print()
-            return full_response
+                if not silent:
+                    print()
+                return full_response
         except Exception as e:
             print(f"Anthropic API error: {e}")
             return None

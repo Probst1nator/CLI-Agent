@@ -40,9 +40,11 @@ class OpenAIChat:
             for chunk in stream:
                 token = chunk.choices[0].delta.content
                 if (token):
-                    print(token_keeper.apply_color(token), end="")
+                    if not silent:
+                        print(token_keeper.apply_color(token), end="")
                     full_response += token
-            print()
+            if not silent:
+                print()
             return full_response
         
         
