@@ -4,6 +4,7 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 from cls_custom_coloring import CustomColoring
 from interface.cls_chat import Chat, Role
+from termcolor import colored
 
 load_dotenv()
 
