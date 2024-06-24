@@ -16,7 +16,7 @@ from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
 
 
-def run_command(command: str, verbose: bool = True) -> Tuple[str,str]:
+def run_command(command: str, verbose: bool = True, max_output_length:int = 16000) -> Tuple[str,str]:
     output_lines = []  # List to accumulate output lines
 
     try:
@@ -39,6 +39,10 @@ def run_command(command: str, verbose: bool = True) -> Tuple[str,str]:
 
             # Combine all captured output lines into a single string
             final_output = ''.join(output_lines)
+            
+            if len(final_output) > max_output_length:
+                half_length = max_output_length // 2
+                final_output = final_output[:half_length] + "\n\n...Output truncated due to length.\n\n" + final_output[-half_length:]
 
             result = {
                 'output': final_output,

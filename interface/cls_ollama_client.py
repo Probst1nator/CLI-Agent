@@ -262,48 +262,6 @@ class OllamaClient(metaclass=SingletonMeta):
         if not model:
             model = ""
 
-        #! Anthropic - START
-        if "claude" in model.lower() and not local and not force_free:
-            cached_completion = self._get_cached_completion(
-                model, str(temperature), prompt, []
-            )
-            if cached_completion:
-                if not silent:
-                    for char in cached_completion:
-                        print(tooling.apply_color(char), end="")
-                    print()
-                return cached_completion
-
-            response = AnthropicChat.generate_response(prompt, model, temperature, silent)
-            self._update_cache(model, str(temperature), prompt, [], response)
-            if response:
-                if include_start_response_str:
-                    return start_response_with + response
-                else:
-                    return response
-        #! Anthropic - END
-
-        #! OpenAI - START
-        if "gpt" in model.lower() and not local and not force_free:
-            cached_completion = self._get_cached_completion(
-                model, str(temperature), prompt, []
-            )
-            if cached_completion:
-                if not silent:
-                    for char in cached_completion:
-                        print(tooling.apply_color(char), end="")
-                    print()
-                return cached_completion
-
-            response = OpenAIChat.generate_response(prompt, model, temperature, silent)
-            self._update_cache(model, str(temperature), prompt, [], response)
-            if response:
-                if include_start_response_str:
-                    return start_response_with + response
-                else:
-                    return response
-        #! OpenAI - END
-
         #! GROQ - START
         if (
             not local
@@ -334,7 +292,55 @@ class OllamaClient(metaclass=SingletonMeta):
                     return start_response_with + response
                 else:
                     return response
+            else: 
+                model = "" # Fallback
         #! GROQ - END
+
+        #! Anthropic - START
+        if not local and not force_free: # "claude" in model.lower() and 
+            cached_completion = self._get_cached_completion(
+                model, str(temperature), prompt, []
+            )
+            if cached_completion:
+                if not silent:
+                    for char in cached_completion:
+                        print(tooling.apply_color(char), end="")
+                    print()
+                return cached_completion
+
+            response = AnthropicChat.generate_response(prompt, model, temperature, silent)
+            self._update_cache(model, str(temperature), prompt, [], response)
+            if response:
+                if include_start_response_str:
+                    return start_response_with + response
+                else:
+                    return response
+            else: 
+                model = "gpt" # Fallback
+        #! Anthropic - END
+
+        #! OpenAI - START
+        if "gpt" in model.lower() and not local and not force_free:
+            cached_completion = self._get_cached_completion(
+                model, str(temperature), prompt, []
+            )
+            if cached_completion:
+                if not silent:
+                    for char in cached_completion:
+                        print(tooling.apply_color(char), end="")
+                    print()
+                return cached_completion
+
+            response = OpenAIChat.generate_response(prompt, model, temperature, silent)
+            self._update_cache(model, str(temperature), prompt, [], response)
+            if response:
+                if include_start_response_str:
+                    return start_response_with + response
+                else:
+                    return response
+            else: 
+                model = "" # Fallback
+        #! OpenAI - END
 
         #! OLLAMA - START
         if not model or "gpt" in str(model).lower() or "claude" in str(model).lower():
