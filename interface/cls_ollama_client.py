@@ -10,7 +10,6 @@ from typing import Dict, List, Sequence, Union
 
 import ollama
 import psutil
-import requests
 from jinja2 import Template
 from PIL import Image
 from termcolor import colored
@@ -33,7 +32,7 @@ def reduce_image_resolution(base64_string: str, reduction_factor: float = 1 / 3)
     new_size = (int(img.width * reduction_factor), int(img.height * reduction_factor))
 
     # Resize the image
-    img_resized = img.resize(new_size, Image.BILINEAR)
+    img_resized = img.resize(new_size, Image.Resampling.BILINEAR)
 
     # Convert the resized image back to Base64
     buffered = BytesIO()
