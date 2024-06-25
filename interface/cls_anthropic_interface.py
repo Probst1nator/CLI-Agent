@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from cls_custom_coloring import CustomColoring
 from interface.cls_chat import Chat, Role
 from termcolor import colored
+import traceback
 
 load_dotenv()
 
@@ -21,9 +22,9 @@ class AnthropicChat:
         :return: A string containing the generated response or None if an error occurs.
         """
         try:
-            client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=5.0)
+            client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=3.0, max_retries=2)
             
-            if "claude-3-5-sonnet" in model:
+            if "claude-3-5-sonnet" in model or not model:
                 model = "claude-3-5-sonnet-20240620"
             
             if not silent:
@@ -55,4 +56,5 @@ class AnthropicChat:
                 return full_response
         except Exception as e:
             print(f"Anthropic API error: {e}")
+            traceback.print_exc()
             return None

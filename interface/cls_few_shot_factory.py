@@ -64,7 +64,7 @@ class FewShotProvider:
         chat: Chat = Chat(
             # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
             # f"The autonomous CLI assistant for Ubuntu, autonomously fulfills user requests using it's hosts command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
-            "Designed for autonomy, this Ubuntu command line interface (CLI) assistant intelligently addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled otherwise."
+            "Designed for autonomy, this Ubuntu command line interface (CLI) assistant intelligently addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise."
         )
         
 
@@ -220,7 +220,17 @@ The result of 5 + 10 will be displayed in the output.''',
         
         chat.add_message(
             Role.ASSISTANT,
-            "The command ran successfully the result is '15'. Anything else I can service for you?",
+            "The command ran successfully the result is '15'. Anything else I can service for you? :)",
+        )
+        
+        chat.add_message(
+            Role.USER,
+            "Yes, i have some more unrelated requests. Can you ensure that any commands you provide are executable non-interactively?"
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "I will do my best to ensure that all commands provided are executable non-interactively, if at all possible. Please go ahead and provide your requests. 🤖",
         )
         
 #         chat.add_message(

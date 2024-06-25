@@ -293,7 +293,7 @@ class OllamaClient(metaclass=SingletonMeta):
                 else:
                     return response
             else: 
-                model = "" # Fallback
+                model = None # Fallback
         #! GROQ - END
 
         #! Anthropic - START
@@ -316,7 +316,7 @@ class OllamaClient(metaclass=SingletonMeta):
                 else:
                     return response
             else: 
-                model = "gpt" # Fallback
+                model = "gpt-4o" # Fallback
         #! Anthropic - END
 
         #! OpenAI - START
@@ -339,7 +339,7 @@ class OllamaClient(metaclass=SingletonMeta):
                 else:
                     return response
             else: 
-                model = "" # Fallback
+                model = None # Fallback
         #! OpenAI - END
 
         #! OLLAMA - START

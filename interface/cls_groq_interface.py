@@ -32,7 +32,7 @@ class GroqChat:
         
         try:
             # Initialize the Groq client with an API key
-            client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+            client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=2)
             if not silent:
                 print("Groq-Api: <" + colored(model,"green") + "> is generating response...")
             # Create a chat completion with the provided model and messages
