@@ -5,7 +5,7 @@ import argparse
 import os
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 from dotenv import load_dotenv
 from termcolor import colored
@@ -111,13 +111,17 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
 #     return colored(response[last_end_index:], 'light_blue')
 
 
-def recolor(text: str, start_string_sequence: str, end_string_sequence: str, color: str = "red") -> str:
+ColorType = Literal['black', 'grey', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 
+                    'light_grey', 'dark_grey', 'light_red', 'light_green', 'light_yellow', 
+                    'light_blue', 'light_magenta', 'light_cyan', 'white']
+
+def recolor(text: str, start_string_sequence: str, end_string_sequence: str, color: ColorType = 'red') -> str:
     """
     Returns the response with different colors, with text between
     start_string_sequence and end_string_sequence colored differently.
     Handles multiple instances of such sequences.
 
-    :param response: The entire response string to recolor.
+    :param text: The entire response string to recolor.
     :param start_string_sequence: The string sequence marking the start of the special color zone.
     :param end_string_sequence: The string sequence marking the end of the special color zone.
     :param color: The color to use for text within the special color zone.
@@ -128,23 +132,16 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
     while True:
         start_index = text.find(start_string_sequence, last_end_index)
         if start_index == -1:
-            # Append the rest of the response if no more start sequences found
             colored_response += colored(text[last_end_index:], 'light_blue')
             break
 
         end_index = text.find(end_string_sequence, start_index + len(start_string_sequence))
         if end_index == -1:
-            # Append the rest of the response if no corresponding end sequence found
             colored_response += colored(text[last_end_index:], 'light_blue')
             break
 
-        # Append text before the current start sequence
         colored_response += colored(text[last_end_index:start_index], 'light_blue')
-
-        # Append the special color zone text
         colored_response += colored(text[start_index:end_index + len(end_string_sequence)], color)
-
-        # Update last_end_index for the next iteration
         last_end_index = end_index + len(end_string_sequence)
 
     return colored_response
