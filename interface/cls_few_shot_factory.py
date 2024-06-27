@@ -315,6 +315,7 @@ The result of 5 + 10 will be displayed in the output.''',
             chat,
             model,
             temperature=temperature,
+            local=local,
             **kwargs
         )
         
