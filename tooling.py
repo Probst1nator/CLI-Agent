@@ -90,8 +90,8 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
         )
         bindings = KeyBindings()
 
-        @bindings.add("q")
-        def _quit(event) -> None:
+        @bindings.add("e")
+        def _execute(event) -> None:
             """Trigger command execution if "Execute Commands" is selected."""
             app.exit(result=checkbox_list.current_values)
 
@@ -101,12 +101,14 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
             selected_commands = " && ".join(checkbox_list.current_values)
             pyperclip.copy(selected_commands)
             app.exit(result=["exit"])
-            # time.sleep(0.2)
-            # print("\n\n\nSelected commands copied to clipboard.")
-            # sys.exit(0)  # Quit the whole Python process
+            
+        @bindings.add("a")
+        def _abort(event) -> None:
+            """Abort the command selection process."""
+            app.exit(result=["exit"])
 
         # Instruction message
-        instructions = Label(text="Press 'q' to execute commands or 'c' to copy selected commands and quit.")
+        instructions = Label(text="Press 'e' to execute commands or 'c' to copy selected commands and quit. ('a' to abort)")
 
         # Define the layout with the instructions
         root_container = HSplit([
