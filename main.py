@@ -186,6 +186,8 @@ Because this is dangerous, any generated command is only executed after a delay 
 Add a custom integer to change this delay.""", metavar="DELAY")
     parser.add_argument("-e", "--edit", type=str,
                         help="Edits the file at the specified path.")
+    parser.add_argument("-sc", "--saved_chat", type=str,
+                        help="Uses the saved_chat as few_shot_prompt.")
 
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -248,18 +250,21 @@ def main():
         
         while True:
             next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            if "" == next_prompt:
+                next_prompt = "Add documentation comments to the following code and provide it in full:"
             if "in full" not in next_prompt:
-                next_prompt = f"I'd like to edit the file {args.edit}. Please make the following changes and provide the updated script in full:\n'''{next_prompt}\n'''"
+                next_prompt = f"Please make these changes to the below code and provide it in full:\n{next_prompt}"
+            
             response = session.generate_completion(f"{next_prompt}\n\n'''{fileending}\n{file_contents}\n'''", "gpt-4o", stream=True)
             snippet = extract_single_snippet(response)
             if (len(snippet) == 0):
                 print(colored("No commands found in response, please try again.", "red"))
                 continue
             
-            user_input = input(colored("Copy snippet to clipboard? (Y/n) ", 'yellow'))
-            if user_input.lower() == "y" or user_input == "":
-                pyperclip.copy(snippet)
-                print(colored("Snippet copied to clipboard.", 'green'))
+            # user_input = input(colored("Copy snippet to clipboard? (Y/n) ", 'yellow'))
+            # if user_input.lower() == "y" or user_input == "":
+            pyperclip.copy(snippet)
+            print(colored("Snippet copied to clipboard.", 'green'))
             
         
 
