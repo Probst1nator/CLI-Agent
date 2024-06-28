@@ -15,8 +15,18 @@ import time
 from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
 
-
 def run_command(command: str, verbose: bool = True, max_output_length:int = 16000) -> Tuple[str,str]:
+    """
+    Run a shell command and capture its output, truncating if necessary.
+    
+    Args:
+        command (str): The shell command to execute.
+        verbose (bool): Whether to print the command and its output.
+        max_output_length (int): Maximum length of the output to return.
+        
+    Returns:
+        Tuple[str, str]: A tuple containing the formatted result and raw output.
+    """
     output_lines = []  # List to accumulate output lines
 
     try:
@@ -53,10 +63,8 @@ def run_command(command: str, verbose: bool = True, max_output_length:int = 1600
             # Conditional checks on result can be implemented here as needed
             result_formatted = command
             if (result["output"]):
-                # result_formatted += f"\n```cmd_output\n{result['output']}```"
                 result_formatted += f"\n{result['output']}"
             if (result["error"] and result["exit_code"] != 0):
-                # result_formatted += f"\n```cmd_error\n{result['error']}```"
                 result_formatted += f"\n{result['error']}"
             if (not result["output"] and result["exit_code"] == 0):
                 result_formatted += "\t# Command executed successfully"
@@ -72,17 +80,25 @@ def run_command(command: str, verbose: bool = True, max_output_length:int = 1600
         # Conditional checks on result can be implemented here as needed
         result_formatted = command
         if (result["output"]):
-            # result_formatted += f"\n```cmd_output\n{result['output']}```"
             result_formatted += f"\n{result['output']}"
         if (result["error"]):
-            # result_formatted += f"\n```cmd_error\n{result['error']}```"
             result_formatted += f"\n{result['error']}"
 
         return result_formatted, ""
 
 
-
 def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose: bool = True) -> Tuple[str,str]:
+    """
+    Allow the user to select and execute a list of commands.
+
+    Args:
+        commands (List[str]): The list of commands to choose from.
+        skip_user_confirmation (bool): If True, execute all commands without user confirmation.
+        verbose (bool): Whether to print command outputs.
+
+    Returns:
+        Tuple[str, str]: Formatted result and execution summarization.
+    """
     if not skip_user_confirmation:
         checkbox_list = CheckboxList(
             values=[(cmd, cmd) for i, cmd in enumerate(commands)],
@@ -105,7 +121,7 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
         @bindings.add("a")
         def _abort(event) -> None:
             """Abort the command selection process."""
-            app.exit(result=["exit"])
+            app.exit(result=[])
 
         # Instruction message
         instructions = Label(text="Press 'e' to execute commands or 'c' to copy selected commands and quit. ('a' to abort)")
@@ -144,8 +160,16 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     return "\n\n".join(formatted_results), execution_summarization
 
 
-
 def fetch_search_results(query: str) -> List[str]:
+    """
+    Fetch search results from DuckDuckGo for a given query.
+    
+    Args:
+        query (str): The search query.
+        
+    Returns:
+        List[str]: The filtered top results.
+    """
     # Build the URL for DuckDuckGo search
     url = f"https://duckduckgo.com/?q={query}"
     
@@ -158,6 +182,16 @@ def fetch_search_results(query: str) -> List[str]:
         return []
 
 def filter_top_results(results: str, num_results: int = 5) -> List[str]:
+    """
+    Filter the top search results.
+    
+    Args:
+        results (str): The raw search results.
+        num_results (int): Number of top results to return.
+        
+    Returns:
+        List[str]: List of top search results.
+    """
     results_arr: list[str] = []
     for i in range(1,num_results+1):
         start_i = results.index(f"\n{i}. ")
@@ -166,7 +200,15 @@ def filter_top_results(results: str, num_results: int = 5) -> List[str]:
     return results_arr
 
 def remove_ansi_escape_sequences(text: str) -> str:
-    """Remove ANSI escape sequences from the text."""
+    """
+    Remove ANSI escape sequences from the text.
+    
+    Args:
+        text (str): The text containing ANSI escape sequences.
+        
+    Returns:
+        str: Cleaned text without ANSI escape sequences.
+    """
     ansi_escape = re.compile(r'''
         (?:\x1B[@-_])|                  # ESC followed by a character between @ and _
         (?:\x1B\[0-9;]*[ -/]*[@-~])|   # ESC [ followed by zero or more digits or semicolons, then a character between @ and ~
@@ -175,13 +217,21 @@ def remove_ansi_escape_sequences(text: str) -> str:
     return ansi_escape.sub('', text)
 
 def read_from_terminal(num_lines: int, file_path: str = "/tmp/terminal_output.txt") -> List[str]:
-    """Read the last `num_lines` from the file at `file_path`, removing ANSI sequences."""
+    """
+    Read the last `num_lines` from the file at `file_path`, removing ANSI sequences.
+    
+    Args:
+        num_lines (int): Number of lines to read from the end of the file.
+        file_path (str): Path to the file to read from.
+        
+    Returns:
+        List[str]: List of cleaned lines.
+    """
     with open(file_path, 'r') as file:
         lines = file.readlines()
         # Remove ANSI sequences from each line
         cleaned_lines = [remove_ansi_escape_sequences(line) for line in lines[-num_lines:]]
         return cleaned_lines
-
 
 
 import tkinter as tk
@@ -191,6 +241,9 @@ import base64
 
 class ScreenCapture:
     def __init__(self) -> None:
+        """
+        Initialize the ScreenCapture class with paths to save images and start the capture process.
+        """
         self.user_cli_agent_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
         os.makedirs(self.user_cli_agent_dir, exist_ok=True)
         
@@ -217,35 +270,77 @@ class ScreenCapture:
         self.root.mainloop()
 
     def on_button_press(self, event: tk.Event) -> None:
+        """
+        Handle mouse button press event to start drawing a rectangle.
+        
+        Args:
+            event (tk.Event): The event object.
+        """
         self.start_x = event.x
         self.start_y = event.y
         self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline='red', width=2)
 
     def on_mouse_drag(self, event: tk.Event) -> None:
+        """
+        Handle mouse drag event to update the rectangle's size.
+        
+        Args:
+            event (tk.Event): The event object.
+        """
         cur_x, cur_y = (event.x, event.y)
         self.canvas.coords(self.rect, self.start_x, self.start_y, cur_x, cur_y)
 
     def on_button_release(self, event: tk.Event) -> None:
+        """
+        Handle mouse button release event to finalize the rectangle and capture the region.
+        
+        Args:
+            event (tk.Event): The event object.
+        """
         end_x, end_y = (event.x, event.y)
         self.capture_region(self.start_x, self.start_y, end_x, end_y)
         self.root.destroy()
 
     def capture_region(self, start_x: int, start_y: int, end_x: int, end_y: int) -> None:
+        """
+        Capture and save a region of the screen.
+        
+        Args:
+            start_x (int): Starting x-coordinate.
+            start_y (int): Starting y-coordinate.
+            end_x (int): Ending x-coordinate.
+            end_y (int): Ending y-coordinate.
+        """
         cropped_image = self.image.crop((start_x, start_y, end_x, end_y))
         cropped_image.save(self.captured_region_path)
         print(f"Region captured and saved as '{self.captured_region_path}'")
 
     def capture_fullscreen(self) -> None:
+        """
+        Capture and save the entire screen.
+        """
         screen = ImageGrab.grab()
         screen.save(self.fullscreen_image_path)
         print(f"Fullscreen captured and saved as '{self.fullscreen_image_path}'")
 
     def return_fullscreen_image(self) -> str:
+        """
+        Return the base64-encoded fullscreen image.
+        
+        Returns:
+            str: Base64-encoded fullscreen image.
+        """
         with open(self.fullscreen_image_path, "rb") as fullscreen_file:
             fullscreen_image = base64.b64encode(fullscreen_file.read()).decode("utf-8")
         return fullscreen_image
 
     def return_captured_region_image(self) -> str:
+        """
+        Return the base64-encoded captured region image.
+        
+        Returns:
+            str: Base64-encoded captured region image.
+        """
         with open(self.captured_region_path, "rb") as region_file:
             captured_region_image = base64.b64encode(region_file.read()).decode("utf-8")
         return captured_region_image
@@ -254,8 +349,10 @@ class ScreenCapture:
 def search_files_for_term(search_term: str) -> List[Tuple[str, str]]:
     """
     Search for a given term in all files within the current working directory and its subdirectories.
+    
     Args:
         search_term (str): The term to search for.
+        
     Returns:
         List[Tuple[str, str]]: A list of tuples containing the relative file paths and the matching content.
     """
@@ -284,6 +381,15 @@ def search_files_for_term(search_term: str) -> List[Tuple[str, str]]:
     return result
 
 def gather_intel(search_term: str) -> str:
+    """
+    Gather intelligence on a search term by analyzing its occurrences in files.
+    
+    Args:
+        search_term (str): The term to gather intelligence on.
+        
+    Returns:
+        str: The gathered intelligence.
+    """
     path_contents: List[tuple[str,str]] = search_files_for_term(search_term)
     if (len(path_contents)):
         return f"No files containing the term '{search_term}' could be found."
@@ -315,4 +421,3 @@ def gather_intel(search_term: str) -> str:
     intel = session.generate_completion(chat, "mixtral", f"Sure! Baed on our conversation")
     
     return intel
-    
