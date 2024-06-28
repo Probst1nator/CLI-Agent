@@ -15,6 +15,7 @@ from interface.cls_few_shot_factory import FewShotProvider
 from interface.cls_ollama_client import OllamaClient
 from interface.cls_web_scraper import WebScraper
 from tooling import fetch_search_results, select_and_execute_commands, ScreenCapture, gather_intel
+import pyperclip
 
 # def setup_sandbox():
 #     sandbox_dir = "./sandbox/"
@@ -48,7 +49,7 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
                     # Start of a multiline command or continuation
                     is_multiline = True
                     multiline_command += line + "\n"
-                    if '"> ' in line or'" > ' in line or line.strip() == "EOF" :
+                    if line.strip() == "EOF" :
                         bash_snippets.append(multiline_command.strip())
                         multiline_command = ""
                         is_multiline = False
@@ -68,6 +69,19 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
                     other_snippets.append(trimmed_snippet)
 
     return {"bash": bash_snippets, "other": other_snippets}
+
+def extract_single_snippet(response: str) -> str:
+    start_index = response.find("```")
+    if start_index != -1:
+        end_index = response.rfind("```")
+        if end_index != -1 and end_index > start_index:
+            # Find the end of the start line and the start of the end line
+            start_line_end = response.find("\n", start_index)
+            end_line_start = response.rfind("\n", start_index, end_index)
+            if start_line_end != -1 and end_line_start != -1:
+                return response[start_line_end + 1:end_line_start]
+    return ""
+    
 
 
 # def recolor_response(response: str, start_string_sequence:str, end_string_sequence:str, color: str = "red"):
@@ -170,8 +184,8 @@ def parse_cli_args():
                         help="""Enables autonomous command execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
 Add a custom integer to change this delay.""", metavar="DELAY")
-    parser.add_argument("-e", "--experimental", action="store_true",
-                        help="Experimental")
+    parser.add_argument("-e", "--edit", type=str,
+                        help="Edits the file at the specified path.")
 
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -209,6 +223,45 @@ def main():
     
     if args.c:
         context_chat = Chat.load_from_json()
+        
+    if args.edit:
+        with open(args.edit, 'r') as file:
+            file_contents = file.read()
+        fileending = args.edit.split('.')[-1]
+        print(colored(f"Editing file: {args.edit}\n" + "# " * 10, 'green'))
+        if (len(file_contents)>16000):
+            while True:
+                user_input = input(colored("The file is very large, where should we focus on? (1.Top 2.Middle 3.Bottom) ", 'yellow'))
+                if user_input == "1":
+                    file_contents = file_contents[:10000] + "..."
+                    break
+                elif user_input == "2":
+                    file_contents = "..." + file_contents[3000:13000] + "..."
+                    break
+                elif user_input == "3":
+                    file_contents = "..." + file_contents[-10000:]
+                    break
+                else:
+                    print(colored("Invalid input, please try again.", "red"))
+                
+            
+        
+        while True:
+            next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            if "in full" not in next_prompt:
+                next_prompt = f"I'd like to edit the file {args.edit}. Please make the following changes and provide the updated script in full:\n'''{next_prompt}\n'''"
+            response = session.generate_completion(f"{next_prompt}\n\n'''{fileending}\n{file_contents}\n'''", "gpt-4o", stream=True)
+            snippet = extract_single_snippet(response)
+            if (len(snippet) == 0):
+                print(colored("No commands found in response, please try again.", "red"))
+                continue
+            
+            user_input = input(colored("Copy snippet to clipboard? (Y/n) ", 'yellow'))
+            if user_input.lower() == "y" or user_input == "":
+                pyperclip.copy(snippet)
+                print(colored("Snippet copied to clipboard.", 'green'))
+            
+        
 
     prompt_context_augmentation: str = ""
     alt_llm = None
@@ -284,14 +337,14 @@ def main():
             next_prompt = next_prompt[:-3]
             sliced_chat = context_chat[-3,-2]
             sliced_chat.save_to_json("saved_few_shots.json", True)
-            print(colored(f"# cli-agent: KeyBinding detected: Saved most recent prompt->response pair, type (--h) for info", "green"))
+            print(colored(f"# cli-agent: KeyBinding detected: Append most recent prompt->response pair to saved_chat for use with --saved_chat, type (--h) for info", "green"))
             continue
         
         if next_prompt.endswith("--so"):
             next_prompt = next_prompt[:-3]
             assert isinstance(context_chat, Chat) # does not fix the blue squiggly line but can't hurt
             context_chat.save_to_json("saved_few_shots.json", False)
-            print(colored(f"# cli-agent: KeyBinding detected: Wrote chat to saved prompt->response pairs, type (--h) for info", "green"))
+            print(colored(f"# cli-agent: KeyBinding detected: Saved chat for use with --saved_chat, type (--h) for info", "green"))
             continue
         
         if next_prompt.endswith("--o"):
@@ -300,12 +353,12 @@ def main():
             print(colored(f"# cli-agent: KeyBinding detected: Optimizer mode toggled {args.optimize}, type (--h) for info", "green"))
             continue
         
-        if next_prompt.endswith("--e"):
-            next_prompt = next_prompt[:-3]
-            args.experimental = not args.experimental
-            context_chat = None
-            print(colored(f"# cli-agent: KeyBinding detected: Experimental mode toggled {args.experimental}, type (--h) for info", "green"))
-            continue
+        # if next_prompt.endswith("--saved_chat"):
+        #     next_prompt = next_prompt[:-3]
+        #     args.saved_chat = not args.saved_chat
+        #     context_chat = None
+        #     print(colored(f"# cli-agent: KeyBinding detected: Saved_chat mode toggled {args.saved_chat}, type (--h) for info", "green"))
+        #     continue
         
         if next_prompt.endswith("--h"):
             next_prompt = next_prompt[:-3]
@@ -319,9 +372,8 @@ def main():
 # cli-agent: --f: Gather understanding of the search string given the working directory as context.
 # cli-agent: --a: Toggles autonomous command execution.
 # cli-agent: --s: Saves the most recent prompt->response pair.
-# cli-agent: --so: Overwrite the saved prompt->response pairs with this chat.
+# cli-agent: --so: Save the current chat for use with --saved_chat.
 # cli-agent: --o: Toggles llm optimizer.
-# cli-agent: --e: Toggles experimental mode.
 # cli-agent: --h: Shows this help message.
 # cli-agent: Type 'quit' to exit the program.
 """))
@@ -346,7 +398,7 @@ def main():
             llm_response = session.generate_completion(context_chat, args.llm, local=args.local, stream=True)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            if (args.experimental):
+            if (args.saved_chat):
                 llm_response, context_chat = FewShotProvider.few_shot_CmdAgentExperimental(next_prompt, args.llm, local=args.local, optimize=args.optimize, stream=True)
             else:
                 llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, optimize=args.optimize, stream=True)

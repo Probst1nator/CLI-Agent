@@ -296,7 +296,7 @@ class OllamaClient(metaclass=SingletonMeta):
         #! GROQ - END
 
         #! Anthropic - START
-        if not local and not force_free: # "claude" in model.lower() and 
+        if ("claude" in model.lower() or len(model)==0) and not local and not force_free: # 
             cached_completion = self._get_cached_completion(
                 model, str(temperature), prompt, []
             )

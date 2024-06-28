@@ -13,3 +13,4 @@ openai
 pyperclip
 anthropic
 python3-tk
+tiktoken
