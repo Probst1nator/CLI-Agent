@@ -249,9 +249,11 @@ def main():
             
         
         while True:
-            next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            next_prompt = ""
+            if not args.auto:
+                next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
             if "" == next_prompt:
-                next_prompt = "Add documentation comments to the following code and provide it in full:"
+                next_prompt = "Add documentation comments to the following code and provide it in full, if comments already exist do not remove them only rephrase them if sensible, take care not to modify the code itself at ALL:"
             if "in full" not in next_prompt:
                 next_prompt = f"Please make these changes to the below code and provide it in full:\n{next_prompt}"
             
@@ -265,6 +267,8 @@ def main():
             # if user_input.lower() == "y" or user_input == "":
             pyperclip.copy(snippet)
             print(colored("Snippet copied to clipboard.", 'green'))
+            if args.auto:
+                exit(0)
             
         
 
