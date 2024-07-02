@@ -16,6 +16,8 @@ from interface.cls_ollama_client import OllamaClient
 from interface.cls_web_scraper import WebScraper
 from tooling import fetch_search_results, select_and_execute_commands, ScreenCapture, gather_intel
 import pyperclip
+import tiktoken
+
 
 # def setup_sandbox():
 #     sandbox_dir = "./sandbox/"
@@ -181,11 +183,13 @@ def parse_cli_args():
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-a", "--auto", nargs='?', const=10, default=None, type=int,
-                        help="""Enables autonomous command execution without user confirmation. 
+                        help="""Enables autonomous execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
 Add a custom integer to change this delay.""", metavar="DELAY")
     parser.add_argument("-e", "--edit", type=str,
                         help="Edits the file at the specified path.")
+    parser.add_argument("-fp", "--fixpy", type=str,
+                        help="Executes the Python file at the specified path and iterates if an error occurs. [NOT IMPLEMENTED]")
     parser.add_argument("-sc", "--saved_chat", type=str,
                         help="Uses the saved_chat as few_shot_prompt.")
 
@@ -201,6 +205,12 @@ Add a custom integer to change this delay.""", metavar="DELAY")
         exit(1)
 
     return args
+
+
+def count_tokens(string: str, encoding_name: str = "cl100k_base") -> int:
+    encoding = tiktoken.get_encoding(encoding_name)
+    num_tokens = len(encoding.encode(string))
+    return num_tokens
 
 def main():
     load_dotenv()
@@ -227,38 +237,66 @@ def main():
         context_chat = Chat.load_from_json()
         
     if args.edit:
-        with open(args.edit, 'r') as file:
-            file_contents = file.read()
-        fileending = args.edit.split('.')[-1]
+        content = ""
+        if os.path.isdir(args.edit):
+            for file in os.listdir(args.edit):
+                file_path = os.path.join(args.edit, file)
+                if os.path.isfile(file_path):
+                    with open(file_path, 'r') as file:
+                        file_content = file.read()
+                        if len(file_content) > 10:
+                            fileending = file_path.split('.')[-1]
+                            content += f"\n'''{fileending}\n{file_content}\n'''"
+        else:
+            with open(args.edit, 'r') as file:
+                content = file.read()
+            fileending = args.edit.split('.')[-1]
+        pyperclip.copy(content)
+        print(colored("Snippet copied to clipboard.", 'green'))
         print(colored(f"Editing file: {args.edit}\n" + "# " * 10, 'green'))
-        if (len(file_contents)>16000):
+        # llm = "claude-3-5-sonnet"
+        #     llm = "mixtral"
+        llm = "gpt-4o"
+        counted_tokens = count_tokens(content)
+        if (counted_tokens>4096):
+            print(colored(f"Counted tokens: {counted_tokens}", "red"))
             while True:
                 user_input = input(colored("The file is very large, where should we focus on? (1.Top 2.Middle 3.Bottom) ", 'yellow'))
                 if user_input == "1":
-                    file_contents = file_contents[:10000] + "..."
+                    content = content[:10000] + "..."
                     break
                 elif user_input == "2":
-                    file_contents = "..." + file_contents[3000:13000] + "..."
+                    content = "..." + content[3000:13000] + "..."
                     break
                 elif user_input == "3":
-                    file_contents = "..." + file_contents[-10000:]
+                    content = "..." + content[-10000:]
                     break
                 else:
                     print(colored("Invalid input, please try again.", "red"))
-                
-            
-        
+
+
+
         while True:
             next_prompt = ""
             if not args.auto:
                 next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            args.auto = False
             if "" == next_prompt:
-                next_prompt = "Add documentation comments to the following code and provide it in full, if comments already exist do not remove them only rephrase them if sensible, take care not to modify the code itself at ALL:"
+                next_prompt = "Add xml doc comments to the below code and provide it in full. All already present comments must be included exactly as they are or, if necessary, merged into refactored versions. You *must* not modify the code itself at ALL. Focus on xml docs for classes and methods:"
             if "in full" not in next_prompt:
                 next_prompt = f"Please make these changes to the below code and provide it in full:\n{next_prompt}"
-            
-            response = session.generate_completion(f"{next_prompt}\n\n'''{fileending}\n{file_contents}\n'''", "gpt-4o", stream=True)
+            if os.path.isdir(args.edit):
+                response = session.generate_completion(f"{next_prompt}\n\n{content}", llm, stream=True)
+            else:
+                response = session.generate_completion(f"{next_prompt}\n\n```{fileending}\n{content}\n```", llm, stream=True)
             snippet = extract_single_snippet(response)
+            if ("..." in snippet and "mixtral" == llm):
+                chat = Chat()
+                chat.add_message(Role.USER, next_prompt)
+                chat.add_message(Role.ASSISTANT, response)
+                chat.add_message(Role.USER, f"Sorry, your response *must* contain the code in full, please try again and provide it without *any* truncation.\n{next_prompt}")
+                response = session.generate_completion(chat, llm, stream=True)
+                snippet = extract_single_snippet(response)
             if (len(snippet) == 0):
                 print(colored("No commands found in response, please try again.", "red"))
                 continue
@@ -267,8 +305,8 @@ def main():
             # if user_input.lower() == "y" or user_input == "":
             pyperclip.copy(snippet)
             print(colored("Snippet copied to clipboard.", 'green'))
-            if args.auto:
-                exit(0)
+            # if args.auto:
+            #     exit(0)
             
         
 
@@ -327,6 +365,13 @@ def main():
             next_prompt = next_prompt[:-3]
             args.local = not args.local
             print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, type (--h) for info", "green"))
+            continue
+        
+        if next_prompt.startswith("--llm"):
+            next_prompt = next_prompt.replace("--llm ", "")
+            args.llm = next_prompt
+            next_prompt = ""
+            print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
             continue
         
         if next_prompt.startswith("--f"):
