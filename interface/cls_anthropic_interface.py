@@ -40,7 +40,7 @@ class AnthropicChat:
     
             with client.messages.stream(
                 model=model,
-                max_tokens=1024,
+                max_tokens=4096, # sadly this is currently the maximum allowed
                 system=system_message,
                 messages=l_chat.to_groq_format(),
                 temperature=temperature,

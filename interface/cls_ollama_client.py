@@ -39,66 +39,9 @@ def reduce_image_resolution(base64_string: str, reduction_factor: float = 1 / 3)
     img_resized.save(buffered, format=img.format)
     return base64.b64encode(buffered.getvalue()).decode()
 
-
-# Configurations
-BASE_URL = "http://localhost:11434/api"
-# TIMEOUT = 240  # Timeout for API requests in seconds
-OLLAMA_CONTAINER_NAME = "ollama"  # Name of the Ollama Docker container
-OLLAMA_START_COMMAND = [
-    "sudo",
-    "docker",
-    "run",
-    "-d",
-    "--cpus=22",
-    "--gpus=all",
-    "-v",
-    "ollama:/root/.ollama",
-    "-p",
-    "11434:11434",
-    "--name",
-    OLLAMA_CONTAINER_NAME,
-    "ollama/ollama",
-]
-OLLAMA_LIST_MODELS_COMMAND = [
-    "sudo",
-    "docker",
-    "exec",
-    OLLAMA_CONTAINER_NAME,
-    "ollama",
-    "list",
-]
-OLLAMA_DOWNLOAD_MODEL_COMMAND = [
-    "sudo",
-    "docker",
-    "exec",
-    OLLAMA_CONTAINER_NAME,
-    "ollama",
-    "pull",
-]  # model name is added at runtime
-OLLAMA_IS_RUNNING_COMMAND = [
-    "sudo",
-    "docker",
-    "inspect",
-    '--format="{{ .State.Running }}"',
-    OLLAMA_CONTAINER_NAME,
-]
-OLLAMA_CONTAINER_EXISTS_COMMAND = [
-    "sudo",
-    "docker",
-    "ps",
-    "-a",
-    "-q",
-    "--filter",
-    f"name={OLLAMA_CONTAINER_NAME}",
-]
-OLLAMA_CONTAINER_RESTART_COMMAND = ["sudo", "docker", "restart", OLLAMA_CONTAINER_NAME]
-
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
 class SingletonMeta(type):
     _instances: dict = {}
 
@@ -109,83 +52,12 @@ class SingletonMeta(type):
 
 
 class OllamaClient(metaclass=SingletonMeta):
-    def __init__(self, base_url: str = BASE_URL):
-        self.base_url = base_url
+    def __init__(self):
         # self._ensure_container_running()
         user_cli_agent_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
         os.makedirs(user_cli_agent_dir, exist_ok=True)
         self.cache_file_path = f"{user_cli_agent_dir}/ollama_cache.json"
         self.cache = self._load_cache()
-
-    def _ensure_container_running(self):
-        """Ensure that the Ollama Docker container is running."""
-        if self._check_container_exists():
-            if not self._check_container_status():
-                logger.info("Restarting the existing Ollama Docker container...")
-                self._restart_container()
-        else:
-            logger.info("Starting a new Ollama Docker container...")
-            self._start_container()
-
-    def _check_container_status(self):
-        """Check if the Ollama Docker container is running."""
-        try:
-            result = subprocess.run(
-                OLLAMA_IS_RUNNING_COMMAND,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            return result.stdout.strip().strip('"') == "true"
-        except subprocess.CalledProcessError:
-            return False
-
-    def _check_container_exists(self):
-        """Check if a Docker container with the Ollama name exists."""
-        result = subprocess.run(
-            OLLAMA_CONTAINER_EXISTS_COMMAND,
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout.strip() != ""
-
-    def _restart_container(self):
-        """Restart the existing Ollama Docker container."""
-        subprocess.run(OLLAMA_CONTAINER_RESTART_COMMAND, check=True)
-
-    def _start_container(self):
-        """Start the Ollama Docker container."""
-        try:
-            subprocess.run(OLLAMA_START_COMMAND, check=True)
-        except subprocess.CalledProcessError as e:
-            logger.error(
-                "Error starting the Ollama Docker container. Please check the Docker setup."
-            )
-            raise
-
-    def _download_model(self, model_name: str):
-        """Download the specified model if not available."""
-        logger.info(f"Checking if model '{model_name}' is available...")
-        if not self._is_model_available(model_name):
-            logger.info(
-                f"Model '{model_name}' not found. Downloading... This may take a while..."
-            )
-
-            subprocess.run(
-                OLLAMA_DOWNLOAD_MODEL_COMMAND + [model_name],
-                check=True,
-                text=True,
-            )
-            logger.info(f"Model '{model_name}' downloaded.")
-
-    def _is_model_available(self, model_name: str) -> bool:
-        """Check if a specified model is available in the Ollama container."""
-        result = subprocess.run(
-            OLLAMA_LIST_MODELS_COMMAND,
-            capture_output=True,
-            text=True,
-        )
-        return model_name in result.stdout
 
     def _generate_hash(
         self, model: str, temperature: str, prompt: str, images: list[str]
@@ -292,11 +164,11 @@ class OllamaClient(metaclass=SingletonMeta):
                 else:
                     return response
             else: 
-                model = None # Fallback
+                model = "" # Fallback
         #! GROQ - END
 
         #! Anthropic - START
-        if ("claude" in model.lower() or len(model)==0) and not local and not force_free: # 
+        if ("claude" in model or len(model)==0) and not local and not force_free: # 
             cached_completion = self._get_cached_completion(
                 model, str(temperature), prompt, []
             )
@@ -319,7 +191,7 @@ class OllamaClient(metaclass=SingletonMeta):
         #! Anthropic - END
 
         #! OpenAI - START
-        if "gpt" in model.lower() and not local and not force_free:
+        if "gpt" in model and not local and not force_free:
             cached_completion = self._get_cached_completion(
                 model, str(temperature), prompt, []
             )
@@ -338,7 +210,7 @@ class OllamaClient(metaclass=SingletonMeta):
                 else:
                     return response
             else: 
-                model = None # Fallback
+                model = "" # Fallback
         #! OpenAI - END
 
         #! OLLAMA - START
@@ -405,15 +277,32 @@ class OllamaClient(metaclass=SingletonMeta):
                     **kwargs,
                 }
 
-            if not self._is_model_available(model):
-                self._download_model(model)
-
-            response_stream = ollama.chat(
-                model,
-                data["messages"],
-                True,
-                options=ollama.Options(num_thread=self.available_thread_count()),
-            )
+            for env_var in os.environ:
+                if env_var.startswith("OLLAMA_HOST_"):
+                    host = os.getenv(env_var)
+                    print(f"Trying to connect to {host}")
+                    try:
+                        client = ollama.Client(host=f'http://{host}:11434')
+                            
+                        response_stream = client.chat(
+                            model,
+                            data["messages"],
+                            True,
+                        )
+                        if (response_stream):
+                            break
+                        else: # Try to pull and then generate
+                            if (client.pull(model)):
+                                response_stream = client.chat(
+                                    model,
+                                    data["messages"],
+                                    True,
+                                )
+                                if (response_stream):
+                                    break
+                    except Exception as e:
+                        print(e)
+                
 
             # Revised approach to handle streaming JSON responses
             full_response = ""

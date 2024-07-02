@@ -32,7 +32,7 @@ class OpenAIChat:
                 model=model,
                 messages=chat.to_openai_chat(), # type: ignore
                 temperature=temperature,
-                stream=True,
+                stream=True
             )
 
             # Create a generator for the stream

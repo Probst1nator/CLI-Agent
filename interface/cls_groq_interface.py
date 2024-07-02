@@ -1,9 +1,7 @@
 import os
-
 from dotenv import load_dotenv
 from groq import Groq
 from termcolor import colored
-
 from interface.cls_chat import Chat
 from cls_custom_coloring import CustomColoring
 
@@ -21,50 +19,60 @@ class GroqChat:
         :return: A string containing the generated response.
         """
         
-        if ("mixtral" in model):
-            model = "mixtral-8x7b-32768"
-        elif("70b"in model):
-            model = "llama3-70b-8192"
-        elif("llama3" in model):
-            model = "llama3-8b-8192"
-        elif("gemma" in model):
-            model = "gemma-7b-it"
-        
-        try:
-            # Initialize the Groq client with an API key
-            client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=2)
-            if not silent:
-                print("Groq-Api: <" + colored(model,"green") + "> is generating response...")
-            # Create a chat completion with the provided model and messages
-            chat_completion = client.chat.completions.create(messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>")
-            
-            # Create a generator for the stream
-            # generator = client.chat.completions.with_streaming_response.create(stream=True, messages=chat.to_groq_format(), model=model, temperature=temperature)
+        model_mapping = {
+            "70b": "llama3-70b-8192",
+            "llama3": "llama3-8b-8192",
+            "mixtral": "mixtral-8x7b-32768",
+            "gemma": "gemma-7b-it"
+        }
 
-            # Iterate through the stream and print each token
-            full_response = ""
-            token_keeper = CustomColoring()
-            for chunk in chat_completion:
-                token = chunk.choices[0].delta.content
-                if (token):
-                    if not silent:
-                        print(token_keeper.apply_color(token), end="")
-                    full_response += token
-            if not silent:
-                print()
-                
-            # If successful, extract and return the content of the first choice's message
-            return full_response
-            # return chat_completion.choices[0].message.content
-        except Exception as e:
-            print(f"Groq-Api error: {e}")
-            if ("70b" in model):
-                print(colored("Retrying with mixtral-8x7b-32768 model...", "yellow"))
-                return GroqChat.generate_response(chat, model="mixtral-8x7b-32768", temperature=temperature)
-            elif("llama3" in model and "70b" not in model):
-                print(colored("Retrying with llama3-8b-8192 model...", "yellow"))
-                return GroqChat.generate_response(chat, model="llama3-8b-8192", temperature=temperature)
-            elif("gemma" in model):
-                print(colored("Retrying with gemma-7b-it model...", "yellow"))
-                return GroqChat.generate_response(chat, model="gemma-7b-it", temperature=temperature)
-            return None
+        # Determine the initial model based on the mapping
+        for key, mapped_model in model_mapping.items():
+            if key in model:
+                model = mapped_model
+                break
+
+        # Create a list of models to retry, excluding the initial model
+        retry_models = [m for m in model_mapping.values() if m != model]
+        failed_models = set()
+
+        while True:
+            try:
+                # Initialize the Groq client with an API key
+                client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=2)
+                if not silent:
+                    print(f"Groq-Api: <{colored(model, 'green')}> is generating response...")
+
+                # Create a chat completion with the provided model and messages
+                chat_completion = client.chat.completions.create(
+                    messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>"
+                )
+
+                full_response = ""
+                token_keeper = CustomColoring()
+                for chunk in chat_completion:
+                    token = chunk.choices[0].delta.content
+                    if token:
+                        if not silent:
+                            print(token_keeper.apply_color(token), end="")
+                        full_response += token
+                if not silent:
+                    print()
+
+                return full_response
+
+            except Exception as e:
+                print(f"Groq-Api error: {e}")
+                failed_models.add(model)
+
+                if not retry_models:
+                    return None
+
+                # Get the next model to try that hasn't failed yet
+                model = next((m for m in retry_models if m not in failed_models), None)
+                if not model:
+                    return None
+                retry_models.remove(model)
+                print(colored(f"Retrying with {model} model...", "yellow"))
+
+        return None
