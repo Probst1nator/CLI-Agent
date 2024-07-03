@@ -10,7 +10,7 @@
             "justMyCode": true,
             "args": [
                 // "-llm", "phi3"
-                "-i"
+                // "-i"
                 // "-o"
             ]
         },
@@ -22,6 +22,19 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": []
+        },
+        {
+            "name": "Python: cli-agent fix hello world",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                // "-llm", "phi3"
+                // "-i"
+                "-fp", "/home/prob/repos/hello_world_python/main.py"
+            ]
         }
     ]
 }

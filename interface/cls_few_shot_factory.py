@@ -1,6 +1,7 @@
 from typing import List, Tuple
 
 from interface.cls_chat import Chat, Role
+from interface.cls_llm_router import LlmRouter
 from interface.cls_ollama_client import OllamaClient
 from tooling import run_command, select_and_execute_commands
 
@@ -33,7 +34,7 @@ class FewShotProvider:
         chat.add_message(Role.USER, "Tell me the latest developments in artificial intelligence.")
         chat.add_message(Role.ASSISTANT, "latest AI developments")
         chat.add_message(Role.USER, prompt)
-        response: str = self.session.generate_completion(
+        response: str = LlmRouter.generate_completion(
             chat,
             "mixtral",
             temperature=0.6,
@@ -47,9 +48,9 @@ class FewShotProvider:
     def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, temperature:float = 0.7, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
         chat = Chat.load_from_json("saved_few_shots.json")
         if optimize:
-            chat.optimize(self.session, model=model, local=local, kwargs=kwargs)
+            chat.optimize(LlmRouter, model=model, local=local, kwargs=kwargs)
         chat.add_message(Role.USER, userRequest)
-        response: str = self.session.generate_completion(
+        response: str = LlmRouter.generate_completion(
             chat,
             model,
             temperature=temperature,
@@ -304,14 +305,14 @@ The result of 5 + 10 will be displayed in the output.''',
         )
 
         if optimize:
-            chat.optimize(self.session, model=model, local=local, kwargs=kwargs)
+            chat.optimize(LlmRouter, model=model, local=local, kwargs=kwargs)
         
         chat.add_message(
             Role.USER,
             userRequest
         )
         
-        response: str = self.session.generate_completion(
+        response: str = LlmRouter.generate_completion(
             chat,
             model,
             temperature=temperature,
