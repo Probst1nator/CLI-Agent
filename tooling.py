@@ -2,7 +2,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -421,3 +421,27 @@ def gather_intel(search_term: str) -> str:
     intel = session.generate_completion(chat, "mixtral", f"Sure! Baed on our conversation")
     
     return intel
+
+
+def run_python_script(script_path: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Executes a Python script using the provided file path and returns the script's output and any errors.
+
+    Args:
+        script_path (str): The file path of the Python script to execute.
+
+    Returns:
+        Tuple[Optional[str], Optional[str]]: A tuple containing:
+            - The script's output if execution is successful, otherwise None.
+            - The error message if an error occurred, otherwise None.
+    """
+    try:
+        # Run the script and capture the output and errors
+        result = subprocess.run(['python3', script_path], capture_output=True, text=True)
+        # Check if the script executed successfully
+        if result.returncode == 0:
+            return result.stdout, None
+        else:
+            return None, result.stderr
+    except Exception as e:
+        return None, str(e)

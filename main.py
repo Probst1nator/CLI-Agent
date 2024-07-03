@@ -12,9 +12,9 @@ from termcolor import colored
 
 from interface.cls_chat import Chat, Role
 from interface.cls_few_shot_factory import FewShotProvider
-from interface.cls_ollama_client import OllamaClient
+from interface.cls_llm_router import LlmRouter
 from interface.cls_web_scraper import WebScraper
-from tooling import fetch_search_results, select_and_execute_commands, ScreenCapture, gather_intel
+from tooling import run_python_script, select_and_execute_commands, ScreenCapture, gather_intel
 import pyperclip
 import tiktoken
 
@@ -203,6 +203,9 @@ Add a custom integer to change this delay.""", metavar="DELAY")
         # Optionally, you can display help message here
         parser.print_help()
         exit(1)
+    
+    if not args.llm:
+        args.llm = ""
 
     return args
 
@@ -229,73 +232,66 @@ def main():
             args.llm = "gpt-4o"
         
         
-    session = OllamaClient()
-    context_chat = None
+    context_chat = Chat()
     next_prompt = ""
     
     if args.c:
         context_chat = Chat.load_from_json()
         
     if args.edit:
-        content = ""
+        snippets = ""
         if os.path.isdir(args.edit):
             for file in os.listdir(args.edit):
                 file_path = os.path.join(args.edit, file)
                 if os.path.isfile(file_path):
                     with open(file_path, 'r') as file:
-                        file_content = file.read()
-                        if len(file_content) > 10:
+                        py_script = file.read()
+                        if len(py_script) > 10:
                             fileending = file_path.split('.')[-1]
-                            content += f"\n'''{fileending}\n{file_content}\n'''"
+                            snippets += f"\n'''{fileending}\n{py_script}\n'''"
         else:
             with open(args.edit, 'r') as file:
-                content = file.read()
+                py_script = file.read()
             fileending = args.edit.split('.')[-1]
-        pyperclip.copy(content)
+            snippets = f"```{fileending}\n{py_script}\n```"
+        pyperclip.copy(snippets)
         print(colored("Snippet copied to clipboard.", 'green'))
-        print(colored(f"Editing file: {args.edit}\n" + "# " * 10, 'green'))
+        print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
         # llm = "claude-3-5-sonnet"
         #     llm = "mixtral"
         llm = "gpt-4o"
-        counted_tokens = count_tokens(content)
+        counted_tokens = count_tokens(snippets)
         if (counted_tokens>4096):
             print(colored(f"Counted tokens: {counted_tokens}", "red"))
             while True:
-                user_input = input(colored("The file is very large, where should we focus on? (1.Top 2.Middle 3.Bottom) ", 'yellow'))
+                user_input = input(colored("The content is very large, where should we focus on? (1.Top 2.Middle 3.Bottom) ", 'yellow'))
                 if user_input == "1":
-                    content = content[:10000] + "..."
+                    snippets = snippets[:10000] + "..."
                     break
                 elif user_input == "2":
-                    content = "..." + content[3000:13000] + "..."
+                    snippets = "..." + snippets[3000:13000] + "..."
                     break
                 elif user_input == "3":
-                    content = "..." + content[-10000:]
+                    snippets = "..." + snippets[-10000:]
                     break
                 else:
                     print(colored("Invalid input, please try again.", "red"))
 
-
-
         while True:
             next_prompt = ""
-            if not args.auto:
+            if args.auto:
+                next_prompt = "Add xml doc comments to the below code and provide it in full. All already present comments must be included exactly as they are or, if necessary, merged into refactored versions. You *must* not modify the code itself at ALL. Focus on xml docs for classes and methods:"
+            else:
                 next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
             args.auto = False
-            if "" == next_prompt:
-                next_prompt = "Add xml doc comments to the below code and provide it in full. All already present comments must be included exactly as they are or, if necessary, merged into refactored versions. You *must* not modify the code itself at ALL. Focus on xml docs for classes and methods:"
-            if "in full" not in next_prompt:
-                next_prompt = f"Please make these changes to the below code and provide it in full:\n{next_prompt}"
-            if os.path.isdir(args.edit):
-                response = session.generate_completion(f"{next_prompt}\n\n{content}", llm, stream=True)
-            else:
-                response = session.generate_completion(f"{next_prompt}\n\n```{fileending}\n{content}\n```", llm, stream=True)
+            context_chat.add_message(Role.USER, next_prompt)
+            response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", llm, stream=True)
+            context_chat.add_message(Role.ASSISTANT, response)
             snippet = extract_single_snippet(response)
             if ("..." in snippet and "mixtral" == llm):
-                chat = Chat()
-                chat.add_message(Role.USER, next_prompt)
-                chat.add_message(Role.ASSISTANT, response)
-                chat.add_message(Role.USER, f"Sorry, your response *must* contain the code in full, please try again and provide it without *any* truncation.\n{next_prompt}")
-                response = session.generate_completion(chat, llm, stream=True)
+                context_chat.add_message(Role.USER, f"Sorry, your response *must* contain the code in full, please try again and provide it without *any* truncation.\n{next_prompt}")
+                response = LlmRouter.generate_completion(context_chat, llm, stream=True)
+                context_chat.add_message(Role.ASSISTANT, response)
                 snippet = extract_single_snippet(response)
             if (len(snippet) == 0):
                 print(colored("No commands found in response, please try again.", "red"))
@@ -307,6 +303,51 @@ def main():
             print(colored("Snippet copied to clipboard.", 'green'))
             # if args.auto:
             #     exit(0)
+            
+    if args.fixpy:
+        latest_script_path = args.fixpy
+        fix_iteration = 0
+        while True:
+            print(colored(f"Executing Python file at: {latest_script_path}\n" + "# " * 10, 'green'))
+            py_script = ""
+            with open(latest_script_path, 'r') as file:
+                py_script = file.read()
+            output, error = run_python_script(latest_script_path)
+            if error:
+                print(colored(f"Error: {error}", 'red'))
+                context_chat.add_message(Role.USER, f"Please analyze the following error step by step and inspect how it can be fixed in the appended script, please do not suggest a fixed implementation instead focus on understanding and explaining the issue step by step.\n'''error\n{error}\n\n'''python\n{py_script}\n'''")
+                bad_llm_route_heuristic = "claude-3-5-sonnet" if len(context_chat.messages[-1][1])>8192 else ""
+                error_analysis = LlmRouter.generate_completion(context_chat, bad_llm_route_heuristic, stream=True)
+                context_chat.add_message(Role.ASSISTANT, error_analysis)
+                context_chat.add_message(Role.USER, "Makes sense! Please provide the fixed script in full.")
+                script_fix = LlmRouter.generate_completion(context_chat, "gpt-4o", stream=True)
+                context_chat.add_message(Role.ASSISTANT, script_fix)
+                fixed_script = extract_single_snippet(script_fix)
+                
+                latest_script_path = args.fixpy.replace(".py", f"_patchV{fix_iteration}.py")
+                with open(latest_script_path, 'w') as file:
+                    file.write(fixed_script)
+                    print(colored(f"Iteration {fix_iteration}: Patched script written to {latest_script_path}", 'yellow'))
+                fix_iteration += 1
+                continue
+            else:
+                print(colored(f"Execution success!\n'''output\n{output}\n'''", 'green'))
+                user_input = input(colored("Do you wish to overwrite the original script with the successfully executed version? (Y/n) ", 'yellow')).lower()
+                if user_input == "y" or user_input == "":
+                    with open(args.fixpy, 'w') as file:
+                        file.write(fixed_script)
+                        print(colored(f"Script overwritten with patched version.", 'green'))
+                user_input = input(colored("Do you wish to remove the other deprecated patched versions? (Y/n) ", 'yellow')).lower()
+                if user_input == "y" or user_input == "":
+                    for i in range(fix_iteration):
+                        os.remove(args.fixpy.replace(".py", f"_patchV{i}.py"))
+                        print(colored(f"Removed deprecated patched version {i}.", 'green'))
+                # user_input = input(colored("Enter your request or press enter to exit: ", 'blue', attrs=["bold"]))
+                # if user_input:
+                #     next_prompt = user_input
+                #     continue
+                # else:
+                exit(0)
             
         
 
@@ -422,7 +463,7 @@ def main():
 # cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --i: Use the most intelligent model (Claude 3.5 Sonnet).
-# cli-agent: --openai: Use GPT4o.
+# cli-agent: --openai: Use gpt-4o.
 # cli-agent: --f: Gather understanding of the search string given the working directory as context.
 # cli-agent: --a: Toggles autonomous command execution.
 # cli-agent: --s: Saves the most recent prompt->response pair.
@@ -447,28 +488,23 @@ def main():
                 "mixtral").split(". ")[1:])
             print(summarization)
         
-        if context_chat:
+        if len(context_chat.messages) > 0:
             context_chat.add_message(Role.USER, next_prompt)
-            llm_response = session.generate_completion(context_chat, args.llm, local=args.local, stream=True)
+            llm_response = LlmRouter.generate_completion(context_chat, args.llm, local=args.local, stream=True)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            if (args.saved_chat):
-                llm_response, context_chat = FewShotProvider.few_shot_CmdAgentExperimental(next_prompt, args.llm, local=args.local, optimize=args.optimize, stream=True)
-            else:
-                llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, optimize=args.optimize, stream=True)
-            # llm_response, context_chat = FewShotProvider.few_shot_FunctionCallingAgent(user_request, args.llm, local=args.local, stream=True)
+            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, optimize=args.optimize, stream=True)
         
         context_chat.save_to_json()
 
-            
         snippets = extract_llm_snippets(llm_response)
         
         if not snippets["bash"]:
             continue  # or other logic to handle non-command responses
         
         if args.auto is None:
-            user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow'))
-            if not (user_input == "" or user_input.lower() == "y"):
+            user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
+            if not (user_input == "" or user_input == "y"):
                 continue
         else:
             try:
