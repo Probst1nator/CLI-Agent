@@ -5,25 +5,27 @@ import os
 from typing import Dict, List, Optional, Set
 
 from termcolor import colored
+import tiktoken
 
 from cls_custom_coloring import CustomColoring
 from interface.cls_chat import Chat, Role
 from enum import Enum
 from interface.cls_anthropic_interface import AnthropicChat
+from interface.cls_chat_client_interface import ChatClientInterface
 from interface.cls_groq_interface import GroqChat
 from interface.cls_ollama_client import OllamaClient
 from interface.cls_openai_interface import OpenAIChat
 
-class LlmProviders(Enum):
-    AnthropicChat = AnthropicChat
-    GroqChat = GroqChat
-    OllamaClient = OllamaClient
-    OpenAIChat = OpenAIChat
+# class LlmProviders(Enum):
+#     AnthropicChat = AnthropicChat
+#     GroqChat = GroqChat
+#     OllamaClient = OllamaClient
+#     OpenAIChat = OpenAIChat
 
 class Llm:
     def __init__(
         self, 
-        provider: LlmProviders, 
+        provider: ChatClientInterface, 
         model_key: str, 
         pricing_in_dollar_per_1M_tokens: Optional[int], 
         available_local: bool, 
@@ -48,14 +50,14 @@ class Llm:
             List[Llm]: A list of Llm instances representing the available models.
         """
         return [
-            Llm(LlmProviders.GroqChat, "llama3-70b-8192", None, False, False, 8192, 6000),
-            Llm(LlmProviders.GroqChat, "llama3-8b-8192", None, False, True, 8192, 30000),
-            Llm(LlmProviders.AnthropicChat, "claude-3-5-sonnet", 9, False, False, 200000, 4096),
-            Llm(LlmProviders.OpenAIChat, "gpt4-o", 10, False, True, 128000, None),
-            Llm(LlmProviders.GroqChat, "mixtral-8x7b-32768", None, False, False, 32768, 5000),
-            Llm(LlmProviders.GroqChat, "gemma-7b-it", None, False, False, 8192, 15000),
-            Llm(LlmProviders.OllamaClient, "phi3", None, False, False, 4096, None),
-            Llm(LlmProviders.OllamaClient, "llava-phi3", None, False, True, 4096, None),
+            Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000),
+            Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000),
+            Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096),
+            Llm(OpenAIChat(), "gpt4-o", 10, False, True, 128000, None),
+            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000),
+            Llm(GroqChat(), "gemma-7b-it", None, False, False, 8192, 15000),
+            Llm(OllamaClient(), "phi3", None, False, False, 4096, None),
+            Llm(OllamaClient(), "llava-phi3", None, False, True, 4096, None),
         ]
 
 class LlmRouter:
@@ -141,12 +143,14 @@ class LlmRouter:
         except Exception as e:
             logging.error(f"Failed to update cache: {e}")
 
-    def route_to_next_model(self, current_model: str, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[str]:
+
+    def get_model(self, model_key: str, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
         Args:
             current_model (str): The current model identifier.
+            chat (chat): The chat which the model will be processing.
             force_local (bool): Whether to force local models only.
             force_free (bool): Whether to force free models only.
             has_vision (bool): Whether to require models with vision capability.
@@ -154,7 +158,9 @@ class LlmRouter:
         Returns:
             Optional[str]: The next model identifier if available, otherwise None.
         """
-        self.failed_models.add(current_model)
+        if model_key not in self.failed_models and model_key:
+            model = next((model for model in self.retry_models if model.model_key == model_key), None)
+            return model
         for model in self.retry_models:
             if model.model_key not in self.failed_models:
                 if force_local and not model.available_local:
@@ -163,14 +169,16 @@ class LlmRouter:
                     continue
                 if has_vision and not model.has_vision:
                     continue
-                return model.model_key
+                if model.context_window < chat.count_tokens():
+                    continue
+                return model
         return None
 
     @classmethod
     def generate_completion(
         cls,
-        prompt: Chat,
-        model: str = "",
+        chat: Chat,
+        model_key: str = "",
         start_response_with: str = "",
         instruction: str = "The highly advanced AI assistant provides thorough responses to the user. It displays a deep understanding and offers expert service in whatever domain the user requires.",
         temperature: float = 0.8,
@@ -187,7 +195,7 @@ class LlmRouter:
         
         Args:
             prompt (Chat): The chat prompt.
-            model (str): Model identifier.
+            model_key (str): Model identifier.
             start_response_with (str): Initial string to start the response with.
             instruction (str): Instruction for the chat.
             temperature (float): Temperature setting for the model.
@@ -203,19 +211,17 @@ class LlmRouter:
             Optional[str]: The generated completion string if successful, otherwise None.
         """
         instance = cls()
-
         tooling = CustomColoring()
 
-        if isinstance(prompt, str):
-            prompt = Chat(instruction).add_message(Role.USER, prompt)
+        if isinstance(chat, str):
+            chat = Chat(instruction).add_message(Role.USER, chat)
         if start_response_with:
-            prompt.add_message(Role.ASSISTANT, start_response_with)
+            chat.add_message(Role.ASSISTANT, start_response_with)
             
-        if not model:
-            model = instance.route_to_next_model(model)
+        model = instance.get_model(model_key, chat)
 
         if not ignore_cache:
-            cached_completion = instance._get_cached_completion(model, str(temperature), prompt, base64_images)
+            cached_completion = instance._get_cached_completion(model_key, str(temperature), chat, base64_images)
             if cached_completion:
                 if not silent:
                     for char in cached_completion:
@@ -225,30 +231,22 @@ class LlmRouter:
 
         while True:
             try:
-                if not force_local and (not model or "llama3" in model or "mixtral" in model or "70b" in model) and "dolphin" not in model:
-                    response = GroqChat.generate_response(prompt, model, temperature, silent)
-                    instance._update_cache(model, str(temperature), prompt, [], response)
+                if base64_images:
+                    response = OllamaClient.generate_response(chat, model_key, temperature, silent, base64_images, **kwargs)
+                    instance._update_cache(model_key, str(temperature), chat, base64_images, response)
+                    return start_response_with + response if include_start_response_str else response
+                else:
+                    response = model.provider.generate_response(chat, model.model_key, temperature, silent)
+                    instance._update_cache(model.model_key, str(temperature), chat, [], response)
                     return start_response_with + response if include_start_response_str else response
 
-                if not force_local and not force_free and ("claude" in model or len(model) == 0):
-                    response = AnthropicChat.generate_response(prompt, model, temperature, silent)
-                    instance._update_cache(model, str(temperature), prompt, [], response)
-                    return start_response_with + response if include_start_response_str else response
-
-                if not force_local and not force_free and "gpt" in model:
-                    response = OpenAIChat.generate_response(prompt, model, temperature, silent)
-                    instance._update_cache(model, str(temperature), prompt, [], response)
-                    return start_response_with + response if include_start_response_str else response
-
-                response = OllamaClient.generate_completion(prompt, model, temperature, silent, base64_images, **kwargs)
-                instance._update_cache(model, str(temperature), prompt, base64_images, response)
-                return start_response_with + response if include_start_response_str else response
 
             except Exception as e:
-                logging.error(f"Error with model {model}: {e}")
-                next_model = instance.route_to_next_model(model, force_local, force_free, bool(base64_images))
+                logging.error(f"Error with model {model_key}: {e}")
+                instance.failed_models.add(model_key)
+                next_model = instance.get_model(model_key, chat, force_local, force_free, bool(base64_images))
                 if not next_model:
                     print(colored(f"All models failed.", "red"))
                     return None
-                print(colored(f"{model} failed, retrying with: {next_model}", "red"))
+                print(colored(f"{model_key} failed, retrying with: {next_model}", "red"))
                 model = next_model

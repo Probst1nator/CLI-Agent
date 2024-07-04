@@ -12,6 +12,8 @@ import pyperclip
 from termcolor import colored
 import time
 
+import tiktoken
+
 from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
 
@@ -380,7 +382,7 @@ def search_files_for_term(search_term: str) -> List[Tuple[str, str]]:
                     print(f"Error reading {file_path}: {e}")
     return result
 
-def gather_intel(search_term: str) -> str:
+def wip_gather_intel(search_term: str) -> str:
     """
     Gather intelligence on a search term by analyzing its occurrences in files.
     
@@ -409,17 +411,17 @@ def gather_intel(search_term: str) -> str:
         fileending = path.split(".")[-1]
         prompt = f"Please infer the likely context of the given file: {path}\n'''{fileending}\”{content}\n'''"
         chat.add_message(Role.USER, prompt)
-        response = session.generate_completion(chat, "llama3-gradient", local=True)
+        response = session.generate_response(chat, "llama3-gradient", local=True)
         chat.add_message(Role.ASSISTANT, response)
         chat.add_message(Role.USER, f"Please explain all ocurrences of '{search_term}' in the file. Work ocurrence by ocurrence and provide a contextual explanation.")
-        response = session.generate_completion(chat, "llama3-gradient", local=True)
+        response = session.generate_response(chat, "llama3-gradient", local=True)
         chat.add_message(Role.ASSISTANT, response)
         chat.messages.pop(-3)
         chat.messages.pop(-3)
 
     chat.add_message(Role.USER, f"Explain '{search_term}' in detail.")
-    intel = session.generate_completion(chat, "mixtral", f"Sure! Baed on our conversation")
-    
+    # intel = session.generate_completion(chat, "mixtral", f"Sure! Based on our conversation")
+    intel = ""
     return intel
 
 

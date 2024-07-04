@@ -1,32 +1,37 @@
 import os
-from dotenv import load_dotenv
+from typing import Optional
 from groq import Groq
 from termcolor import colored
-from interface.cls_chat import Chat
 from cls_custom_coloring import CustomColoring
+from interface.cls_chat import Chat
+import tiktoken
 
-# Load the environment variables from .env file
-load_dotenv()
+from interface.cls_chat_client_interface import ChatClientInterface
 
-class GroqChat:
+class GroqChat(ChatClientInterface):
+    """
+    Implementation of the ChatClientInterface for the Groq API.
+    """
+
     @staticmethod
-    def generate_response(chat: Chat, model: str, temperature: float = 0.7, silent: bool = False) -> str:
+    def generate_response(chat: Chat, model: str, temperature: float = 0.7, silent: bool = False) -> Optional[str]:
         """
-        Generates a response using the Groq API based on the provided model and messages.
+        Generates a response using the Groq API.
 
-        :param chat: The chat object containing messages.
-        :param model: The model string to use for generating the response.
-        :param temperature: The temperature setting for the model.
-        :param silent: Whether to suppress printing output.
-        :return: A string containing the generated response.
+        Args:
+            chat (Chat): The chat object containing messages.
+            model (str): The model identifier.
+            temperature (float): The temperature setting for the model.
+            silent (bool): Whether to suppress print statements.
+
+        Returns:
+            Optional[str]: The generated response, or None if an error occurs.
         """
         try:
-            # Initialize the Groq client with an API key
             client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=2)
             if not silent:
                 print(f"Groq-Api: <{colored(model, 'green')}> is generating response...")
 
-            # Create a chat completion with the provided model and messages
             chat_completion = client.chat.completions.create(
                 messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>"
             )
@@ -47,3 +52,23 @@ class GroqChat:
         except Exception as e:
             print(f"Groq-Api error: {e}")
             return None
+
+    @staticmethod
+    def count_tokens(text: str, model: str) -> int:
+        """
+        Counts the number of tokens in the given text for the specified model.
+
+        Args:
+            text (str): The input text.
+            model (str): The model identifier.
+
+        Returns:
+            int: The number of tokens in the input text.
+        """
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+            tokens = encoding.encode(text)
+            return len(tokens)
+        except Exception as e:
+            print(f"Token counting error: {e}")
+            return 0
