@@ -1,41 +1,48 @@
-import os
+from typing import Optional
 from openai import OpenAI
 from dotenv import load_dotenv
 from termcolor import colored
 from interface.cls_chat import Chat
 from cls_custom_coloring import CustomColoring
 import tiktoken
+import os
 
-# Load the environment variables from .env file
+from interface.cls_chat_client_interface import ChatClientInterface
+
 load_dotenv()
 
-class OpenAIChat:
+class OpenAIChat(ChatClientInterface):
+    """
+    Implementation of the ChatClientInterface for the OpenAI API.
+    """
+
     @staticmethod
-    def generate_response(chat: Chat, model: str = "gpt-4o", temperature: float = 0.7, silent: bool = False) -> str:
+    def generate_response(chat: Chat, model: str = "gpt-4o", temperature: float = 0.7, silent: bool = False) -> Optional[str]:
         """
-        Generates a response using the OpenAI API based on the provided model and messages, with error handling and retries.
+        Generates a response using the OpenAI API.
 
-        :param model: The model string to use for generating the response.
-        :param messages: A list of message dictionaries with 'role' and 'content' keys.
-        :return: A string containing the generated response.
+        Args:
+            chat (Chat): The chat object containing messages.
+            model (str): The model identifier.
+            temperature (float): The temperature setting for the model.
+            silent (bool): Whether to suppress print statements.
+
+        Returns:
+            Optional[str]: The generated response, or None if an error occurs.
         """
-
         try:
-            # Initialize the OpenAI client with an API key
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
             
             if not silent:
                 print("OpenAI API: <" + colored(model, "green") + "> is generating response...")
 
-            # Create a chat completion with the provided model and messages
             stream = client.chat.completions.create(
                 model=model,
-                messages=chat.to_openai_chat(), # type: ignore
+                messages=chat.to_openai_chat(),
                 temperature=temperature,
                 stream=True
             )
 
-            # Create a generator for the stream
             full_response = ""
             token_keeper = CustomColoring()
             for chunk in stream:
@@ -55,11 +62,14 @@ class OpenAIChat:
     @staticmethod
     def count_tokens(text: str, model: str = "gpt-4o") -> int:
         """
-        Counts the tokens in the given text using the specified model's tokenizer.
+        Counts the number of tokens in the given text for the specified model.
 
-        :param text: The text to tokenize.
-        :param model: The model string to use for tokenizing the text.
-        :return: An integer representing the number of tokens.
+        Args:
+            text (str): The input text.
+            model (str): The model identifier.
+
+        Returns:
+            int: The number of tokens in the input text.
         """
         try:
             encoding = tiktoken.encoding_for_model(model)
@@ -67,4 +77,4 @@ class OpenAIChat:
             return len(tokens)
         except Exception as e:
             print(f"Token counting error: {e}")
-            return None
+            return 0

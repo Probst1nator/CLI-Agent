@@ -14,7 +14,7 @@ from interface.cls_chat import Chat, Role
 from interface.cls_few_shot_factory import FewShotProvider
 from interface.cls_llm_router import LlmRouter
 from interface.cls_web_scraper import WebScraper
-from tooling import run_python_script, select_and_execute_commands, ScreenCapture, gather_intel
+from tooling import run_python_script, select_and_execute_commands, ScreenCapture
 import pyperclip
 import tiktoken
 
@@ -210,10 +210,6 @@ Add a custom integer to change this delay.""", metavar="DELAY")
     return args
 
 
-def count_tokens(string: str, encoding_name: str = "cl100k_base") -> int:
-    encoding = tiktoken.get_encoding(encoding_name)
-    num_tokens = len(encoding.encode(string))
-    return num_tokens
 
 def main():
     load_dotenv()
@@ -248,7 +244,7 @@ def main():
                         py_script = file.read()
                         if len(py_script) > 10:
                             fileending = file_path.split('.')[-1]
-                            snippets += f"\n'''{fileending}\n{py_script}\n'''"
+                            snippets += f"\n```{fileending}\n{py_script}\n```"
         else:
             with open(args.edit, 'r') as file:
                 py_script = file.read()
@@ -257,25 +253,6 @@ def main():
         pyperclip.copy(snippets)
         print(colored("Snippet copied to clipboard.", 'green'))
         print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
-        # llm = "claude-3-5-sonnet"
-        #     llm = "mixtral"
-        llm = "gpt-4o"
-        counted_tokens = count_tokens(snippets)
-        if (counted_tokens>4096):
-            print(colored(f"Counted tokens: {counted_tokens}", "red"))
-            while True:
-                user_input = input(colored("The content is very large, where should we focus on? (1.Top 2.Middle 3.Bottom) ", 'yellow'))
-                if user_input == "1":
-                    snippets = snippets[:10000] + "..."
-                    break
-                elif user_input == "2":
-                    snippets = "..." + snippets[3000:13000] + "..."
-                    break
-                elif user_input == "3":
-                    snippets = "..." + snippets[-10000:]
-                    break
-                else:
-                    print(colored("Invalid input, please try again.", "red"))
 
         while True:
             next_prompt = ""
@@ -285,24 +262,19 @@ def main():
                 next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
             args.auto = False
             context_chat.add_message(Role.USER, next_prompt)
-            response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", llm, stream=True)
+            response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", stream=True)
             context_chat.add_message(Role.ASSISTANT, response)
             snippet = extract_single_snippet(response)
-            if ("..." in snippet and "mixtral" == llm):
-                context_chat.add_message(Role.USER, f"Sorry, your response *must* contain the code in full, please try again and provide it without *any* truncation.\n{next_prompt}")
-                response = LlmRouter.generate_completion(context_chat, llm, stream=True)
-                context_chat.add_message(Role.ASSISTANT, response)
-                snippet = extract_single_snippet(response)
+            # if ("..." in snippet and "mixtral" == llm):
+            #     context_chat.add_message(Role.USER, f"Sorry, your response *must* contain the code in full, please try again and provide it without *any* truncation.\n{next_prompt}")
+            #     response = LlmRouter.generate_completion(context_chat, llm, stream=True)
+            #     context_chat.add_message(Role.ASSISTANT, response)
+            #     snippet = extract_single_snippet(response)
             if (len(snippet) == 0):
                 print(colored("No commands found in response, please try again.", "red"))
                 continue
-            
-            # user_input = input(colored("Copy snippet to clipboard? (Y/n) ", 'yellow'))
-            # if user_input.lower() == "y" or user_input == "":
             pyperclip.copy(snippet)
             print(colored("Snippet copied to clipboard.", 'green'))
-            # if args.auto:
-            #     exit(0)
             
     if args.fixpy:
         latest_script_path = args.fixpy
@@ -315,9 +287,8 @@ def main():
             output, error = run_python_script(latest_script_path)
             if error:
                 print(colored(f"Error: {error}", 'red'))
-                context_chat.add_message(Role.USER, f"Please analyze the following error step by step and inspect how it can be fixed in the appended script, please do not suggest a fixed implementation instead focus on understanding and explaining the issue step by step.\n'''error\n{error}\n\n'''python\n{py_script}\n'''")
-                bad_llm_route_heuristic = "claude-3-5-sonnet" if len(context_chat.messages[-1][1])>8192 else ""
-                error_analysis = LlmRouter.generate_completion(context_chat, bad_llm_route_heuristic, stream=True)
+                context_chat.add_message(Role.USER, f"Please analyze the following error step by step and inspect how it can be fixed in the appended script, please do not suggest a fixed implementation instead focus on understanding and explaining the issue step by step.\n```error\n{error}\n\n```python\n{py_script}\n```")
+                error_analysis = LlmRouter.generate_completion(context_chat, stream=True)
                 context_chat.add_message(Role.ASSISTANT, error_analysis)
                 context_chat.add_message(Role.USER, "Makes sense! Please provide the fixed script in full.")
                 script_fix = LlmRouter.generate_completion(context_chat, "gpt-4o", stream=True)
@@ -331,7 +302,7 @@ def main():
                 fix_iteration += 1
                 continue
             else:
-                print(colored(f"Execution success!\n'''output\n{output}\n'''", 'green'))
+                print(colored(f"Execution success!\n```output\n{output}\n```", 'green'))
                 user_input = input(colored("Do you wish to overwrite the original script with the successfully executed version? (Y/n) ", 'yellow')).lower()
                 if user_input == "y" or user_input == "":
                     with open(args.fixpy, 'w') as file:
@@ -416,11 +387,12 @@ def main():
             continue
         
         if next_prompt.startswith("--f"):
-            search_string = input("Please enter your search string: ")
-            next_prompt = next_prompt[:-3]
-            print(colored(f"# cli-agent: KeyBinding detected: Gathering intel please hold...", "green"))
-            next_prompt = f"I'd like to know more about the term {search_string} in the context of this directory. Please use the following summary to explain it to me:"
-            prompt_context_augmentation += gather_intel(search_string)
+            print(colored(f"# cli-agent: KeyBinding detected: Gathering intel: Sorry, not implemented! WIP, type (--h) for info", "yellow"))
+            # search_string = input("Please enter your search string: ")
+            # next_prompt = next_prompt[:-3]
+            # print(colored(f"# cli-agent: KeyBinding detected: Gathering intel please hold...", "green"))
+            # next_prompt = f"I'd like to know more about the term {search_string} in the context of this directory. Please use the following summary to explain it to me:"
+            # prompt_context_augmentation += gather_intel(search_string)
         
         if next_prompt.endswith("--a"):
             next_prompt = next_prompt[:-3]
@@ -475,7 +447,7 @@ def main():
             continue
             
         if prompt_context_augmentation:
-            next_prompt +=  f"\n\n'''\n{prompt_context_augmentation}\n'''" # append contents from previous iteration to the end of the new prompt
+            next_prompt +=  f"\n\n```\n{prompt_context_augmentation}\n```" # append contents from previous iteration to the end of the new prompt
             
         # Assuming FewShotProvider and extract_llm_commands are defined as per the initial setup
         if False:
@@ -484,7 +456,7 @@ def main():
             texts = scraper.search_and_extract_texts(term, 3)
             print(texts)
             summarization = ". ".join(session.generate_completion(
-                f"Summarize the most relevant information accurately and densely:\n'''txt\n{texts}\n'''", 
+                f"Summarize the most relevant information accurately and densely:\n```txt\n{texts}\n```", 
                 "mixtral").split(". ")[1:])
             print(summarization)
         
