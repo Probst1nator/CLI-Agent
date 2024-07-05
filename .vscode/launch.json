@@ -12,6 +12,9 @@
                 // "-llm", "phi3"
                 // "-i"
                 // "-o"
+                // "-a",
+                // "-e",
+                // "/home/prob/repos/software_wip/deeplearning/python_scripts/train_SL_simulationEval.py"
             ]
         },
         {

@@ -19,16 +19,16 @@ class ChatClientInterface(ABC):
         """
         pass
 
-    @abstractmethod
-    def count_tokens(self, text: str, model: str) -> int:
-        """
-        Counts the number of tokens in the given text for the specified model.
+    # @abstractmethod
+    # def count_tokens(self, text: str, model: str) -> int:
+    #     """
+    #     Counts the number of tokens in the given text for the specified model.
 
-        Args:
-            text (str): The input text.
-            model (str): The model identifier.
+    #     Args:
+    #         text (str): The input text.
+    #         model (str): The model identifier.
 
-        Returns:
-            int: The number of tokens in the input text.
-        """
-        pass
+    #     Returns:
+    #         int: The number of tokens in the input text.
+    #     """
+    #     pass

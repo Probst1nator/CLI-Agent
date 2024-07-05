@@ -53,7 +53,7 @@ class Llm:
             Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000),
             Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000),
             Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096),
-            Llm(OpenAIChat(), "gpt4-o", 10, False, True, 128000, None),
+            Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None),
             Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000),
             Llm(GroqChat(), "gemma-7b-it", None, False, False, 8192, 15000),
             Llm(OllamaClient(), "phi3", None, False, False, 4096, None),
@@ -158,9 +158,11 @@ class LlmRouter:
         Returns:
             Optional[str]: The next model identifier if available, otherwise None.
         """
+        print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
         if model_key not in self.failed_models and model_key:
-            model = next((model for model in self.retry_models if model.model_key == model_key), None)
-            return model
+            model = next((model for model in self.retry_models if model.model_key == model_key and model.context_window > chat.count_tokens()), None)
+            if model:
+                return model
         for model in self.retry_models:
             if model.model_key not in self.failed_models:
                 if force_local and not model.available_local:
@@ -217,36 +219,32 @@ class LlmRouter:
             chat = Chat(instruction).add_message(Role.USER, chat)
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)
-            
-        model = instance.get_model(model_key, chat)
-
-        if not ignore_cache:
-            cached_completion = instance._get_cached_completion(model_key, str(temperature), chat, base64_images)
-            if cached_completion:
-                if not silent:
-                    for char in cached_completion:
-                        print(tooling.apply_color(char), end="")
-                    print()
-                return cached_completion
-
+        
         while True:
             try:
+                model = instance.get_model(model_key, chat, force_local, force_free, bool(base64_images))
+                if not model:
+                    print(colored(f"All models failed.", "red"))
+                    return None
+
+                if not ignore_cache:
+                    cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
+                    if cached_completion:
+                        if not silent:
+                            for char in cached_completion:
+                                print(tooling.apply_color(char), end="")
+                            print()
+                        return cached_completion
+
                 if base64_images:
-                    response = OllamaClient.generate_response(chat, model_key, temperature, silent, base64_images, **kwargs)
-                    instance._update_cache(model_key, str(temperature), chat, base64_images, response)
+                    response = OllamaClient.generate_response(chat, model.model_key, temperature, silent, base64_images, **kwargs)
+                    instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
                     return start_response_with + response if include_start_response_str else response
                 else:
                     response = model.provider.generate_response(chat, model.model_key, temperature, silent)
                     instance._update_cache(model.model_key, str(temperature), chat, [], response)
                     return start_response_with + response if include_start_response_str else response
 
-
             except Exception as e:
-                logging.error(f"Error with model {model_key}: {e}")
-                instance.failed_models.add(model_key)
-                next_model = instance.get_model(model_key, chat, force_local, force_free, bool(base64_images))
-                if not next_model:
-                    print(colored(f"All models failed.", "red"))
-                    return None
-                print(colored(f"{model_key} failed, retrying with: {next_model}", "red"))
-                model = next_model
+                logging.error(f"Error with model {model.model_key}: {e}")
+                instance.failed_models.add(model.model_key)

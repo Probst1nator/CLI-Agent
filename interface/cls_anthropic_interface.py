@@ -63,26 +63,20 @@ class AnthropicChat(ChatClientInterface):
                     print()
                 return full_response
         except Exception as e:
-            print(f"Anthropic API error: {e}")
-            traceback.print_exc()
-            return None
+            raise Exception(f"Anthropic API error: {e}")
 
-    @staticmethod
-    def count_tokens(text: str, model: str = "claude-3-5-sonnet-20240620") -> int:
-        """
-        Counts the number of tokens in the given text for the specified model.
+    # @staticmethod
+    # def count_tokens(text: str, model: str = "claude-3-5-sonnet-20240620") -> int:
+    #     """
+    #     Counts the number of tokens in the given text for the specified model.
 
-        Args:
-            text (str): The input text.
-            model (str): The model identifier.
+    #     Args:
+    #         text (str): The input text.
+    #         model (str): The model identifier.
 
-        Returns:
-            int: The number of tokens in the input text.
-        """
-        try:
-            encoding = tiktoken.encoding_for_model(model)
-            tokens = encoding.encode(text)
-            return len(tokens)
-        except Exception as e:
-            print(f"Token counting error: {e}")
-            return 0
+    #     Returns:
+    #         int: The number of tokens in the input text.
+    #     """
+    #     encoding = tiktoken.encoding_for_model(model)
+    #     tokens = encoding.encode(text)
+    #     return len(tokens)
