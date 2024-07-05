@@ -72,16 +72,18 @@ def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
 
     return {"bash": bash_snippets, "other": other_snippets}
 
-def extract_single_snippet(response: str) -> str:
+def extract_single_snippet(response: str, allow_no_end: bool = False) -> str:
     start_index = response.find("```")
     if start_index != -1:
+        start_line_end = response.find("\n", start_index)
         end_index = response.rfind("```")
         if end_index != -1 and end_index > start_index:
             # Find the end of the start line and the start of the end line
-            start_line_end = response.find("\n", start_index)
             end_line_start = response.rfind("\n", start_index, end_index)
             if start_line_end != -1 and end_line_start != -1:
                 return response[start_line_end + 1:end_line_start]
+        elif allow_no_end:
+            return response[start_line_end + 1:]
     return ""
     
 
@@ -257,21 +259,23 @@ def main():
         while True:
             next_prompt = ""
             if args.auto:
-                next_prompt = "Add xml doc comments to the below code and provide it in full. All already present comments must be included exactly as they are or, if necessary, merged into refactored versions. You *must* not modify the code itself at ALL. Focus on xml docs for classes and methods:"
+                next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all already present comments are included exactly as they are or, if necessary, rephrased minimally versions. You *must* not modify the code itself at ALL, provide it in full. Focus on adding xml docs to classes and methods:"
             else:
                 next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
             args.auto = False
             context_chat.add_message(Role.USER, next_prompt)
-            response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", stream=True)
-            context_chat.add_message(Role.ASSISTANT, response)
+            response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", "llama3-70b-8192", stream=True)
             snippet = extract_single_snippet(response)
-            # if ("..." in snippet and "mixtral" == llm):
-            #     context_chat.add_message(Role.USER, f"Sorry, your response *must* contain the code in full, please try again and provide it without *any* truncation.\n{next_prompt}")
-            #     response = LlmRouter.generate_completion(context_chat, llm, stream=True)
-            #     context_chat.add_message(Role.ASSISTANT, response)
+            # if (len(snippet) == 0):
+            #     print(colored("No commands found in response, trying again with gpt-4o.", "red"))
+            #     response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", "gpt-4o", stream=True)
             #     snippet = extract_single_snippet(response)
+            context_chat.add_message(Role.ASSISTANT, response)
             if (len(snippet) == 0):
-                print(colored("No commands found in response, please try again.", "red"))
+                snippet = extract_single_snippet(response, allow_no_end=True)
+                pyperclip.copy(snippet)
+                print(colored("Snippet copied to clipboard.", 'green'))
+                print(colored("Something went wrong, was the snippet too long?", "red"))
                 continue
             pyperclip.copy(snippet)
             print(colored("Snippet copied to clipboard.", 'green'))
