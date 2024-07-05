@@ -39,6 +39,7 @@ class Chat:
             if (len(self.messages)>0):
                 if self.messages[-1][0] == role:
                     self.messages[-1] = (role, self.messages[-1][1] + content)
+                    return self
             self.messages.append((role, content))
         return self
     
