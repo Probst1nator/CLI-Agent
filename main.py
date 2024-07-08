@@ -265,20 +265,17 @@ def main():
             args.auto = False
             context_chat.add_message(Role.USER, next_prompt)
             response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", "llama3-70b-8192", stream=True)
-            snippet = extract_single_snippet(response)
+            snippet = extract_single_snippet(response, allow_no_end=True)
             # if (len(snippet) == 0):
             #     print(colored("No commands found in response, trying again with gpt-4o.", "red"))
             #     response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", "gpt-4o", stream=True)
             #     snippet = extract_single_snippet(response)
             context_chat.add_message(Role.ASSISTANT, response)
-            if (len(snippet) == 0):
-                snippet = extract_single_snippet(response, allow_no_end=True)
+            if (len(snippet) == 1):
                 pyperclip.copy(snippet)
                 print(colored("Snippet copied to clipboard.", 'green'))
-                print(colored("Something went wrong, was the snippet too long?", "red"))
-                continue
-            pyperclip.copy(snippet)
-            print(colored("Snippet copied to clipboard.", 'green'))
+            elif (args.auto):
+                print(colored("Something went wrong, no snippet could be extracted.", "red"))
             
     if args.fixpy:
         latest_script_path = args.fixpy
@@ -289,12 +286,31 @@ def main():
             with open(latest_script_path, 'r') as file:
                 py_script = file.read()
             output, error = run_python_script(latest_script_path)
+            analysis_amalgam = ""
+            user_input_insights = ""
             if error:
                 print(colored(f"Error: {error}", 'red'))
-                context_chat.add_message(Role.USER, f"Please analyze the following error step by step and inspect how it can be fixed in the appended script, please do not suggest a fixed implementation instead focus on understanding and explaining the issue step by step.\n```error\n{error}\n\n```python\n{py_script}\n```")
+                
+                if fix_iteration > 3:
+                    print(colored(f"fixpy summary" + 10 * "# " + f"\n{analysis_amalgam}", 'light_magenta'))
+                    user_input = input(colored(f"3 Unsuccessful iterations, continue? (Y/n).", 'yellow')).lower()
+                    if user_input != "y" and user_input != "":
+                        pyperclip.copy(f"```issue_report\n{analysis_amalgam}\n```\n\n```python\n{fixed_script}\n```")
+                        print(colored(f"A summary of the analysis has been copied to the clipboard.", 'green'))
+                        exit(1)
+                    user_input_insights = input(colored("Do you have any additional insight to enlighten the agent before we continue? (Press enter or type your insights): ", 'yellow'))
+                    fix_iteration = 0
+                
+                if len(context_chat.messages) == 0:
+                    context_chat.add_message(Role.USER, f"Please analyze the following error step by step and inspect how it can be fixed in the appended script, please do not suggest a fixed implementation instead focus on understanding and explaining the issue step by step.\n```error\n{error}\n\n```python\n{py_script}\n```")
+                elif user_input_insights:
+                    context_chat.add_message(Role.USER, f"{user_input_insights}\nAgain, do not suggest a fixed implementation instead for now, solely focus on understanding and explaining the issue step by step.\n```error\n{error}```")
+                else: # default case ()
+                    context_chat.add_message(Role.USER, f"Reflect on your past steps in the light of this new error, what did you miss? Only reflect, combine and infer for now. Do not provide the full reimplementation yet!\n```error\n{error}")
                 error_analysis = LlmRouter.generate_completion(context_chat, stream=True)
                 context_chat.add_message(Role.ASSISTANT, error_analysis)
-                context_chat.add_message(Role.USER, "Makes sense! Please provide the fixed script in full.")
+                analysis_amalgam += f"Analysis {fix_iteration}: {error_analysis}\n"
+                context_chat.add_message(Role.USER, "Seems reasonable. Now, please provide the fixed script in full.")
                 script_fix = LlmRouter.generate_completion(context_chat, "gpt-4o", stream=True)
                 context_chat.add_message(Role.ASSISTANT, script_fix)
                 fixed_script = extract_single_snippet(script_fix)
