@@ -10,7 +10,7 @@
             "justMyCode": true,
             "args": [
                 // "-llm", "phi3"
-                // "-i"
+                "-i"
                 // "-o"
                 // "-a",
                 // "-e",
