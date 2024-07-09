@@ -12,7 +12,7 @@ from termcolor import colored
 
 from interface.cls_chat import Chat, Role
 from interface.cls_few_shot_factory import FewShotProvider
-from interface.cls_llm_router import LlmRouter
+from interface.cls_llm_router import AIStrengths, LlmRouter
 from interface.cls_web_scraper import WebScraper
 from tooling import run_python_script, select_and_execute_commands, ScreenCapture
 import pyperclip
@@ -252,8 +252,6 @@ def main():
                 py_script = file.read()
             fileending = args.edit.split('.')[-1]
             snippets = f"```{fileending}\n{py_script}\n```"
-        pyperclip.copy(snippets)
-        print(colored("Snippet copied to clipboard.", 'green'))
         print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
 
         while True:
@@ -264,14 +262,14 @@ def main():
                 next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
             args.auto = False
             context_chat.add_message(Role.USER, next_prompt)
-            response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", "llama3-70b-8192", stream=True)
+            response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", model_key="gpt-4o", stream=True)
             snippet = extract_single_snippet(response, allow_no_end=True)
             # if (len(snippet) == 0):
             #     print(colored("No commands found in response, trying again with gpt-4o.", "red"))
             #     response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", "gpt-4o", stream=True)
             #     snippet = extract_single_snippet(response)
             context_chat.add_message(Role.ASSISTANT, response)
-            if (len(snippet) == 1):
+            if (len(snippet) > 0):
                 pyperclip.copy(snippet)
                 print(colored("Snippet copied to clipboard.", 'green'))
             elif (args.auto):

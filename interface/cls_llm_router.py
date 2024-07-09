@@ -22,6 +22,11 @@ from interface.cls_openai_interface import OpenAIChat
 #     OllamaClient = OllamaClient
 #     OpenAIChat = OpenAIChat
 
+class AIStrengths(Enum):
+    STRONG = 2
+    MEDIUM = 1
+    WEAK = 0
+
 class Llm:
     def __init__(
         self, 
@@ -31,7 +36,8 @@ class Llm:
         available_local: bool, 
         has_vision: bool, 
         context_window: int, 
-        max_output: Optional[int]
+        max_output: Optional[int],
+        strength: AIStrengths, 
     ):
         self.provider = provider
         self.model_key = model_key
@@ -40,6 +46,7 @@ class Llm:
         self.has_vision = has_vision
         self.context_window = context_window
         self.max_output = max_output
+        self.strength = strength
     
     @classmethod
     def get_available_llms(cls) -> List["Llm"]:
@@ -50,14 +57,14 @@ class Llm:
             List[Llm]: A list of Llm instances representing the available models.
         """
         return [
-            Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000),
-            Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000),
-            Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096),
-            Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None),
-            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000),
-            Llm(GroqChat(), "gemma-7b-it", None, False, False, 8192, 15000),
-            Llm(OllamaClient(), "phi3", None, False, False, 4096, None),
-            Llm(OllamaClient(), "llava-phi3", None, False, True, 4096, None),
+            Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.MEDIUM),
+            Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000, AIStrengths.WEAK),
+            Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),
+            Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None, AIStrengths.STRONG),
+            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.MEDIUM),
+            Llm(GroqChat(), "gemma-7b-it", None, False, False, 8192, 15000, AIStrengths.WEAK),
+            Llm(OllamaClient(), "phi3", None, False, False, 4096, None, AIStrengths.WEAK),
+            Llm(OllamaClient(), "llava-phi3", None, False, True, 4096, None, AIStrengths.WEAK),
         ]
 
 class LlmRouter:
@@ -144,7 +151,7 @@ class LlmRouter:
             logging.error(f"Failed to update cache: {e}")
 
 
-    def get_model(self, model_key: str, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
+    def get_model(self, model_key: str, min_strength: AIStrengths, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
@@ -173,6 +180,9 @@ class LlmRouter:
                     continue
                 if model.context_window < chat.count_tokens():
                     continue
+                if min_strength:
+                    if model.strength.value < min_strength.value:
+                        continue
                 return model
         return None
 
@@ -181,6 +191,7 @@ class LlmRouter:
         cls,
         chat: Chat,
         model_key: str = "",
+        min_strength: AIStrengths = AIStrengths.WEAK,
         start_response_with: str = "",
         instruction: str = "The highly advanced AI assistant provides thorough responses to the user. It displays a deep understanding and offers expert service in whatever domain the user requires.",
         temperature: float = 0.8,
@@ -222,7 +233,7 @@ class LlmRouter:
         
         while True:
             try:
-                model = instance.get_model(model_key, chat, force_local, force_free, bool(base64_images))
+                model = instance.get_model(min_strength=min_strength, model_key=model_key, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
                 if not model:
                     print(colored(f"All models failed.", "red"))
                     return None
