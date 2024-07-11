@@ -27,7 +27,7 @@ class Chat:
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
 
-    def add_message(self, role: Role, content: str) -> "Chat":
+    def add_message(self, role: Role, content: str, create_new_chat: bool = False) -> "Chat":
         """
         Adds a message to the chat.
         
@@ -95,6 +95,28 @@ class Chat:
     #                 chat.add_message(Role.USER, prompt)
     #                 improved_response = LlmRouter.generate_completion(chat, silent=True, model=model, force_free=True, local=local, kwargs=kwargs)
     #                 self.messages[i] = (Role.ASSISTANT, improved_response)
+
+    # def generate_next_message(self, model: str, local: bool) -> Tuple[Role, str]:
+    #     if (self.messages[-1][0] == Role.ASSISTANT):
+    #         chat = Chat("The system continues the conversation by roleplaying as the user. It responds to the assistant's last message.")
+    #         chat.add_message(Role.USER, self.__str__())
+    #         response = LlmRouter.generate_completion(
+    #             chat,
+    #             model,
+    #             local=local,
+    #         )
+    #         msg = (Role.ASSISTANT, response)
+    #         self.add_message(*msg)
+    #     else:
+    #         response = LlmRouter.generate_completion(
+    #             self,
+    #             model,
+    #             local=local,
+    #         )
+    #         msg = (Role.USER, response)
+    #         self.add_message(*msg)
+    #     return msg
+            
                 
     def __getitem__(self, key: Union[int, slice, Tuple[int, ...]]) -> "Chat":
         """
