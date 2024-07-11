@@ -201,17 +201,24 @@ def main():
         while True:
             next_prompt = ""
             if args.auto:
-                next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all already present comments are included exactly as they are or, if necessary, rephrased minimally versions. You *must* not modify the code itself at ALL, provide it in full. Focus on adding xml docs to classes and methods:"
+                next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods:"
             else:
-                next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+                next_prompt = input(colored("(--m for multiline) Enter your code-related request: ", 'blue', attrs=["bold"]))
+                
+                if next_prompt == "--m":
+                    print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
+                    lines = []
+                    while True:
+                        line = input()
+                        if line == "--f":
+                            break
+                        lines.append(line)
+                    next_prompt = "\n".join(lines)
+
             args.auto = False
-            context_chat.add_message(Role.USER, next_prompt)
-            response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", model_key="gpt-4o", stream=True)
+            context_chat.add_message(Role.USER, f"{next_prompt}\n\n{snippets}")
+            response = LlmRouter.generate_completion(context_chat, model_key="gpt-4o", stream=True)
             snippet = extract_single_snippet(response, allow_no_end=True)
-            # if (len(snippet) == 0):
-            #     print(colored("No commands found in response, trying again with gpt-4o.", "red"))
-            #     response = LlmRouter.generate_completion(f"{next_prompt}\n\n{snippets}", "gpt-4o", stream=True)
-            #     snippet = extract_single_snippet(response)
             context_chat.add_message(Role.ASSISTANT, response)
             if (len(snippet) > 0):
                 pyperclip.copy(snippet)
