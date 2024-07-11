@@ -4,7 +4,6 @@ from groq import Groq
 from termcolor import colored
 from cls_custom_coloring import CustomColoring
 from interface.cls_chat import Chat
-import tiktoken
 
 from interface.cls_chat_client_interface import ChatClientInterface
 

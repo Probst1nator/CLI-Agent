@@ -5,7 +5,6 @@ import os
 from typing import Dict, List, Optional, Set
 
 from termcolor import colored
-import tiktoken
 
 from cls_custom_coloring import CustomColoring
 from interface.cls_chat import Chat, Role

@@ -10,9 +10,6 @@ from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import CheckboxList, Frame, Label
 import pyperclip
 from termcolor import colored
-import time
-
-import tiktoken
 
 from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
