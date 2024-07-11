@@ -42,7 +42,33 @@ class FewShotProvider:
         )
 
         return response
+    
 
+    @classmethod
+    def selfSupervised_few_shot(self, userRequest: str, responseInstruction: str, model: str, local:bool = None) -> Tuple[str,Chat]:
+        # returns (response, full_chat)
+        
+        chat: Chat = Chat(responseInstruction)
+        chat.add_message(Role.USER, userRequest)
+        response = chat.generate_next_message(model, local)[1]
+        
+        return (response, chat)
+        
+    @classmethod 
+    def few_shot_YesNo(self, userRequest: str, model: str, local:bool = None) -> Tuple[str,Chat]:
+        chat: Chat = Chat("You are a yes/no classifier. Determine if the answer to the user is either yes or no and respond accordingly.")
+        chat.add_message(Role.USER, "Is 8/7 a natural number?")
+        chat.add_message(Role.ASSISTANT, "no")
+        chat.add_message(Role.USER, "Is the speed of light faster than the speed of sound?")
+        chat.add_message(Role.ASSISTANT, "no")
+        chat.add_message(Role.USER, userRequest)
+        response: str = LlmRouter.generate_completion(
+            chat,
+            model,
+            local=local
+        )
+        chat.add_message(Role.ASSISTANT, response)
+        return response, chat
 
     @classmethod
     def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, temperature:float = 0.7, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
@@ -244,8 +270,8 @@ The result of 5 + 10 will be displayed in the output.''',
             "Absolutely, I'm always here and ready to assist. 😁 If you have more questions or any requests I can take care of, just let me know! I aim to provide clear, concise responses and commands tailored to your needs. Your satisfaction is my top priority! ✨"
         )
 
-        if optimize:
-            chat.optimize(model=model, local=local, kwargs=kwargs)
+        # if optimize:
+        #     chat.optimize(model=model, local=local, kwargs=kwargs)
         
         chat.add_message(
             Role.USER,

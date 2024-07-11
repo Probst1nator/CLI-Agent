@@ -10,11 +10,12 @@
             "justMyCode": true,
             "args": [
                 // "-llm", "phi3"
-                "-i"
+                // "-i"
                 // "-o"
                 // "-a",
-                // "-e",
-                // "/home/prob/repos/software_wip/deeplearning/python_scripts/train_SL_simulationEval.py"
+                "-e",
+                // -a -e /home/prob/repos/CLI-Agent/main.py
+                "/home/prob/repos/software_deepl/deeplearning/python_scripts/2_stage_train.py"
             ]
         },
         {
