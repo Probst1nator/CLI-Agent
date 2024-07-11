@@ -14,61 +14,69 @@ from termcolor import colored
 from interface.cls_chat import Chat, Role
 from interface.cls_ollama_client import OllamaClient
 
-def run_command(command: str, verbose: bool = True, max_output_length:int = 16000) -> Tuple[str,str]:
+terminal_process: subprocess.Popen = None
+
+def run_command(command: str, verbose: bool = True, max_output_length: int = 16000, env: Optional[subprocess.Popen] = None) -> Tuple[str, str, Optional[subprocess.Popen]]:
     """
     Run a shell command and capture its output, truncating if necessary.
-    
     Args:
-        command (str): The shell command to execute.
-        verbose (bool): Whether to print the command and its output.
-        max_output_length (int): Maximum length of the output to return.
-        
+    command (str): The shell command to execute.
+    verbose (bool): Whether to print the command and its output.
+    max_output_length (int): Maximum length of the output to return.
+    env (Optional[subprocess.Popen]): An existing Popen object to use for the command.
     Returns:
-        Tuple[str, str]: A tuple containing the formatted result and raw output.
+    Tuple[str, str, Optional[subprocess.Popen]]: A tuple containing the formatted result, raw output, and the Popen object.
     """
     output_lines = []  # List to accumulate output lines
-
     try:
-        if (verbose):
+        if verbose:
             print(colored(command, 'light_green'))
-        with subprocess.Popen(command, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) as process:
-            if process.stdout is not None:
-                output_string = ""
-                for line in process.stdout:
-                    output_string += line
-                    if verbose:
-                        print(line, end='')  # Print lines as they are received
+        
+        if env is None:
+            process = subprocess.Popen(command, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        else:
+            process = env
+            process.stdin.write(command + '\n')
+            process.stdin.flush()
 
-            # Wait for the process to terminate and capture remaining output, if any
-            remaining_output, error = process.communicate()
+        output_string = ""
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            output_string += line
+            if verbose:
+                print(line, end='')  # Print lines as they are received
 
-            # It's possible, though unlikely, that new output is generated between the last readline and communicate call
-            if remaining_output:
-                output_lines.append(remaining_output)
+        # Wait for the process to terminate and capture remaining output, if any
+        remaining_output, error = process.communicate()
+        # It's possible, though unlikely, that new output is generated between the last readline and communicate call
+        if remaining_output:
+            output_lines.append(remaining_output)
 
-            # Combine all captured output lines into a single string
-            final_output = ''.join(output_lines)
-            
-            if len(final_output) > max_output_length:
-                half_length = max_output_length // 2
-                final_output = final_output[:half_length] + "\n\n...Output truncated due to length.\n\n" + final_output[-half_length:]
+        # Combine all captured output lines into a single string
+        final_output = output_string + ''.join(output_lines)
+        if len(final_output) > max_output_length:
+            half_length = max_output_length // 2
+            final_output = final_output[:half_length] + "\n\n...Output truncated due to length.\n\n" + final_output[-half_length:]
 
-            result = {
-                'output': final_output,
-                'error': error,
-                'exit_code': process.returncode
-            }
-            
-            # Conditional checks on result can be implemented here as needed
-            result_formatted = command
-            if (result["output"]):
-                result_formatted += f"\n{result['output']}"
-            if (result["error"] and result["exit_code"] != 0):
-                result_formatted += f"\n{result['error']}"
-            if (not result["output"] and result["exit_code"] == 0):
-                result_formatted += "\t# Command executed successfully"
+        result = {
+            'output': final_output,
+            'error': error,
+            'exit_code': process.returncode
+        }
 
-            return result_formatted, output_string
+        # Conditional checks on result can be implemented here as needed
+        result_formatted = command
+        if result["output"]:
+            result_formatted += f"\n{result['output']}"
+        if result["error"] and result["exit_code"] != 0:
+            result_formatted += f"\n{result['error']}"
+        if not result["output"] and result["exit_code"] == 0:
+            result_formatted += "\t# Command executed successfully"
+
+        return result_formatted, output_string, process
+
     except subprocess.CalledProcessError as e:
         # If a command fails, this block will be executed
         result = {
@@ -78,12 +86,11 @@ def run_command(command: str, verbose: bool = True, max_output_length:int = 1600
         }
         # Conditional checks on result can be implemented here as needed
         result_formatted = command
-        if (result["output"]):
+        if result["output"]:
             result_formatted += f"\n{result['output']}"
-        if (result["error"]):
+        if result["error"]:
             result_formatted += f"\n{result['error']}"
-
-        return result_formatted, ""
+        return result_formatted, "", env
 
 
 def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose: bool = True) -> Tuple[str,str]:
@@ -98,6 +105,8 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     Returns:
         Tuple[str, str]: Formatted result and execution summarization.
     """
+    global terminal_process
+    
     if not skip_user_confirmation:
         checkbox_list = CheckboxList(
             values=[(cmd, cmd) for i, cmd in enumerate(commands)],
@@ -150,7 +159,7 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     formatted_results: List[str] = []
     for cmd in selected_commands:
         if cmd in commands:
-            result, output = run_command(cmd, verbose)
+            result, output, terminal_process = run_command(cmd, verbose, env=terminal_process)
             results.append(result)
             formatted_results.append(f"```cmd\n{result}\n```\n```cmd_log\n{output}\n```")
     
