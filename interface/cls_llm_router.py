@@ -57,11 +57,11 @@ class Llm:
         """
         return [
             Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.MEDIUM),
+            Llm(GroqChat(), "gemma2-9b-it", None, False, False, 8192, 15000, AIStrengths.MEDIUM),
+            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.MEDIUM),
             Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000, AIStrengths.WEAK),
             Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),
             Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None, AIStrengths.STRONG),
-            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.MEDIUM),
-            Llm(GroqChat(), "gemma-7b-it", None, False, False, 8192, 15000, AIStrengths.WEAK),
             Llm(OllamaClient(), "phi3", None, False, False, 4096, None, AIStrengths.WEAK),
             Llm(OllamaClient(), "llava-phi3", None, False, True, 4096, None, AIStrengths.WEAK),
         ]
