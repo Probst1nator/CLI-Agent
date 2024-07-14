@@ -11,7 +11,7 @@
             "args": [
                 // "-llm", "phi3"
                 // "-i"
-                // "-o"
+                "-o"
                 // "-a",
                 // "-e",
                 // // -a -e /home/prob/repos/CLI-Agent/main.py
