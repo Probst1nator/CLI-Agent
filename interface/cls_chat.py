@@ -392,7 +392,7 @@ class Chat:
         try:
             encoding = tiktoken.get_encoding(encoding_name)
             num_tokens = len(encoding.encode(self.joined_messages()))
-        except:
-            print(colored("Error: tiktoken threw an error.", "red"))
+        except Exception as e:
+            print(colored(f"Error: tiktoken threw an error: {e}", "red"))
             return math.floor(len(self.joined_messages())/4)
         return math.floor(num_tokens*1.05) # 0.05 added as grace heuristic because we're likely using the incorrect embedding

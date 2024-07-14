@@ -43,16 +43,17 @@ class FewShotProvider:
 
         return response
     
+    
 
-    @classmethod
-    def selfSupervised_few_shot(self, userRequest: str, responseInstruction: str, model: str, local:bool = None) -> Tuple[str,Chat]:
-        # returns (response, full_chat)
+    # @classmethod
+    # def selfSupervised_few_shot(self, userRequest: str, responseInstruction: str, model: str, local:bool = None) -> Tuple[str,Chat]:
+    #     # returns (response, full_chat)
         
-        chat: Chat = Chat(responseInstruction)
-        chat.add_message(Role.USER, userRequest)
-        response = chat.generate_next_message(model, local)[1]
+    #     chat: Chat = Chat(responseInstruction)
+    #     chat.add_message(Role.USER, userRequest)
+    #     response = chat.generate_next_message(model, local)[1]
         
-        return (response, chat)
+    #     return (response, chat)
         
     @classmethod 
     def few_shot_YesNo(self, userRequest: str, model: str, local:bool = None) -> Tuple[str,Chat]:
@@ -71,7 +72,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, temperature:float = 0.7, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
+    def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
         chat = Chat.load_from_json("saved_few_shots.json")
         # if optimize:
         #     chat.optimize(model=model, local=local, kwargs=kwargs)
@@ -79,7 +80,6 @@ class FewShotProvider:
         response: str = LlmRouter.generate_completion(
             chat,
             model,
-            temperature=temperature,
             local=local,
             **kwargs
         )
@@ -270,8 +270,8 @@ The result of 5 + 10 will be displayed in the output.''',
             "Absolutely, I'm always here and ready to assist. 😁 If you have more questions or any requests I can take care of, just let me know! I aim to provide clear, concise responses and commands tailored to your needs. Your satisfaction is my top priority! ✨"
         )
 
-        # if optimize:
-        #     chat.optimize(model=model, local=local, kwargs=kwargs)
+        if optimize:
+            userRequest = self.few_shot_rephrase(userRequest, model, local)
         
         chat.add_message(
             Role.USER,
@@ -291,3 +291,40 @@ The result of 5 + 10 will be displayed in the output.''',
             response,
         )
         return response, chat
+    
+    @classmethod
+    def few_shot_rephrase(self, userRequest: str, model: str, local: bool = None) -> str:
+        chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended semantic meaning while enhancing the clarity of the request.")
+        chat.add_message(Role.USER, "Rephrase: 'show me puppies'")
+        chat.add_message(Role.ASSISTANT, "Rephrased version: '...'")
+        chat.add_message(Role.USER, "Rephrased: 'what is the main city of germans?'")
+        chat.add_message(Role.ASSISTANT, "Rephrased version: 'Can you name the captial of germany?'")
+        chat.add_message(Role.USER, "Rephrased: 'whats 4*8'")
+        chat.add_message(Role.ASSISTANT, "Rephrased version: 'Please calculate the product of 4*8'")
+        chat.add_message(Role.USER, userRequest)
+        
+        
+        if not local:
+            if "llama3" in model:
+                model = "llama3-8b-8192"
+            elif "claude" in model:
+                model = "claude-3-haiku"
+            else:
+                model = "gemma2-9b-it"
+        
+        response: str = LlmRouter.generate_completion(
+            chat,
+            model,
+            local=local,
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            response,
+        )
+        
+        response = response.removeprefix("Rephrased version: '")
+        response = response.removesuffix("'")
+        
+        return response
+        
