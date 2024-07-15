@@ -87,7 +87,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, model: str, temperature:float = 0.7, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
+    def few_shot_CmdAgent(self, userRequest: str, model: str, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
         chat: Chat = Chat(
             # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
             # f"The autonomous CLI assistant for Ubuntu, autonomously fulfills user requests using it's hosts command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
@@ -270,7 +270,8 @@ The result of 5 + 10 will be displayed in the output.''',
             "Absolutely, I'm always here and ready to assist. 😁 If you have more questions or any requests I can take care of, just let me know! I aim to provide clear, concise responses and commands tailored to your needs. Your satisfaction is my top priority! ✨"
         )
 
-        if optimize:
+        # if optimize:
+        if True:
             userRequest = self.few_shot_rephrase(userRequest, model, local)
         
         chat.add_message(
@@ -281,7 +282,7 @@ The result of 5 + 10 will be displayed in the output.''',
         response: str = LlmRouter.generate_completion(
             chat,
             model,
-            temperature=temperature,
+            temperature=0,
             local=local,
             **kwargs
         )
@@ -308,7 +309,9 @@ The result of 5 + 10 will be displayed in the output.''',
             if "llama3" in model:
                 model = "llama3-8b-8192"
             elif "claude" in model:
-                model = "claude-3-haiku"
+                model = "claude-3-haiku-20240307"
+            elif "gpt" in model:
+                model = "gpt-4o"
             else:
                 model = "gemma2-9b-it"
         
@@ -316,6 +319,7 @@ The result of 5 + 10 will be displayed in the output.''',
             chat,
             model,
             local=local,
+            temperature=0
         )
         
         chat.add_message(
