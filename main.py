@@ -431,10 +431,10 @@ def main():
         
         if len(context_chat.messages) > 0:
             context_chat.add_message(Role.USER, next_prompt)
-            llm_response = LlmRouter.generate_completion(context_chat, args.llm, local=args.local, stream=True)
+            llm_response = LlmRouter.generate_completion(context_chat, args.llm, force_local=args.local, stream=True)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, local=args.local, optimize=args.optimize, stream=True)
+            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, force_local=args.local, optimize=args.optimize, stream=True)
         
         context_chat.save_to_json()
 
