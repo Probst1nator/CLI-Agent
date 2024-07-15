@@ -85,7 +85,7 @@ class Chat:
     #                 chat = Chat("The system examines the request and rates the suggested response, it also provides feedback on how to improve the response.")
     #                 optimization_prompt = f"{optimization_instruction}\n```REQUEST\n{prompt}\n```\n```RESPONSE\n{response}\n```"
     #                 chat.add_message(Role.USER, optimization_prompt)
-    #                 optimization_suggestions = LlmRouter.generate_completion(chat, silent=True, model=model, force_free=True, local=local, kwargs=kwargs)
+    #                 optimization_suggestions = LlmRouter.generate_completion(chat, silent=True, model=model, force_free=True, force_local=local, kwargs=kwargs)
     #                 chat.add_message(Role.ASSISTANT, optimization_suggestions)
                     
     #                 chat.messages[0] = (Role.SYSTEM, "The system incorporates the suggestions and provides a improved response.")
@@ -93,7 +93,7 @@ class Chat:
     #                 chat.add_message(Role.USER, "I am going to repeat the request, please act on the suggestions and provide a enhanced response.")
     #                 chat.add_message(Role.ASSISTANT, "Sure! Please repeat the request and I will provide an improved response.")
     #                 chat.add_message(Role.USER, prompt)
-    #                 improved_response = LlmRouter.generate_completion(chat, silent=True, model=model, force_free=True, local=local, kwargs=kwargs)
+    #                 improved_response = LlmRouter.generate_completion(chat, silent=True, model=model, force_free=True, force_local=local, kwargs=kwargs)
     #                 self.messages[i] = (Role.ASSISTANT, improved_response)
 
     # def generate_next_message(self, model: str, local: bool) -> Tuple[Role, str]:
@@ -103,7 +103,7 @@ class Chat:
     #         response = LlmRouter.generate_completion(
     #             chat,
     #             model,
-    #             local=local,
+    #             force_local=local,
     #         )
     #         msg = (Role.ASSISTANT, response)
     #         self.add_message(*msg)
@@ -111,7 +111,7 @@ class Chat:
     #         response = LlmRouter.generate_completion(
     #             self,
     #             model,
-    #             local=local,
+    #             force_local=local,
     #         )
     #         msg = (Role.USER, response)
     #         self.add_message(*msg)

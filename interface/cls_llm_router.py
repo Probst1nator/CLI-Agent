@@ -63,8 +63,8 @@ class Llm:
             Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),
             Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, 200000, 4096, AIStrengths.WEAK),
             Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None, AIStrengths.STRONG),
-            Llm(OllamaClient(), "phi3", None, False, False, 4096, None, AIStrengths.WEAK),
-            Llm(OllamaClient(), "llava-phi3", None, False, True, 4096, None, AIStrengths.WEAK),
+            Llm(OllamaClient(), "phi3", None, True, False, 4096, None, AIStrengths.WEAK),
+            Llm(OllamaClient(), "llava-phi3", None, True, True, 4096, None, AIStrengths.WEAK),
         ]
 
 class LlmRouter:
@@ -172,19 +172,24 @@ class LlmRouter:
                 return model
         for model in self.retry_models:
             if model.model_key not in self.failed_models:
-                if force_local and not model.available_local:
-                    continue
-                if force_free and model.pricing_in_dollar_per_1M_tokens is not None:
-                    continue
-                if has_vision and not model.has_vision:
-                    continue
-                if model.context_window < chat.count_tokens():
-                    continue
-                if min_strength:
-                    if model.strength.value < min_strength.value:
-                        continue
-                return model
+                if self.model_capable_check(model, chat, min_strength, force_local, force_free, has_vision):
+                    return model
         return None
+    
+    def model_capable_check(self, model: Llm, chat: Chat, min_strength: AIStrengths = AIStrengths.WEAK, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> bool:
+        if force_local and not model.available_local:
+            return False
+        if force_free and model.pricing_in_dollar_per_1M_tokens is not None:
+            return False
+        if has_vision and not model.has_vision:
+            return False
+        if model.context_window < chat.count_tokens():
+            return False
+        if min_strength:
+            if model.strength.value < min_strength.value:
+                return False
+        
+        return True
 
     @classmethod
     def generate_completion(
@@ -200,8 +205,7 @@ class LlmRouter:
         ignore_cache: bool = False,
         force_local: Optional[bool] = None,
         force_free: bool = False,
-        silent: bool = False,
-        **kwargs,
+        silent: bool = False
     ) -> Optional[str]:
         """
         Generate a completion response using the appropriate LLM.
@@ -248,7 +252,7 @@ class LlmRouter:
                         return cached_completion
 
                 if base64_images:
-                    response = OllamaClient.generate_response(chat, model.model_key, temperature, silent, base64_images, **kwargs)
+                    response = OllamaClient.generate_response(chat, model.model_key, temperature, silent, base64_images)
                     instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
                     return start_response_with + response if include_start_response_str else response
                 else:

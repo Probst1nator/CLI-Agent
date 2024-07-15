@@ -408,10 +408,10 @@ def wip_gather_intel(search_term: str) -> str:
         fileending = path.split(".")[-1]
         prompt = f"Please infer the likely context of the given file: {path}\n'''{fileending}\”{content}\n'''"
         chat.add_message(Role.USER, prompt)
-        response = session.generate_response(chat, "llama3-gradient", local=True)
+        response = session.generate_response(chat, "llama3-gradient", force_local=True)
         chat.add_message(Role.ASSISTANT, response)
         chat.add_message(Role.USER, f"Please explain all ocurrences of '{search_term}' in the file. Work ocurrence by ocurrence and provide a contextual explanation.")
-        response = session.generate_response(chat, "llama3-gradient", local=True)
+        response = session.generate_response(chat, "llama3-gradient", force_local=True)
         chat.add_message(Role.ASSISTANT, response)
         chat.messages.pop(-3)
         chat.messages.pop(-3)

@@ -66,28 +66,27 @@ class FewShotProvider:
         response: str = LlmRouter.generate_completion(
             chat,
             model,
-            local=local
+            force_local=local
         )
         chat.add_message(Role.ASSISTANT, response)
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
+    def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, local:bool = None, optimize: bool = False) -> Tuple[str,Chat]:
         chat = Chat.load_from_json("saved_few_shots.json")
         # if optimize:
-        #     chat.optimize(model=model, local=local, kwargs=kwargs)
+        #     chat.optimize(model=model, force_local=local, kwargs=kwargs)
         chat.add_message(Role.USER, userRequest)
         response: str = LlmRouter.generate_completion(
             chat,
             model,
-            local=local,
-            **kwargs
+            force_local=local
         )
         chat.add_message(Role.ASSISTANT, response)
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, model: str, local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
+    def few_shot_CmdAgent(self, userRequest: str, model: str, force_local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
         chat: Chat = Chat(
             # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
             # f"The autonomous CLI assistant for Ubuntu, autonomously fulfills user requests using it's hosts command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
@@ -271,8 +270,8 @@ The result of 5 + 10 will be displayed in the output.''',
         )
 
         # if optimize:
-        if True:
-            userRequest = self.few_shot_rephrase(userRequest, model, local)
+        if True and not force_local:
+            userRequest = self.few_shot_rephrase(userRequest, model, force_local)
         
         chat.add_message(
             Role.USER,
@@ -283,8 +282,7 @@ The result of 5 + 10 will be displayed in the output.''',
             chat,
             model,
             temperature=0,
-            local=local,
-            **kwargs
+            force_local=force_local,
         )
         
         chat.add_message(
@@ -294,7 +292,7 @@ The result of 5 + 10 will be displayed in the output.''',
         return response, chat
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, model: str, local: bool = None) -> str:
+    def few_shot_rephrase(self, userRequest: str, model: str, force_local: bool = None) -> str:
         chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended semantic meaning while enhancing the clarity of the request.")
         chat.add_message(Role.USER, "Rephrase: 'show me puppies'")
         chat.add_message(Role.ASSISTANT, "Rephrased version: '...'")
@@ -305,7 +303,7 @@ The result of 5 + 10 will be displayed in the output.''',
         chat.add_message(Role.USER, userRequest)
         
         
-        if not local:
+        if not force_local:
             if "llama3" in model:
                 model = "llama3-8b-8192"
             elif "claude" in model:
@@ -318,7 +316,7 @@ The result of 5 + 10 will be displayed in the output.''',
         response: str = LlmRouter.generate_completion(
             chat,
             model,
-            local=local,
+            force_local=force_local,
             temperature=0
         )
         
