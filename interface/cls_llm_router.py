@@ -61,7 +61,7 @@ class Llm:
             Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.MEDIUM),
             Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000, AIStrengths.WEAK),
             Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),
-            Llm(AnthropicChat(), "claude-3-haiku", 1, False, False, 200000, 4096, AIStrengths.WEAK),
+            Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, 200000, 4096, AIStrengths.WEAK),
             Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "phi3", None, False, False, 4096, None, AIStrengths.WEAK),
             Llm(OllamaClient(), "llava-phi3", None, False, True, 4096, None, AIStrengths.WEAK),
