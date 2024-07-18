@@ -132,8 +132,8 @@ def parse_cli_args():
                         help="""Enables autonomous execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
 Add a custom integer to change this delay.""", metavar="DELAY")
-    parser.add_argument("-e", "--edit", type=str,
-                        help="Edits the file at the specified path.")
+    parser.add_argument("-e", "--edit", type=str, nargs='?', const='', default="",
+                        help="Edits either the file at the specified path, or the contents of the clipboard.")
     parser.add_argument("-fp", "--fixpy", type=str,
                         help="Executes the Python file at the specified path and iterates if an error occurs. [NOT IMPLEMENTED]")
     parser.add_argument("-sc", "--saved_chat", type=str,
@@ -180,7 +180,7 @@ def main():
     if args.c:
         context_chat = Chat.load_from_json()
         
-    if args.edit:
+    if len(args.edit)>0:
         snippets = ""
         if os.path.isdir(args.edit):
             for file in os.listdir(args.edit):
@@ -196,6 +196,11 @@ def main():
                 py_script = file.read()
             fileending = args.edit.split('.')[-1]
             snippets = f"```{fileending}\n{py_script}\n```"
+    elif args.edit: # use clipboard content
+        clipboard_content = pyperclip.paste()
+        if len(clipboard_content) > 10:
+            snippets = f"```code\n{clipboard_content}\n```"
+            
         print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
 
         while True:
@@ -217,7 +222,7 @@ def main():
 
             args.auto = False
             context_chat.add_message(Role.USER, f"{next_prompt}\n\n{snippets}")
-            response = LlmRouter.generate_completion(context_chat, model_key="gpt-4o", stream=True)
+            response = LlmRouter.generate_completion(context_chat, model_key="gpt-4o")
             snippet = extract_single_snippet(response, allow_no_end=True)
             context_chat.add_message(Role.ASSISTANT, response)
             if (len(snippet) > 0):
@@ -256,7 +261,7 @@ def main():
                     context_chat.add_message(Role.USER, f"{user_input_insights}\nAgain, do not suggest a fixed implementation instead for now, solely focus on understanding and explaining the issue step by step.\n```error\n{error}```")
                 else: # default case
                     context_chat.add_message(Role.USER, f"Reflect on your past steps in the light of this new error, what did you miss? Only reflect, combine and infer for now. Do not provide the full reimplementation yet!\n```error\n{error}")
-                error_analysis = LlmRouter.generate_completion(context_chat, stream=True)
+                error_analysis = LlmRouter.generate_completion(context_chat)
                 context_chat.add_message(Role.ASSISTANT, error_analysis)
                 
                 # FewShotProvider.selfSupervised_few_shot("Does the error ocurr in the file at path: '{args.fixpy}'?", "The response must be 'yes' or 'no'.")
@@ -265,7 +270,7 @@ def main():
                 
                 analysis_amalgam += f"Analysis {fix_iteration}: {error_analysis}\n"
                 context_chat.add_message(Role.USER, "Seems reasonable. Now, please provide the fixed script in full.")
-                script_fix = LlmRouter.generate_completion(context_chat, "gpt-4o", stream=True)
+                script_fix = LlmRouter.generate_completion(context_chat, "gpt-4o")
                 context_chat.add_message(Role.ASSISTANT, script_fix)
                 fixed_script = extract_single_snippet(script_fix)
                 
@@ -431,10 +436,10 @@ def main():
         
         if len(context_chat.messages) > 0:
             context_chat.add_message(Role.USER, next_prompt)
-            llm_response = LlmRouter.generate_completion(context_chat, args.llm, force_local=args.local, stream=True)
+            llm_response = LlmRouter.generate_completion(context_chat, args.llm, force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, force_local=args.local, optimize=args.optimize, stream=True)
+            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, force_local=args.local, optimize=args.optimize)
         
         context_chat.save_to_json()
 

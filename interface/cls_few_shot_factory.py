@@ -270,7 +270,7 @@ The result of 5 + 10 will be displayed in the output.''',
         )
 
         # if optimize:
-        if True and not force_local:
+        if True:
             userRequest = self.few_shot_rephrase(userRequest, model, force_local)
         
         chat.add_message(
@@ -293,23 +293,23 @@ The result of 5 + 10 will be displayed in the output.''',
     
     @classmethod
     def few_shot_rephrase(self, userRequest: str, model: str, force_local: bool = None) -> str:
-        chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended semantic meaning while enhancing the clarity of the request.")
+        chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended meaning while enhancing the clarity of the request. It always answers using the same response pattern.")
         chat.add_message(Role.USER, "Rephrase: 'show me puppies'")
-        chat.add_message(Role.ASSISTANT, "Rephrased version: '...'")
-        chat.add_message(Role.USER, "Rephrased: 'what is the main city of germans?'")
-        chat.add_message(Role.ASSISTANT, "Rephrased version: 'Can you name the captial of germany?'")
-        chat.add_message(Role.USER, "Rephrased: 'whats 4*8'")
+        chat.add_message(Role.ASSISTANT, "Rephrased version: 'Show me images of puppies.'")
+        chat.add_message(Role.USER, "Rephrase: 'what is the main city of germans?'")
+        chat.add_message(Role.ASSISTANT, "Rephrased version: 'Can you name the capital of germany?'")
+        chat.add_message(Role.USER, "Rephrase: 'whats 4*8'")
         chat.add_message(Role.ASSISTANT, "Rephrased version: 'Please calculate the product of 4*8'")
-        chat.add_message(Role.USER, userRequest)
+        chat.add_message(Role.USER, f"Rephrase: '{userRequest}'")
         
         
         if not force_local:
-            if "llama3" in model:
+            if "llama3" in model or "" == model:
                 model = "llama3-8b-8192"
             elif "claude" in model:
                 model = "claude-3-haiku-20240307"
             elif "gpt" in model:
-                model = "gpt-4o"
+                model = "gpt-3.5-turbo"
             else:
                 model = "gemma2-9b-it"
         
@@ -317,16 +317,17 @@ The result of 5 + 10 will be displayed in the output.''',
             chat,
             model,
             force_local=force_local,
-            temperature=0
+            temperature=0,
+            silent=True
         )
         
         chat.add_message(
             Role.ASSISTANT,
             response,
         )
-        
-        response = response.removeprefix("Rephrased version: '")
-        response = response.removesuffix("'")
+        response = response[response.index("'")+1:response.rindex("'")]
+        if not response: 
+            response = response[response.index('"')+1:response.rindex('"')]
         
         return response
         
