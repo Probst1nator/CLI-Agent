@@ -196,7 +196,9 @@ def main():
                 py_script = file.read()
             fileending = args.edit.split('.')[-1]
             snippets = f"```{fileending}\n{py_script}\n```"
-    elif args.edit: # use clipboard content
+
+        print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
+    elif args.edit == '': # use clipboard content
         clipboard_content = pyperclip.paste()
         if len(clipboard_content) > 10:
             snippets = f"```code\n{clipboard_content}\n```"
