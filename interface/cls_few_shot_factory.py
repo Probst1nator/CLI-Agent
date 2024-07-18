@@ -309,7 +309,7 @@ The result of 5 + 10 will be displayed in the output.''',
             elif "claude" in model:
                 model = "claude-3-haiku-20240307"
             elif "gpt" in model:
-                model = "gpt-3.5-turbo"
+                model = "gpt-4o-mini"
             else:
                 model = "gemma2-9b-it"
         
