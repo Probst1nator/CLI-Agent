@@ -31,7 +31,7 @@ class Llm:
         self, 
         provider: ChatClientInterface, 
         model_key: str, 
-        pricing_in_dollar_per_1M_tokens: Optional[int], 
+        pricing_in_dollar_per_1M_tokens: Optional[float], 
         available_local: bool, 
         has_vision: bool, 
         context_window: int, 
@@ -58,11 +58,12 @@ class Llm:
         return [
             Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.MEDIUM),
             Llm(GroqChat(), "gemma2-9b-it", None, False, False, 8192, 15000, AIStrengths.MEDIUM),
-            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.MEDIUM),
+            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.WEAK),
             Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000, AIStrengths.WEAK),
             Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),
             Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, 200000, 4096, AIStrengths.WEAK),
             Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None, AIStrengths.STRONG),
+            Llm(OpenAIChat(), "gpt-4o-mini", 0.4, False, True, 128000, None, AIStrengths.MEDIUM),
             Llm(OllamaClient(), "phi3", None, True, False, 4096, None, AIStrengths.WEAK),
             Llm(OllamaClient(), "llava-phi3", None, True, True, 4096, None, AIStrengths.WEAK),
         ]
