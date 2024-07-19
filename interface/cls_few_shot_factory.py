@@ -249,6 +249,34 @@ The result of 5 + 10 will be displayed in the output.''',
             "The command ran successfully the result is '15'. Anything else I can service for you? :)",
         )
         
+#         chat.add_message(
+#             Role.USER,
+#             "Can you show me how much data would be uploaded if i pushed my local branch to origin?"
+#         )
+        
+        
+#         chat.add_message(
+#             Role.ASSISTANT,
+#             """To estimate the size of the data that would be transferred, I'll use the `git` command:
+# ```bash
+# git rev-list --size --objects --filter=blob:none HEAD..origin/<your-branch-name>
+# ```
+# Please tell me `<your-branch-name>` which is the actual name of your local branch."""
+#         )
+        
+#         chat.add_message(
+#             Role.USER,
+#             "TechnicalChallenge24"
+#         )
+        
+#         chat.add_message(
+#             Role.ASSISTANT,
+#             """Thanks! Now here's your command:
+# ```bash
+# git rev-list --size --objects --filter=blob:none main..TechnicalChallenge24
+# ```"""
+#         )
+        
         chat.add_message(
             Role.USER,
             "Yes, i have some more unrelated requests. Can you ensure that any commands you provide are executable non-interactively?"
@@ -266,7 +294,7 @@ The result of 5 + 10 will be displayed in the output.''',
 
         chat.add_message(
             Role.ASSISTANT,
-            "Absolutely, I'm always here and ready to assist. 😁 If you have more questions or any requests I can take care of, just let me know! I aim to provide clear, concise responses and commands tailored to your needs. Your satisfaction is my top priority! ✨"
+            "Absolutely, I'm always here and ready to assist. 😁 If you have more questions or any requests I can take care of, just let me know! I aim to provide clear, concise responses and commands tailored to your needs. Your satisfaction is my only Objective! ✨"
         )
 
         # if optimize:
@@ -292,7 +320,7 @@ The result of 5 + 10 will be displayed in the output.''',
         return response, chat
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, model: str, force_local: bool = None) -> str:
+    def few_shot_rephrase(self, userRequest: str, model: str, force_local: bool = False) -> str:
         chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended meaning while enhancing the clarity of the request. It always answers using the same response pattern.")
         chat.add_message(Role.USER, "Rephrase: 'show me puppies'")
         chat.add_message(Role.ASSISTANT, "Rephrased version: 'Show me images of puppies.'")

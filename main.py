@@ -132,7 +132,7 @@ def parse_cli_args():
                         help="""Enables autonomous execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
 Add a custom integer to change this delay.""", metavar="DELAY")
-    parser.add_argument("-e", "--edit", type=str, nargs='?', const='', default="",
+    parser.add_argument("-e", "--edit", type=str, nargs='?', const='', default=None,
                         help="Edits either the file at the specified path, or the contents of the clipboard.")
     parser.add_argument("-fp", "--fixpy", type=str,
                         help="Executes the Python file at the specified path and iterates if an error occurs. [NOT IMPLEMENTED]")
@@ -180,58 +180,60 @@ def main():
     if args.c:
         context_chat = Chat.load_from_json()
         
-    if len(args.edit)>0:
-        snippets = ""
-        if os.path.isdir(args.edit):
-            for file in os.listdir(args.edit):
-                file_path = os.path.join(args.edit, file)
-                if os.path.isfile(file_path):
-                    with open(file_path, 'r') as file:
-                        py_script = file.read()
-                        if len(py_script) > 10:
-                            fileending = file_path.split('.')[-1]
-                            snippets += f"\n```{fileending}\n{py_script}\n```"
-        else:
-            with open(args.edit, 'r') as file:
-                py_script = file.read()
-            fileending = args.edit.split('.')[-1]
-            snippets = f"```{fileending}\n{py_script}\n```"
-
-        print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
-    elif args.edit == '': # use clipboard content
-        clipboard_content = pyperclip.paste()
-        if len(clipboard_content) > 10:
-            snippets = f"```code\n{clipboard_content}\n```"
-            
-        print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
-
-        while True:
-            next_prompt = ""
-            if args.auto:
-                next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods:"
+    if args.edit != None: # code edit mode
+        if len(args.edit)>0:
+            snippets = ""
+            if os.path.isdir(args.edit):
+                for file in os.listdir(args.edit):
+                    file_path = os.path.join(args.edit, file)
+                    if os.path.isfile(file_path):
+                        with open(file_path, 'r') as file:
+                            py_script = file.read()
+                            if len(py_script) > 10:
+                                fileending = file_path.split('.')[-1]
+                                snippets += f"\n```{fileending}\n{py_script}\n```"
             else:
-                next_prompt = input(colored("(--m for multiline) Enter your code-related request: ", 'blue', attrs=["bold"]))
-                
-                if next_prompt == "--m":
-                    print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
-                    lines = []
-                    while True:
-                        line = input()
-                        if line == "--f":
-                            break
-                        lines.append(line)
-                    next_prompt = "\n".join(lines)
+                with open(args.edit, 'r') as file:
+                    py_script = file.read()
+                fileending = args.edit.split('.')[-1]
+                snippets = f"```{fileending}\n{py_script}\n```"
 
-            args.auto = False
-            context_chat.add_message(Role.USER, f"{next_prompt}\n\n{snippets}")
-            response = LlmRouter.generate_completion(context_chat, model_key="gpt-4o")
-            snippet = extract_single_snippet(response, allow_no_end=True)
-            context_chat.add_message(Role.ASSISTANT, response)
-            if (len(snippet) > 0):
-                pyperclip.copy(snippet)
-                print(colored("Snippet copied to clipboard.", 'green'))
-            elif (args.auto):
-                print(colored("Something went wrong, no snippet could be extracted.", "red"))
+            print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
+        elif args.edit == '': # use clipboard content
+            clipboard_content = pyperclip.paste()
+            if len(clipboard_content) > 10:
+                snippets = f"```code\n{clipboard_content}\n```"
+                
+            print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
+
+            while True:
+                next_prompt = ""
+                if args.auto:
+                    next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods:"
+                else:
+                    next_prompt = input(colored("(--m for multiline) Enter your code-related request: ", 'blue', attrs=["bold"]))
+                    
+                    if next_prompt == "--m":
+                        print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
+                        lines = []
+                        while True:
+                            line = input()
+                            if line == "--f":
+                                break
+                            lines.append(line)
+                        next_prompt = "\n".join(lines)
+
+                args.auto = False
+                next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, "gpt-4o")
+                context_chat.add_message(Role.USER, f"{next_prompt}\n\n{snippets}")
+                response = LlmRouter.generate_completion(context_chat, model_key="gpt-4o")
+                snippet = extract_single_snippet(response, allow_no_end=True)
+                context_chat.add_message(Role.ASSISTANT, response)
+                if (len(snippet) > 0):
+                    pyperclip.copy(snippet)
+                    print(colored("Snippet copied to clipboard.", 'green'))
+                elif (args.auto):
+                    print(colored("Something went wrong, no snippet could be extracted.", "red"))
             
     if args.fixpy:
         latest_script_path = args.fixpy
