@@ -13,7 +13,7 @@
                 // "-i"
                 // "-o"
                 "-a",
-                "-e",
+                // "-e",
                 // "-l"
                 // // -a -e /home/prob/repos/CLI-Agent/main.py
                 // "/home/prob/repos/software_deepl/deeplearning/python_scripts/2_stage_train.py"
