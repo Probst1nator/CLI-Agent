@@ -34,6 +34,7 @@ class GroqChat(ChatClientInterface):
             chat_completion = client.chat.completions.create(
                 messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>"
             )
+            
 
             full_response = ""
             token_keeper = CustomColoring()

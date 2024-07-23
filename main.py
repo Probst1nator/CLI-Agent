@@ -124,7 +124,7 @@ def parse_cli_args():
     #                     help="Enable text-to-speech for agent responses.")
     parser.add_argument("-i", "--intelligent", action="store_true",
                         help="Use most intelligent available model(s) for processing.")
-    parser.add_argument("-o", "--optimize", action="store_true",
+    parser.add_argument("-o", "--optimize", action="store_true", default=True,
                         help="Enable optimizations.")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
@@ -181,30 +181,31 @@ def main():
         context_chat = Chat.load_from_json()
         
     if args.edit != None: # code edit mode
-        if len(args.edit)>0:
-            snippets = ""
-            if os.path.isdir(args.edit):
-                for file in os.listdir(args.edit):
-                    file_path = os.path.join(args.edit, file)
-                    if os.path.isfile(file_path):
-                        with open(file_path, 'r') as file:
-                            py_script = file.read()
-                            if len(py_script) > 10:
-                                fileending = file_path.split('.')[-1]
-                                snippets += f"\n```{fileending}\n{py_script}\n```"
-            else:
-                with open(args.edit, 'r') as file:
-                    py_script = file.read()
-                fileending = args.edit.split('.')[-1]
-                snippets = f"```{fileending}\n{py_script}\n```"
+    #     if len(args.edit)>0:
+    #         snippets = ""
+    #         if os.path.isdir(args.edit):
+    #             for file in os.listdir(args.edit):
+    #                 file_path = os.path.join(args.edit, file)
+    #                 if os.path.isfile(file_path):
+    #                     with open(file_path, 'r') as file:
+    #                         py_script = file.read()
+    #                         if len(py_script) > 10:
+    #                             fileending = file_path.split('.')[-1]
+    #                             snippets += f"\n```{fileending}\n{py_script}\n```"
+    #         else:
+    #             with open(args.edit, 'r') as file:
+    #                 py_script = file.read()
+    #             fileending = args.edit.split('.')[-1]
+    #             snippets = f"```{fileending}\n{py_script}\n```"
 
-            print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
-        elif args.edit == '': # use clipboard content
+            # print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
+        if True: # use clipboard content editing
+        # elif args.edit == '': # use clipboard content editing
             clipboard_content = pyperclip.paste()
             if len(clipboard_content) > 10:
                 snippets = f"```code\n{clipboard_content}\n```"
                 
-            print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
+            # print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
 
             while True:
                 next_prompt = ""

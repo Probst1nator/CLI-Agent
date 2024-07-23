@@ -1,4 +1,5 @@
-from typing import List, Tuple
+import re
+from typing import Any, Dict, List, Tuple
 
 from interface.cls_chat import Chat, Role
 from interface.cls_llm_router import LlmRouter
@@ -19,13 +20,25 @@ from tooling import run_command, select_and_execute_commands
     
     
 class FewShotProvider:
+    """A provider of various few-shot learning-based functionalities."""
     session = OllamaClient()
 
     def __init__(self) -> None:
+        """A static class that should not be instantiated."""
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
     def few_shot_TextToKey(self, prompt: str, **kwargs) -> str:
+        """
+        Generates a keyword based on the given text prompt.
+
+        Args:
+            prompt (str): The user prompt to convert into a keyword.
+            **kwargs: Additional arguments for the text generation.
+
+        Returns:
+            str: The generated keyword.
+        """
         chat: Chat = Chat("You are a text to keyword converting engine. Summarize the user given text into a term fit for google search.")
         chat.add_message(Role.USER, "I would like to know more about search engine optimization.")
         chat.add_message(Role.ASSISTANT, "search engine optimization")
@@ -57,6 +70,17 @@ class FewShotProvider:
         
     @classmethod 
     def few_shot_YesNo(self, userRequest: str, model: str, local:bool = None) -> Tuple[str,Chat]:
+        """
+        Determines whether the answer to the user's question is 'yes' or 'no'.
+
+        Args:
+            userRequest (str): The user's request.
+            model (str): Model to use for generating the response.
+            local (bool, optional): If True, force the use of a local model.
+
+        Returns:
+            Tuple[str, Chat]: The response and the full chat.
+        """
         chat: Chat = Chat("You are a yes/no classifier. Determine if the answer to the user is either yes or no and respond accordingly.")
         chat.add_message(Role.USER, "Is 8/7 a natural number?")
         chat.add_message(Role.ASSISTANT, "no")
@@ -73,6 +97,18 @@ class FewShotProvider:
 
     @classmethod
     def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, local:bool = None, optimize: bool = False) -> Tuple[str,Chat]:
+        """
+        Experimental command agent that provides shell commands based on user input.
+
+        Args:
+            userRequest (str): The user's request.
+            model (str): Model to use for generating the response.
+            local (bool, optional): If True, force the use of a local model.
+            optimize (bool, optional): If True, optimize the chat.
+
+        Returns:
+            Tuple[str, Chat]: The response and the full chat.
+        """
         chat = Chat.load_from_json("saved_few_shots.json")
         # if optimize:
         #     chat.optimize(model=model, force_local=local, kwargs=kwargs)
@@ -87,9 +123,20 @@ class FewShotProvider:
 
     @classmethod
     def few_shot_CmdAgent(self, userRequest: str, model: str, force_local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
+        """
+        Command agent for Ubuntu that provides shell commands based on user input.
+
+        Args:
+            userRequest (str): The user's request.
+            model (str): Model to use for generating the response.
+            force_local (bool, optional): If True, force the use of a local model.
+            optimize (bool, optional): If True, optimize the chat.
+            **kwargs: Additional arguments for the text generation.
+
+        Returns:
+            Tuple[str, Chat]: The response and the full chat.
+        """
         chat: Chat = Chat(
-            # f"You are an Agentic cli-assistant for Ubuntu. Your purpose is to guide yourself towards fulfilling the users request through the singular use of the host specifc commandline. Technical limitations require you to only provide commands which do not require any further user interaction after execution. Simply list the commands you wish to execute and the user will execute them seamlessly."
-            # f"The autonomous CLI assistant for Ubuntu, autonomously fulfills user requests using it's hosts command line. Due to technical constraints, you can only offer commands that run without needing additional input post-execution. Please provide the commands you intend to execute, and they will be carried out by the user without further interaction."
             "Designed for autonomy, this Ubuntu command line interface (CLI) assistant intelligently addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise."
         )
         
@@ -319,8 +366,104 @@ The result of 5 + 10 will be displayed in the output.''',
         )
         return response, chat
     
+    
+    @classmethod
+    def hiddenThoughtSolver(self, userRequest: str) -> str:
+        """
+        Solves a problem by silently creating a chain of reasoning and returning a final solution.
+
+        Args:
+            userRequest (str): The user's request.
+
+        Returns:
+            str: The solution extracted from the reasoning.
+        """
+        chat = Chat("Start your message with <reasoning> and provide a chain of reasoning reflecting on the possible optimizations for the given problem(s) and objective(s), work step by step. End your thoughts with </reasoning>, and then provide your solution using <solution> ... </solution>")
+        chat.add_message(Role.USER, userRequest)
+        response = LlmRouter.generate_completion(chat, "llama3-groq-70b-8192-tool-use-preview")
+        response = response.split("<solution>")[1].split("</solution>")[0]
+        return response
+    
+    
+    @classmethod
+    def addActionsToText(cls, text: str, available_actions: List[str] = ["sound"], force_local: bool = False,) -> Dict[str, Any]:
+        """
+        Adds actions to text using a specified notation.
+
+        Args:
+            text (str): The input text.
+            available_actions (List[str], optional): List of available action types.
+            force_local (bool, optional): If True, force the use of a local model.
+
+        Returns:
+            Dict[str, Any]: The processed text with inserted actions and the actions list.
+        """
+        prompt = f"""
+        Add actions to the following text using this notation: {{action_type:action_value}}
+        Available actions: {', '.join(available_actions)}
+        Actions should be placed sparingly but optimally to evoke a most coherent and natural flow.
+        Example: "The bell made a ding {{sound:ding}} sound."
+        Here's the text to process:
+        {text}
+        """
+        
+        chat = Chat()
+        chat.add_message(Role.USER, prompt)
+        response = LlmRouter.generate_completion(chat, "llama3-groq-70b-8192-tool-use-preview", force_local=force_local)
+        
+        return cls.parse_actions(response)
+
+
+    @staticmethod
+    def parse_actions(text: str) -> Dict[str, Any]:
+        """
+        Parses actions from the text.
+
+        Args:
+            text (str): The text containing actions.
+
+        Returns:
+            Dict[str, Any]: The parsed text and actions.
+        """
+        actions = []
+        new_text = ""
+        word_index = 0
+        
+        pattern = r'\{(\w+):([^}]+)\}'
+        
+        for i, part in enumerate(re.split(pattern, text)):
+            if i % 3 == 0:  # This is regular text
+                new_text += part
+                word_index += len(part.split())
+            elif i % 3 == 1:  # This is the action type
+                action_type = part
+            else:  # This is the action value
+                actions.append({
+                    "type": action_type,
+                    "value": part,
+                    "position": word_index - 1  # -1 because the action occurs before the word
+                })
+        
+        return {
+            "text": new_text,
+            "actions": actions
+        }
+    
+    
+    
     @classmethod
     def few_shot_rephrase(self, userRequest: str, model: str, force_local: bool = False) -> str:
+        """
+        Rephrases the given request to enhance clarity while preserving the intended meaning.
+
+        Args:
+            userRequest (str): The user's request to be rephrased.
+            model (str): Model to use for generating the response.
+            force_local (bool, optional): If True, force the use of a local model.
+
+        Returns:
+            str: The rephrased request.
+        """
         chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended meaning while enhancing the clarity of the request. It always answers using the same response pattern.")
         chat.add_message(Role.USER, "Rephrase: 'show me puppies'")
         chat.add_message(Role.ASSISTANT, "Rephrased version: 'Show me images of puppies.'")
