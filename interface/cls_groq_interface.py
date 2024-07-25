@@ -11,6 +11,7 @@ class GroqChat(ChatClientInterface):
     """
     Implementation of the ChatClientInterface for the Groq API.
     """
+    
 
     @staticmethod
     def generate_response(chat: Chat, model: str, temperature: float = 0.7, silent: bool = False) -> Optional[str]:

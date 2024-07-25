@@ -56,12 +56,15 @@ class Llm:
             List[Llm]: A list of Llm instances representing the available models.
         """
         return [
+            Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, True, 131072, None, AIStrengths.STRONG),
+            Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, True, 131072, 30000, AIStrengths.MEDIUM),
+            Llm(GroqChat(), "llama-3.1-8b-instant", None, False, True, 131072, 30000, AIStrengths.MEDIUM),
             Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.MEDIUM),
-            Llm(GroqChat(), "gemma2-9b-it", None, False, False, 8192, 15000, AIStrengths.MEDIUM),
-            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.WEAK),
             Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000, AIStrengths.WEAK),
             Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, True, 8192, 30000, AIStrengths.MEDIUM),
             Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, True, 8192, 30000, AIStrengths.WEAK),
+            Llm(GroqChat(), "gemma2-9b-it", None, False, False, 8192, 15000, AIStrengths.WEAK),
+            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.WEAK),
             Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),
             Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, 200000, 4096, AIStrengths.WEAK),
             Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None, AIStrengths.STRONG),
