@@ -344,7 +344,14 @@ The result of 5 + 10 will be displayed in the output.''',
             "Absolutely, I'm always here and ready to assist. 😁 If you have more questions or any requests I can take care of, just let me know! I aim to provide clear, concise responses and commands tailored to your needs. Your satisfaction is my only Objective! ✨"
         )
 
-        # if optimize:
+        chat.add_message(
+            Role.USER,
+            "I have a feeling that you could forget to provide only fully non-user-interaction requiring commands? Can you please ensure me that this won't happen?"
+        )
+        
+        chat.add_message(Role.ASSISTANT,
+            "I hereby declare that I shall never suggest commands that require user interaction as long as it is not absolutely necessary! 🛡️")
+
         if True:
             userRequest = self.few_shot_rephrase(userRequest, model, force_local)
         
@@ -501,4 +508,9 @@ The result of 5 + 10 will be displayed in the output.''',
             response = response[response.index('"')+1:response.rindex('"')]
         
         return response
-        
+    
+    
+    # def rephraseChat(self, chat: Chat, model:str, force_local: bool = False) -> Chat:
+    #     for msg in chat.messages:
+    #         msg[0].
+            

@@ -26,6 +26,7 @@ def run_command(command: str, verbose: bool = True, max_output_length:int = 1600
     Returns:
         Tuple[str, str]: A tuple containing the formatted result and raw output.
     """
+    
     output_lines = []  # List to accumulate output lines
 
     try:
