@@ -173,9 +173,10 @@ def main():
     print(args)
     instruction: str = None
     
-    workspace = os.path.dirname(os.path.realpath(sys.argv[0]))
+    workspace = os.getcwd()
     vscode_path = os.path.join(workspace, ".vscode")
     config_path = os.path.join(vscode_path, "cli-agent.json")
+    print(config_path)
     if (os.path.exists(config_path)):
         with open(config_path, 'r') as file:
             config = json.load(file)
