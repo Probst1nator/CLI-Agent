@@ -356,14 +356,14 @@ The result of 5 + 10 will be displayed in the output.''',
 
         chat.add_message(
             Role.USER,
-            "Great! What files and folders are in the current directory?"
+            "Great! Can you show me a tree for all files and folders in current directory up to 3 levels deep?"
         )
         
         chat.add_message(
             Role.ASSISTANT,
-            """To list the files and folders in the current directory, we can use the following command:
+            """To create a tree view of the current directory up to 3 levels deep, we can use the `tree` command:
 ```bash
-ls
+tree -d -L 3 .
 ```"""
         )
         
@@ -374,7 +374,7 @@ ls
         
         chat.add_message(
             Role.USER,
-            select_and_execute_commands(["ls"], True, False)[0] + "\n\n" + userRequest
+            select_and_execute_commands(["tree -d -L 3 ."], True, False)[0] + "\n\n" + userRequest
         )
         
         
