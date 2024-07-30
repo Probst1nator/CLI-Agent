@@ -459,7 +459,7 @@ The result of 5 + 10 will be displayed in the output.''',
     
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, model: str, force_local: bool = False) -> str:
+    def few_shot_rephrase(self, userRequest: str, model: str, force_local: bool = False, silent: bool = True) -> str:
         """
         Rephrases the given request to enhance clarity while preserving the intended meaning.
 
@@ -496,7 +496,7 @@ The result of 5 + 10 will be displayed in the output.''',
             model,
             force_local=force_local,
             temperature=0,
-            silent=True
+            silent=silent
         )
         
         chat.add_message(
