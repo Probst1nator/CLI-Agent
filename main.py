@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -15,6 +16,10 @@ from interface.cls_llm_router import AIStrengths, LlmRouter
 from interface.cls_web_scraper import WebScraper
 from tooling import run_python_script, select_and_execute_commands, ScreenCapture
 import pyperclip
+import json
+from json import dump, load
+from typing import Dict
+import json
 
 
 def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
@@ -134,10 +139,12 @@ def parse_cli_args():
                         help="""Enables autonomous execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
 Add a custom integer to change this delay.""", metavar="DELAY")
-    parser.add_argument("-e", "--edit", type=str, nargs='?', const='', default=None,
+    parser.add_argument("-e", "--edit", type=str, nargs='?', default=None,
                         help="Edits either the file at the specified path, or the contents of the clipboard.")
+    
     parser.add_argument("-fp", "--fixpy", type=str,
-                        help="Executes the Python file at the specified path and iterates if an error occurs. [NOT IMPLEMENTED]")
+                        help="Executes the Python file at the specified path and iterates if an error occurs.")
+    
     parser.add_argument("-sc", "--saved_chat", type=str,
                         help="Uses the saved_chat as few_shot_prompt.")
 
@@ -164,6 +171,22 @@ def main():
     args = parse_cli_args()
     
     print(args)
+    instruction: str = None
+    
+    workspace = os.path.dirname(os.path.realpath(sys.argv[0]))
+    vscode_path = os.path.join(workspace, ".vscode")
+    config_path = os.path.join(vscode_path, "cli-agent.json")
+    if (os.path.exists(config_path)):
+        with open(config_path, 'r') as file:
+            config = json.load(file)
+            instruction = config["instruction"]
+    elif os.path.exists(vscode_path):
+        instruction = "The assistant provides code completion, error analysis, and code fixes. It can also execute commands and provide explanations. You can use the assistant to interact with the terminal, edit code, and more. Type '--h' for help."
+        config = {"instruction": instruction}
+        with open(config_path, 'w') as file:
+            json.dump(config, file, indent="\t")
+    
+    
     
     if not os.getenv('GROQ_API_KEY') and not os.getenv('OPENAI_API_KEY') and not os.getenv('ANTHROPIC_API_KEY'):
         print("No Groq- (free!) or other-Api key was found in the '.env' file. Falling back to Ollama locally...")
@@ -174,35 +197,18 @@ def main():
             args.llm = "claude-3-5-sonnet"
         elif os.getenv('OPENAI_API_KEY'):
             args.llm = "gpt-4o"
-        
-        
-    context_chat = Chat()
+    
+    
+    
+    
+    context_chat = Chat(instruction)
     next_prompt = ""
     
     if args.c:
         context_chat = Chat.load_from_json()
         
     if args.edit != None: # code edit mode
-    #     if len(args.edit)>0:
-    #         snippets = ""
-    #         if os.path.isdir(args.edit):
-    #             for file in os.listdir(args.edit):
-    #                 file_path = os.path.join(args.edit, file)
-    #                 if os.path.isfile(file_path):
-    #                     with open(file_path, 'r') as file:
-    #                         py_script = file.read()
-    #                         if len(py_script) > 10:
-    #                             fileending = file_path.split('.')[-1]
-    #                             snippets += f"\n```{fileending}\n{py_script}\n```"
-    #         else:
-    #             with open(args.edit, 'r') as file:
-    #                 py_script = file.read()
-    #             fileending = args.edit.split('.')[-1]
-    #             snippets = f"```{fileending}\n{py_script}\n```"
-
-            # print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
         if True: # use clipboard content editing
-        # elif args.edit == '': # use clipboard content editing
             clipboard_content = pyperclip.paste()
             if len(clipboard_content) > 10:
                 snippets = f"```code\n{clipboard_content}\n```"
@@ -263,11 +269,11 @@ def main():
                     fix_iteration = 0
                 
                 if len(context_chat.messages) == 0: # first iteration
-                    context_chat.add_message(Role.USER, f"Please analyze the following error step by step and inspect how it can be fixed in the appended script, please do not suggest a fixed implementation instead focus on understanding and explaining the issue step by step.\n```error\n{error}\n\n```python\n{py_script}\n```")
+                    context_chat.add_message(Role.USER, FewShotProvider.few_shot_rephrase(f"Please analyze the following error step by step and inspect how it can be fixed in the appended script, please do not suggest a fixed implementation instead focus on understanding and explaining the issue step by step.") + f"\n```error\n{error}\n\n```python\n{py_script}\n```")
                 elif user_input_insights:
-                    context_chat.add_message(Role.USER, f"{user_input_insights}\nAgain, do not suggest a fixed implementation instead for now, solely focus on understanding and explaining the issue step by step.\n```error\n{error}```")
+                    context_chat.add_message(Role.USER, FewShotProvider.few_shot_rephrase(f"{user_input_insights}\nAgain, do not suggest a fixed implementation instead for now, solely focus on understanding and explaining the issue step by step.") + f"\n```error\n{error}```")
                 else: # default case
-                    context_chat.add_message(Role.USER, f"Reflect on your past steps in the light of this new error, what did you miss? Only reflect, combine and infer for now. Do not provide the full reimplementation yet!\n```error\n{error}")
+                    context_chat.add_message(Role.USER, FewShotProvider.few_shot_rephrase(f"Reflect on your past steps in the light of this new error, what did you miss? Only reflect, combine and infer for now. Do not provide the full reimplementation yet!") + f"\n```error\n{error}")
                 error_analysis = LlmRouter.generate_completion(context_chat)
                 context_chat.add_message(Role.ASSISTANT, error_analysis)
                 
