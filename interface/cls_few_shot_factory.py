@@ -349,16 +349,39 @@ The result of 5 + 10 will be displayed in the output.''',
             "I have a feeling that you could forget to provide only fully non-user-interaction requiring commands? Can you please ensure me that this won't happen?"
         )
         
-        chat.add_message(Role.ASSISTANT,
-            "I hereby declare that I shall never suggest commands that require user interaction as long as it is not absolutely necessary! 🛡️")
+        chat.add_message(
+            Role.ASSISTANT,
+            "I hereby declare that I shall never suggest commands that require user interaction as long as it is not absolutely necessary! 🛡️"
+        )
 
+        chat.add_message(
+            Role.USER,
+            "Great! What files and folders are in the current directory?"
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            """To list the files and folders in the current directory, we can use the following command:
+```bash
+ls
+```"""
+        )
+        
+        
         if True:
             userRequest = self.few_shot_rephrase(userRequest, model, force_local)
         
+        
         chat.add_message(
             Role.USER,
-            userRequest
+            select_and_execute_commands(["ls"], True, False)[0] + "\n\n" + userRequest
         )
+        
+        
+        # chat.add_message(
+        #     Role.USER,
+        #     userRequest
+        # )
         
         response: str = LlmRouter.generate_completion(
             chat,
