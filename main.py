@@ -180,8 +180,9 @@ def main():
         with open(config_path, 'r') as file:
             config = json.load(file)
             instruction = config["instruction"]
-    elif os.path.exists(vscode_path):
-        instruction = "The assistant provides code completion, error analysis, and code fixes. It can also execute commands and provide explanations. You can use the assistant to interact with the terminal, edit code, and more. Type '--h' for help."
+    else:
+        os.makedirs(vscode_path, exist_ok=True)
+        instruction = "The assistant provides code completion, error analysis, and code fixes. It can also execute commands and provide explanations. The assistant interacts with the terminal, edits code, and more. The user can type '--h' for help."
         config = {"instruction": instruction}
         with open(config_path, 'w') as file:
             json.dump(config, file, indent="\t")
