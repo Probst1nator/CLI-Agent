@@ -267,5 +267,6 @@ class LlmRouter:
                     return start_response_with + response if include_start_response_str else response
 
             except Exception as e:
-                logging.error(f"Error with model {model.model_key}: {e}")
+                if not silent:
+                    logging.error(f"Error with model {model.model_key}: {e}")
                 instance.failed_models.add(model.model_key)

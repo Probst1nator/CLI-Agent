@@ -116,6 +116,8 @@ def parse_cli_args():
         description="AI CLI-Agent with backend options and more.",
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
+    parser.add_argument("-m", "--message", type=str,
+                        help="Enter your first message instantly.")
     parser.add_argument("-l", "--local", action="store_true",
                         help="Use the local Ollama backend for language processing.")
     parser.add_argument("-llm", type=str, nargs='?', const='llama3',
@@ -305,8 +307,13 @@ def main():
     alt_llm = None
     
     while True:
-        next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
-        if next_prompt.lower().endswith('quit'):
+        if args.message:
+            next_prompt = args.message
+            args.message = None
+        else:
+            next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+        
+        if next_prompt.lower().endswith('--q'):
             print(colored("Exiting...", "red"))
             break
         

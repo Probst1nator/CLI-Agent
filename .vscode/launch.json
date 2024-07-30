@@ -12,7 +12,7 @@
                 // "-llm", "phi3"
                 // "-i"
                 // "-o"
-                "-a",
+                // "-a",
                 // "-e",
                 // "-l"
                 // // -a -e /home/prob/repos/CLI-Agent/main.py
