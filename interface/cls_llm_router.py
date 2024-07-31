@@ -16,6 +16,16 @@ from interface.cls_groq_interface import GroqChat
 from interface.cls_ollama_client import OllamaClient
 from interface.cls_openai_interface import OpenAIChat
 
+
+workspace = os.getcwd()
+vscode_path = os.path.join(workspace, ".vscode")
+if os.path.exists(vscode_path):
+    log_file_path = os.path.join(vscode_path, 'cli-agent.log')
+else:
+    logs_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs",)
+    log_file_path = os.path.join(logs_path, 'cli-agent.log')
+logging.basicConfig(level=logging.CRITICAL, filename=log_file_path)
+
 # class LlmProviders(Enum):
 #     AnthropicChat = AnthropicChat
 #     GroqChat = GroqChat
@@ -272,6 +282,7 @@ class LlmRouter:
                 model = instance.get_model(min_strength=min_strength, model_key=model_key, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
                 if not model:
                     print(colored(f"All models failed.", "red"))
+                    logging.error(f"All models failed.")
                     return None
 
                 if not ignore_cache:
@@ -281,17 +292,19 @@ class LlmRouter:
                             for char in cached_completion:
                                 print(tooling.apply_color(char), end="")
                             print()
+                        logging.info(f"Returned response:\n{cached_completion}")
                         return cached_completion
 
                 if base64_images:
                     response = OllamaClient.generate_response(chat, model.model_key, temperature, silent, base64_images)
                     instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
-                    return start_response_with + response if include_start_response_str else response
                 else:
                     response = model.provider.generate_response(chat, model.model_key, temperature, silent)
                     instance._update_cache(model.model_key, str(temperature), chat, [], response)
-                    return start_response_with + response if include_start_response_str else response
-
+                response = start_response_with + response if include_start_response_str else response
+                logging.info(f"Returned response:\n{response}")
+                return response
+                
             except Exception as e:
                 if not silent:
                     logging.error(f"Error with model {model.model_key}: {e}")

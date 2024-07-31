@@ -210,45 +210,13 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
         
         chat.add_message(
             Role.USER,
-            "Thanks"
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            "Happy to be of service. Is there anything else I may help you with?",
-        )
-        
-        chat.add_message(
-            Role.USER,
-            "Setup a config file for running syncthing automatically in the background"
-        )
-        chat.add_message(
-            Role.ASSISTANT,
-            '''To setup syncthing as you specified I will create a configuration file for autostarting Syncthing. Here is the command:
-```bash
-echo -e "[Desktop Entry]
-Type=Application
-Exec=syncthing
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true" > ~/.config/autostart/syncthing.desktop
-```'''
+            "Thanks. Whats our current working directory?"
         )
 
-        chat.add_message(
-            Role.USER,
-            '''```bash_out
-echo -e "[Desktop Entry]
-Type=Application
-Exec=syncthing
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true" > ~/.config/autostart/syncthing.desktop # Executed Successfully```'''  + "\nThanks! What is the current working directory?"
-        )
         
         chat.add_message(
             Role.ASSISTANT,
-            """To find the working directory we'll execute this command:
+            """Let's execute this command to find the working directory:
 ```bash
 pwd
 ```"""  ),
@@ -260,7 +228,7 @@ pwd
         
         chat.add_message(
             Role.ASSISTANT,
-            """Of course! To list the files in the working directory let's run the following command:
+            """Of course! To list the files in the working directory run the following:
 ```bash
 ls
 ```"""  ),
@@ -355,29 +323,48 @@ The result of 5 + 10 will be displayed in the output.''',
             Role.ASSISTANT,
             "I hereby declare that I shall never suggest commands that require user interaction as long as it is not absolutely necessary! 🛡️"
         )
-
-        chat.add_message(
-            Role.USER,
-            "Great! Can you show me a tree for all files and folders in current directory up to 3 levels deep?"
-        )
         
-        chat.add_message(
-            Role.ASSISTANT,
-            """To create a tree view of the current directory up to 3 levels deep, we can use the `tree` command:
+        if (len(select_and_execute_commands(["tree -d -L 3 ."], True, False)[0])<8000): # Magic Number: will use other few_shot if the dir tree is too big
+            chat.add_message(
+                Role.USER,
+                "Great! Can you show me a tree for all files and folders in current directory up to 3 levels deep?"
+            )
+            chat.add_message(
+                Role.ASSISTANT,
+                """To create a tree view of the current directory up to 3 levels deep, we can use the `tree` command:
 ```bash
 tree -d -L 3 .
 ```"""
-        )
+            )
+            chat.add_message(
+                Role.USER,
+                select_and_execute_commands(["tree -d -L 3 ."], True, False)[0]
+            )
+            chat.add_message(
+                Role.ASSISTANT,
+                "Great! The tree view was successfully generated. Is there anything else I can help you with? 🌳"
+            )
+        else:
+            chat.add_message(
+                Role.USER,
+                "Great! Now list the 20 most recently modified files and folders in the current directory, include hidden files and directories"
+            )
+            chat.add_message(
+                Role.ASSISTANT,
+                """Sure. we can achieve this by using the `ls` command with the `-1hFt` options:
+```bash
+ls -1hFt | head -n 20
+```"""
+            )
         
-        chat.add_message(
-            Role.USER,
-            select_and_execute_commands(["tree -d -L 3 ."], True, False)[0]
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            "Great! The tree view was successfully generated. Is there anything else I can help you with? 🌳"
-        )
+            chat.add_message(
+                Role.USER,
+                select_and_execute_commands(["ls -1hFt | head -n 20"], True, False)[0]
+            )
+            chat.add_message(
+                Role.ASSISTANT,
+                "The 20 most recently modified files and folders were successfully listed. Is there anything else I can help you with? 📂"
+            )
         
         
         if True:
