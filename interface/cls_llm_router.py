@@ -193,12 +193,12 @@ class LlmRouter:
                 return model
         for model in self.retry_models:
             if model.model_key not in self.failed_models:
-                if self.model_capable_check(model, chat, min_strength, force_local, force_free, has_vision):
+                if self._model_capable_check(model, chat, min_strength, force_local, force_free, has_vision):
                     applicable_models.append(model)
         
-        return self.get_optimal_model(applicable_models)
+        return self._get_optimal_model(applicable_models)
     
-    def get_optimal_model(self, allowed_models: List[Llm]) -> Optional[Llm]:
+    def _get_optimal_model(self, allowed_models: List[Llm]) -> Optional[Llm]:
         strongest_models = [model for model in allowed_models if model.strength.value == max(model.strength.value for model in allowed_models)]
         strongest_free_models = [model for model in strongest_models if model.pricing_in_dollar_per_1M_tokens is None]
         if (strongest_free_models):
@@ -208,7 +208,7 @@ class LlmRouter:
             return strongest_cheapest_model
         
     
-    def model_capable_check(self, model: Llm, chat: Chat, min_strength: AIStrengths = AIStrengths.WEAK, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> bool:
+    def _model_capable_check(self, model: Llm, chat: Chat, min_strength: AIStrengths = AIStrengths.WEAK, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> bool:
         if force_local and not model.available_local:
             return False
         if force_free and model.pricing_in_dollar_per_1M_tokens is not None:
