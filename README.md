@@ -11,9 +11,9 @@ The large language model requires hosting. I recommend using the Groq-API for fa
 
 Please add your `GROQ_API_KEY`, `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` to the `.env` file. Keys can be obtained here:
 
-- [Groq-API Key](https://example.com/groq-api-key)
+- [Groq-API Key](https://console.groq.com/keys)
 - [OpenAI API Key](https://beta.openai.com/signup/)
-- [Anthropic API Key](https://example.com/anthropic-api-key)
+- [Anthropic API Key](https://console.anthropic.com/settings/keys)
 
 To run the Ollama backend in a Docker container, use the following command:
    ```bash
