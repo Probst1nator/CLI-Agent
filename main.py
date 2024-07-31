@@ -337,35 +337,11 @@ def main():
             
         if next_prompt.startswith("--p"):
             next_prompt = next_prompt[:-3]
-            print(colored(f"# cli-agent: KeyBinding detected: Starting ScreenCapture, type (--h) for info", "green"))
+            print(colored(f"# cli-agent: KeyBinding detected: Starting ScreenCapture, type (--h) for info [NOT IMPLEMENTED]", "green"))
             # screenCapture = ScreenCapture()
             # region_image_base64 = screenCapture.return_captured_region_image()
             # fullscreen_image_base64 = screenCapture.return_fullscreen_image()
             # session.generate_completion("Put words to the contents of the image for a blind user.", "gpt-4o", )
-        
-        if next_prompt.endswith("--openai"):
-            next_prompt = next_prompt[:-3]
-            args.intelligent = not args.intelligent
-            if (args.intelligent and not args.local):
-                alt_llm = args.llm
-                args.llm = "gpt-4o"
-            elif (args.alt_llm):
-                args.llm = alt_llm
-                alt_llm = None
-            print(colored(f"# cli-agent: KeyBinding detected: Intelligence toggled {args.intelligent}, type (--h) for info", "green"))
-            continue
-        
-        if next_prompt.endswith("--i"):
-            next_prompt = next_prompt[:-3]
-            args.intelligent = not args.intelligent
-            if (args.intelligent and not args.local):
-                alt_llm = args.llm
-                args.llm = "claude-3-5-sonnet"
-            elif (args.alt_llm):
-                args.llm = alt_llm
-                alt_llm = None
-            print(colored(f"# cli-agent: KeyBinding detected: Intelligence toggled {args.intelligent}, type (--h) for info", "green"))
-            continue
         
         if next_prompt.endswith("--l"):
             next_prompt = next_prompt[:-3]
@@ -381,7 +357,7 @@ def main():
             continue
         
         if next_prompt.startswith("--f"):
-            print(colored(f"# cli-agent: KeyBinding detected: Gathering intel: Sorry, not implemented! WIP, type (--h) for info", "yellow"))
+            print(colored(f"# cli-agent: KeyBinding detected: Gathering intel, type (--h) for info [NOT IMPLEMENTED]", "yellow"))
             # search_string = input("Please enter your search string: ")
             # next_prompt = next_prompt[:-3]
             # print(colored(f"# cli-agent: KeyBinding detected: Gathering intel please hold...", "green"))
@@ -438,8 +414,6 @@ def main():
 # cli-agent: --r: Regenerates the last response.
 # cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
-# cli-agent: --i: Use the most intelligent model (Claude 3.5 Sonnet).
-# cli-agent: --openai: Use gpt-4o.
 # cli-agent: --f: Gather understanding of the search string given the working directory as context.
 # cli-agent: --a: Toggles autonomous command execution.
 # cli-agent: --s: Saves the most recent prompt->response pair.
