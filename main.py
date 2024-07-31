@@ -421,6 +421,16 @@ def main():
         #     print(colored(f"# cli-agent: KeyBinding detected: Saved_chat mode toggled {args.saved_chat}, type (--h) for info", "green"))
         #     continue
         
+        if next_prompt.endswith("--m"):
+            print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
+            lines = []
+            while True:
+                line = input()
+                if line == "--f":
+                    break
+                lines.append(line)
+            next_prompt = "\n".join(lines)
+        
         if next_prompt.endswith("--h"):
             next_prompt = next_prompt[:-3]
             print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
@@ -435,6 +445,7 @@ def main():
 # cli-agent: --s: Saves the most recent prompt->response pair.
 # cli-agent: --so: Save the current chat for use with --saved_chat.
 # cli-agent: --o: Toggles llm optimizer.
+# cli-agent: --m: Multiline input mode.
 # cli-agent: --h: Shows this help message.
 # cli-agent: Type 'quit' to exit the program.
 """))
@@ -454,12 +465,14 @@ def main():
                 "mixtral").split(". ")[1:])
             print(summarization)
         
-        if len(context_chat.messages) > 0:
+        if len(context_chat.messages) > 1:
             context_chat.add_message(Role.USER, next_prompt)
             llm_response = LlmRouter.generate_completion(context_chat, args.llm, force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
             llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, force_local=args.local, optimize=args.optimize)
+            if (instruction):
+                context_chat.messages[0] = (Role.SYSTEM, instruction)
         
         context_chat.save_to_json()
 

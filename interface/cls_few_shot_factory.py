@@ -1,6 +1,8 @@
 import re
 from typing import Any, Dict, List, Tuple
 
+from termcolor import colored
+
 from interface.cls_chat import Chat, Role
 from interface.cls_llm_router import LlmRouter
 from interface.cls_ollama_client import OllamaClient
@@ -367,21 +369,24 @@ tree -d -L 3 .
 ```"""
         )
         
+        chat.add_message(
+            Role.USER,
+            select_and_execute_commands(["tree -d -L 3 ."], True, False)[0]
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "Great! The tree view was successfully generated. Is there anything else I can help you with? 🌳"
+        )
+        
         
         if True:
             userRequest = self.few_shot_rephrase(userRequest, model, force_local)
         
-        
         chat.add_message(
             Role.USER,
-            select_and_execute_commands(["tree -d -L 3 ."], True, False)[0] + "\n\n" + userRequest
+            userRequest
         )
-        
-        
-        # chat.add_message(
-        #     Role.USER,
-        #     userRequest
-        # )
         
         response: str = LlmRouter.generate_completion(
             chat,

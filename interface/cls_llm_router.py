@@ -1,3 +1,4 @@
+from datetime import *
 import hashlib
 import json
 import logging
@@ -88,7 +89,7 @@ class LlmRouter:
         self.cache_file_path = f"{user_cli_agent_dir}/llm_cache.json"
         self.cache = self._load_cache()
         self.retry_models = Llm.get_available_llms()
-        self.failed_models: Set[str] = set()
+        self.failed_models: Dict[str, datetime] = {}
 
     def _generate_hash(self, model: str, temperature: str, prompt: str, images: List[str]) -> str:
         """
@@ -156,6 +157,16 @@ class LlmRouter:
         except Exception as e:
             logging.error(f"Failed to update cache: {e}")
 
+    def retry_failed_models(self, retry_duration_min: int = 2) -> None:
+        """
+        Retry failed models.
+        """
+        now = datetime.now()
+        for model_key, failed_time in self.failed_models.items():
+            if (now - failed_time).total_seconds() > retry_duration_min * 60:
+                self.failed_models.pop(model_key)
+                print(colored(f"DEBUG: Model {model_key} is being retried.", "yellow"))
+
 
     def get_model(self, model_key: str, min_strength: AIStrengths, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
         """
@@ -172,6 +183,8 @@ class LlmRouter:
             Optional[str]: The next model identifier if available, otherwise None.
         """
         print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
+        self.retry_failed_models(5)
+        
         if model_key not in self.failed_models and model_key:
             model = next((model for model in self.retry_models if model.model_key == model_key and model.context_window > chat.count_tokens()), None)
             if model:
@@ -269,4 +282,4 @@ class LlmRouter:
             except Exception as e:
                 if not silent:
                     logging.error(f"Error with model {model.model_key}: {e}")
-                instance.failed_models.add(model.model_key)
+                instance.failed_models[model.model_key] = datetime.now()
