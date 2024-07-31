@@ -199,7 +199,7 @@ class LlmRouter:
         return self.get_optimal_model(applicable_models)
     
     def get_optimal_model(self, allowed_models: List[Llm]) -> Optional[Llm]:
-        strongest_models = [model for model in allowed_models if model.strength == max(model.strength.value for model in allowed_models)]
+        strongest_models = [model for model in allowed_models if model.strength.value == max(model.strength.value for model in allowed_models)]
         strongest_free_models = [model for model in strongest_models if model.pricing_in_dollar_per_1M_tokens is None]
         if (strongest_free_models):
             return strongest_free_models[0]
