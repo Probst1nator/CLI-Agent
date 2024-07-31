@@ -20,6 +20,8 @@ import json
 from json import dump, load
 from typing import Dict
 import json
+import logging
+
 
 
 def extract_llm_snippets(response: str) -> Dict[str, List[str]]:
@@ -187,6 +189,13 @@ def main():
         config = {"instruction": instruction}
         with open(config_path, 'w') as file:
             json.dump(config, file, indent="\t")
+    
+    if os.path.exists(vscode_path):
+        log_file_path = os.path.join(vscode_path, 'cli-agent.log')
+    else:
+        logs_path = os.path.join(os.path.dirname(__file__), "logs",)
+        log_file_path = os.path.join(logs_path, 'cli-agent.log')
+    logging.basicConfig(level=logging.CRITICAL, filename=log_file_path)
     
     
     
