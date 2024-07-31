@@ -1,7 +1,7 @@
 
 # CLI Agent Using Groq-API, Ollama, OpenAI, and Anthropic Backends
 
-This project introduces a CLI (Command Line Interface) Agent that utilizes the Groq-API, Ollama, OpenAI, and Anthropic backends. It is part of the Local Language Model Toolkit Project that I have developed.
+This project introduces a CLI (Command Line Interface) Agent that utilizes the Groq-API, Ollama, OpenAI, and Anthropic backends.
 
 ## Getting Started
 
@@ -51,13 +51,12 @@ The latest release of the CLI-Agent incorporates the following features:
 - Integration with Groq-API, Ollama, OpenAI, and Anthropic backends
 - Command suggestion and execution capabilities
 - Compatibility with the Ubuntu operating system
-- Available installation methods include Docker and manual setup
 
 You can download the release assets, such as source code and installation scripts, from the [GitHub Releases page](https://github.com/Probst1nator/CLI-Agent/releases).
 
 ## Contributing
 
-We highly value your input, feedback, and contributions. Whether you are proposing modifications, committing updates, or sharing insights, every interaction enhances the project. Feel free to participate.
+Feel free to comment, develop or follow.
 
 ## License
 
