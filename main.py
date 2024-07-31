@@ -321,7 +321,6 @@ def main():
         
 
     prompt_context_augmentation: str = ""
-    alt_llm = None
     
     while True:
         if args.message:

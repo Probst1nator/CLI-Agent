@@ -68,7 +68,7 @@ class Llm:
         """
         return [
             # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, True, 131072, None, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, True, 131072, 30000, AIStrengths.MEDIUM),
+            Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, True, 131072, 30000, AIStrengths.STRONG),
             Llm(GroqChat(), "llama-3.1-8b-instant", None, False, True, 131072, 30000, AIStrengths.MEDIUM),
             Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.MEDIUM),
             Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000, AIStrengths.WEAK),
@@ -306,6 +306,6 @@ class LlmRouter:
                 return response
                 
             except Exception as e:
-                if not silent:
-                    logging.error(f"Error with model {model.model_key}: {e}")
+                logging.error(f"Error with model {model.model_key}: {e}")
+                print(colored(f"Error with model {model.model_key}: {e}", "red"))
                 instance.failed_models[model.model_key] = datetime.now()

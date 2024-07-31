@@ -33,7 +33,7 @@ class GroqChat(ChatClientInterface):
                 print(f"Groq-Api: <{colored(model, 'green')}> is generating response...")
 
             chat_completion = client.chat.completions.create(
-                messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>"
+                messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>", max_tokens=8000
             )
             
 
