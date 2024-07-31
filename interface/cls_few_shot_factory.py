@@ -367,14 +367,36 @@ ls -1hFt | head -n 20
             )
         
         
-        if True:
+        chat.add_message(
+            Role.USER,
+            "please find the running cli-agent process"
+        )
+        chat.add_message(
+            Role.ASSISTANT,
+        """To identify and locate the running CLI agent process, we can use the `pgrep` command:
+```bash
+pgrep -af "CLI-Agent"
+```
+This command will search for any running processes that match the pattern "CLI-Agent" and display their process IDs and corresponding command lines.""")
+        
+        chat.add_message(
+            Role.USER,
+            select_and_execute_commands(['pgrep -af "CLI-Agent"'], True, False)[0] + "\n\nlook its you!"
+        )
+        chat.add_message(
+            Role.ASSISTANT,
+            "That's meta! The CLI agent process is the one running the command to search for the CLI agent process itself. Feels like looking into a mirror... 🤖"
+        )
+
+
+        if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
             userRequest = self.few_shot_rephrase(userRequest, model, force_local)
         
         chat.add_message(
             Role.USER,
             userRequest
         )
-        
+
         response: str = LlmRouter.generate_completion(
             chat,
             model,
@@ -497,7 +519,7 @@ ls -1hFt | head -n 20
         
         
         if not force_local:
-            if "llama3" in model or "" == model:
+            if "llama" in model or "" == model:
                 model = "llama3-8b-8192"
             elif "claude" in model:
                 model = "claude-3-haiku-20240307"
