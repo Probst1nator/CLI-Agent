@@ -23,6 +23,7 @@ if os.path.exists(vscode_path):
     log_file_path = os.path.join(vscode_path, 'cli-agent.log')
 else:
     logs_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs",)
+    os.makedirs(logs_path, exist_ok=True)
     log_file_path = os.path.join(logs_path, 'cli-agent.log')
 logging.basicConfig(level=logging.CRITICAL, filename=log_file_path)
 
@@ -171,12 +172,15 @@ class LlmRouter:
         """
         Retry failed models.
         """
+        to_retry_keys: List[str] = []
         now = datetime.now()
         for model_key, failed_time in self.failed_models.items():
             if (now - failed_time).total_seconds() > retry_duration_min * 60:
-                self.failed_models.pop(model_key)
+                to_retry_keys.append(model_key)
                 print(colored(f"DEBUG: Model {model_key} is being retried.", "yellow"))
-
+        for model_key in to_retry_keys:
+            self.failed_models.pop(model_key)
+            
 
     def get_model(self, model_key: str, min_strength: AIStrengths, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
         """
