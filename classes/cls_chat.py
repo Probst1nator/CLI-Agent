@@ -163,7 +163,7 @@ class Chat:
         
         :return: The JSON string representing the chat instance.
         """
-        return json.dumps(self._to_dict())
+        return json.dumps(self._to_dict(), indent=2)
 
     @classmethod
     def from_json(cls, json_str: str) -> "Chat":

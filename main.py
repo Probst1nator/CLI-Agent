@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import time
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal
 
 from dotenv import load_dotenv
 from termcolor import colored
@@ -132,8 +132,6 @@ def parse_cli_args():
                         help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["dolphin-mixtral","phi3", "llama3]')
     # parser.add_argument("--speak", action="store_true",
     #                     help="Enable text-to-speech for agent responses.")
-    parser.add_argument("-i", "--intelligent", action="store_true",
-                        help="Use most intelligent available model(s) for processing.")
     parser.add_argument("-o", "--optimize", action="store_true", default=True,
                         help="Enable optimizations.")
     parser.add_argument("-c", action="store_true",
@@ -178,8 +176,8 @@ def main():
     print(args)
     instruction: str = None
     
-    workspace = os.getcwd()
-    vscode_path = os.path.join(workspace, ".vscode")
+    working_dir = os.getcwd()
+    vscode_path = os.path.join(working_dir, ".vscode")
     config_path = os.path.join(vscode_path, "cli-agent.json")
     print(config_path)
     if (os.path.exists(config_path)):
@@ -199,19 +197,6 @@ def main():
         logs_path = os.path.join(os.path.dirname(__file__), "logs",)
         log_file_path = os.path.join(logs_path, 'cli-agent.log')
     logging.basicConfig(level=logging.CRITICAL, filename=log_file_path)
-    
-    
-    
-    if not os.getenv('GROQ_API_KEY') and not os.getenv('OPENAI_API_KEY') and not os.getenv('ANTHROPIC_API_KEY'):
-        print("No Groq- (free!) or other-Api key was found in the '.env' file. Falling back to Ollama locally...")
-        args.local = True
-    
-    if not args.local and args.intelligent:
-        if os.getenv('ANTHROPIC_API_KEY'):
-            args.llm = "claude-3-5-sonnet"
-        elif os.getenv('OPENAI_API_KEY'):
-            args.llm = "gpt-4o"
-    
     
     context_chat = Chat(instruction)
     next_prompt = ""
@@ -343,7 +328,6 @@ def main():
             break
         
         
-        # Check if the -i parameter is activated
         if next_prompt.endswith("--r"):
             if len(context_chat.messages) < 2:
                 print(colored(f"# cli-agent: No chat history found, cannot regenerate last response.", "red"))
@@ -373,46 +357,11 @@ def main():
             print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
             continue
         
-        if next_prompt.startswith("--f"):
-            print(colored(f"# cli-agent: KeyBinding detected: Gathering intel, type (--h) for info [NOT IMPLEMENTED]", "yellow"))
-            # search_string = input("Please enter your search string: ")
-            # next_prompt = next_prompt[:-3]
-            # print(colored(f"# cli-agent: KeyBinding detected: Gathering intel please hold...", "green"))
-            # next_prompt = f"I'd like to know more about the term {search_string} in the context of this directory. Please use the following summary to explain it to me:"
-            # prompt_context_augmentation += gather_intel(search_string)
-        
         if next_prompt.endswith("--a"):
             next_prompt = next_prompt[:-3]
             args.auto = not args.auto
             print(colored(f"# cli-agent: KeyBinding detected: Autonomous command execution toggled {args.auto}, type (--h) for info", "green"))
             continue
-        
-        if next_prompt.endswith("--s"):
-            next_prompt = next_prompt[:-3]
-            sliced_chat = context_chat[-3,-2]
-            sliced_chat.save_to_json("saved_few_shots.json", True)
-            print(colored(f"# cli-agent: KeyBinding detected: Append most recent prompt->response pair to saved_chat for use with --saved_chat, type (--h) for info", "green"))
-            continue
-        
-        if next_prompt.endswith("--so"):
-            next_prompt = next_prompt[:-3]
-            assert isinstance(context_chat, Chat) # does not fix the blue squiggly line but can't hurt
-            context_chat.save_to_json("saved_few_shots.json", False)
-            print(colored(f"# cli-agent: KeyBinding detected: Saved chat for use with --saved_chat, type (--h) for info", "green"))
-            continue
-        
-        if next_prompt.endswith("--o"):
-            next_prompt = next_prompt[:-3]
-            args.optimize = not args.optimize
-            print(colored(f"# cli-agent: KeyBinding detected: Optimizer mode toggled {args.optimize}, type (--h) for info", "green"))
-            continue
-        
-        # if next_prompt.endswith("--saved_chat"):
-        #     next_prompt = next_prompt[:-3]
-        #     args.saved_chat = not args.saved_chat
-        #     context_chat = None
-        #     print(colored(f"# cli-agent: KeyBinding detected: Saved_chat mode toggled {args.saved_chat}, type (--h) for info", "green"))
-        #     continue
         
         if next_prompt.endswith("--m"):
             print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
@@ -431,9 +380,7 @@ def main():
 # cli-agent: --r: Regenerates the last response.
 # cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
-# cli-agent: --f: Gather understanding of the search string given the working directory as context.
 # cli-agent: --a: Toggles autonomous command execution.
-# cli-agent: --o: Toggles llm optimizer.
 # cli-agent: --m: Multiline input mode.
 # cli-agent: --h: Shows this help message.
 # cli-agent: Type 'quit' to exit the program.
@@ -466,10 +413,13 @@ def main():
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
             llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, force_local=args.local)
-            if (instruction):
-                context_chat.messages[0] = (Role.SYSTEM, instruction)
         
-        context_chat.save_to_json()
+        with open(config_path, 'r+') as file:
+            config: dict[str, Any] = json.load(file)
+            config["history"] = context_chat._to_dict()
+            file.seek(0)
+            json.dump(config, file, indent=2)
+            file.truncate()
 
         snippets = extract_llm_snippets(llm_response)
         
@@ -494,12 +444,6 @@ def main():
         
         prompt_context_augmentation, execution_summarization = select_and_execute_commands(snippets["bash"], args.auto is not None) 
         print(recolor(execution_summarization, "\t#", "successfully", "green"))
-        # # Execute commands extracted from the llm_response
-        # user_request = ""
-        # for snippet in snippets["bash"]:
-        #     print(colored(f"Executing command: {snippet}\n" + "# " * 10, 'green'))
-        #     user_request += run_command(snippet)
-        #     print(colored(user_request, 'green'))
         
 if __name__ == "__main__":
     main()
