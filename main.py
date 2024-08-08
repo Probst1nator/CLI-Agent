@@ -10,10 +10,10 @@ from typing import Dict, List, Literal
 from dotenv import load_dotenv
 from termcolor import colored
 
-from interface.cls_chat import Chat, Role
-from interface.cls_few_shot_factory import FewShotProvider
-from interface.cls_llm_router import AIStrengths, LlmRouter
-from interface.cls_web_scraper import WebScraper
+from classes.cls_chat import Chat, Role
+from classes.cls_few_shot_factory import FewShotProvider
+from classes.cls_llm_router import AIStrengths, LlmRouter
+from classes.cls_web_scraper import WebScraper, get_github_readme
 from tooling import run_python_script, select_and_execute_commands, ScreenCapture
 import pyperclip
 import json
@@ -21,6 +21,7 @@ from json import dump, load
 from typing import Dict
 import json
 import logging
+import re
 
 
 
@@ -137,6 +138,8 @@ def parse_cli_args():
                         help="Enable optimizations.")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
+    parser.add_argument("-w", action="store_true",
+                        help="Use websearch to enhance responses.")
     parser.add_argument("-a", "--auto", nargs='?', const=10, default=None, type=int,
                         help="""Enables autonomous execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
@@ -210,8 +213,6 @@ def main():
             args.llm = "gpt-4o"
     
     
-    
-    
     context_chat = Chat(instruction)
     next_prompt = ""
     
@@ -219,41 +220,54 @@ def main():
         context_chat = Chat.load_from_json()
         
     if args.edit != None: # code edit mode
-        if True: # use clipboard content editing
-            clipboard_content = pyperclip.paste()
-            if len(clipboard_content) > 10:
-                snippets = f"```code\n{clipboard_content}\n```"
-                
-            # print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
-
-            while True:
-                next_prompt = ""
-                if args.auto:
-                    next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods:"
-                else:
-                    next_prompt = input(colored("(--m for multiline) Enter your code-related request: ", 'blue', attrs=["bold"]))
+        
+        if args.edit:
+            with open(args.edit, 'r') as file:
+                file_ending = os.path.splitext(args.edit)[1]
+                snippets = f"```{file_ending}\n{file.read()}\n```"
+            # if (len(snippets)/4>=4096):
+            #     print(colored(f"File too large for single request, it will be split and merged please hold...", 'yellow'))
+            #     if (len(snippets)/4 >= 4096):
+            #         print(colored(f"File too large for single request, it will be split and merged please hold...", 'yellow'))
+            #         snippets_list = [snippets[i:i+4096*4] for i in range(0, len(snippets), 4096*4)]
+            #         for snippet in snippets_list:
+            #             # Process each snippet separately
+            #     else:
+            #         # Process the entire snippets string
                     
-                    if next_prompt == "--m":
-                        print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
-                        lines = []
-                        while True:
-                            line = input()
-                            if line == "--f":
-                                break
-                            lines.append(line)
-                        next_prompt = "\n".join(lines)
+        # print(colored(f"Editing content at: {args.edit}\n" + "# " * 10, 'green'))
+        user_input = input("Add clipboard? (Y/n)").lower()
+        if user_input == "y" or user_input == "":
+            clipboard_content = pyperclip.paste()
+            snippets += f"```userClipboard\n{clipboard_content}\n```"
 
-                args.auto = False
-                next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, "gpt-4o")
-                context_chat.add_message(Role.USER, f"{next_prompt}\n\n{snippets}")
-                response = LlmRouter.generate_completion(context_chat, model_key="gpt-4o")
-                snippet = extract_single_snippet(response, allow_no_end=True)
-                context_chat.add_message(Role.ASSISTANT, response)
-                if (len(snippet) > 0):
-                    pyperclip.copy(snippet)
-                    print(colored("Snippet copied to clipboard.", 'green'))
-                elif (args.auto):
-                    print(colored("Something went wrong, no snippet could be extracted.", "red"))
+        while True:
+            next_prompt = ""
+            if args.auto:
+                next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods:"
+            else:
+                next_prompt = input(colored("(--m for multiline) Enter your code-related request: ", 'blue', attrs=["bold"]))
+
+                if next_prompt == "--m":
+                    print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
+                    lines = []
+                    while True:
+                        line = input()
+                        if line == "--f":
+                            break
+                        lines.append(line)
+                    next_prompt = "\n".join(lines)      
+            args.auto = False
+            next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, "gpt-4o")
+            context_chat.add_message(Role.USER, f"{next_prompt}\n\n{snippets}")
+            response = LlmRouter.generate_completion(context_chat, model_key="gpt-4o")
+            snippet = extract_single_snippet(response, allow_no_end=True)
+            context_chat.add_message(Role.ASSISTANT, response)
+            if (len(snippet) > 0):
+                pyperclip.copy(snippet)
+                print(colored("Snippet copied to clipboard.", 'green'))
+            elif (args.auto):
+                print(colored("Something went wrong, no snippet could be extracted.", "red"))
             
     if args.fixpy:
         latest_script_path = args.fixpy
@@ -288,9 +302,6 @@ def main():
                 error_analysis = LlmRouter.generate_completion(context_chat)
                 context_chat.add_message(Role.ASSISTANT, error_analysis)
                 
-                # FewShotProvider.selfSupervised_few_shot("Does the error ocurr in the file at path: '{args.fixpy}'?", "The response must be 'yes' or 'no'.")
-                
-                
                 
                 analysis_amalgam += f"Analysis {fix_iteration}: {error_analysis}\n"
                 context_chat.add_message(Role.USER, "Seems reasonable. Now, please provide the fixed script in full.")
@@ -317,8 +328,6 @@ def main():
                         os.remove(args.fixpy.replace(".py", f"_patchV{i}.py"))
                         print(colored(f"Removed deprecated patched version {i}.", 'green'))
                 exit(0)
-            
-        
 
     prompt_context_augmentation: str = ""
     
@@ -424,8 +433,6 @@ def main():
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --f: Gather understanding of the search string given the working directory as context.
 # cli-agent: --a: Toggles autonomous command execution.
-# cli-agent: --s: Saves the most recent prompt->response pair.
-# cli-agent: --so: Save the current chat for use with --saved_chat.
 # cli-agent: --o: Toggles llm optimizer.
 # cli-agent: --m: Multiline input mode.
 # cli-agent: --h: Shows this help message.
@@ -436,23 +443,29 @@ def main():
         if prompt_context_augmentation:
             next_prompt +=  f"\n\n```\n{prompt_context_augmentation}\n```" # append contents from previous iteration to the end of the new prompt
             
-        # Assuming FewShotProvider and extract_llm_commands are defined as per the initial setup
-        if False:
-            term = FewShotProvider.few_shot_TextToTerm(next_prompt)
-            scraper = WebScraper()
-            texts = scraper.search_and_extract_texts(term, 3)
-            print(texts)
-            summarization = ". ".join(session.generate_completion(
-                f"Summarize the most relevant information accurately and densely:\n```txt\n{texts}\n```", 
-                "mixtral").split(". ")[1:])
-            print(summarization)
+        # if args.w:
+        #     # search_query = FewShotProvider.few_shot_TextToKey(next_prompt)
+        #     scraper = WebScraper()
+        #     results = scraper.search_and_extract_texts(next_prompt, 1)
+        #     web_intel = ""
+        #     for result in results:
+        #         if len(result)/4 > 4096:
+        #             pass
+        #         web_intel += FewShotProvider.few_shot_rephrase(result)
+        #     next_prompt += f"\n\n```web_search_result\n{web_intel}\n```"
+        
+        if "https://github.com/" in next_prompt and next_prompt.count("/") >= 4:
+            github_repo_url = re.search("(?P<url>https?://[^\s]+)", next_prompt).group("url")
+            github_readme = get_github_readme(github_repo_url)
+            next_prompt += f"\n\nHere's the readme from the repo:\n```md\n{github_readme}\n```"
+        
         
         if len(context_chat.messages) > 1:
             context_chat.add_message(Role.USER, next_prompt)
             llm_response = LlmRouter.generate_completion(context_chat, args.llm, force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, force_local=args.local, optimize=args.optimize)
+            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, force_local=args.local)
             if (instruction):
                 context_chat.messages[0] = (Role.SYSTEM, instruction)
         

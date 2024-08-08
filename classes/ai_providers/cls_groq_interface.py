@@ -2,16 +2,15 @@ import os
 from typing import Optional
 from groq import Groq
 from termcolor import colored
-from cls_custom_coloring import CustomColoring
-from interface.cls_chat import Chat
+from classes.cls_custom_coloring import CustomColoring
+from classes.cls_chat import Chat
 
-from interface.cls_chat_client_interface import ChatClientInterface
+from classes.cls_ai_provider_interface import ChatClientInterface
 
 class GroqChat(ChatClientInterface):
     """
     Implementation of the ChatClientInterface for the Groq API.
     """
-    
 
     @staticmethod
     def generate_response(chat: Chat, model: str, temperature: float = 0.7, silent: bool = False) -> Optional[str]:
@@ -33,7 +32,7 @@ class GroqChat(ChatClientInterface):
                 print(f"Groq-Api: <{colored(model, 'green')}> is generating response...")
 
             chat_completion = client.chat.completions.create(
-                messages=chat.to_groq_format(), model=model, temperature=temperature, stream=True, stop="</s>", max_tokens=8000
+                messages=chat.to_groq(), model=model, temperature=temperature, stream=True, stop="</s>"
             )
             
 
@@ -42,9 +41,9 @@ class GroqChat(ChatClientInterface):
             for chunk in chat_completion:
                 token = chunk.choices[0].delta.content
                 if token:
+                    full_response += token
                     if not silent:
                         print(token_keeper.apply_color(token), end="")
-                    full_response += token
             if not silent:
                 print()
 

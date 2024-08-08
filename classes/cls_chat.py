@@ -1,12 +1,15 @@
+import base64
 import json
 import math
 import os
 from enum import Enum
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Sequence, Tuple, Union
 
 from termcolor import colored
 from jinja2 import Template
 import tiktoken
+
+from ollama._types import Message
 
 class Role(Enum):
     SYSTEM = "system"
@@ -24,10 +27,11 @@ class Chat:
         :param instruction_message: The initial system instruction message.
         """
         self.messages: List[Tuple[Role, str]] = []
+        self.base64_images: List[str] = []
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
 
-    def add_message(self, role: Role, content: str, create_new_chat: bool = False) -> "Chat":
+    def add_message(self, role: Role, content: str) -> "Chat":
         """
         Adds a message to the chat.
         
@@ -80,84 +84,6 @@ class Chat:
                 for message in self.messages
             ]
         )
-    
-    def to_format_Mistral(self) -> str:
-        """
-        Converts chat messages to Mistral format.
-        
-        :return: The chat messages in Mistral format.
-        """
-        prompt:str = ""
-        for msg in self.messages:
-            if msg[0] == Role.USER:
-                prompt += f"<s>[INST] {msg[1]}[/INST] "
-            if msg[0] == Role.ASSISTANT:
-                prompt += f"{msg[1]}</s>"
-        return prompt
-        
-    def to_format_ChatML(self) -> str:
-        """
-        Converts chat messages to ChatML format.
-        
-        :return: The chat messages in ChatML format.
-        """
-        for msg in self.messages:
-            if msg[0] == Role.SYSTEM:
-                prompt = f"system\n{msg[1]}\n"
-            if msg[0] == Role.USER:
-                prompt += f"user\n{msg[1]}\n"
-            if msg[0] == Role.ASSISTANT:
-                prompt += f"assistant\n{msg[1]}\n"
-        return prompt.strip()
-
-    def to_openai_chat(self) -> List[Dict[str, str]]:
-        """
-        Converts chat messages to OpenAI chat format.
-        
-        :return: The chat messages in OpenAI chat format.
-        """
-        return [
-            {"role": message[0].value, "content": message[1]}
-            for message in self.messages
-        ]
-
-    def to_oobabooga_history(self) -> Tuple[Dict[str, List[List[str]]], str]:
-        """
-        Converts chat messages to Oobabooga history format.
-        
-        :return: A tuple containing internal and visible history arrays and the instruction.
-        """
-        internal_arr: List[List[str]] = []
-        visible_arr: List[List[str]] = []
-        instruction: str = ""
-
-        for i, (role, content) in enumerate(self.messages):
-            if role == Role.SYSTEM:
-                instruction = content if i == 0 else instruction
-            elif role in [Role.USER, Role.ASSISTANT]:
-                pair = [content, ""] if role == Role.USER else ["", content]
-                internal_arr.append(pair)
-                visible_arr.append(pair)
-
-        return {"internal": internal_arr, "visible": visible_arr}, instruction
-
-    def to_jinja2(self, template_str: str) -> str:
-        """
-        Renders chat messages using a Jinja2 template.
-        
-        :param template_str: The Jinja2 template string.
-        :return: The rendered string.
-        """
-        template = Template(template_str)
-        formatted_message = ""
-        for i in range(math.ceil(len(self.messages) / 2)):
-            formatted_message += template.render(
-                {
-                    "system": self.messages[i * 2][1],
-                    "prompt": self.messages[i * 2 + 1][1],
-                }
-            )
-        return formatted_message
 
     def print_chat(self):
         """
@@ -280,16 +206,6 @@ class Chat:
                 chats.append(chat)
         return chats
     
-    def to_groq_format(self) -> List[Dict[str, str]]:
-        """
-        Formats the chat messages for Groq API consumption.
-        
-        :return: The formatted messages as a list of dictionaries.
-        """
-        return [
-            {"role": message[0].value, "content": message[1]}
-            for message in self.messages
-        ]
 
     def length(self) -> int:
         """
@@ -314,10 +230,51 @@ class Chat:
         :param encoding_name: The name of the encoding to use.
         :return: The number of tokens.
         """
-        try:
-            encoding = tiktoken.get_encoding(encoding_name)
-            num_tokens = len(encoding.encode(self.joined_messages()))
-        except Exception as e:
-            print(colored(f"Error: tiktoken threw an error: {e}", "red"))
-            return math.floor(len(self.joined_messages())/4)
-        return math.floor(num_tokens*1.05) # 0.05 added as grace heuristic because we're likely using the incorrect embedding
+        return math.floor(len(self.joined_messages())/4)
+        # try:
+        #     encoding = tiktoken.get_encoding(encoding_name)
+        #     num_tokens = len(encoding.encode(self.joined_messages()))
+        # except Exception as e:
+        #     print(colored(f"Error: tiktoken threw an error: {e}", "red"))
+        #     return math.floor(len(self.joined_messages())/4)
+        # return math.floor(num_tokens*1.05) # 0.05 added as grace heuristic because we're likely using the incorrect embedding
+
+    def to_ollama(self) -> Sequence[Message]:
+        """
+        Converts chat messages to Ollama format.
+        :return: The chat messages in Ollama format.
+        """
+        message_sequence = [
+            Message(role=message[0].value, content=message[1])
+            for message in self.messages
+        ]
+        
+        # Make sure there are base64_images to decode and assign
+        if self.base64_images:
+            message = message_sequence[-1]
+            message["images"] = [image for image in self.base64_images]
+            message_sequence[-1] = message
+            self.base64_images = [] # Reset base64_images
+
+        return message_sequence
+
+    def to_openai(self) -> List[Dict[str, str]]:
+        """
+        Converts chat messages to OpenAI chat format.
+        
+        :return: The chat messages in OpenAI chat format.
+        """
+        return [
+            {"role": message[0].value, "content": message[1]}
+            for message in self.messages
+        ]
+    def to_groq(self) -> List[Dict[str, str]]:
+        """
+        Formats the chat messages for Groq API consumption.
+        
+        :return: The formatted messages as a list of dictionaries.
+        """
+        return [
+            {"role": message[0].value, "content": message[1]}
+            for message in self.messages
+        ]
