@@ -3,9 +3,9 @@ from typing import Any, Dict, List, Tuple
 
 from termcolor import colored
 
-from interface.cls_chat import Chat, Role
-from interface.cls_llm_router import LlmRouter
-from interface.cls_ollama_client import OllamaClient
+from classes.cls_chat import Chat, Role
+from classes.cls_llm_router import AIStrengths, LlmRouter
+from classes.ai_providers.cls_ollama_interface import OllamaClient
 from tooling import run_command, select_and_execute_commands
 
 # class Agent:
@@ -30,32 +30,27 @@ class FewShotProvider:
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
-    def few_shot_TextToKey(self, prompt: str, **kwargs) -> str:
+    def few_shot_TextToKey(self, text: str) -> str:
         """
-        Generates a keyword based on the given text prompt.
-
+        Generates a keyword based on the given text text.
         Args:
-            prompt (str): The user prompt to convert into a keyword.
-            **kwargs: Additional arguments for the text generation.
-
+        text (str): The user text to convert into a keyword.
         Returns:
-            str: The generated keyword.
+        str: The generated keyword or topic.
         """
-        chat: Chat = Chat("You are a text to keyword converting engine. Summarize the user given text into a term fit for google search.")
-        chat.add_message(Role.USER, "I would like to know more about search engine optimization.")
-        chat.add_message(Role.ASSISTANT, "search engine optimization")
-        chat.add_message(Role.USER, "What is todays weather like in Nuremberg?")
-        chat.add_message(Role.ASSISTANT, "Nürnberg Wetter")
-        chat.add_message(Role.USER, "Tell me the latest developments in artificial intelligence.")
-        chat.add_message(Role.ASSISTANT, "latest AI developments")
-        chat.add_message(Role.USER, prompt)
-        response: str = LlmRouter.generate_completion(
-            chat,
-            "mixtral",
-            temperature=0.6,
-            **kwargs
-        )
-
+        chat: Chat = Chat("You are a text to keyword converting engine. Analyze the user's input, whether it's a question, statement, or description, and provide a concise term or phrase suitable for a Google search, capturing the main topic or intent.")
+        
+        chat.add_message(Role.USER, "I've been experiencing frequent headaches and dizziness lately, especially when I stand up quickly. It's been going on for about two weeks now. Should I be concerned? What might be causing this?")
+        chat.add_message(Role.ASSISTANT, "causes of chronic headaches and dizziness")
+        
+        chat.add_message(Role.USER, "The rise of remote work has dramatically changed the landscape of modern offices. Many companies are now adopting hybrid models, allowing employees to split their time between home and office. This shift is impacting everything from real estate decisions to team collaboration strategies.")
+        chat.add_message(Role.ASSISTANT, "impact of remote work on business operations")
+        
+        chat.add_message(Role.USER, "Sustainable agriculture practices are becoming increasingly important as we face climate change and population growth. Techniques like crop rotation, water conservation, and integrated pest management can help reduce environmental impact while maintaining food production. Farmers are also exploring innovative technologies such as precision agriculture and vertical farming.")
+        chat.add_message(Role.ASSISTANT, "sustainable agriculture techniques and innovations")
+        
+        chat.add_message(Role.USER, text)
+        response: str = LlmRouter.generate_completion(chat)
         return response
     
     
@@ -124,7 +119,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, model: str, force_local:bool = None, optimize: bool = False, **kwargs) -> Tuple[str,Chat]:
+    def few_shot_CmdAgent(self, userRequest: str, model: str, force_local:bool = None, silent: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -142,44 +137,25 @@ class FewShotProvider:
             "Designed for autonomy, this Ubuntu command line interface (CLI) assistant intelligently addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise."
         )
         
-
-        chat.add_message(
-            Role.USER,
-            """Please view my system temperature""",
-        )
-
-        example_response = """To view your system's temperature via the Ubuntu command line interface, the sensors command from the lm-sensors package can be utilized. The required commands to achieve this are listed below:
-```bash
-sudo apt update
-sudo apt -y install lm-sensors
-sudo sensors-detect
-sensors
-```"""
-        chat.add_message(
-            Role.ASSISTANT,
-            example_response
-        )
-
         chat.add_message(
             Role.USER,
             """set screen brightness to 10%""",
         )
 
-        example_response = """Setting the screen brightness to 10% requires to first find the name of the display using xrandr.
+        chat.add_message(
+            Role.ASSISTANT,
+            """Setting the screen brightness to 10% requires to first find the name of the display using xrandr.
 ```bash
 xrandr --listmonitors
 ```
-Using this commands output I will be able to suggest the next command for setting the screen brightness to 10%."""        
-        chat.add_message(
-            Role.ASSISTANT,
-            example_response
+Using the terminals response I will be able to suggest the next command for setting the screen brightness to 10%."""
         )
 
         chat.add_message(
             Role.USER,
             """xrandr --listmonitors
 
-'''cmd_output
+'''cmd_response
 Monitors: 2
  0: +*HDMI-0 2560/597x1440/336+470+0  HDMI-0
  1: +DP-0 3440/1x1440/1+0+1440  DP-0'''
@@ -188,7 +164,7 @@ Monitors: 2
 
         chat.add_message(
             Role.ASSISTANT,
-            """Great! The command was successful and returned information for 2 different monitors. Now let's set each of them to 10% by executing these commands:
+            """The command was successful and returned information for 2 different monitors. Let's set both of them to 10% with these commands:
 ```bash
 xrandr --output HDMI-0 --brightness 0.1
 xrandr --output DP-0 --brightness 0.1
@@ -202,7 +178,7 @@ xrandr --output DP-0 --brightness 0.1
         
         chat.add_message(
             Role.ASSISTANT,
-            """I can show you a picture of a puppy by opening firefox with a corresponding google image search url already entered:
+            """I can show you a picture of a puppy by opening firefox with a corresponding image search url already entered:
 ```bash
 firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
 ```"""
@@ -221,110 +197,13 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
 pwd
 ```"""  ),
         
-        chat.add_message(
-            Role.USER,
-            select_and_execute_commands(["pwd"], True, False)[0] + "\n\nThanks, can you also show the files in this directory?"
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            """Of course! To list the files in the working directory run the following:
-```bash
-ls
-```"""  ),
-        
-        chat.add_message(
-            Role.USER,
-            select_and_execute_commands(["ls"], True, False)[0] + "\n\nThank you! Please now calculate the sum of 5 and 10"
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            '''Sure! To perform a calculation I will utilise a python script. Let's create the script and run it:
-```bash
-echo -e "# Define a function to calculate the sum of two numbers
-def calculate_sum(a, b):
-    return a + b
-
-# Calculate the sum of 5 and 10
-result = calculate_sum(5, 10)
-print(result)" > ./sum_calc.py
-python3 sum_calc.py
-```
-The result of 5 + 10 will be displayed in the output.''',
-        )
-        
-        chat.add_message(
-            Role.USER,
-            """```bash_out
-15
-```"""
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            "The command ran successfully the result is '15'. Anything else I can service for you? :)",
-        )
-        
-#         chat.add_message(
-#             Role.USER,
-#             "Can you show me how much data would be uploaded if i pushed my local branch to origin?"
-#         )
-        
-        
-#         chat.add_message(
-#             Role.ASSISTANT,
-#             """To estimate the size of the data that would be transferred, I'll use the `git` command:
-# ```bash
-# git rev-list --size --objects --filter=blob:none HEAD..origin/<your-branch-name>
-# ```
-# Please tell me `<your-branch-name>` which is the actual name of your local branch."""
-#         )
-        
-#         chat.add_message(
-#             Role.USER,
-#             "TechnicalChallenge24"
-#         )
-        
-#         chat.add_message(
-#             Role.ASSISTANT,
-#             """Thanks! Now here's your command:
-# ```bash
-# git rev-list --size --objects --filter=blob:none main..TechnicalChallenge24
-# ```"""
-#         )
-        
-        chat.add_message(
-            Role.USER,
-            "Yes, i have some more unrelated requests. Can you ensure that any commands you provide are executable non-interactively?"
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            "I will do my best to ensure that all commands provided are executable non-interactively, if at all possible. Please go ahead and provide your requests. 🤖",
-        )
 
         chat.add_message(
             Role.USER,
-            "Are you enjoying our interaction thus far?"
-        )
-
-        chat.add_message(
-            Role.ASSISTANT,
-            "Absolutely, I'm always here and ready to assist. 😁 If you have more questions or any requests I can take care of, just let me know! I aim to provide clear, concise responses and commands tailored to your needs. Your satisfaction is my only Objective! ✨"
-        )
-
-        chat.add_message(
-            Role.USER,
-            "I have a feeling that you could forget to provide only fully non-user-interaction requiring commands? Can you please ensure me that this won't happen?"
+            select_and_execute_commands(["pwd"], True, False)[0] + "\n\nGreat thanks!"
         )
         
-        chat.add_message(
-            Role.ASSISTANT,
-            "I hereby declare that I shall never suggest commands that require user interaction as long as it is not absolutely necessary! 🛡️"
-        )
-        
-        if (len(select_and_execute_commands(["tree -d -L 3 ."], True, False)[0])<8000): # Magic Number: will use other few_shot if the dir tree is too big
+        if (len(select_and_execute_commands(["tree -d -L 3 ."], True, False)[0])/4<2000): # extensive directory overview, the magic number serves as cutoff for too big directories
             chat.add_message(
                 Role.USER,
                 "Great! Can you show me a tree for all files and folders in current directory up to 3 levels deep?"
@@ -344,7 +223,7 @@ tree -d -L 3 .
                 Role.ASSISTANT,
                 "Great! The tree view was successfully generated. Is there anything else I can help you with? 🌳"
             )
-        else:
+        else: # more minimal directory overview
             chat.add_message(
                 Role.USER,
                 "Great! Now list the 20 most recently modified files and folders in the current directory, include hidden files and directories"
@@ -373,25 +252,25 @@ ls -1hFt | head -n 20
         )
         chat.add_message(
             Role.ASSISTANT,
-        """To identify and locate the running CLI agent process, we can use the `pgrep` command:
+        """To identify and locate the running cli-agent process, we can use the `pgrep` command. I'll ignore casing for simplicity:
 ```bash
-pgrep -af "CLI-Agent"
+pgrep -aif "cli-agent"
 ```
-This command will search for any running processes that match the pattern "CLI-Agent" and display their process IDs and corresponding command lines.""")
+This command will search for any running processes that match the pattern "cli-agent" and display their process IDs and corresponding command lines.""")
         
         chat.add_message(
             Role.USER,
-            select_and_execute_commands(['pgrep -af "CLI-Agent"'], True, False)[0] + "\n\nlook its you!"
+            select_and_execute_commands(['pgrep -aif "cli-agent"'], True, False)[0] + "\n\nlook its you!"
         )
+        
         chat.add_message(
             Role.ASSISTANT,
-            "That's meta! The CLI agent process is the one running the command to search for the CLI agent process itself. Feels like looking into a mirror... 🤖"
+            "That's meta! " + LlmRouter.generate_completion(chat, model, silent=True) + " 🤖"
         )
 
-
         if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
-            userRequest = self.few_shot_rephrase(userRequest, model, force_local)
-        
+            userRequest = self.few_shot_rephrase(userRequest, model, force_local, silent=True)
+                
         chat.add_message(
             Role.USER,
             userRequest
@@ -400,9 +279,24 @@ This command will search for any running processes that match the pattern "CLI-A
         response: str = LlmRouter.generate_completion(
             chat,
             model,
-            temperature=0,
             force_local=force_local,
+            silent=silent
         )
+        
+        applied_hardcoded_fixes = False
+        if "```" in response and not "```bash" in response:
+            applied_hardcoded_fixes = True
+            parts = response.split("```")
+            for i in range(len(parts)):
+                if i % 2 == 1:  # Odd-indexed parts
+                    parts[i] = "bash\n" + parts[i]
+            response = "```".join(parts)
+        if ("apt" in response and "install" in response and not "-y" in response):
+            applied_hardcoded_fixes = True
+            response = response.replace("apt install", "apt install -y")
+            response = response.replace("apt-get install", "apt-get install -y")
+        if applied_hardcoded_fixes:
+            print(colored("DEBUG: Applied hardcoded fixes to the response.", "yellow"))
         
         chat.add_message(
             Role.ASSISTANT,
@@ -410,7 +304,7 @@ This command will search for any running processes that match the pattern "CLI-A
         )
         return response, chat
     
-    
+
     @classmethod
     def hiddenThoughtSolver(self, userRequest: str) -> str:
         """
@@ -508,43 +402,50 @@ This command will search for any running processes that match the pattern "CLI-A
         Returns:
             str: The rephrased request.
         """
-        chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended meaning while enhancing the clarity of the request. It always answers using the same response pattern.")
-        chat.add_message(Role.USER, "Rephrase: 'show me puppies'")
-        chat.add_message(Role.ASSISTANT, "Rephrased version: 'Show me images of puppies.'")
-        chat.add_message(Role.USER, "Rephrase: 'what is the main city of germans?'")
-        chat.add_message(Role.ASSISTANT, "Rephrased version: 'Can you name the capital of germany?'")
-        chat.add_message(Role.USER, "Rephrase: 'whats 4*8'")
-        chat.add_message(Role.ASSISTANT, "Rephrased version: 'Please calculate the product of 4*8'")
-        chat.add_message(Role.USER, f"Rephrase: '{userRequest}'")
-        
-        
-        if not force_local:
-            if "llama" in model or "" == model:
-                model = "llama3-8b-8192"
-            elif "claude" in model:
-                model = "claude-3-haiku-20240307"
-            elif "gpt" in model:
-                model = "gpt-4o-mini"
-            else:
-                model = "gemma2-9b-it"
-        
-        response: str = LlmRouter.generate_completion(
-            chat,
-            model,
-            force_local=force_local,
-            temperature=0,
-            silent=silent
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            response,
-        )
-        response = response[response.index("'")+1:response.rindex("'")]
-        if not response: 
-            response = response[response.index('"')+1:response.rindex('"')]
-        
-        return response
+        try:
+            chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended meaning while enhancing the clarity of the request. It always answers using the same response pattern.")
+            chat.add_message(Role.USER, "Rephrase: 'show me puppies'")
+            chat.add_message(Role.ASSISTANT, "Rephrased version: 'Show me images of puppies'")
+            chat.add_message(Role.USER, "Rephrase: 'what is the main city of germans?'")
+            chat.add_message(Role.ASSISTANT, "Rephrased version: 'Can you name the capital of germany?'")
+            chat.add_message(Role.USER, "Rephrase: 'whats 4*8'")
+            chat.add_message(Role.ASSISTANT, "Rephrased version: 'Please calculate the product of 4*8'")
+            chat.add_message(Role.USER, "Rephrase: 'hi'")
+            chat.add_message(Role.ASSISTANT, "Rephrased version: 'Hi there!'")
+            chat.add_message(Role.USER, f"Rephrase: '{userRequest}'")
+            
+            
+            if not force_local:
+                if "llama" in model or "" == model:
+                    model = "llama3-8b-8192"
+                elif "claude" in model:
+                    model = "claude-3-haiku-20240307"
+                elif "gpt" in model:
+                    model = "gpt-4o-mini"
+                else:
+                    model = "gemma2-9b-it"
+            
+            response: str = LlmRouter.generate_completion(
+                chat,
+                model,
+                force_local=force_local,
+                temperature=0,
+                silent=silent
+            )
+            
+            chat.add_message(
+                Role.ASSISTANT,
+                response,
+            )
+            response = response[response.index("'")+1:response.rindex("'")]
+            if not response: 
+                response = response[response.index('"')+1:response.rindex('"')]
+            
+            return response
+        except Exception as e:
+            if not silent:
+                print(colored(f"DEBUG: few_shot_rephrase failed with response: {response}", "yellow"))
+            return userRequest
     
     
     # def rephraseChat(self, chat: Chat, model:str, force_local: bool = False) -> Chat:

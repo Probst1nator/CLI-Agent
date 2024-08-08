@@ -3,12 +3,12 @@ from typing import Optional
 from anthropic import Anthropic
 
 from termcolor import colored
-from cls_custom_coloring import CustomColoring
-from interface.cls_chat import Chat, Role
+from classes.cls_custom_coloring import CustomColoring
+from classes.cls_chat import Chat, Role
 import traceback
 import tiktoken
 
-from interface.cls_chat_client_interface import ChatClientInterface
+from classes.cls_ai_provider_interface import ChatClientInterface
 
 class AnthropicChat(ChatClientInterface):
     """
@@ -50,7 +50,7 @@ class AnthropicChat(ChatClientInterface):
                 model=model,
                 max_tokens=4096,
                 system=system_message,
-                messages=l_chat.to_groq_format(),
+                messages=l_chat.to_groq(),
                 temperature=temperature,
             ) as stream:
                 full_response = ""

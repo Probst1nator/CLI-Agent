@@ -11,8 +11,8 @@ from prompt_toolkit.widgets import CheckboxList, Frame, Label
 import pyperclip
 from termcolor import colored
 
-from interface.cls_chat import Chat, Role
-from interface.cls_ollama_client import OllamaClient
+from classes.cls_chat import Chat, Role
+from classes.ai_providers.cls_ollama_interface import OllamaClient
 
 def run_command(command: str, verbose: bool = True, max_output_length:int = 16000) -> Tuple[str,str]:
     """
@@ -52,7 +52,7 @@ def run_command(command: str, verbose: bool = True, max_output_length:int = 1600
             
             if len(final_output) > max_output_length:
                 half_length = max_output_length // 2
-                final_output = final_output[:half_length] + "\n\n...Output truncated due to length.\n\n" + final_output[-half_length:]
+                final_output = final_output[:half_length] + "\n\n...Response truncated due to length.\n\n" + final_output[-half_length:]
 
             result = {
                 'output': final_output,
@@ -155,7 +155,7 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
             results.append(result)
             formatted_results.append(f"```cmd\n{result}\n```\n```cmd_log\n{output}\n```")
     
-    execution_summarization = "```execution_summarization\n" + "\n".join(results) + "\n```"
+    execution_summarization = "```terminal_response\n" + "\n".join(results) + "\n```"
     
     return "\n\n".join(formatted_results), execution_summarization
 

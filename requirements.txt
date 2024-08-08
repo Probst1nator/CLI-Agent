@@ -14,3 +14,4 @@ pyperclip
 anthropic
 python3-tk
 tiktoken
+googlesearch-python

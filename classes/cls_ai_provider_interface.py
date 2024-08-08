@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional
-from interface.cls_chat import Chat
+from classes.cls_chat import Chat
 
 class ChatClientInterface(ABC):
     @abstractmethod
@@ -18,17 +18,3 @@ class ChatClientInterface(ABC):
             Optional[str]: The generated response, or None if an error occurs.
         """
         pass
-
-    # @abstractmethod
-    # def count_tokens(self, text: str, model: str) -> int:
-    #     """
-    #     Counts the number of tokens in the given text for the specified model.
-
-    #     Args:
-    #         text (str): The input text.
-    #         model (str): The model identifier.
-
-    #     Returns:
-    #         int: The number of tokens in the input text.
-    #     """
-    #     pass

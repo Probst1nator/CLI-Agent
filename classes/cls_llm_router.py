@@ -1,4 +1,3 @@
-from datetime import *
 import hashlib
 import json
 import logging
@@ -7,36 +6,18 @@ from typing import Dict, List, Optional, Set
 
 from termcolor import colored
 
-from cls_custom_coloring import CustomColoring
-from interface.cls_chat import Chat, Role
+from classes.cls_custom_coloring import CustomColoring
+from classes.cls_chat import Chat, Role
 from enum import Enum
-from interface.cls_anthropic_interface import AnthropicChat
-from interface.cls_chat_client_interface import ChatClientInterface
-from interface.cls_groq_interface import GroqChat
-from interface.cls_ollama_client import OllamaClient
-from interface.cls_openai_interface import OpenAIChat
-
-
-workspace = os.getcwd()
-vscode_path = os.path.join(workspace, ".vscode")
-if os.path.exists(vscode_path):
-    log_file_path = os.path.join(vscode_path, 'cli-agent.log')
-else:
-    logs_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs",)
-    os.makedirs(logs_path, exist_ok=True)
-    log_file_path = os.path.join(logs_path, 'cli-agent.log')
-logging.basicConfig(level=logging.CRITICAL, filename=log_file_path)
-
-# class LlmProviders(Enum):
-#     AnthropicChat = AnthropicChat
-#     GroqChat = GroqChat
-#     OllamaClient = OllamaClient
-#     OpenAIChat = OpenAIChat
+from classes.ai_providers.cls_anthropic_interface import AnthropicChat
+from classes.cls_ai_provider_interface import ChatClientInterface
+from classes.ai_providers.cls_groq_interface import GroqChat
+from classes.ai_providers.cls_ollama_interface import OllamaClient
+from classes.ai_providers.cls_openai_interface import OpenAIChat
 
 class AIStrengths(Enum):
     STRONG = 2
-    MEDIUM = 1
-    WEAK = 0
+    FAST = 1
 
 class Llm:
     def __init__(
@@ -53,7 +34,7 @@ class Llm:
         self.provider = provider
         self.model_key = model_key
         self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
-        self.available_local = available_local
+        self.local = available_local
         self.has_vision = has_vision
         self.context_window = context_window
         self.max_output = max_output
@@ -69,24 +50,29 @@ class Llm:
         """
         return [
             # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, True, 131072, None, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, True, 131072, 30000, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama-3.1-8b-instant", None, False, True, 131072, 30000, AIStrengths.MEDIUM),
-            Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.MEDIUM),
-            Llm(GroqChat(), "llama3-8b-8192", None, False, True, 8192, 30000, AIStrengths.WEAK),
-            Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, True, 8192, 30000, AIStrengths.MEDIUM),
-            Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, True, 8192, 30000, AIStrengths.WEAK),
-            Llm(GroqChat(), "gemma2-9b-it", None, False, False, 8192, 15000, AIStrengths.WEAK),
-            Llm(GroqChat(), "mixtral-8x7b-32768", None, False, False, 32768, 5000, AIStrengths.WEAK),
+            Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, False, 131072, 30000, AIStrengths.STRONG),
+            Llm(GroqChat(), "llama-3.1-8b-instant", None, False, False, 131072, 30000, AIStrengths.FAST),
+            Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.STRONG),
+            Llm(GroqChat(), "llama3-8b-8192", None, False, False, 8192, 30000, AIStrengths.FAST),
+            Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, 8192, 30000, AIStrengths.STRONG),
+            Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, 8192, 30000, AIStrengths.FAST),
+            Llm(GroqChat(), "gemma2-9b-it", None, False, False, 8192, 15000, AIStrengths.FAST),
+            
             Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),
-            Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, 200000, 4096, AIStrengths.WEAK),
+            Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, 200000, 4096, AIStrengths.FAST),
             Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None, AIStrengths.STRONG),
-            Llm(OpenAIChat(), "gpt-4o-mini", 0.4, False, True, 128000, None, AIStrengths.MEDIUM),
-            Llm(OllamaClient(), "phi3", None, True, False, 4096, None, AIStrengths.WEAK),
-            Llm(OllamaClient(), "llava-phi3", None, True, True, 4096, None, AIStrengths.WEAK),
+            Llm(OpenAIChat(), "gpt-4o-mini", 0.4, False, True, 128000, None, AIStrengths.FAST),
+            
+            Llm(OllamaClient(), 'llama3.1', None, True, False, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), 'gemma2:2b', None, True, False, 4096, None, AIStrengths.FAST),
+            Llm(OllamaClient(), "phi3", None, True, False, 4096, None, AIStrengths.FAST),
+            Llm(OllamaClient(), "llava-llama3", None, True, True, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "llava-phi3", None, True, True, 4096, None, AIStrengths.FAST),
         ]
 
 class LlmRouter:
     _instance: Optional["LlmRouter"] = None
+    call_counter: int = 0
     
     def __new__(cls, *args, **kwargs) -> "LlmRouter":
         if cls._instance is None:
@@ -100,7 +86,7 @@ class LlmRouter:
         self.cache_file_path = f"{user_cli_agent_dir}/llm_cache.json"
         self.cache = self._load_cache()
         self.retry_models = Llm.get_available_llms()
-        self.failed_models: Dict[str, datetime] = {}
+        self.failed_models: Set[str] = set()
 
     def _generate_hash(self, model: str, temperature: str, prompt: str, images: List[str]) -> str:
         """
@@ -168,21 +154,8 @@ class LlmRouter:
         except Exception as e:
             logging.error(f"Failed to update cache: {e}")
 
-    def retry_failed_models(self, retry_duration_min: int = 2) -> None:
-        """
-        Retry failed models.
-        """
-        to_retry_keys: List[str] = []
-        now = datetime.now()
-        for model_key, failed_time in self.failed_models.items():
-            if (now - failed_time).total_seconds() > retry_duration_min * 60:
-                to_retry_keys.append(model_key)
-                print(colored(f"DEBUG: Model {model_key} is being retried.", "yellow"))
-        for model_key in to_retry_keys:
-            self.failed_models.pop(model_key)
-            
 
-    def get_model(self, model_key: str, min_strength: AIStrengths, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
+    def get_model(self, model_key: str, strength: AIStrengths, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
@@ -196,55 +169,50 @@ class LlmRouter:
         Returns:
             Optional[str]: The next model identifier if available, otherwise None.
         """
-        print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
-        self.retry_failed_models(5)
+        if (chat.count_tokens()>4000 and not force_free and not force_local):
+            print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
         
-        applicable_models: List[Llm] = []
-        
+        # search for exact model key match first
         if model_key not in self.failed_models and model_key:
             model = next((model for model in self.retry_models if model.model_key == model_key and model.context_window > chat.count_tokens()), None)
             if model:
                 return model
+        # search online models by capability next
         for model in self.retry_models:
             if model.model_key not in self.failed_models:
-                if self._model_capable_check(model, chat, min_strength, force_local, force_free, has_vision):
-                    applicable_models.append(model)
-        
-        return self._get_optimal_model(applicable_models)
+                if (not model.local):
+                    if self.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
+                        return model
+        # search local models by capability last
+        for model in self.retry_models:
+            if model.model_key not in self.failed_models:
+                if (model.local):
+                    if self.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision):
+                        return model
+        return None
     
-    def _get_optimal_model(self, allowed_models: List[Llm]) -> Optional[Llm]:
-        strongest_models = [model for model in allowed_models if model.strength.value == max(model.strength.value for model in allowed_models)]
-        strongest_free_models = [model for model in strongest_models if model.pricing_in_dollar_per_1M_tokens is None]
-        if (strongest_free_models):
-            return strongest_free_models[0]
-        else:
-            strongest_cheapest_model = min(strongest_models, key=lambda x: x.pricing_in_dollar_per_1M_tokens)
-            return strongest_cheapest_model
-        
-    
-    def _model_capable_check(self, model: Llm, chat: Chat, min_strength: AIStrengths = AIStrengths.WEAK, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> bool:
-        if force_local and not model.available_local:
-            return False
+    def model_capable_check(self, model: Llm, chat: Chat, strength: AIStrengths, local: bool, force_free: bool = False, has_vision: bool = False) -> bool:
         if force_free and model.pricing_in_dollar_per_1M_tokens is not None:
             return False
         if has_vision and not model.has_vision:
             return False
         if model.context_window < chat.count_tokens():
             return False
-        if min_strength:
-            if model.strength.value < min_strength.value:
+        if strength:
+            if model.strength.value != strength.value:
                 return False
-        
+        if model.local != local:
+            return False
         return True
 
     @classmethod
     def generate_completion(
         cls,
-        chat: Chat,
+        chat: Chat|str,
         model_key: str = "",
-        min_strength: AIStrengths = AIStrengths.WEAK,
+        strength: AIStrengths = AIStrengths.STRONG,
         start_response_with: str = "",
-        instruction: str = "The highly advanced AI assistant provides thorough responses to the user. It displays a deep understanding and offers expert service in whatever domain the user requires.",
+        instruction: str = "The highly advanced AI assistant provides insightful responses to the user. It displays a deep understanding and offers expert service in whatever domain the user requires.",
         temperature: float = 0.8,
         base64_images: List[str] = [],
         include_start_response_str: bool = True,
@@ -275,41 +243,38 @@ class LlmRouter:
         """
         instance = cls()
         tooling = CustomColoring()
-
+        cls.call_counter += 1
+        
         if isinstance(chat, str):
             chat = Chat(instruction).add_message(Role.USER, chat)
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)
+        if base64_images:
+            chat.base64_images = base64_images
         
         while True:
             try:
-                model = instance.get_model(min_strength=min_strength, model_key=model_key, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
+                model = instance.get_model(strength=strength, model_key=model_key, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
                 if not model:
-                    print(colored(f"All models failed.", "red"))
-                    logging.error(f"All models failed.")
-                    return None
+                    print(colored(f"# # # All models failed # # # RETRYING... # # #", "red"))
+                    instance.failed_models.clear()
+                    model = instance.get_model(strength=strength, model_key=model_key, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
 
                 if not ignore_cache:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                     if cached_completion:
                         if not silent:
+                            print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
+                        if not silent:
                             for char in cached_completion:
                                 print(tooling.apply_color(char), end="")
                             print()
-                        logging.info(f"Returned response:\n{cached_completion}")
                         return cached_completion
 
-                if base64_images:
-                    response = OllamaClient.generate_response(chat, model.model_key, temperature, silent, base64_images)
-                    instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
-                else:
-                    response = model.provider.generate_response(chat, model.model_key, temperature, silent)
-                    instance._update_cache(model.model_key, str(temperature), chat, [], response)
-                response = start_response_with + response if include_start_response_str else response
-                logging.info(f"Returned response:\n{response}")
-                return response
-                
+                response = model.provider.generate_response(chat, model.model_key, temperature, silent)
+                instance._update_cache(model.model_key, str(temperature), chat, [], response)
+                return start_response_with + response if include_start_response_str else response
+
             except Exception as e:
                 logging.error(f"Error with model {model.model_key}: {e}")
-                print(colored(f"Error with model {model.model_key}: {e}", "red"))
-                instance.failed_models[model.model_key] = datetime.now()
+                instance.failed_models.add(model.model_key)
