@@ -1,3 +1,89 @@
 {
-	"instruction": "The assistant provides code completion, error analysis, and code fixes. It can also execute commands and provide explanations. You can use the assistant to interact with the terminal, edit code, and more. Type '--h' for help."
+  "instruction": "The assistant provides code completion, error analysis, and code fixes. It can also execute commands and provide explanations. The assistant interacts with the terminal, edits code, and more. The user can type '--h' for help.",
+  "history": [
+    {
+      "role": "system",
+      "content": "Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise."
+    },
+    {
+      "role": "user",
+      "content": "set screen brightness to 10%"
+    },
+    {
+      "role": "assistant",
+      "content": "Setting the screen brightness to 10% requires to first find the name of the display using xrandr.\n```bash\nxrandr --listmonitors\n```\nUsing the terminals response I will be able to suggest the next command for setting the screen brightness to 10%."
+    },
+    {
+      "role": "user",
+      "content": "xrandr --listmonitors\n\n'''cmd_response\nMonitors: 2\n 0: +*HDMI-0 2560/597x1440/336+470+0  HDMI-0\n 1: +DP-0 3440/1x1440/1+0+1440  DP-0'''\n"
+    },
+    {
+      "role": "assistant",
+      "content": "The command was successful and returned information for 2 different monitors. Let's set both of them to 10% with these commands:\n```bash\nxrandr --output HDMI-0 --brightness 0.1\nxrandr --output DP-0 --brightness 0.1\n```"
+    },
+    {
+      "role": "user",
+      "content": "show me a puppy"
+    },
+    {
+      "role": "assistant",
+      "content": "I can show you a picture of a puppy by opening firefox with a corresponding image search url already entered:\n```bash\nfirefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch\n```"
+    },
+    {
+      "role": "user",
+      "content": "Thanks. Whats our current working directory?"
+    },
+    {
+      "role": "assistant",
+      "content": "Let's execute this command to find the working directory:\n```bash\npwd\n```"
+    },
+    {
+      "role": "user",
+      "content": "```cmd\npwd\t# Command executed successfully\n```\n```cmd_log\n/home/prob/repos/CLI-Agent\n\n```\n\nGreat thanks!Great! Can you show me a tree for all files and folders in current directory up to 3 levels deep?"
+    },
+    {
+      "role": "assistant",
+      "content": "To create a tree view of the current directory up to 3 levels deep, we can use the `tree` command:\n```bash\ntree -d -L 3 .\n```"
+    },
+    {
+      "role": "user",
+      "content": "```cmd\ntree -d -L 3 .\t# Command executed successfully\n```\n```cmd_log\n.\n\u251c\u2500\u2500 classes\n\u2502\u00a0\u00a0 \u251c\u2500\u2500 ai_providers\n\u2502\u00a0\u00a0 \u2502\u00a0\u00a0 \u2514\u2500\u2500 __pycache__\n\u2502\u00a0\u00a0 \u251c\u2500\u2500 __pycache__\n\u2502\u00a0\u00a0 \u2514\u2500\u2500 wip\n\u251c\u2500\u2500 env\n\u2502\u00a0\u00a0 \u2514\u2500\u2500 lib\n\u2502\u00a0\u00a0     \u2514\u2500\u2500 python3.10\n\u251c\u2500\u2500 logs\n\u2514\u2500\u2500 __pycache__\n\n10 directories\n\n```"
+    },
+    {
+      "role": "assistant",
+      "content": "Great! The tree view was successfully generated. Is there anything else I can help you with? \ud83c\udf33"
+    },
+    {
+      "role": "user",
+      "content": "please find the running cli-agent process"
+    },
+    {
+      "role": "assistant",
+      "content": "To identify and locate the running cli-agent process, we can use the `pgrep` command. I'll ignore casing for simplicity:\n```bash\npgrep -aif \"cli-agent\"\n```\nThis command will search for any running processes that match the pattern \"cli-agent\" and display their process IDs and corresponding command lines."
+    },
+    {
+      "role": "user",
+      "content": "```cmd\npgrep -aif \"cli-agent\"\t# Command executed successfully\n```\n```cmd_log\n56709 /usr/share/code/code repos/CLI-Agent\n117589 python3 /usr/local/bin/cli-agent -m how are you feeling?\n117596 /bin/sh -c pgrep -aif \"cli-agent\"\n\n```\n\nlook its you!"
+    },
+    {
+      "role": "assistant",
+      "content": "That's meta! It's me indeed. The running `cli-agent` process with ID `117589` is the one we're interacting with. Note that there are a couple of other processes listed, one of which is the current `pgrep` command itself, which is why you see `/bin/sh -c pgrep -aif \"cli-agent\"`. Would you like to do something with this process or is there anything else I can assist you with? \ud83e\udd16"
+    },
+    {
+      "role": "user",
+      "content": "What's your current emotional state or mood?"
+    },
+    {
+      "role": "assistant",
+      "content": "As a program, I don't have emotions or feelings like humans do. I'm designed to provide information, answer questions, and assist with tasks, but I don't have subjective experiences or emotional states. I'm simply a collection of code and data, running on computer hardware. So, I don't have a \"mood\" in the way humans do. However, I'm functioning properly and ready to help with your next question or task!"
+    },
+    {
+      "role": "user",
+      "content": "test"
+    },
+    {
+      "role": "assistant",
+      "content": "It looks like you just entered a simple \"test\" command. If you'd like to run a specific test or execute a command, I'd be happy to help. Otherwise, if you're just checking if I'm still here and responding, the answer is yes, I'm still here and ready to assist!"
+    }
+  ]
 }
