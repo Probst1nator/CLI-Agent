@@ -13,7 +13,7 @@ from termcolor import colored
 from classes.cls_chat import Chat, Role
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_llm_router import AIStrengths, LlmRouter
-from classes.cls_web_scraper import WebScraper, get_github_readme
+from classes.cls_web_scraper import search_and_scrape, get_github_readme
 from tooling import run_python_script, select_and_execute_commands, ScreenCapture
 import pyperclip
 import json
@@ -363,6 +363,11 @@ def main():
             print(colored(f"# cli-agent: KeyBinding detected: Autonomous command execution toggled {args.auto}, type (--h) for info", "green"))
             continue
         
+        if next_prompt.endswith("--w"):
+            args.w = True
+            print(colored(f"# cli-agent: KeyBinding detected: Websearch enabled, type (--h) for info", "green"))
+            continue
+        
         if next_prompt.endswith("--m"):
             print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
             lines = []
@@ -372,6 +377,7 @@ def main():
                     break
                 lines.append(line)
             next_prompt = "\n".join(lines)
+            
         
         if next_prompt.endswith("--h"):
             next_prompt = next_prompt[:-3]
@@ -382,24 +388,26 @@ def main():
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --a: Toggles autonomous command execution.
 # cli-agent: --m: Multiline input mode.
+# cli-agent: --w: Perform a websearch before answering.
 # cli-agent: --h: Shows this help message.
 # cli-agent: Type 'quit' to exit the program.
 """))
             continue
             
+        if args.w:
+            # search_query = FewShotProvider.few_shot_TextToKey(next_prompt)
+            query = FewShotProvider.few_shot_TextToQuery(next_prompt)
+            results = search_and_scrape(query)
+            # web_intel = ""
+            # for result in results:
+            #     if len(result)/4 > 4096:
+            #         continue
+            #     web_intel += FewShotProvider.few_shot_rephrase(result)
+            next_prompt += f"\n\n```web_search_result\n{''.join(results)}\n```"
+            args.w = False
+            
         if prompt_context_augmentation:
             next_prompt +=  f"\n\n```\n{prompt_context_augmentation}\n```" # append contents from previous iteration to the end of the new prompt
-            
-        # if args.w:
-        #     # search_query = FewShotProvider.few_shot_TextToKey(next_prompt)
-        #     scraper = WebScraper()
-        #     results = scraper.search_and_extract_texts(next_prompt, 1)
-        #     web_intel = ""
-        #     for result in results:
-        #         if len(result)/4 > 4096:
-        #             pass
-        #         web_intel += FewShotProvider.few_shot_rephrase(result)
-        #     next_prompt += f"\n\n```web_search_result\n{web_intel}\n```"
         
         if "https://github.com/" in next_prompt and next_prompt.count("/") >= 4:
             github_repo_url = re.search("(?P<url>https?://[^\s]+)", next_prompt).group("url")

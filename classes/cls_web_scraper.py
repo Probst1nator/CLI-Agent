@@ -1,80 +1,54 @@
 import base64
-import logging
 import re
-from typing import List, Optional
 import requests
+from bs4 import BeautifulSoup
 from googlesearch import search
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-class WebScraper:
+def search_and_scrape(query: str, num_sites: int = 1) -> list[str]:
     """
-    A class for performing web searches and extracting text from web pages.
-    """
-
-    def __init__(self):
-        """
-        Initialize the WebSearcher with default settings.
-        """
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-
-    def fetch_url_content(self, url: str) -> Optional[str]:
-        """
-        Fetch the content of a given URL.
+    Perform a Google search using the given query and scrape the content of the specified number of sites.
+    
+    Args:
+        query (str): The search query.
+        num_sites (int): The number of sites to scrape. Default is 1.
         
-        :param url: The URL to fetch content from
-        :return: The content of the URL as a string, or None if fetching fails
-        """
+    Returns:
+        list: A list of strings, each containing the scraped text from the respective search results.
+        
+    Raises:
+        requests.RequestException: If there is an error fetching a webpage.
+    """
+    # Perform a Google search and get the top results
+    results = search(query, num_results=num_sites)
+    
+    scraped_contents = []
+    
+    for result in results:
+        print(f"Result URL: {result}")
+        
+        # Fetch the webpage content
         try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            return response.text
+            page_response = requests.get(result, headers={'User-Agent': 'Mozilla/5.0'})
+            page_response.raise_for_status()
         except requests.RequestException as e:
-            logging.error(f"Failed to fetch URL content: {e} for URL: {url}")
-            return None
-
-    def extract_text(self, page_content: str) -> str:
-        """
-        Extract text content from a web page.
+            print(f"Error fetching the webpage: {e}")
+            continue
         
-        :param page_content: The HTML content of the web page
-        :return: Extracted text content
-        """
-        # For simplicity, we're just returning the raw content here.
-        # You might want to use BeautifulSoup or another HTML parser for more precise extraction.
-        return page_content
-
-    def search_and_extract_texts(self, keyword: str, num_results: int) -> List[str]:
-        """
-        Perform a web search and extract text from the resulting web pages.
+        # Parse the HTML content
+        soup = BeautifulSoup(page_response.content, 'html.parser')
         
-        :param keyword: The search keyword
-        :param num_results: The number of results to process
-        :return: A list of extracted texts from the search results
-        """
-        texts = []
-        try:
-            # Perform the search
-            search_results = search(keyword, num_results=num_results)
-            
-            for url in search_results:
-                page_content = self.fetch_url_content(url)
-                if page_content:
-                    extracted_text = self.extract_text(page_content)
-                    if extracted_text:
-                        texts.append(extracted_text)
-                        logging.info(f"Extracted text from: {url}")
-                
-                if len(texts) >= num_results:
-                    break
-            
-        except Exception as e:
-            logging.error(f"An error occurred during the search: {e}")
+        # Extract and print the text
+        for script in soup(["script", "style"]):
+            script.decompose()
         
-        return texts
-
+        text = soup.get_text()
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = '\n'.join(chunk for chunk in chunks if chunk)
+        
+        scraped_contents.append(text)
+    
+    return scraped_contents
 
 def get_github_readme(repo_url: str) -> str:
     """
