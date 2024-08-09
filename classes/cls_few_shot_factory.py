@@ -51,6 +51,9 @@ class FewShotProvider:
         chat.add_message(Role.USER, "When will the suntime in bavaria be on 12 hours long?")
         chat.add_message(Role.ASSISTANT, "equinox date in Bavaria daylight hours 12 hours")
         
+        chat.add_message(Role.USER, "Wann wird die Sonnenscheindauer in Bayern 12 Stunden lang sein?")
+        chat.add_message(Role.ASSISTANT, "Tagundnachtgleiche in Bayern Sonnenscheindauer 12 Stunden")
+        
         chat.add_message(Role.USER, text)
         response: str = LlmRouter.generate_completion(chat, strength=AIStrengths.FAST)
         return response
