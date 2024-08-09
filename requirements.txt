@@ -15,3 +15,4 @@ anthropic
 python3-tk
 tiktoken
 googlesearch-python
+types-requests

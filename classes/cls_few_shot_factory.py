@@ -30,31 +30,32 @@ class FewShotProvider:
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
-    def few_shot_TextToKey(self, text: str) -> str:
+    def few_shot_TextToQuery(self, text: str) -> str:
         """
-        Generates a keyword based on the given text text.
+        Generates a search query based on the given text.
+        
         Args:
-        text (str): The user text to convert into a keyword.
+        text (str): The user text to convert into a search query.
+        
         Returns:
-        str: The generated keyword or topic.
+        str: The generated search query.
         """
-        chat: Chat = Chat("You are a text to keyword converting engine. Analyze the user's input, whether it's a question, statement, or description, and provide a concise term or phrase suitable for a Google search, capturing the main topic or intent.")
+        chat: Chat = Chat("You are a search query generator. Analyze the user's input, whether it's a question, statement, or description, and provide a concise, effective search query suitable for a search engine like Google. Focus on capturing the main topic or intent, using keywords and phrases that would yield relevant results. Avoid unnecessary words and aim for clarity and specificity.")
         
         chat.add_message(Role.USER, "I've been experiencing frequent headaches and dizziness lately, especially when I stand up quickly. It's been going on for about two weeks now. Should I be concerned? What might be causing this?")
-        chat.add_message(Role.ASSISTANT, "causes of chronic headaches and dizziness")
+        chat.add_message(Role.ASSISTANT, "frequent headaches dizziness standing up causes")
         
         chat.add_message(Role.USER, "The rise of remote work has dramatically changed the landscape of modern offices. Many companies are now adopting hybrid models, allowing employees to split their time between home and office. This shift is impacting everything from real estate decisions to team collaboration strategies.")
-        chat.add_message(Role.ASSISTANT, "impact of remote work on business operations")
+        chat.add_message(Role.ASSISTANT, "impact of remote work on office space and collaboration")
         
-        chat.add_message(Role.USER, "Sustainable agriculture practices are becoming increasingly important as we face climate change and population growth. Techniques like crop rotation, water conservation, and integrated pest management can help reduce environmental impact while maintaining food production. Farmers are also exploring innovative technologies such as precision agriculture and vertical farming.")
-        chat.add_message(Role.ASSISTANT, "sustainable agriculture techniques and innovations")
+        chat.add_message(Role.USER, "When will the suntime in bavaria be on 12 hours long?")
+        chat.add_message(Role.ASSISTANT, "equinox date in Bavaria daylight hours 12 hours")
         
         chat.add_message(Role.USER, text)
-        response: str = LlmRouter.generate_completion(chat)
+        response: str = LlmRouter.generate_completion(chat, strength=AIStrengths.FAST)
         return response
     
     
-
     # @classmethod
     # def selfSupervised_few_shot(self, userRequest: str, responseInstruction: str, model: str, local:bool = None) -> Tuple[str,Chat]:
     #     # returns (response, full_chat)
