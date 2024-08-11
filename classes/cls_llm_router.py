@@ -155,7 +155,7 @@ class LlmRouter:
             logging.error(f"Failed to update cache: {e}")
 
 
-    def get_model(self, model_key: str, strength: AIStrengths, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
+    def get_model(self, preferred_model_keys: List[str], strength: AIStrengths, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
@@ -173,10 +173,11 @@ class LlmRouter:
             print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
         
         # search for exact model key match first
-        if model_key not in self.failed_models and model_key:
-            model = next((model for model in self.retry_models if model.model_key == model_key and model.context_window > chat.count_tokens()), None)
-            if model:
-                return model
+        for model_key in preferred_model_keys:
+            if model_key not in self.failed_models and model_key:
+                model = next((model for model in self.retry_models if model.model_key == model_key and model.context_window > chat.count_tokens()), None)
+                if model:
+                    return model
         # search online models by capability next
         for model in self.retry_models:
             if model.model_key not in self.failed_models:
@@ -209,7 +210,7 @@ class LlmRouter:
     def generate_completion(
         cls,
         chat: Chat|str,
-        model_key: str = "",
+        preferred_model_keys: List[str] = [""],
         strength: AIStrengths = AIStrengths.STRONG,
         start_response_with: str = "",
         instruction: str = "The highly advanced AI assistant provides insightful responses to the user. It displays a deep understanding and offers expert service in whatever domain the user requires.",
@@ -254,11 +255,11 @@ class LlmRouter:
         
         while True:
             try:
-                model = instance.get_model(strength=strength, model_key=model_key, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
+                model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
                 if not model:
                     print(colored(f"# # # All models failed # # # RETRYING... # # #", "red"))
                     instance.failed_models.clear()
-                    model = instance.get_model(strength=strength, model_key=model_key, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
+                    model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
 
                 if not ignore_cache:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)

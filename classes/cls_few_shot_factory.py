@@ -70,7 +70,7 @@ class FewShotProvider:
     #     return (response, chat)
         
     @classmethod 
-    def few_shot_YesNo(self, userRequest: str, model: str, local:bool = None) -> Tuple[str,Chat]:
+    def few_shot_YesNo(self, userRequest: str, local:bool = None) -> Tuple[str,Chat]:
         """
         Determines whether the answer to the user's question is 'yes' or 'no'.
 
@@ -90,7 +90,7 @@ class FewShotProvider:
         chat.add_message(Role.USER, userRequest)
         response: str = LlmRouter.generate_completion(
             chat,
-            model,
+            strength=AIStrengths.FAST,
             force_local=local
         )
         chat.add_message(Role.ASSISTANT, response)
@@ -116,14 +116,14 @@ class FewShotProvider:
         chat.add_message(Role.USER, userRequest)
         response: str = LlmRouter.generate_completion(
             chat,
-            model,
+            [model],
             force_local=local
         )
         chat.add_message(Role.ASSISTANT, response)
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, model: str, force_local:bool = None, silent: bool = False) -> Tuple[str,Chat]:
+    def few_shot_CmdAgent(self, userRequest: str, preferred_model_keys: List[str], force_local:bool = None, silent: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -269,11 +269,11 @@ This command will search for any running processes that match the pattern "cli-a
         
         chat.add_message(
             Role.ASSISTANT,
-            "That's meta! " + LlmRouter.generate_completion(chat, model, silent=True) + " 🤖"
+            "That's meta! " + LlmRouter.generate_completion(chat, preferred_model_keys, silent=True) + " 🤖"
         )
 
         if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
-            userRequest = self.few_shot_rephrase(userRequest, model, force_local, silent=True)
+            userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
                 
         chat.add_message(
             Role.USER,
@@ -282,7 +282,7 @@ This command will search for any running processes that match the pattern "cli-a
 
         response: str = LlmRouter.generate_completion(
             chat,
-            model,
+            preferred_model_keys,
             force_local=force_local,
             silent=silent
         )
@@ -322,7 +322,7 @@ This command will search for any running processes that match the pattern "cli-a
         """
         chat = Chat("Start your message with <reasoning> and provide a chain of reasoning reflecting on the possible optimizations for the given problem(s) and objective(s), work step by step. End your thoughts with </reasoning>, and then provide your solution using <solution> ... </solution>")
         chat.add_message(Role.USER, userRequest)
-        response = LlmRouter.generate_completion(chat, "llama3-groq-70b-8192-tool-use-preview")
+        response = LlmRouter.generate_completion(chat, ["llama3-groq-70b-8192-tool-use-preview"])
         response = response.split("<solution>")[1].split("</solution>")[0]
         return response
     
@@ -351,7 +351,7 @@ This command will search for any running processes that match the pattern "cli-a
         
         chat = Chat()
         chat.add_message(Role.USER, prompt)
-        response = LlmRouter.generate_completion(chat, "llama3-groq-70b-8192-tool-use-preview", force_local=force_local)
+        response = LlmRouter.generate_completion(chat, ["llama3-groq-70b-8192-tool-use-preview"], force_local=force_local)
         
         return cls.parse_actions(response)
 
@@ -394,7 +394,7 @@ This command will search for any running processes that match the pattern "cli-a
     
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, model: str, force_local: bool = False, silent: bool = True) -> str:
+    def few_shot_rephrase(self, userRequest: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = True) -> str:
         """
         Rephrases the given request to enhance clarity while preserving the intended meaning.
 
@@ -418,20 +418,21 @@ This command will search for any running processes that match the pattern "cli-a
             chat.add_message(Role.ASSISTANT, "Rephrased version: 'Hi there!'")
             chat.add_message(Role.USER, f"Rephrase: '{userRequest}'")
             
-            
-            if not force_local:
-                if "llama" in model or "" == model:
-                    model = "llama3-8b-8192"
-                elif "claude" in model:
-                    model = "claude-3-haiku-20240307"
-                elif "gpt" in model:
-                    model = "gpt-4o-mini"
-                else:
-                    model = "gemma2-9b-it"
+            preferred_rephrase_model_keys = []
+            for preferred_model_key in preferred_model_keys:
+                if not force_local:
+                    if "llama" in preferred_model_key or "" == preferred_model_key:
+                        preferred_rephrase_model_keys.append("llama3-8b-8192")
+                    elif "claude" in preferred_model_key:
+                        preferred_rephrase_model_keys.append("claude-3-haiku-20240307")
+                    elif "gpt" in preferred_model_key:
+                        preferred_rephrase_model_keys.append("gpt-4o-mini")
+                    else:
+                        preferred_rephrase_model_keys.append("gemma2-9b-it")
             
             response: str = LlmRouter.generate_completion(
                 chat,
-                model,
+                preferred_model_keys,
                 force_local=force_local,
                 temperature=0,
                 silent=silent
@@ -450,9 +451,3 @@ This command will search for any running processes that match the pattern "cli-a
             if not silent:
                 print(colored(f"DEBUG: few_shot_rephrase failed with response: {response}", "yellow"))
             return userRequest
-    
-    
-    # def rephraseChat(self, chat: Chat, model:str, force_local: bool = False) -> Chat:
-    #     for msg in chat.messages:
-    #         msg[0].
-            

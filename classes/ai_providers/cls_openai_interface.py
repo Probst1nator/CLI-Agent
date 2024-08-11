@@ -60,7 +60,7 @@ class OpenAIChat(ChatClientInterface):
             raise Exception(f"OpenAI API error: {e}")
 
     @staticmethod
-    def transcribe_audio(audio_data: sr.AudioData, model: str = "whisper-1") -> tuple[str,str]:
+    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1") -> tuple[str,str]:
         """
         Transcribes an audio file using the OpenAI Whisper API.
 
@@ -83,14 +83,14 @@ class OpenAIChat(ChatClientInterface):
                     model=model,
                     file=audio_file,
                     response_format="verbose_json",
-                    prompt="Pepper, Pepper, Pepper"
+                    language=language
                 )
             
-            no_speech_prob = response.model_extra['segments'][0]['no_speech_prob']
+            no_speech_prob = response.segments[0]['no_speech_prob']
             if (no_speech_prob > 0.7):
                 return "", "english"
             
-            language = response.model_extra['language']
+            language = response.language
             
             return response.text, language
 

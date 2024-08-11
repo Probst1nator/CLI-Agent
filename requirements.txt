@@ -12,7 +12,15 @@ duckduckgo_search
 openai
 pyperclip
 anthropic
-python3-tk
 tiktoken
 googlesearch-python
 types-requests
+SpeechRecognition
+pyaudio
+gtts
+librosa
+pygame
+pynput
+pyfiglet
+matplotlib
+pydub
