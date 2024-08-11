@@ -4,13 +4,23 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+from gtts import gTTS
+import numpy as np
+import soundfile as sf
+import librosa
+from librosa import *
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import CheckboxList, Frame, Label
+import pygame
 import pyperclip
 from termcolor import colored
+from pynput import keyboard
+from speech_recognition import Recognizer, AudioSource, AudioData
+from pydub import AudioSegment
 
+from classes.ai_providers.cls_openai_interface import OpenAIChat
 from classes.cls_chat import Chat, Role
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 
@@ -445,3 +455,139 @@ def run_python_script(script_path: str) -> Tuple[Optional[str], Optional[str]]:
             return None, result.stderr
     except Exception as e:
         return None, str(e)
+
+def on_press(key):
+    if key == keyboard.Key.esc:
+        pygame.mixer.music.stop()
+
+def text_to_speech(text: str, lang_key: str = 'en', enable_keyboard_interrupt: bool = True, speed: float = 1.3, pitch_shift: float = 0.2):
+    """
+    Convert the assistant's response to speech, adjust speed and pitch, then play it.
+    Args:
+    text (str): The text to convert to speech.
+    lang_key (str, optional): The language of the text. Defaults to 'en'.
+    enable_keyboard_interrupt (bool, optional): Whether to enable keyboard interrupt. Defaults to True.
+    speed (float, optional): The speed of the speech. Defaults to 1.2.
+    pitch_shift (float, optional): The pitch shift in semitones. Positive values increase pitch, negative values decrease it. Defaults to 0.
+    Returns:
+    None
+    """
+    if text == "":
+        print(colored("No text to convert to speech.", "red"))
+        return
+
+    tts_file = 'tts_response.mp3'
+    modified_tts_file = 'modified_tts_response.mp3'
+
+    # Convert text to speech and save to a file
+    tts = gTTS(text=text, lang=lang_key)
+    tts.save(tts_file)
+
+    # Load the audio file
+    sound = AudioSegment.from_mp3(tts_file)
+
+    # Change speed
+    faster_sound = sound.speedup(playback_speed=speed)
+
+    # Change pitch
+    if pitch_shift != 0:
+        # Extract raw audio data as an array of samples
+        samples = np.array(faster_sound.get_array_of_samples())
+        
+        # Resample the audio to change pitch
+        pitch_factor = 2 ** (pitch_shift / 12)  # Convert semitones to a multiplication factor
+        new_sample_rate = int(faster_sound.frame_rate * pitch_factor)
+        pitched_samples = samples.astype(np.float64)
+        pitched_samples = np.interp(
+            np.linspace(0, len(pitched_samples), int(len(pitched_samples) / pitch_factor)),
+            np.arange(len(pitched_samples)),
+            pitched_samples
+        ).astype(np.int16)
+        
+        # Create a new AudioSegment with the pitched samples
+        pitched_sound = AudioSegment(
+            pitched_samples.tobytes(),
+            frame_rate=new_sample_rate,
+            sample_width=faster_sound.sample_width,
+            channels=faster_sound.channels
+        )
+        
+        # Export the pitched sound
+        pitched_sound.export(modified_tts_file, format="mp3")
+    else:
+        # If no pitch change, just export the speed-adjusted sound
+        faster_sound.export(modified_tts_file, format="mp3")
+
+    # Initialize pygame mixer and play the modified file
+    pygame.mixer.init()
+    pygame.mixer.music.load(modified_tts_file)
+    pygame.mixer.music.play()
+
+    if enable_keyboard_interrupt:
+        print(colored("Press 'Esc' to interrupt the speech.", "yellow"))
+        # Create a new thread to listen for keyboard events
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()
+
+    while pygame.mixer.music.get_busy():
+        pygame.time.Clock().tick(10)
+
+    if enable_keyboard_interrupt:
+        # Stop the keyboard listener
+        listener.stop()
+
+    # Clean up the files
+    os.remove(tts_file)
+    os.remove(modified_tts_file)
+
+
+def listen_microphone(
+    source: AudioSource,
+    r: Recognizer,
+    max_duration: Optional[int] = 40,
+    language: str = ""
+) -> Tuple[str, str]:
+    """
+    Listen to the microphone and return transcribed text and language.
+    Args:
+        source (AudioSource): The audio source to listen from.
+        r (Recognizer): The speech recognizer object.
+        max_duration (Optional[int]): The maximum duration to listen. Defaults to 15.
+        language (str): The language to use for transcription. Defaults to "".
+
+    Returns:
+        Tuple[str, str]: A tuple containing (transcribed text from the audio, language).
+    """
+    print(colored("Listening to microphone...", "yellow"))
+    with source:
+        audio: AudioData = r.listen(source, timeout=max_duration, phrase_time_limit=max_duration/2)
+    print(colored("Not listening anymore...", "yellow"))
+    transcription, language = OpenAIChat.transcribe_audio(audio, language=language)
+    # Print the recognized text
+    print("Microphone transcription: " + colored(transcription, "green"))
+    
+    return transcription, language
+
+def remove_blocks(text: str, except_types: Optional[List[str]] = None) -> str:
+    """
+    Remove all code blocks from the text, except for specified types.
+
+    Args:
+        text (str): The input text containing code blocks.
+        except_types (Optional[List[str]]): List of code block types to keep (e.g., ['md', 'text']).
+
+    Returns:
+        str: The text with code blocks removed (except for specified types).
+    """
+    if except_types is None:
+        except_types = []
+    
+    pattern = r'```(?P<lang>\w*)\n(?P<content>.*?)```'
+    
+    def replacement(match: re.Match) -> str:
+        lang = match.group('lang').lower()
+        if lang in except_types:
+            return match.group(0)  # Keep the entire match
+        return ''  # Remove the code block
+    
+    return re.sub(pattern, replacement, text, flags=re.DOTALL)

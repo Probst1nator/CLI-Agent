@@ -3,6 +3,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from googlesearch import search
+from termcolor import colored
 
 def search_and_scrape(query: str, num_sites: int = 1) -> list[str]:
     """
@@ -19,6 +20,7 @@ def search_and_scrape(query: str, num_sites: int = 1) -> list[str]:
         requests.RequestException: If there is an error fetching a webpage.
     """
     # Perform a Google search and get the top results
+    print (colored(f"Performing internet search for {num_sites}, please give me a second...", "green"))
     results = search(query, num_results=num_sites)
     
     scraped_contents = []

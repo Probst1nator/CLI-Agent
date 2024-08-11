@@ -5,6 +5,13 @@ This project introduces a CLI (Command Line Interface) Agent that utilizes the G
 
 ## Getting Started
 
+### Requirements
+
+```bash
+sudo apt-get install libportaudio2 portaudio19-dev python3-tk
+pip install -r requirements.txt
+```
+
 #### Docker/ Groq
 
 The large language model requires hosting. I recommend using the Groq-API for fast and robust model responses. However, Ollama, OpenAI, and Anthropic are also viable options.
