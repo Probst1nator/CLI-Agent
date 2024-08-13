@@ -87,7 +87,7 @@ class LlmRouter:
         self.retry_models = Llm.get_available_llms()
         self.failed_models: Set[str] = set()
 
-    def _generate_hash(self, model: str, temperature: str, prompt: str, images: List[str]) -> str:
+    def _generate_hash(self, model_key: str, temperature: str, prompt: str, images: List[str]) -> str:
         """
         Generate a hash for caching based on model, temperature, prompt, and images.
         
@@ -100,7 +100,7 @@ class LlmRouter:
         Returns:
             str: The generated hash string.
         """
-        hash_input = f"{model}:{temperature}:{prompt}{':'.join(images)}".encode()
+        hash_input = f"{model_key}:{temperature}:{prompt}{':'.join(images)}".encode()
         return hashlib.sha256(hash_input).hexdigest()
 
     def _load_cache(self) -> Dict[str, str]:
@@ -110,6 +110,8 @@ class LlmRouter:
         Returns:
             Dict[str, str]: The cache dictionary.
         """
+        # with open(self.cache_file_path, "w") as json_file:
+        #     json.dump(self.cache, json_file, indent=4)
         if not os.path.exists(self.cache_file_path):
             return {}
         with open(self.cache_file_path, "r") as json_file:
@@ -118,12 +120,12 @@ class LlmRouter:
             except json.JSONDecodeError:
                 return {}
 
-    def _get_cached_completion(self, model: str, temperature: str, prompt: Chat, images: List[str]) -> Optional[str]:
+    def _get_cached_completion(self, model_key: str, temperature: str, chat: Chat, images: List[str]) -> Optional[str]:
         """
         Retrieve a cached completion if available.
         
         Args:
-            model (str): Model identifier.
+            model_key (str): Model identifier.
             temperature (str): Temperature setting for the model.
             prompt (Chat): The chat prompt.
             images (List[str]): List of image encodings.
@@ -131,21 +133,21 @@ class LlmRouter:
         Returns:
             Optional[str]: The cached completion string if available, otherwise None.
         """
-        cache_key = self._generate_hash(model, temperature, prompt.to_json(), images)
+        cache_key = self._generate_hash(model_key, temperature, chat.to_json(), images)
         return self.cache.get(cache_key)
 
-    def _update_cache(self, model: str, temperature: str, prompt: Chat, images: List[str], completion: str) -> None:
+    def _update_cache(self, model_key: str, temperature: str, chat: Chat, images: List[str], completion: str) -> None:
         """
         Update the cache with a new completion.
         
         Args:
-            model (str): Model identifier.
+            model_key (str): Model identifier.
             temperature (str): Temperature setting for the model.
             prompt (Chat): The chat prompt.
             images (List[str]): List of image encodings.
             completion (str): The generated completion string.
         """
-        cache_key = self._generate_hash(model, temperature, prompt.to_json(), images)
+        cache_key = self._generate_hash(model_key, temperature, chat.to_json(), images)
         self.cache[cache_key] = completion
         try:
             with open(self.cache_file_path, "w") as json_file:
@@ -217,7 +219,7 @@ class LlmRouter:
         temperature: float = 0.75,
         base64_images: List[str] = [],
         include_start_response_str: bool = True,
-        regenerate_cache: bool = False,
+        use_cache: bool = True,
         force_local: Optional[bool] = None,
         force_free: bool = False,
         silent: bool = False
@@ -250,6 +252,7 @@ class LlmRouter:
             chat = Chat(instruction).add_message(Role.USER, chat)
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)
+        
         if base64_images:
             chat.base64_images = base64_images
         
@@ -261,19 +264,18 @@ class LlmRouter:
                     instance.failed_models.clear()
                     model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
 
-                if not regenerate_cache:
+                if use_cache:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                     if cached_completion:
                         if not silent:
                             print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
-                        if not silent:
                             for char in cached_completion:
                                 print(tooling.apply_color(char), end="")
                             print()
                         return cached_completion
 
                 response = model.provider.generate_response(chat, model.model_key, temperature, silent)
-                instance._update_cache(model.model_key, str(temperature), chat, [], response)
+                instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
                 return start_response_with + response if include_start_response_str else response
 
             except Exception as e:

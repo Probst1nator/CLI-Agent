@@ -265,19 +265,19 @@ pgrep -aif "cli-agent"
 ```
 This command will search for any running processes that match the pattern "cli-agent" and display their process IDs and corresponding command lines.""")
         
-        chat.add_message(
-            Role.USER,
-            select_and_execute_commands(['pgrep -aif "cli-agent"'], True, False)[0] + "\n\nlook its you!"
-        )
+        # chat.add_message(
+        #     Role.USER,
+        #     select_and_execute_commands(['pgrep -aif "cli-agent"'], True, False)[0] + "\n\nlook its you!"
+        # )
         
-        chat.add_message(
-            Role.ASSISTANT,
-            "That's meta! " + LlmRouter.generate_completion(chat, preferred_model_keys, force_local=force_local, silent=True) + " 🤖"
-        )
+        # chat.add_message(
+        #     Role.ASSISTANT,
+        #     "That's meta! " + LlmRouter.generate_completion(chat, preferred_model_keys, force_local=force_local, silent=True) + " 🤖"
+        # )
 
-        if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
-            userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
-                
+        # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
+        #     userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
+        
         chat.add_message(
             Role.USER,
             userRequest
