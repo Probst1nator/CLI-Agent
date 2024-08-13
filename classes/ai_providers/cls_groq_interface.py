@@ -28,7 +28,9 @@ class GroqChat(ChatClientInterface):
         """
         try:
             client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=2)
-            if not silent:
+            if silent:
+                print(f"Groq-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
+            else:
                 print(f"Groq-Api: <{colored(model, 'green')}> is generating response...")
 
             chat_completion = client.chat.completions.create(

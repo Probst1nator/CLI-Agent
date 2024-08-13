@@ -34,7 +34,10 @@ class OllamaClient(ChatClientInterface):
             Optional[str]: The generated response, or None if an error occurs.
         """
         tooling = CustomColoring()
-        if not silent:
+        
+        if silent:
+            print(f"Ollama-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
+        else:
             print(f"Ollama-Api: <{colored(model, 'green')}> is generating response...")
 
         try:
@@ -46,8 +49,7 @@ class OllamaClient(ChatClientInterface):
                         client = ollama.Client(host=f'http://{host}:11434')
                         response_stream = client.chat(model, chat.to_ollama(), True, keep_alive=1800)
                         if response_stream:
-                            if not silent:
-                                print(f"Ollama-Api: <{colored(host, 'green')}> is generating response...")
+                            print(f"Ollama-Api: <{colored(host, 'green')}> is generating response...")
                             break
                     except Exception as e:
                         logging.error(f"Failed to connect to {host}: {e}")

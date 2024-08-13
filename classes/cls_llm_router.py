@@ -64,8 +64,7 @@ class Llm:
             Llm(OpenAIChat(), "gpt-4o-mini", 0.4, False, True, 128000, None, AIStrengths.FAST),
             
             Llm(OllamaClient(), 'llama3.1', None, True, False, 4096, None, AIStrengths.STRONG),
-            Llm(OllamaClient(), 'gemma2:2b', None, True, False, 4096, None, AIStrengths.FAST),
-            Llm(OllamaClient(), "phi3", None, True, False, 4096, None, AIStrengths.FAST),
+            Llm(OllamaClient(), "phi3:3.8b", None, True, False, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), "llava-llama3", None, True, True, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-phi3", None, True, True, 4096, None, AIStrengths.FAST),
         ]
@@ -175,15 +174,16 @@ class LlmRouter:
         # search for exact model key match first
         for model_key in preferred_model_keys:
             if model_key not in self.failed_models and model_key:
-                model = next((model for model in self.retry_models if model.model_key == model_key and model.context_window > chat.count_tokens()), None)
+                model = next((model for model in self.retry_models if model_key in model.model_key), None)
                 if model:
                     return model
         # search online models by capability next
-        for model in self.retry_models:
-            if model.model_key not in self.failed_models:
-                if (not model.local):
-                    if self.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
-                        return model
+        if not force_local:
+            for model in self.retry_models:
+                if model.model_key not in self.failed_models:
+                    if (not model.local):
+                        if self.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
+                            return model
         # search local models by capability last
         for model in self.retry_models:
             if model.model_key not in self.failed_models:
@@ -213,11 +213,11 @@ class LlmRouter:
         preferred_model_keys: List[str] = [""],
         strength: AIStrengths = AIStrengths.STRONG,
         start_response_with: str = "",
-        instruction: str = "The highly advanced AI assistant provides insightful responses to the user. It displays a deep understanding and offers expert service in whatever domain the user requires.",
-        temperature: float = 0.8,
+        instruction: str = "You are a helpful assistant",
+        temperature: float = 0.75,
         base64_images: List[str] = [],
         include_start_response_str: bool = True,
-        ignore_cache: bool = False,
+        regenerate_cache: bool = False,
         force_local: Optional[bool] = None,
         force_free: bool = False,
         silent: bool = False
@@ -261,7 +261,7 @@ class LlmRouter:
                     instance.failed_models.clear()
                     model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
 
-                if not ignore_cache:
+                if not regenerate_cache:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                     if cached_completion:
                         if not silent:
