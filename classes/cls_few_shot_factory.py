@@ -1,3 +1,5 @@
+from dataclasses import asdict
+import json
 import re
 from typing import Any, Dict, List, Tuple
 
@@ -6,6 +8,7 @@ from termcolor import colored
 from classes.cls_chat import Chat, Role
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.ai_providers.cls_ollama_interface import OllamaClient
+from classes.cls_pptx_presentation import PptxPresentation, Slide
 from tooling import run_command, select_and_execute_commands
 
 # class Agent:
@@ -269,7 +272,7 @@ This command will search for any running processes that match the pattern "cli-a
         
         chat.add_message(
             Role.ASSISTANT,
-            "That's meta! " + LlmRouter.generate_completion(chat, preferred_model_keys, silent=True) + " 🤖"
+            "That's meta! " + LlmRouter.generate_completion(chat, preferred_model_keys, force_local=force_local, silent=True) + " 🤖"
         )
 
         if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
@@ -394,7 +397,7 @@ This command will search for any running processes that match the pattern "cli-a
     
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = True) -> str:
+    def few_shot_rephrase(self, userRequest: str, preferred_model_keys: List[str] = [""], force_local: bool = False, silent: bool = True) -> str:
         """
         Rephrases the given request to enhance clarity while preserving the intended meaning.
 
@@ -434,8 +437,8 @@ This command will search for any running processes that match the pattern "cli-a
                 chat,
                 preferred_model_keys,
                 force_local=force_local,
-                temperature=0,
-                silent=silent
+                silent=silent,
+                temperature=0.4
             )
             
             chat.add_message(
@@ -451,3 +454,102 @@ This command will search for any running processes that match the pattern "cli-a
             if not silent:
                 print(colored(f"DEBUG: few_shot_rephrase failed with response: {response}", "yellow"))
             return userRequest
+    
+    @classmethod
+    def few_shot_textToPresentation(self, text: str, preferred_model_keys: List[str]=[], force_local: bool = False) -> Tuple[Chat, str]:
+        slides_1 = [
+            Slide("Hybrid Approach (Marvin + ML)", 
+                "• Combine existing 'Marvin' strategy with ML models\n"
+                "• Leverage strengths of both: domain knowledge and learned patterns"),
+            Slide("Modular ML Integration",
+                "• Integrate ML components in a modular, decoupled fashion\n"
+                "• Define clear interfaces between ML and non-ML parts\n" 
+                "• Enables independent training, testing, and upgrades of ML models\n"
+                "• Facilitates controlled experiments and component reuse"),
+            Slide("Online Learning for Adaptability",
+                "Incorporating online learning allows the robots to continuously adapt their behavior during actual game play based on the current opponent strategies. This real-time adaptation enables the discovery of new strategies that were not initially programmed or anticipated. Key considerations include processing latency, sampling efficiency, balancing exploration vs exploitation, and robustness against adversarial exploitation."),
+            Slide("Transfer Learning for Jumpstart",
+                "• Leverage ML models pre-trained on relevant tasks\n"
+                "• Fine-tune them for the specific robocup application\n"
+                "• Achieves faster learning and higher initial performance"),
+            Slide("Opponent Modeling for Strategic Advantage", 
+                "• Learn models of specific opponent teams based on their behaviors\n"
+                "• Predict opponent actions and exploit their weaknesses\n"
+                "• Adapt strategy to each opponent for a competitive edge\n"
+                "• Consider generalization, robustness, and the meta-game of strategy switching"),
+            Slide("Hierarchical Learning: Strategy vs Execution",
+                "• Separate high-level strategy from low-level execution\n"
+                "• Use sophisticated ML for strategic decisions, lightweight ML for execution")
+        ]
+        presentation_1 = PptxPresentation("ER-Force Strategy Optimization", "Strategy meeting 2024", slides_1)
+        
+        instruction = FewShotProvider.few_shot_rephrase("You are a presentation creator. Given a topic or text, generate a concise, informative presentation", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
+        chat = Chat(instruction)
+        
+        user_input = """My robotics team ER-Force is discussing the optimization of our robot strategy tomorrow. The following points will be discussed:
+A hybrid approach that combines the existing "marvin" strategy with ML models.
+A modular ML integration for easier testing and improvements.
+Real-time adaptability through online learning.
+Use of transfer learning to improve initial performance.
+Implementation of opponent modeling for strategic advantages.
+A hierarchical learning approach to separate strategy and execution."""
+        rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
+        decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
+        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
+        chat.add_message(Role.USER, presentation_details)
+        
+        create_presentation_response = FewShotProvider.few_shot_rephrase("I will create a presentation titled 'ER-Force Strategy Optimization' that covers the main points of your discussion.", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local).strip(".")
+        chat.add_message(Role.ASSISTANT, f"""{create_presentation_response}
+        ```
+        {presentation_1.to_json()}```""")
+        
+        thanks_prompt = FewShotProvider.few_shot_rephrase("Thank you! You have generated exactly the right JSON data. Keep this exact format.\nNow create such a presentation for this", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local).strip(".")
+        chat.add_message(Role.USER, f"{thanks_prompt}: {text}")
+        
+        response: str = LlmRouter.generate_completion(
+            chat,
+            strength=AIStrengths.STRONG,
+            preferred_model_keys=preferred_model_keys, 
+            force_local=force_local
+        )
+        chat.add_message(
+            Role.ASSISTANT,
+            response,
+        )
+        return chat, response
+
+
+    # @classmethod
+    # def few_shot_slideContentToSlideElements(cls, content: str) -> List[SlideElement]:
+    #     chat = Chat("You are a presentation slide creator. Given a text description of a slide, generate the slide content in a structured format.")
+    #     chat.add_message(Role.USER, "• Combination of rule-based logic from 'marvin' with ML models\n• Enables gradual integration and maintains a fallback system")
+        
+    #     slide_element_0 = SlideElement("Hybrid approach", style=TextStyle(font_size=24, bold=True))
+    #     slide_element_1 = SlideElement("• Combination of rule-based logic from 'marvin' with ML models", style=TextStyle(font_size=18, bold=False))
+    #     slide_element_2 = SlideElement("• Enables gradual integration and maintains a fallback system", style=TextStyle(font_size=18, bold=False))
+        
+    #     slide_elements = [slide_element_0, slide_element_1, slide_element_2]
+        
+    #     # Convert each SlideElement to a dictionary before serialization
+    #     slide_elements_dict = [element.to_dict() for element in slide_elements]
+        
+    #     chat.add_message(Role.ASSISTANT, "Sure, here is the structured content for the slide:\n```\n" + json.dumps(slide_elements_dict, indent=4) + "\n```")
+    #     chat.add_message(Role.USER, f"Thank you! You have generated exactly the right JSON data. Keep this exact format.\nNow create such a slide for this: {content}")
+        
+    #     response: str = LlmRouter.generate_completion(
+    #         chat,
+    #         strength=AIStrengths.FAST
+    #     )
+        
+    #     chat.add_message(Role.ASSISTANT, response)
+    #     response = response.split("```")[1].split("```")[0]
+        
+    #     # Load the JSON response and parse it into a list of dictionaries
+    #     slide_elements_dict = json.loads(response)
+        
+    #     # Convert the dictionaries back into SlideElement objects
+    #     slide_elements_obj = [SlideElement.from_dict(element) for element in slide_elements_dict]
+        
+    #     return slide_elements_obj
+
+    

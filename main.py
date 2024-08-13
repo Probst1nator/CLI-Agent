@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
 
-import argparse
-import json
-import os
-import sys
-import time
 from typing import Any, Dict, List, Literal, Optional, Tuple
-
-from dotenv import load_dotenv
-import pyaudio
-from termcolor import colored
-
-import speech_recognition as sr
-from tooling import listen_microphone, remove_blocks, text_to_speech
-from classes.cls_chat import Chat, Role
-from classes.cls_few_shot_factory import FewShotProvider
-from classes.cls_llm_router import AIStrengths, LlmRouter
-from classes.cls_web_scraper import search_and_scrape, get_github_readme
-from tooling import run_python_script, select_and_execute_commands, ScreenCapture
-import pyperclip
-import json
-from json import dump, load
-from typing import Dict
-import json
-import logging
-import re
 from pyfiglet import figlet_format
+import speech_recognition as sr
+from dotenv import load_dotenv
+from termcolor import colored
+from json import dump, load
+from pathlib import Path
+from typing import Dict
+import pyperclip
+import argparse
+import logging
+import pyaudio
+import json
+import json
+import json
+import time
+import sys
+import os
+import re
+
+from classes.cls_pptx_presentation import PptxPresentation
+from tooling import run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, text_to_speech, ScreenCapture
+from classes.cls_web_scraper import search_and_scrape, get_github_readme
+from classes.cls_llm_router import AIStrengths, LlmRouter
+from classes.cls_few_shot_factory import FewShotProvider
+from classes.cls_chat import Chat, Role
 
 def extract_blocks(text: str) -> List[Tuple[str, str]]:
     """
@@ -141,19 +141,20 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
     return colored_response
 
 
-
 def parse_cli_args() -> argparse.Namespace:
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
+    
     parser = argparse.ArgumentParser(
         description="AI CLI-Agent with backend options and more.",
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
+    
     parser.add_argument("-m", "--message", type=str,
                         help="Enter your first message instantly.")
     parser.add_argument("-l", "--local", action="store_true",
                         help="Use the local Ollama backend for language processing.")
-    parser.add_argument("-llm", type=str, nargs='?', const='gemma2:2b',
-                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["gemma2:2b","phi3", "llama3.1]')
+    parser.add_argument("--llm", type=str, nargs='?', const='phi3:3.8b', default='',
+                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3:3.8b", "llama3.1"]')
     parser.add_argument("-i", "--interactive", action="store_true",
                         help="Enable microphone input and text-to-speech.")
     parser.add_argument("-s", "--speak", action="store_true",
@@ -163,39 +164,36 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-w", action="store_true",
-                        help="Use websearch to enhance responses.")
+                        help="Use web search to enhance responses.")
     parser.add_argument("-a", "--auto", nargs='?', const=10, default=None, type=int,
-                        help="""Enables autonomous execution without user confirmation. 
+                        help="""Enable autonomous execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
 Add a custom integer to change this delay.""", metavar="DELAY")
     parser.add_argument("-e", "--edit", type=str, nargs='?', default=None,
-                        help="Edits either the file at the specified path, or the contents of the clipboard.")
-    
+                        help="Edit either the file at the specified path or the contents of the clipboard.")
+    parser.add_argument("-p", "--presentation", nargs='?', default=None, type=str,
+                        help="Interactively create a presentation.")
     parser.add_argument("-fp", "--fixpy", type=str,
-                        help="Executes the Python file at the specified path and iterates if an error occurs.")
+                        help="Execute the Python file at the specified path and iterate if an error occurs.")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
 
     # If there are unrecognized arguments, notify the user
-    if unknown_args:
-        if not "-h" in unknown_args:
-            print(colored(f"Warning: Unrecognized arguments {' '.join(unknown_args)}.", "red"))
-        # Optionally, you can display help message here
+    if unknown_args and '-h' not in unknown_args:
+        print(colored(f"Warning: Unrecognized arguments {' '.join(unknown_args)}.", "red"))
         parser.print_help()
         exit(1)
     
-    if not args.llm:
-        args.llm = ""
-
     return args
+
 
 
 def code_assistant(args: argparse.Namespace, context_chat: Chat, snippets: str):
     while True:
         next_prompt = ""
         if args.auto:
-            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide an abstract high level overview of its stages.\n\n" + snippets,  preferred_model_keys=["llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
+            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets,  preferred_model_keys=["llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
             if len(abstract_code_overview)/4 >= 2048:
                 abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_model_keys=["llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
             next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods."
@@ -249,7 +247,7 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, snippets: str):
             print(colored("Something went wrong, no snippet could be extracted.", "red"))
 
 
-def code_agent(args: argparse.Namespace, context_chat: Chat, snippets: str):
+def code_agent(args: argparse.Namespace, context_chat: Chat):
     latest_script_path = args.fixpy
     fix_iteration = 0
     while True:
@@ -308,6 +306,55 @@ def code_agent(args: argparse.Namespace, context_chat: Chat, snippets: str):
                     print(colored(f"Removed deprecated patched version {i}.", 'green'))
             exit(0)
 
+def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_input:str = ""):
+    if not user_input:
+        print(colored("Please enter your presentation topic(s) and supplementary data if present. *Multiline mode* Type '--f' on a new line when finished.", "magenta"))
+        lines = []
+        while True:
+            line = input()
+            if line == "--f":
+                break
+            lines.append(line)
+        user_input = "\n".join(lines)
+    
+    
+    rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, preferred_model_keys=[args.llm], force_local=args.local)
+    decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", preferred_model_keys=[args.llm], force_local=args.local)
+    presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, regenerate_cache=True, preferred_model_keys=[args.llm], force_local=args.local)
+    
+    chat, response = FewShotProvider.few_shot_textToPresentation(presentation_details, preferred_model_keys=[args.llm], force_local=args.local)
+    while True:
+        while True:
+            try:
+                presentation_json = response.split("```")[1].split("```")[0]
+                presentation = PptxPresentation.from_json(presentation_json)
+                presentation.save()
+                break
+            except Exception as e:
+                chat.add_message(Role.USER, "Your json object did not follow the expected format, please try again.\nError: " + str(e))
+                response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, regenerate_cache=True, preferred_model_keys=[args.llm], force_local=args.local)
+                chat.add_message(Role.ASSISTANT, response)
+                
+        print(colored("Presentation saved.", 'green'))
+        print(colored("Please choose an option:", 'cyan', attrs=["bold"]))
+        print(colored("1. Add details", 'yellow'))
+        print(colored("2. Regenerate", 'yellow'))
+        print(colored("3. Add Images, this may take a while...", 'yellow'))
+        print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
+        user_input = input(colored("Enter your choice: ", 'blue'))
+        if user_input == "1":
+            add_details_prompt = FewShotProvider.few_shot_rephrase(f"Please think step by step to add relevant/ missing details to the following topic: {presentation_details}", preferred_model_keys=[args.llm])
+            suggested_details = LlmRouter.generate_completion(f"{add_details_prompt} {presentation_details}", strength=AIStrengths.STRONG, preferred_model_keys=[args.llm], force_local=args.local)
+            next_prompt = f"Please add the following details to the presentation: \n{suggested_details}"
+        elif user_input == "2":
+            next_prompt = "I am unhappy with your suggested presentation, please try again."
+        else:
+            next_prompt = user_input
+            
+        next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, preferred_model_keys=[args.llm], force_local=args.local)
+        chat.add_message(Role.USER, next_prompt)
+        response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, preferred_model_keys=[args.llm], force_local=args.local)
+
 def main():
     load_dotenv()
     args = parse_cli_args()
@@ -321,12 +368,16 @@ def main():
     if os.path.exists(vscode_path):
         log_file_path = os.path.join(vscode_path, 'cli-agent.log')
     else:
-        logs_path = os.path.join(os.path.dirname(__file__), "logs",)
+        usr_dir = os.path.expanduser('~/.local/share')
+        logs_path = os.path.join(usr_dir,'cli-agent','logs')
+        os.makedirs(logs_path, exist_ok=True)
         log_file_path = os.path.join(logs_path, 'cli-agent.log')
     logging.basicConfig(level=logging.CRITICAL, filename=log_file_path)
+    print(colored(f"Log is being written to {log_file_path}", 'yellow'))
     
     if args.c:
         context_chat = Chat.load_from_json()
+    
     
     if args.interactive:
         # setup microphone
@@ -362,8 +413,11 @@ def main():
         
             
     if args.fixpy:
-        code_agent(args, context_chat, snippets)
+        code_agent(args, context_chat)
 
+    if args.presentation:
+        presentation_assistant(args, context_chat, args.presentation)
+        
     prompt_context_augmentation: str = ""
     temporary_prompt_context_augmentation: str = ""
     
@@ -469,10 +523,10 @@ def main():
         
         if len(context_chat.messages) > 1:
             context_chat.add_message(Role.USER, next_prompt)
-            llm_response = LlmRouter.generate_completion(context_chat, args.llm, force_local=args.local)
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, args.llm, force_local=args.local)
+            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, [args.llm], force_local=args.local)
         
         if (args.speak or args.interactive):
             spoken_response = remove_blocks(llm_response, ["md"])
@@ -480,11 +534,11 @@ def main():
         
         # remove temporary context augmentation from the last user message
         context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, ""))
-        
-        with open(config_path, 'w') as file:
-            json_content: dict[str,str] = {}
-            json_content["history"] = context_chat._to_dict()
-            json.dump(json_content, file, indent=2)
+        if os.path.exists(vscode_path):
+            with open(config_path, 'w') as file:
+                json_content: dict[str,str] = {}
+                json_content["history"] = context_chat._to_dict()
+                json.dump(json_content, file, indent=2)
 
         reponse_blocks = extract_blocks(llm_response)
         

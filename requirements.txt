@@ -24,3 +24,4 @@ pynput
 pyfiglet
 matplotlib
 pydub
+python-pptx

@@ -34,8 +34,10 @@ class OpenAIChat(ChatClientInterface):
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
             
-            if not silent:
-                print("OpenAI API: <" + colored(model, "green") + "> is generating response...")
+            if silent:
+                print(f"OpenAI-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
+            else:
+                print(f"OpenAI-Api: <{colored(model, 'green')}> is generating response...")
 
             stream = client.chat.completions.create(
                 model=model,
