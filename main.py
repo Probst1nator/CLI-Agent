@@ -320,7 +320,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
     
     rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, preferred_model_keys=[args.llm], force_local=args.local)
     decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", preferred_model_keys=[args.llm], force_local=args.local)
-    presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, regenerate_cache=True, preferred_model_keys=[args.llm], force_local=args.local)
+    presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, use_cache=False, preferred_model_keys=[args.llm], force_local=args.local)
     
     chat, response = FewShotProvider.few_shot_textToPresentation(presentation_details, preferred_model_keys=[args.llm], force_local=args.local)
     while True:
@@ -332,7 +332,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
                 break
             except Exception as e:
                 chat.add_message(Role.USER, "Your json object did not follow the expected format, please try again.\nError: " + str(e))
-                response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, regenerate_cache=True, preferred_model_keys=[args.llm], force_local=args.local)
+                response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, use_cache=False, preferred_model_keys=[args.llm], force_local=args.local)
                 chat.add_message(Role.ASSISTANT, response)
                 
         print(colored("Presentation saved.", 'green'))
