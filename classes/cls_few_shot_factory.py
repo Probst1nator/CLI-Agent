@@ -141,41 +141,7 @@ class FewShotProvider:
             Tuple[str, Chat]: The response and the full chat.
         """
         chat: Chat = Chat(
-            "Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise."
-        )
-        
-        chat.add_message(
-            Role.USER,
-            """set screen brightness to 10%""",
-        )
-
-        chat.add_message(
-            Role.ASSISTANT,
-            """Setting the screen brightness to 10% requires to first find the name of the display using xrandr.
-```bash
-xrandr --listmonitors
-```
-Using the terminals response I will be able to suggest the next command for setting the screen brightness to 10%."""
-        )
-
-        chat.add_message(
-            Role.USER,
-            """xrandr --listmonitors
-
-'''cmd_response
-Monitors: 2
- 0: +*HDMI-0 2560/597x1440/336+470+0  HDMI-0
- 1: +DP-0 3440/1x1440/1+0+1440  DP-0'''
-""",
-        )
-
-        chat.add_message(
-            Role.ASSISTANT,
-            """The command was successful and returned information for 2 different monitors. Let's set both of them to 10% with these commands:
-```bash
-xrandr --output HDMI-0 --brightness 0.1
-xrandr --output DP-0 --brightness 0.1
-```""",
+            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise.", preferred_model_keys, force_local, silent=True)
         )
 
         chat.add_message(
@@ -199,7 +165,7 @@ firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
         
         chat.add_message(
             Role.ASSISTANT,
-            """Let's execute this command to find the working directory:
+            """Let's execute the following command to find our working directory:
 ```bash
 pwd
 ```"""  ),
@@ -265,18 +231,18 @@ pgrep -aif "cli-agent"
 ```
 This command will search for any running processes that match the pattern "cli-agent" and display their process IDs and corresponding command lines.""")
         
-        # chat.add_message(
-        #     Role.USER,
-        #     select_and_execute_commands(['pgrep -aif "cli-agent"'], True, False)[0] + "\n\nlook its you!"
-        # )
+        chat.add_message(
+            Role.USER,
+            select_and_execute_commands(['pgrep -aif "cli-agent"'], True, False)[0] + "\n\nlook its you!"
+        )
         
-        # chat.add_message(
-        #     Role.ASSISTANT,
-        #     "That's meta! " + LlmRouter.generate_completion(chat, preferred_model_keys, force_local=force_local, silent=True) + " 🤖"
-        # )
+        chat.add_message(
+            Role.ASSISTANT,
+            "I've been found! The output shows the process IDs and command lines for the Python processes that are running the CLI-Agent code. That's meta! 🤖"
+        )
 
-        # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
-        #     userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
+        if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
+            userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
         
         chat.add_message(
             Role.USER,
