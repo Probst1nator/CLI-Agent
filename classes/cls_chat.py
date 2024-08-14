@@ -1,4 +1,3 @@
-import base64
 import json
 import math
 import os
@@ -6,8 +5,6 @@ from enum import Enum
 from typing import Dict, List, Sequence, Tuple, Union
 
 from termcolor import colored
-from jinja2 import Template
-import tiktoken
 
 from ollama._types import Message
 

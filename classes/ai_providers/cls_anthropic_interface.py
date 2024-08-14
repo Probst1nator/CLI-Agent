@@ -5,9 +5,6 @@ from anthropic import Anthropic
 from termcolor import colored
 from classes.cls_custom_coloring import CustomColoring
 from classes.cls_chat import Chat, Role
-import traceback
-import tiktoken
-
 from classes.cls_ai_provider_interface import ChatClientInterface
 
 class AnthropicChat(ChatClientInterface):

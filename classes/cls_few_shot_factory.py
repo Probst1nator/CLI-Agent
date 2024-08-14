@@ -73,7 +73,7 @@ class FewShotProvider:
     #     return (response, chat)
         
     @classmethod 
-    def few_shot_YesNo(self, userRequest: str, local:bool = None) -> Tuple[str,Chat]:
+    def few_shot_YesNo(self, userRequest: str, preferred_model_keys: List[str]=[], force_local: bool = False, silent: bool = False) -> Tuple[bool,Chat]:
         """
         Determines whether the answer to the user's question is 'yes' or 'no'.
 
@@ -87,17 +87,25 @@ class FewShotProvider:
         """
         chat: Chat = Chat("You are a yes/no classifier. Determine if the answer to the user is either yes or no and respond accordingly.")
         chat.add_message(Role.USER, "Is 8/7 a natural number?")
-        chat.add_message(Role.ASSISTANT, "no")
-        chat.add_message(Role.USER, "Is the speed of light faster than the speed of sound?")
-        chat.add_message(Role.ASSISTANT, "no")
+        chat.add_message(Role.ASSISTANT, "No")
+        chat.add_message(Role.USER, """Does the below text provide relevant information to answer this question: Does Germany have a population of 84.000.000?\n\n```txt\nGermany,[e] officially the Federal Republic of Germany (FRG),[f] is a country in Central Europe. It lies between the Baltic and North Sea to the north and the Alps to the south. Its 16 constituent states have a total population of over 84 million in an area of 357,569 km2 (138,058 sq mi), making it the most populous member state of the European Union. It borders Denmark to the north, Poland and Czechia to the east, Austria and Switzerland to the south, and France, Luxembourg, Belgium, and the Netherlands to the west. The nation's capital and most populous city is Berlin and its main financial centre is Frankfurt; the largest urban area is the Ruhr.\n""")
+        chat.add_message(Role.ASSISTANT, "Yes")
+        chat.add_message(Role.USER, "Was 9/11 a inside job?")
+        chat.add_message(Role.ASSISTANT, "No")
+        chat.add_message(Role.USER, "Fehlt der folgenden Sequenz eine Zahl: 1, 2, 3, 5, 6?")
+        chat.add_message(Role.ASSISTANT, "Yes")
+        chat.add_message(Role.USER, "The next request will be very long, the question will be at its start, please ensure you only answer with 'Yes' or 'No'.\nAre you ready?")
+        chat.add_message(Role.ASSISTANT, "Yes")
         chat.add_message(Role.USER, userRequest)
+        
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.FAST,
-            force_local=local
+            preferred_model_keys=preferred_model_keys, 
+            force_local=force_local
         )
         chat.add_message(Role.ASSISTANT, response)
-        return response, chat
+        return "yes" in response.lower(), chat
 
     @classmethod
     def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, local:bool = None, optimize: bool = False) -> Tuple[str,Chat]:
@@ -135,7 +143,6 @@ class FewShotProvider:
             model (str): Model to use for generating the response.
             force_local (bool, optional): If True, force the use of a local model.
             optimize (bool, optional): If True, optimize the chat.
-            **kwargs: Additional arguments for the text generation.
 
         Returns:
             Tuple[str, Chat]: The response and the full chat.
@@ -384,7 +391,7 @@ This command will search for any running processes that match the pattern "cli-a
             chat.add_message(Role.USER, "Rephrase: 'whats 4*8'")
             chat.add_message(Role.ASSISTANT, "Rephrased version: 'Please calculate the product of 4*8'")
             chat.add_message(Role.USER, "Rephrase: 'hi'")
-            chat.add_message(Role.ASSISTANT, "Rephrased version: 'Hi there!'")
+            chat.add_message(Role.ASSISTANT, "Rephrased version: 'Hi!'")
             chat.add_message(Role.USER, f"Rephrase: '{userRequest}'")
             
             preferred_rephrase_model_keys = []

@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 from pyfiglet import figlet_format
 import speech_recognition as sr
 from dotenv import load_dotenv
 from termcolor import colored
-from json import dump, load
-from pathlib import Path
-from typing import Dict
 import pyperclip
 import argparse
-import logging
+import chromadb
 import pyaudio
 import json
 import json
@@ -18,14 +15,19 @@ import json
 import time
 import sys
 import os
+import os
 import re
 
 from classes.cls_pptx_presentation import PptxPresentation
-from tooling import run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, text_to_speech, ScreenCapture
+from tooling import extract_pdf_content, list_files_recursive, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture
 from classes.cls_web_scraper import search_and_scrape, get_github_readme
+from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_chat import Chat, Role
+
+client = chromadb.Client()
+collection = client.create_collection(name="docs")
 
 def extract_blocks(text: str) -> List[Tuple[str, str]]:
     """
@@ -153,8 +155,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enter your first message instantly.")
     parser.add_argument("-l", "--local", action="store_true",
                         help="Use the local Ollama backend for language processing.")
-    parser.add_argument("--llm", type=str, nargs='?', const='phi3:3.8b', default='',
-                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3:3.8b", "llama3.1"]')
+    parser.add_argument("--llm", type=str, nargs='?', const='phi3:medium-128k', default='',
+                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3:medium-128k", "phi3:3.8b", "llama3.1"]')
     parser.add_argument("-i", "--interactive", action="store_true",
                         help="Enable microphone input and text-to-speech.")
     parser.add_argument("-s", "--speak", action="store_true",
@@ -172,16 +174,20 @@ Add a custom integer to change this delay.""", metavar="DELAY")
     parser.add_argument("-e", "--edit", type=str, nargs='?', default=None,
                         help="Edit either the file at the specified path or the contents of the clipboard.")
     parser.add_argument("-p", "--presentation", nargs='?', default=None, type=str,
-                        help="Interactively create a presentation.")
+                        help="Interactively create a presentation.")    
+    parser.add_argument("-f", "--find", nargs='?', default=None, type=str,
+                        help="Search the directory for something.")
+    parser.add_argument("-h", "--help", action="store_true",
+                        help="Display this help")
     parser.add_argument("-fp", "--fixpy", type=str,
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
-
-    # If there are unrecognized arguments, notify the user
-    if unknown_args and '-h' not in unknown_args:
-        print(colored(f"Warning: Unrecognized arguments {' '.join(unknown_args)}.", "red"))
+    
+    if unknown_args or args.help:
+        if not args.help:
+            print(colored(f"Warning: Unrecognized arguments {' '.join(unknown_args)}.", "red"))
         parser.print_help()
         exit(1)
     
@@ -355,6 +361,72 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
         chat.add_message(Role.USER, next_prompt)
         response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, preferred_model_keys=[args.llm], force_local=args.local)
 
+def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_input:str = ""):
+    if not user_input:
+        print(colored("Please enter your search request. *Multiline mode* Type '--f' on a new line when finished.", "blue"))
+        lines = []
+        while True:
+            line = input()
+            if line == "--f":
+                break
+            lines.append(line)
+        user_input = "\n".join(lines)
+    
+    # rephrased_user_input = FewShotProvider.few_shot_rephrase(f"Can you answer my question using the information from the text below? Question: {user_input}", preferred_model_keys=[args.llm], force_local=args.local)
+    # extract_data_prompt = FewShotProvider.few_shot_rephrase(f"Please extract datapoints from the below text that are relevant to answer this question: {user_input} ", preferred_model_keys=[args.llm], force_local=args.local, silent=False)
+    user_input_embedding = OllamaClient.generate_embedding(user_input)
+    
+    instruction = FewShotProvider.few_shot_rephrase(f"This is a chat between a user and his private artificial intelligence assistant. The assistant uses the documents to answer the users questions factually, detailed and reliably. The assistant indicates if the answer cannot be found in the documents.", preferred_model_keys=[args.llm], force_local=args.local, silent=True)
+    chat = Chat(instruction)
+    while True:
+        collected_data = ""
+        files = list_files_recursive(os.getcwd(), 2)
+        
+        i: int = 0
+        for file_path in files:
+            file_index = files.index(file_path) + 1
+            print(colored(f"({file_index}/{len(files)}) Processing file: {file_path}", "yellow"))
+            file_name = os.path.basename(file_path).replace(" ", "_")
+            
+            if file_path.endswith(".pdf"):
+                text_content, image_content = extract_pdf_content(file_path)
+                # digestible_contents = split_string_into_chunks(text_content, max_chunk_size=120000 if "128k" in args.llm else 6000)
+                digestible_contents = split_string_into_chunks(text_content)
+                for digestible_content in digestible_contents:
+                    embedding = OllamaClient.generate_embedding(digestible_content)
+                    collection.add(
+                        ids=[f"{str(i)}_{file_name}"],
+                        embeddings=embedding,
+                        documents=[digestible_content]
+                    )
+                    i += 1
+        results = collection.query(
+            query_embeddings=user_input_embedding,
+            n_results=10
+        )
+        for ids, relevant_data in zip(results['ids'][0], results['documents'][0]):
+            file_name = "".join(ids.split("_")[1:])
+            collected_data += f"```{file_name}\n{relevant_data}\n```\n"
+                #     contains_useful_data, _ = FewShotProvider.few_shot_YesNo(f"Does the text below contain information relevant to the following question?\nQuestion: {user_input}\n\n```\n{digestible_content}\n```", preferred_model_keys=[args.llm], force_local=args.local, silent=False)
+                #     if contains_useful_data:
+                #         relevant_data = LlmRouter.generate_completion(extract_data_prompt + f"\n```pdf\n{file_name}.pdf\n{digestible_content}\n```", instruction=f"This is a chat between a user and a highly advanced artificial intelligence assistant. The assistant uses the given text to return factual and detailed answers relvant to the user's questions. The assistant indicates when the answer cannot be found in the context.", preferred_model_keys=[args.llm], force_local=args.local, silent=False)
+                #         # contains_useful_data, _ = FewShotProvider.few_shot_YesNo(f"Does the below text provide relevant information to answer this question? Question: {user_input}\n\n```\n{relevant_data}\n```", preferred_model_keys=[args.llm], force_local=args.local, silent=False)
+                #             # if contains_useful_data:
+                #         collected_data += f"```pdf\n{file_name}\n{relevant_data}\n```\n"
+
+        collected_data = collected_data.strip().strip("\n").strip()
+        print(colored(f"DEBUG: collected_data token count: {len(collected_data)/4}", "yellow"))
+        chat.add_message(Role.USER, f"### Question:\n{user_input}\n\n### Documents:\n{collected_data}\n\n### Question:\n{user_input}")
+        print(chat.messages[-1][1])
+        while True:
+            response = LlmRouter.generate_completion(chat, preferred_model_keys=[args.llm], force_local=args.local)
+            chat.add_message(Role.ASSISTANT, response)
+            user_input = input(colored("Enter your response, (Type '--f' to start a new search): ", "blue")).lower()
+            if ("--f" in user_input):
+                user_input = input(colored("Enter your search request, previous context is still available: ", "blue")).lower()
+                break
+            chat.add_message(Role.USER, user_input)
+
 def main():
     load_dotenv()
     args = parse_cli_args()
@@ -364,16 +436,6 @@ def main():
     config_path = os.path.join(vscode_path, "cli-agent.json")
     context_chat = Chat()
     next_prompt = ""
-    
-    if os.path.exists(vscode_path):
-        log_file_path = os.path.join(vscode_path, 'cli-agent.log')
-    else:
-        usr_dir = os.path.expanduser('~/.local/share')
-        logs_path = os.path.join(usr_dir,'cli-agent','logs')
-        os.makedirs(logs_path, exist_ok=True)
-        log_file_path = os.path.join(logs_path, 'cli-agent.log')
-    logging.basicConfig(level=logging.CRITICAL, filename=log_file_path)
-    print(colored(f"Log is being written to {log_file_path}", 'yellow'))
     
     if args.c:
         context_chat = Chat.load_from_json()
@@ -417,6 +479,9 @@ def main():
 
     if args.presentation:
         presentation_assistant(args, context_chat, args.presentation)
+    
+    if args.find:
+        search_folder_assistant(args, context_chat, args.find)
         
     prompt_context_augmentation: str = ""
     temporary_prompt_context_augmentation: str = ""
