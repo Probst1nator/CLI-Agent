@@ -1,6 +1,5 @@
 import hashlib
 import json
-import logging
 import os
 from typing import Dict, List, Optional, Set
 
@@ -14,6 +13,7 @@ from classes.cls_ai_provider_interface import ChatClientInterface
 from classes.ai_providers.cls_groq_interface import GroqChat
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.ai_providers.cls_openai_interface import OpenAIChat
+from logger import logger
 
 class AIStrengths(Enum):
     STRONG = 2
@@ -67,7 +67,13 @@ class Llm:
             Llm(OllamaClient(), "phi3:3.8b", None, True, False, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), "llava-llama3", None, True, True, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-phi3", None, True, True, 4096, None, AIStrengths.FAST),
+            Llm(OllamaClient(), "WizardLM-2-7B-abliterated-Q4_K_M.gguf", None, True, True, 4096, None, AIStrengths.STRONG),
+            # Llm(OllamaClient(), "nuextract", None, True, True, 4096, None, AIStrengths.STRONG),
+            # Llm(OllamaClient(), "mistral-nemo", None, True, True, 128000, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "deepseek-v2", None, True, True, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "phi3:medium-128k", None, True, True, 4096, None, AIStrengths.STRONG),
         ]
+
 
 class LlmRouter:
     _instance: Optional["LlmRouter"] = None
@@ -153,7 +159,7 @@ class LlmRouter:
             with open(self.cache_file_path, "w") as json_file:
                 json.dump(self.cache, json_file, indent=4)
         except Exception as e:
-            logging.error(f"Failed to update cache: {e}")
+            logger.error(f"Failed to update cache: {e}")
 
 
     def get_model(self, preferred_model_keys: List[str], strength: AIStrengths, chat: Chat, force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
@@ -186,11 +192,29 @@ class LlmRouter:
                     if (not model.local):
                         if self.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
                             return model
-        # search local models by capability last
+            for model in self.retry_models:
+                if model.model_key not in self.failed_models:
+                    if (not model.local):
+                        if self.model_capable_check(model, chat, None, local=False, force_free=force_free, has_vision=has_vision):
+                            return model
+        # search local models last
+        # first by capability
         for model in self.retry_models:
             if model.model_key not in self.failed_models:
                 if (model.local):
                     if self.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision):
+                        return model
+        # ignore strength if no model is found
+        for model in self.retry_models:
+            if model.model_key not in self.failed_models:
+                if (model.local):
+                    if self.model_capable_check(model, chat, None, local=True, force_free=force_free, has_vision=has_vision):
+                        return model
+        # ignore context_length and strength if no model is found
+        for model in self.retry_models:
+            if model.model_key not in self.failed_models:
+                if (model.local):
+                    if self.model_capable_check(model, Chat(), None, local=True, force_free=force_free, has_vision=has_vision):
                         return model
         return None
     
@@ -212,7 +236,7 @@ class LlmRouter:
     def generate_completion(
         cls,
         chat: Chat|str,
-        preferred_model_keys: List[str] = [""],
+        preferred_model_keys: List[str] = [],
         strength: AIStrengths = AIStrengths.STRONG,
         start_response_with: str = "",
         instruction: str = "You are a helpful assistant",
@@ -239,7 +263,6 @@ class LlmRouter:
             force_local (Optional[bool]): Whether to force local models only.
             force_free (bool): Whether to force free models only.
             silent (bool): Whether to suppress output.
-            **kwargs: Additional keyword arguments.
 
         Returns:
             Optional[str]: The generated completion string if successful, otherwise None.
@@ -255,6 +278,9 @@ class LlmRouter:
         
         if base64_images:
             chat.base64_images = base64_images
+        
+        if not preferred_model_keys or preferred_model_keys == [""]:
+            preferred_model_keys = []
         
         while True:
             try:
@@ -279,5 +305,5 @@ class LlmRouter:
                 return start_response_with + response if include_start_response_str else response
 
             except Exception as e:
-                logging.error(f"Error with model {model.model_key}: {e}")
+                logger.error(f"Error with model {model.model_key}: {e}")
                 instance.failed_models.add(model.model_key)

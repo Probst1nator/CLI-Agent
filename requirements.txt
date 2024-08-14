@@ -25,3 +25,4 @@ pyfiglet
 matplotlib
 pydub
 python-pptx
+PyPDF2

@@ -1,13 +1,12 @@
+import json
 import os
 import re
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from gtts import gTTS
 import numpy as np
-import soundfile as sf
-import librosa
 from librosa import *
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -20,6 +19,11 @@ from termcolor import colored
 from pynput import keyboard
 from speech_recognition import Recognizer, AudioSource, AudioData
 from pydub import AudioSegment
+from io import StringIO
+from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
+from pdfminer.converter import TextConverter
+from pdfminer.layout import LAParams
+from pdfminer.pdfpage import PDFPage
 
 from classes.ai_providers.cls_openai_interface import OpenAIChat
 from classes.cls_chat import Chat, Role
@@ -592,3 +596,128 @@ def remove_blocks(text: str, except_types: Optional[List[str]] = None) -> str:
         return ''  # Remove the code block
     
     return re.sub(pattern, replacement, text, flags=re.DOTALL)
+
+def clean_pdf_text(text):
+    # Step 1: Handle unicode characters (preserving special characters)
+    text = text.encode('utf-8', 'ignore').decode('utf-8')
+    # Step 2: Remove excessive newlines and spaces
+    text = re.sub(r'\n+', '\n', text)
+    text = re.sub(r' +', ' ', text)
+    # Step 3: Join split words
+    text = re.sub(r'(\w+)-\n(\w+)', r'\1\2', text)
+    # Step 4: Separate numbers and text
+    text = re.sub(r'(\d+)([A-Za-zÄäÖöÜüß])', r'\1 \2', text)
+    text = re.sub(r'([A-Za-zÄäÖöÜüß])(\d+)', r'\1 \2', text)
+    # Step 5: Add space after periods if missing
+    text = re.sub(r'\.(\w)', r'. \1', text)
+    # Step 6: Capitalize first letter after period and newline
+    text = re.sub(r'(^|\. )([a-zäöüß])', lambda m: m.group(1) + m.group(2).upper(), text)
+    # Step 7: Format Euro amounts
+    text = re.sub(r'(\d+)\s*Euro', r'\1 Euro', text)
+    # Step 8: Remove spaces before punctuation
+    text = re.sub(r'\s+([.,!?])', r'\1', text)
+    return text.strip()
+
+def extract_pdf_content(file_path: str) -> Tuple[str, List[Any]]:
+    def extract_text(pdf_path):
+        resource_manager = PDFResourceManager()
+        fake_file_handle = StringIO()
+        converter = TextConverter(resource_manager, fake_file_handle, laparams=LAParams(all_texts=True))
+        page_interpreter = PDFPageInterpreter(resource_manager, converter)
+        
+        with open(pdf_path, 'rb') as fh:
+            for page in PDFPage.get_pages(fh, caching=True, check_extractable=True):
+                page_interpreter.process_page(page)
+            
+            text = fake_file_handle.getvalue()
+        
+        converter.close()
+        fake_file_handle.close()
+        
+        return text
+
+    text_content = extract_text(file_path)
+    text_content = clean_pdf_text(text_content)
+    
+    # Note: pdfminer.six doesn't have a built-in method for image extraction
+    # You might need to use a different library like PyMuPDF for image extraction
+    image_content: List[Any] = []
+    
+    return text_content, image_content
+
+def nuextract_template(text: str, template: dict[str,Any]):
+    return f"### Template:\n{json.dumps(template)}\n### Text:\n{text}"
+
+
+def list_files_recursive(path: str, max_depth: int = 1) -> List[str]:
+    result: List[str] = []
+    
+    def explore(current_path: str, current_depth: int) -> None:
+        if current_depth > max_depth:
+            return
+
+        items: List[Tuple[str, str]] = []
+
+        for item in os.listdir(current_path):
+            item_path = os.path.join(current_path, item)
+            if os.path.isfile(item_path):
+                items.append(("file", item_path))
+            elif os.path.isdir(item_path):
+                items.append(("dir", item_path))
+
+        # Add files at this level to the result
+        result.extend([path for item_type, path in items if item_type == "file"])
+
+        # Explore subdirectories
+        for item_type, item_path in items:
+            if item_type == "dir":
+                explore(item_path, current_depth + 1)
+
+    explore(path, 0)
+    return result
+
+
+def split_string_into_chunks(
+    input_string: str, 
+    max_chunk_size: int = 2000, 
+) -> List[str]:
+    """
+    Splits a string into chunks with a specified maximum size, overlap, and minimum remaining size.
+    Ensures that chunks are split at newline characters to maintain semantic coherence.
+
+    Args:
+        input_string (str): The input string to split.
+        max_chunk_size (int, optional): The maximum size of each chunk. Defaults to 10000.
+        min_remaining_size (int, optional): The minimum size of the last chunk. Will extend backwards overlap_size if last chunk is too small. Defaults to 4000.
+
+    Returns:
+        List[str]: A list of chunks.
+    """
+    chunks = []
+    start_index = 0
+    input_length = len(input_string)
+    overlap_size = int(max_chunk_size/2)
+
+    while start_index < input_length:
+        # Calculate the tentative end index for the current chunk
+        tentative_end_index = start_index + max_chunk_size
+        
+        # Ensure the end index does not exceed the string length
+        if tentative_end_index >= input_length:
+            chunks.append(input_string[start_index:])
+            break
+        
+        # Find the last newline character before the tentative end index
+        end_index = input_string.rfind('\n', start_index, tentative_end_index)
+        
+        # If no newline is found, set the end index to the max_chunk_size limit
+        if end_index == -1 or end_index <= start_index:
+            end_index = tentative_end_index
+        
+        # Add the chunk to the list
+        chunks.append(input_string[start_index:end_index])
+        
+        # Move the start index for the next chunk, considering overlap
+        start_index = end_index - overlap_size
+
+    return chunks
