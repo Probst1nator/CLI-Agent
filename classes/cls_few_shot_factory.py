@@ -248,8 +248,8 @@ This command will search for any running processes that match the pattern "cli-a
             "I've been found! The output shows the process IDs and command lines for the Python processes that are running the CLI-Agent code. That's meta! 🤖"
         )
 
-        if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
-            userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
+        # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
+        #     userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
         
         chat.add_message(
             Role.USER,
