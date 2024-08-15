@@ -19,6 +19,7 @@ import os
 import re
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from classes.cls_pptx_presentation import PptxPresentation
 from tooling import extract_pdf_content, list_files_recursive, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture
@@ -201,11 +202,11 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, snippets: str):
     while True:
         next_prompt = ""
         if args.auto:
-            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets,  preferred_model_keys=["llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
+            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets,  preferred_model_keys=["llama-3.1-405b-reasoning", "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
             if len(abstract_code_overview)/4 >= 2048:
                 abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_model_keys=["llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
             next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods."
-            next_prompt += f"\nTo reduce the inherent complexity and enhance your understanding of the code, I've created an abstract overview of it, please use it to improve your contextual understanding of the code: \n{abstract_code_overview}"
+            next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
         else:
             print(colored("Please choose an option:", 'cyan', attrs=["bold"]))
             print(colored("1. Add xml-docs", 'yellow'))
@@ -245,7 +246,7 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, snippets: str):
             
         context_chat.add_message(Role.USER, next_prompt)
         
-        response = LlmRouter.generate_completion(context_chat, preferred_model_keys=["llama-3.1-70b-versatile", "gpt-4o", "claude-3-5-sonnet"], strength=AIStrengths.STRONG)
+        response = LlmRouter.generate_completion(context_chat, preferred_model_keys=["llama-3.1-405b-reasoning", "gpt-4o", "claude-3-5-sonnet"], strength=AIStrengths.STRONG)
         snippet = extract_single_snippet(response, allow_no_end=True)
         context_chat.add_message(Role.ASSISTANT, response)
         if (len(snippet) > 0):
