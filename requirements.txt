@@ -26,3 +26,5 @@ matplotlib
 pydub
 python-pptx
 PyPDF2
+chromadb
+pdfminer.six
