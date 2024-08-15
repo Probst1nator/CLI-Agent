@@ -17,6 +17,8 @@ import sys
 import os
 import os
 import re
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 from classes.cls_pptx_presentation import PptxPresentation
 from tooling import extract_pdf_content, list_files_recursive, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture
