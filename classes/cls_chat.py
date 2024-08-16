@@ -14,8 +14,8 @@ class Role(Enum):
     ASSISTANT = "assistant"
 
 class Chat:
-    user_cli_agent_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
-    os.makedirs(user_cli_agent_dir, exist_ok=True)
+    persistent_storage_path = os.path.expanduser('~/.local/share') + "/cli-agent"
+    os.makedirs(persistent_storage_path, exist_ok=True)
     
     def __init__(self, instruction_message: str = ""):
         """
@@ -102,7 +102,7 @@ class Chat:
         :param file_name: The name of the file to save to.
         :param append: Whether to append to the file.
         """
-        file_path = os.path.join(self.user_cli_agent_dir,file_name)
+        file_path = os.path.join(self.persistent_storage_path,file_name)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
         if append:
@@ -123,7 +123,7 @@ class Chat:
         :param file_name: The name of the file to load from.
         :return: The loaded Chat instance.
         """
-        file_path = os.path.join(cls.user_cli_agent_dir,file_name)
+        file_path = os.path.join(cls.persistent_storage_path, file_name)
         with open(file_path, "r") as file:
             data_dict = json.load(file)
         return cls.from_dict(data_dict)

@@ -49,7 +49,7 @@ class Llm:
             List[Llm]: A list of Llm instances representing the available models.
         """
         return [
-            Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, True, 131072, None, AIStrengths.STRONG),
+            # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, False, 131072, None, AIStrengths.STRONG),
             Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, False, 131072, 30000, AIStrengths.STRONG),
             Llm(GroqChat(), "llama-3.1-8b-instant", None, False, False, 131072, 30000, AIStrengths.FAST),
             Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.STRONG),

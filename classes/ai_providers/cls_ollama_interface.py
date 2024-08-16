@@ -13,8 +13,8 @@ class OllamaClient(ChatClientInterface):
     """
     Implementation of the ChatClientInterface for the Ollama API.
     """
-    validated_hosts = []
-    failed_hosts = []
+    validated_hosts: List[str] = []
+    failed_hosts: List[str] = []
 
     @staticmethod
     def validate_host(host: str) -> bool:
@@ -74,22 +74,18 @@ class OllamaClient(ChatClientInterface):
                         if host in OllamaClient.validated_hosts and not host in OllamaClient.failed_hosts and not host+model in OllamaClient.failed_hosts:
                             try:
                                 if silent:
-                                    print(f"Ollama-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
+                                    print(f"Ollama-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response using <{colored(host, 'green')}>...")
                                 else:
-                                    print(f"Ollama-Api: <{colored(model, 'green')}> is generating response...")
+                                    print(f"Ollama-Api: <{colored(model, 'green')}> is generating response using <{colored(host, 'green')}>...")
                                 # Check if the host is reachable
                                 client = ollama.Client(host=f'http://{host}:11434')
                                 response_stream = client.chat(model, chat.to_ollama(), True, keep_alive=1800, options=ollama.Options())
-                                if response_stream:
-                                    print(f"Ollama-Api: <{colored(host, 'green')}> is generating response...")
-                                    break
                             except Exception as e:
                                 print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
                                 OllamaClient.failed_hosts.append(host+model)
                                 if ("try pulling it first" in str(e).lower()):
                                     continue
                                 logger.error(f"Ollama-Api: Failed to generate response using <{host}> with model <{model}>: {e}")
-                                (f"Failed to connect to {host}: {e}")
 
                 refused = False
                 full_response = ""
@@ -119,7 +115,7 @@ class OllamaClient(ChatClientInterface):
 
 
     @staticmethod
-    def generate_embedding( text: str, model: str = "paraphrase-multilingual") -> List[float]:
+    def generate_embedding( text: str, model: str = "bge-m3") -> List[float]:
         """
         Generates an embedding for the given text using the specified Ollama model.
         
@@ -144,7 +140,7 @@ class OllamaClient(ChatClientInterface):
                         OllamaClient.failed_hosts.append(host)
                 if host in OllamaClient.validated_hosts and not host in OllamaClient.failed_hosts and not host+model in OllamaClient.failed_hosts:
                     try:
-                        print(f"Ollama-Api: Generating embedding using <{colored(host, 'green')}> with model <{colored(model, 'green')}>")
+                        print(f"Ollama-Api: <{colored(model, 'green')}> is generating embedding using <{colored(host, 'green')}>... ")
                         client = ollama.Client(host=f'http://{host}:11434')
                         response = client.embeddings(model=model, prompt=text)["embedding"]
                         break

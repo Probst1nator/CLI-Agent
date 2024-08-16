@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hashlib
 from typing import List, Literal, Optional, Tuple
 from pyfiglet import figlet_format
 import speech_recognition as sr
@@ -29,8 +30,9 @@ from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_chat import Chat, Role
 
-client = chromadb.Client()
-collection = client.create_collection(name="docs")
+persistent_storage_path = os.path.expanduser('~/.local/share') + "/cli-agent"
+client = chromadb.PersistentClient(persistent_storage_path)
+collection = client.get_or_create_collection(name="documents")
 
 def extract_blocks(text: str) -> List[Tuple[str, str]]:
     """
@@ -198,7 +200,22 @@ Add a custom integer to change this delay.""", metavar="DELAY")
 
 
 
-def code_assistant(args: argparse.Namespace, context_chat: Chat, snippets: str):
+def code_assistant(args: argparse.Namespace, context_chat: Chat):
+    if args.edit:
+        with open(args.edit, 'r') as file:
+            file_ending = os.path.splitext(args.edit)[1]
+            snippets = f"```{file_ending}\n{file.read()}\n```"
+    try:
+        print(colored("Add clipboard? Press (ctrl+c) to add.","yellow"))
+        for remaining in range(3, 0, -1):
+            sys.stdout.write("\r" + colored(f"Ignoring clipboard in {remaining}s... ", 'yellow'))
+            sys.stdout.flush()
+            time.sleep(1)
+        sys.stdout.write("\n")  # Ensure we move to a new line after countdown
+    except KeyboardInterrupt:
+        clipboard_content = pyperclip.paste()
+        snippets += f"```userClipboard\n{clipboard_content}\n```"
+    
     while True:
         next_prompt = ""
         if args.auto:
@@ -238,7 +255,7 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, snippets: str):
                     lines.append(line)
                 next_prompt = "\n".join(lines)      
         args.auto = False
-        next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, ["llama-3.1-70b-versatile", "gpt-4o", "claude-3-5-sonnet"])
+        next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, ["llama-3.1-70b-versatile", "llama-3.1-405b-reasoning", "gpt-4o", "claude-3-5-sonnet"])
 
         # only add the code to the context chat once
         if not any(snippets in message for message in context_chat.messages):
@@ -396,13 +413,15 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
                 # digestible_contents = split_string_into_chunks(text_content, max_chunk_size=120000 if "128k" in args.llm else 6000)
                 digestible_contents = split_string_into_chunks(text_content)
                 for digestible_content in digestible_contents:
-                    embedding = OllamaClient.generate_embedding(digestible_content)
-                    collection.add(
-                        ids=[f"{str(i)}_{file_name}"],
-                        embeddings=embedding,
-                        documents=[digestible_content]
-                    )
-                    i += 1
+                    digestible_content_hash = hashlib.md5(digestible_content.encode()).hexdigest()
+                    digestible_content_id = f"{digestible_content_hash}_{file_name}"
+                    if not collection.get(digestible_content_id)['documents']:
+                        embedding = OllamaClient.generate_embedding(digestible_content)
+                        collection.add(
+                            ids=[digestible_content_id],
+                            embeddings=embedding,
+                            documents=[digestible_content]
+                        )
         results = collection.query(
             query_embeddings=user_input_embedding,
             n_results=10
@@ -458,25 +477,8 @@ def main():
             print(colored(last_response, 'magenta'))
     
     if args.edit != None: # code edit mode
-        
-        if args.edit:
-            with open(args.edit, 'r') as file:
-                file_ending = os.path.splitext(args.edit)[1]
-                snippets = f"```{file_ending}\n{file.read()}\n```"
-        try:
-            print(colored("Add clipboard? Press (ctrl+c) to add.","yellow"))
-            for remaining in range(3, 0, -1):
-                sys.stdout.write("\r" + colored(f"Ignoring clipboard in {remaining}s... ", 'yellow'))
-                sys.stdout.flush()
-                time.sleep(1)
-            sys.stdout.write("\n")  # Ensure we move to a new line after countdown
-        except KeyboardInterrupt:
-            clipboard_content = pyperclip.paste()
-            snippets += f"```userClipboard\n{clipboard_content}\n```"
-
-        code_assistant(args, context_chat, snippets)
-        
-            
+        code_assistant(args, context_chat)    
+    
     if args.fixpy:
         code_agent(args, context_chat)
 

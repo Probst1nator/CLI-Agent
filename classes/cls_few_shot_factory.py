@@ -1,15 +1,21 @@
 from dataclasses import asdict
 import json
+import os
 import re
 from typing import Any, Dict, List, Tuple
 
+import chromadb
 from termcolor import colored
 
 from classes.cls_chat import Chat, Role
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.cls_pptx_presentation import PptxPresentation, Slide
-from tooling import run_command, select_and_execute_commands
+from tooling import run_command, select_and_execute_commands, get_atuin_history
+
+persistent_storage_path = os.path.expanduser('~/.local/share') + "/cli-agent"
+client = chromadb.PersistentClient(persistent_storage_path)
+collection = client.get_or_create_collection(name="commands")
 
 # class Agent:
 #     tools:List[str] = []
@@ -247,6 +253,47 @@ This command will search for any running processes that match the pattern "cli-a
             Role.ASSISTANT,
             "I've been found! The output shows the process IDs and command lines for the Python processes that are running the CLI-Agent code. That's meta! 🤖"
         )
+        
+        chat.add_message(
+            Role.USER,
+            "Can you stand up?"
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "I don't think so. As a virtual cli-assistant i do not posses any physical body which I could use to stand up."
+        )
+        
+        all_commands = get_atuin_history(200)
+        if all_commands:
+            for command in all_commands:
+                if not collection.get(command)['documents']:
+                    cmd_embedding = OllamaClient.generate_embedding(command, "bge-m3")
+                    if not cmd_embedding:
+                        break
+                    collection.add(
+                        ids=[command],
+                        embeddings=cmd_embedding,
+                        documents=[command]
+                    )
+            
+            cmd_embedding = OllamaClient.generate_embedding(userRequest, "bge-m3")
+            results = collection.query(
+                query_embeddings=cmd_embedding,
+                n_results=10
+            )
+            retrieved_cmds = results['documents'][0]
+            retrieved_cmds_str = "\n".join([f"{i+1}. {cmd}" for i, cmd in enumerate(retrieved_cmds)])
+            
+            chat.add_message(
+                Role.USER,
+                f"For context I am now giving you 10 commands which seem similar to my next request, please potentially consider the way they are constructed for predicting more relevant commands, given the environment.\n{retrieved_cmds_str}"
+            )
+            
+            chat.add_message(
+                Role.ASSISTANT,
+                "I understand, thank you for providing this context. Please go ahead, what would you like to do next?"
+            )
 
         # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
         #     userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
@@ -276,7 +323,7 @@ This command will search for any running processes that match the pattern "cli-a
             response = response.replace("apt install", "apt install -y")
             response = response.replace("apt-get install", "apt-get install -y")
         if applied_hardcoded_fixes:
-            print(colored("DEBUG: Applied hardcoded fixes to the response.", "yellow"))
+            print(colored("DEBUG: Applied hardcoded fix(es) to the response.", "yellow"))
         
         chat.add_message(
             Role.ASSISTANT,
