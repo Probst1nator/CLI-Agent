@@ -4,7 +4,9 @@ import re
 import subprocess
 import sys
 from typing import Any, List, Optional, Tuple
-
+import sqlite3
+import os
+from typing import List, Tuple
 from gtts import gTTS
 import numpy as np
 from librosa import *
@@ -28,6 +30,7 @@ from pdfminer.pdfpage import PDFPage
 from classes.ai_providers.cls_openai_interface import OpenAIChat
 from classes.cls_chat import Chat, Role
 from classes.ai_providers.cls_ollama_interface import OllamaClient
+from logger import logger
 
 def run_command(command: str, verbose: bool = True, max_output_length:int = 16000) -> Tuple[str,str]:
     """
@@ -721,3 +724,34 @@ def split_string_into_chunks(
         start_index = end_index - overlap_size
 
     return chunks
+
+def get_atuin_history(limit: int = 10) -> List[str]:
+    """
+    Retrieve the last N commands from Atuin's history database.
+
+    :param limit: Number of commands to retrieve (default 10)
+    :return: List of tuples containing (index, command)
+    """
+    db_path = os.path.expanduser('~/.local/share/atuin/history.db')
+
+    if not os.path.exists(db_path):
+        return []
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            query = """
+            SELECT command
+            FROM history
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """
+            cursor.execute(query, (limit,))
+            result_tuples = cursor.fetchall()
+            results = []
+            for result_tuple in result_tuples:
+                results.append(result_tuple[0])
+            return results
+    except sqlite3.Error as e:
+        logger.error(f"Querying {db_path} caused an error: {e}")
+        return []
