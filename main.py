@@ -577,7 +577,8 @@ def main():
             continue
             
         if args.w:
-            query = FewShotProvider.few_shot_TextToQuery(next_prompt)
+            recent_context_str = context_chat.get_messages_as_string(-3)
+            query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
             results = search_and_scrape(query, 2)
             temporary_prompt_context_augmentation += f"\n\n```web_search_result\n{''.join(results)}\n```"
             args.w = False

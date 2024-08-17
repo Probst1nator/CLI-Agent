@@ -44,6 +44,11 @@ class Chat:
             self.messages.append((role, content))
         return self
     
+    def get_messages_as_string(self, start_index: int, end_index: int = -1) -> str:
+        selected_messages = self.messages[start_index:end_index]
+        return "\n".join([f"{message[0].name}: {message[1]}" for message in selected_messages])
+        
+    
     def __getitem__(self, key: Union[int, slice, Tuple[int, ...]]) -> "Chat":
         """
         Retrieves a subset of the chat messages.
