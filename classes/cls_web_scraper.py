@@ -20,8 +20,8 @@ def search_and_scrape(query: str, num_sites: int = 1) -> list[str]:
         requests.RequestException: If there is an error fetching a webpage.
     """
     # Perform a Google search and get the top results
-    print (colored(f"Performing internet search for {num_sites}, please give me a second...", "green"))
-    results = search(query, num_results=num_sites)
+    print (colored(f"Searching {num_sites} sites on the internet, please give me a second...", "green"))
+    results = search(query, num_results=num_sites*4)
     
     scraped_contents = []
     
@@ -49,6 +49,9 @@ def search_and_scrape(query: str, num_sites: int = 1) -> list[str]:
         text = '\n'.join(chunk for chunk in chunks if chunk)
         
         scraped_contents.append(text)
+        
+        if (len(scraped_contents) == num_sites):
+            return scraped_contents
     
     return scraped_contents
 

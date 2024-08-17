@@ -54,8 +54,8 @@ class Llm:
             Llm(GroqChat(), "llama-3.1-8b-instant", None, False, False, 131072, 30000, AIStrengths.FAST),
             Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.STRONG),
             Llm(GroqChat(), "llama3-8b-8192", None, False, False, 8192, 30000, AIStrengths.FAST),
-            Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, 8192, 30000, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, 8192, 30000, AIStrengths.FAST),
+            # Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, 8192, 30000, AIStrengths.STRONG),
+            # Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, 8192, 30000, AIStrengths.FAST),
             Llm(GroqChat(), "gemma2-9b-it", None, False, False, 8192, 15000, AIStrengths.FAST),
             
             Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),

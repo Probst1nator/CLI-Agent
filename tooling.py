@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -7,6 +8,7 @@ from typing import Any, List, Optional, Tuple
 import sqlite3
 import os
 from typing import List, Tuple
+import chromadb
 from gtts import gTTS
 import numpy as np
 from librosa import *
@@ -682,7 +684,8 @@ def list_files_recursive(path: str, max_depth: int = 1) -> List[str]:
 
 def split_string_into_chunks(
     input_string: str, 
-    max_chunk_size: int = 2000, 
+    max_chunk_size: int = 2000,
+    delimiter: str = "\n",
 ) -> List[str]:
     """
     Splits a string into chunks with a specified maximum size, overlap, and minimum remaining size.
@@ -711,7 +714,7 @@ def split_string_into_chunks(
             break
         
         # Find the last newline character before the tentative end index
-        end_index = input_string.rfind('\n', start_index, tentative_end_index)
+        end_index = input_string.rfind(delimiter, start_index, tentative_end_index)
         
         # If no newline is found, set the end index to the max_chunk_size limit
         if end_index == -1 or end_index <= start_index:
@@ -755,3 +758,6 @@ def get_atuin_history(limit: int = 10) -> List[str]:
     except sqlite3.Error as e:
         logger.error(f"Querying {db_path} caused an error: {e}")
         return []
+
+
+
