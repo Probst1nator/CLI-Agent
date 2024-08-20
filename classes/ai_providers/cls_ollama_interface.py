@@ -1,5 +1,6 @@
 import json
 from typing import List, Optional
+from dotenv import load_dotenv
 import ollama
 from termcolor import colored
 from classes.cls_chat import Chat
@@ -8,6 +9,7 @@ import os
 from logger import logger
 from classes.cls_ai_provider_interface import ChatClientInterface
 import socket
+
 
 class OllamaClient(ChatClientInterface):
     """
@@ -63,54 +65,58 @@ class OllamaClient(ChatClientInterface):
         while True:
             try:
                 response_stream = None
+                ollama_hosts: List[str] = []
                 for env_var in os.environ:
                     if env_var.startswith("OLLAMA_HOST_"):
                         host = os.getenv(env_var)
-                        if not host in OllamaClient.validated_hosts and not host in OllamaClient.failed_hosts and not host+model in OllamaClient.failed_hosts:
-                            if OllamaClient.validate_host(host):
-                                OllamaClient.validated_hosts.append(host)
+                        ollama_hosts.append(host)
+                for host in ollama_hosts:
+                    if not host in OllamaClient.validated_hosts and not host in OllamaClient.failed_hosts and not host+model in OllamaClient.failed_hosts:
+                        if OllamaClient.validate_host(host):
+                            OllamaClient.validated_hosts.append(host)
+                        else:
+                            OllamaClient.failed_hosts.append(host)
+                    if host in OllamaClient.validated_hosts and not host in OllamaClient.failed_hosts and not host+model in OllamaClient.failed_hosts:
+                        try:
+                            if silent:
+                                print(f"Ollama-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response using <{colored(host, 'green')}>...")
                             else:
-                                OllamaClient.failed_hosts.append(host)
-                        if host in OllamaClient.validated_hosts and not host in OllamaClient.failed_hosts and not host+model in OllamaClient.failed_hosts:
-                            try:
-                                if silent:
-                                    print(f"Ollama-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response using <{colored(host, 'green')}>...")
-                                else:
-                                    print(f"Ollama-Api: <{colored(model, 'green')}> is generating response using <{colored(host, 'green')}>...")
-                                # Check if the host is reachable
-                                client = ollama.Client(host=f'http://{host}:11434')
-                                response_stream = client.chat(model, chat.to_ollama(), True, keep_alive=1800, options=ollama.Options())
-                            except Exception as e:
-                                print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
-                                OllamaClient.failed_hosts.append(host+model)
-                                if ("try pulling it first" in str(e).lower()):
-                                    continue
-                                logger.error(f"Ollama-Api: Failed to generate response using <{host}> with model <{model}>: {e}")
-
-                refused = False
-                full_response = ""
-                for line in response_stream:
-                    next_string = line["message"]["content"]
-                    full_response += next_string
-                    if not silent:
-                        print(tooling.apply_color(next_string), end="")
-                    # refusal check
-                    lower_response = full_response.lower()
-                    if model != "WizardLM-2-7B-abliterated-Q4_K_M.gguf" and any(item in lower_response for item in ["tut mir leid", "i am sorry", "i'm sorry", "entschuldigung", "i apologize", "i apologise", "ich kann keine"]):
-                        print(f"Ollama-Api: <{colored(model, 'red')}> refused...")
-                        model = "WizardLM-2-7B-abliterated-Q4_K_M.gguf"
-                        refused = True
-                        break
-                if refused:
-                    continue
-                if not silent:
-                    print()
-
-                logger.debug(json.dumps({"full_response":full_response}, indent=2))
-                return full_response
-
+                                print(f"Ollama-Api: <{colored(model, 'green')}> is generating response using <{colored(host, 'green')}>...")
+                            # Check if the host is reachable
+                            client = ollama.Client(host=f'http://{host}:11434')
+                            response_stream = client.chat(model, chat.to_ollama(), True, keep_alive=1800, options=ollama.Options())
+                            
+                            refused = False
+                            full_response = ""
+                            for line in response_stream:
+                                next_string = line["message"]["content"]
+                                full_response += next_string
+                                if not silent:
+                                    print(tooling.apply_color(next_string), end="")
+                                # refusal check
+                                lower_response = full_response.lower()
+                                if model != "WizardLM-2-7B-abliterated-Q4_K_M.gguf" and any(item in lower_response for item in ["tut mir leid", "i am sorry", "i'm sorry", "entschuldigung", "i apologize", "i apologise", "ich kann keine"]):
+                                    print(f"Ollama-Api: <{colored(model, 'red')}> refused...")
+                                    model = "WizardLM-2-7B-abliterated-Q4_K_M.gguf"
+                                    refused = True
+                                    break
+                            if refused:
+                                continue
+                            if not silent:
+                                print()
+                            logger.debug(json.dumps({"full_response":full_response}, indent=2))
+                            return full_response
+                    
+                        except Exception as e:
+                            print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
+                            OllamaClient.failed_hosts.append(host+model)
+                            if ("try pulling it first" in str(e).lower()):
+                                continue
+                            logger.error(f"Ollama-Api: Failed to generate response using <{host}> with model <{model}>: {e}")
+            
             except Exception as e:
                 logger.error(json.dumps({"error":{e}}, indent=2))
+                print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
                 raise Exception(f"Ollama API error: {e}")
 
 

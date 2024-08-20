@@ -34,6 +34,7 @@ class Chat:
         
         :param role: The role of the message sender.
         :param content: The content of the message.
+        :param used_model: The model used to generate the message.
         :return: The updated Chat instance.
         """
         if content and role:
