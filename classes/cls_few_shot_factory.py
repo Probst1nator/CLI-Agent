@@ -538,38 +538,102 @@ A hierarchical learning approach to separate strategy and execution."""
         )
         return chat, response
 
+    @classmethod
+    def few_shot_objectFromTemplate(cls, example_objects: List[Any], target_description: str, preferred_model_keys: List[str] = [], force_local: bool = False) -> Any:
+        """
+        Returns an object based on a list of example objects and a target description.
 
-    # @classmethod
-    # def few_shot_slideContentToSlideElements(cls, content: str) -> List[SlideElement]:
-    #     chat = Chat("You are a presentation slide creator. Given a text description of a slide, generate the slide content in a structured format.")
-    #     chat.add_message(Role.USER, "• Combination of rule-based logic from 'marvin' with ML models\n• Enables gradual integration and maintains a fallback system")
-        
-    #     slide_element_0 = SlideElement("Hybrid approach", style=TextStyle(font_size=24, bold=True))
-    #     slide_element_1 = SlideElement("• Combination of rule-based logic from 'marvin' with ML models", style=TextStyle(font_size=18, bold=False))
-    #     slide_element_2 = SlideElement("• Enables gradual integration and maintains a fallback system", style=TextStyle(font_size=18, bold=False))
-        
-    #     slide_elements = [slide_element_0, slide_element_1, slide_element_2]
-        
-    #     # Convert each SlideElement to a dictionary before serialization
-    #     slide_elements_dict = [element.to_dict() for element in slide_elements]
-        
-    #     chat.add_message(Role.ASSISTANT, "Sure, here is the structured content for the slide:\n```\n" + json.dumps(slide_elements_dict, indent=4) + "\n```")
-    #     chat.add_message(Role.USER, f"Thank you! You have generated exactly the right JSON data. Keep this exact format.\nNow create such a slide for this: {content}")
-        
-    #     response: str = LlmRouter.generate_completion(
-    #         chat,
-    #         strength=AIStrengths.FAST
-    #     )
-        
-    #     chat.add_message(Role.ASSISTANT, response)
-    #     response = response.split("```")[1].split("```")[0]
-        
-    #     # Load the JSON response and parse it into a list of dictionaries
-    #     slide_elements_dict = json.loads(response)
-        
-    #     # Convert the dictionaries back into SlideElement objects
-    #     slide_elements_obj = [SlideElement.from_dict(element) for element in slide_elements_dict]
-        
-    #     return slide_elements_obj
+        Args:
+            example_objects (List[Any]): A list of objects to use as examples.
+            target_description (str): Description of the target object to create.
+            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            force_local (bool, optional): If True, force the use of a local model.
 
-    
+        Returns:
+            Any: The newly created object based on the examples and description.
+        """
+        # Convert example objects to JSON strings
+        example_jsons = [json.dumps(obj, default=lambda o: o.__dict__, sort_keys=True, indent=2) for obj in example_objects]
+
+        # Create the chat prompt
+        chat = Chat("You are an object creator. Given a list of example objects in JSON format and a description, create a new object with a similar structure but different content.")
+        
+        # Add example interactions
+        chat.add_message(Role.USER, """Example objects:
+[
+{
+  "name": "John Doe",
+  "age": 30,
+  "skills": ["Python", "JavaScript", "SQL"],
+  "contact": {
+    "email": "john@example.com",
+    "phone": "123-456-7890"
+  }
+},
+{
+  "name": "Jane Smith",
+  "age": 28,
+  "skills": ["Java", "C++", "Ruby"],
+  "contact": {
+    "email": "jane@example.com",
+    "phone": "987-654-3210"
+  }
+}
+]
+Create a similar object for a senior data scientist specializing in machine learning.""")
+
+        chat.add_message(Role.ASSISTANT, """{
+  "name": "Alice Johnson",
+  "age": 35,
+  "skills": ["Python", "R", "TensorFlow", "Scikit-learn", "SQL"],
+  "contact": {
+    "email": "alice.johnson@datatech.com",
+    "phone": "555-123-4567"
+  }
+}""")
+
+        # Add the actual task
+        example_objects_str = ",\n".join(example_jsons)
+        chat.add_message(Role.USER, f"""Example objects:
+[
+{example_objects_str}
+]
+Create a similar object based on this description: {target_description}""")
+
+        # Generate the response
+        response: str = LlmRouter.generate_completion(
+            chat,
+            strength=AIStrengths.FAST,
+            preferred_model_keys=preferred_model_keys,
+            force_local=force_local
+        )
+
+        # Extract the JSON string from the response
+        json_start = response.find('{')
+        json_end = response.rfind('}') + 1
+        result_json = response[json_start:json_end]
+
+        # Parse the JSON string back into an object
+        result_object = json.loads(result_json)
+
+        # Recursively convert dict to object if the examples were objects
+        if not isinstance(example_objects[0], dict):
+            result_object = cls._dict_to_obj(result_object)
+
+        return result_object
+
+    @staticmethod
+    def _dict_to_obj(d):
+        """
+        Convert a dictionary to an object recursively.
+        """
+        class DynamicObject:
+            pass
+        
+        obj = DynamicObject()
+        for k, v in d.items():
+            if isinstance(v, dict):
+                setattr(obj, k, FewShotProvider._dict_to_obj(v))
+            else:
+                setattr(obj, k, v)
+        return obj

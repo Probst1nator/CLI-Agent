@@ -1,7 +1,6 @@
 import tempfile
 from typing import List, Optional
 from openai import OpenAI
-from dotenv import load_dotenv
 from termcolor import colored
 from classes.cls_chat import Chat
 from classes.cls_custom_coloring import CustomColoring
@@ -9,8 +8,6 @@ import speech_recognition as sr
 import os
 
 from classes.cls_ai_provider_interface import ChatClientInterface
-
-load_dotenv()
 
 class OpenAIChat(ChatClientInterface):
     """

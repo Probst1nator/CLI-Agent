@@ -22,6 +22,7 @@ import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+from assistants import code_agent, code_assistant, majority_response_assistant, presentation_assistant, search_folder_assistant
 from classes.cls_pptx_presentation import PptxPresentation
 from tooling import extract_pdf_content, list_files_recursive, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture
 from classes.cls_web_scraper import search_and_scrape, get_github_readme
@@ -30,9 +31,6 @@ from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_chat import Chat, Role
 
-persistent_storage_path = os.path.expanduser('~/.local/share') + "/cli-agent"
-client = chromadb.PersistentClient(persistent_storage_path)
-collection = client.get_or_create_collection(name="documents")
 
 def extract_blocks(text: str) -> List[Tuple[str, str]]:
     """
@@ -96,20 +94,6 @@ def extract_blocks(text: str) -> List[Tuple[str, str]]:
         start = end + 3
 
     return blocks
-
-def extract_single_snippet(response: str, allow_no_end: bool = False) -> str:
-    start_index = response.find("```")
-    if start_index != -1:
-        start_line_end = response.find("\n", start_index)
-        end_index = response.rfind("```")
-        if end_index != -1 and end_index > start_index:
-            # Find the end of the start line and the start of the end line
-            end_line_start = response.rfind("\n", start_index, end_index)
-            if start_line_end != -1 and end_line_start != -1:
-                return response[start_line_end + 1:end_line_start]
-        elif allow_no_end:
-            return response[start_line_end + 1:]
-    return ""
 
 
 ColorType = Literal['black', 'grey', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 
@@ -180,8 +164,12 @@ Add a custom integer to change this delay.""", metavar="DELAY")
                         help="Edit either the file at the specified path or the contents of the clipboard.")
     parser.add_argument("-p", "--presentation", nargs='?', default=None, type=str,
                         help="Interactively create a presentation.")    
+    parser.add_argument("-u", "--utilise", nargs='?', default=None, type=str,
+                        help="Intelligently use a given path/file. (Examples: --utilise 'path/to/file.py' or --utilise 'file.xx' or --utilise 'folder')")
     parser.add_argument("-f", "--find", nargs='?', default=None, type=str,
                         help="Search the directory for something.")
+    parser.add_argument("-ma", "--majority", nargs='?', default=None, type=str,
+                        help="Generate a response based on the majority of all local models.")
     parser.add_argument("-h", "--help", action="store_true",
                         help="Display this help")
     parser.add_argument("-fp", "--fixpy", type=str,
@@ -200,257 +188,15 @@ Add a custom integer to change this delay.""", metavar="DELAY")
 
 
 
-def code_assistant(args: argparse.Namespace, context_chat: Chat):
-    if args.edit:
-        with open(args.edit, 'r') as file:
-            file_ending = os.path.splitext(args.edit)[1]
-            snippets = f"```{file_ending}\n{file.read()}\n```"
-    try:
-        print(colored("Add clipboard? Press (ctrl+c) to add.","yellow"))
-        for remaining in range(3, 0, -1):
-            sys.stdout.write("\r" + colored(f"Ignoring clipboard in {remaining}s... ", 'yellow'))
-            sys.stdout.flush()
-            time.sleep(1)
-        sys.stdout.write("\n")  # Ensure we move to a new line after countdown
-    except KeyboardInterrupt:
-        clipboard_content = pyperclip.paste()
-        snippets += f"```userClipboard\n{clipboard_content}\n```"
-    
-    while True:
-        next_prompt = ""
-        if args.auto:
-            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets,  preferred_model_keys=["llama-3.1-405b-reasoning", "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
-            if len(abstract_code_overview)/4 >= 2048:
-                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_model_keys=["llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
-            next_prompt = "Provide the code below in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods."
-            next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
-        else:
-            print(colored("Please choose an option:", 'cyan', attrs=["bold"]))
-            print(colored("1. Add xml-docs", 'yellow'))
-            print(colored("2. Refactor", 'yellow'))
-            print(colored("3. Explain", 'yellow'))
-            # print(colored("4. Self-Supervise", 'yellow'))
-            print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
-            user_input = input(colored("Enter your choice: ", 'blue'))
-            if user_input == "1":
-                abstract_code_overview = LlmRouter.generate_completion("Please explain the code step by step, provide an abstract high level overview of its stages.\n\n" + snippets,  preferred_model_keys=["llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
-                if len(abstract_code_overview)/4 >= 2048:
-                    abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_model_keys=["llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
-                next_prompt = "Provide the code in full while adding xml doc comments. Ensure all existing comments remain unchanged or, if appropriate, rephrased minimally. You *must* not modify the code itself at ALL, provide it in full. Focus mainly on adding xml docs to classes and methods."
-                next_prompt += f"\nTo reduce the codes inherent complexity and enhance your understanding, I've created an abstract overview of the code, please use it to improve your contextual understanding of the code: \n{abstract_code_overview}"
-            elif user_input == "2":
-                next_prompt = "Please refactor the code, ensuring it remains functionally equivalent. You may change the code structure, variable names, and comments."
-            elif user_input == "3":
-                next_prompt = "Please explain the code, providing a concise explanation of the code's functionality and use."
-            else:
-                next_prompt = user_input
-
-            if next_prompt == "--m":
-                print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
-                lines = []
-                while True:
-                    line = input()
-                    if line == "--f":
-                        break
-                    lines.append(line)
-                next_prompt = "\n".join(lines)      
-        args.auto = False
-        next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, ["llama-3.1-70b-versatile", "llama-3.1-405b-reasoning", "gpt-4o", "claude-3-5-sonnet"])
-
-        # only add the code to the context chat once
-        if not any(snippets in message for message in context_chat.messages):
-            next_prompt += f"\n\n{snippets}"
-            
-        context_chat.add_message(Role.USER, next_prompt)
-        
-        response = LlmRouter.generate_completion(context_chat, preferred_model_keys=["llama-3.1-405b-reasoning", "gpt-4o", "claude-3-5-sonnet"], strength=AIStrengths.STRONG)
-        snippet = extract_single_snippet(response, allow_no_end=True)
-        context_chat.add_message(Role.ASSISTANT, response)
-        if (len(snippet) > 0):
-            pyperclip.copy(snippet)
-            print(colored("Snippet copied to clipboard.", 'green'))
-        elif (args.auto):
-            print(colored("Something went wrong, no snippet could be extracted.", "red"))
-
-
-def code_agent(args: argparse.Namespace, context_chat: Chat):
-    latest_script_path = args.fixpy
-    fix_iteration = 0
-    while True:
-        print(colored(f"Executing Python file at: {latest_script_path}\n" + "# " * 10, 'green'))
-        py_script = ""
-        with open(latest_script_path, 'r') as file:
-            py_script = file.read()
-        output, error = run_python_script(latest_script_path)
-        analysis_amalgam = ""
-        user_input_insights = ""
-        if error:
-            print(colored(f"Error: {error}", 'red'))
-            
-            if len(context_chat.messages) == 0: # first iteration
-                context_chat.add_message(Role.USER, FewShotProvider.few_shot_rephrase(f"Please analyze the following error step by step and inspect how it can be fixed in the appended script, please do not suggest a fixed implementation instead focus on understanding and explaining the issue step by step.") + f"\n```error\n{error}\n\n```python\n{py_script}\n```")
-            elif user_input_insights:
-                context_chat.add_message(Role.USER, FewShotProvider.few_shot_rephrase(f"{user_input_insights}\nAgain, do not suggest a fixed implementation instead for now, solely focus on understanding and explaining the issue step by step.") + f"\n```error\n{error}```")
-            else: # default case
-                context_chat.add_message(Role.USER, FewShotProvider.few_shot_rephrase(f"Reflect on your past steps in the light of this new error, what did you miss? Only reflect, combine and infer for now. Do not provide the full reimplementation yet!") + f"\n```error\n{error}")
-            error_analysis = LlmRouter.generate_completion(context_chat)
-            context_chat.add_message(Role.ASSISTANT, error_analysis)
-            
-            
-            analysis_amalgam += f"Analysis {fix_iteration}: {error_analysis}\n"
-            context_chat.add_message(Role.USER, "Seems reasonable. Now, please provide the fixed script in full.")
-            script_fix = LlmRouter.generate_completion(context_chat, preferred_model_keys=["llama-3.1-70b-versatile", "gpt-4o", "claude-3-5-sonnet"])
-            context_chat.add_message(Role.ASSISTANT, script_fix)
-            fixed_script = extract_single_snippet(script_fix)
-            
-            latest_script_path = args.fixpy.replace(".py", f"_patchV{fix_iteration}.py")
-            with open(latest_script_path, 'w') as file:
-                file.write(fixed_script)
-                print(colored(f"Iteration {fix_iteration}: Patched script written to {latest_script_path}", 'yellow'))
-            fix_iteration += 1
-            if fix_iteration > 3:
-                print(colored(f"fixpy summary" + 10 * "# " + f"\n{analysis_amalgam}", 'light_magenta'))
-                user_input = input(colored(f"3 Unsuccessful iterations, continue? (Y/n).", 'yellow')).lower()
-                if user_input != "y" and user_input != "":
-                    pyperclip.copy(f"```issue_report\n{analysis_amalgam}\n```\n\n```python\n{fixed_script}\n```")
-                    print(colored(f"A summary of the analysis has been copied to the clipboard.", 'green'))
-                    exit(1)
-                user_input_insights = input(colored("Do you have any additional insight to enlighten the agent before we continue? (Press enter or type your insights): ", 'yellow'))
-                fix_iteration = 0
-            continue
-        else:
-            print(colored(f"Execution success!\n```output\n{output}\n```", 'green'))
-            user_input = input(colored("Do you wish to overwrite the original script with the successfully executed version? (Y/n) ", 'yellow')).lower()
-            if user_input == "y" or user_input == "":
-                with open(args.fixpy, 'w') as file:
-                    file.write(fixed_script)
-                    print(colored(f"Script overwritten with patched version.", 'green'))
-            user_input = input(colored("Do you wish to remove the other deprecated patched versions? (Y/n) ", 'yellow')).lower()
-            if user_input == "y" or user_input == "":
-                for i in range(fix_iteration):
-                    os.remove(args.fixpy.replace(".py", f"_patchV{i}.py"))
-                    print(colored(f"Removed deprecated patched version {i}.", 'green'))
-            exit(0)
-
-def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_input:str = ""):
-    if not user_input:
-        print(colored("Please enter your presentation topic(s) and supplementary data if present. *Multiline mode* Type '--f' on a new line when finished.", "magenta"))
-        lines = []
-        while True:
-            line = input()
-            if line == "--f":
-                break
-            lines.append(line)
-        user_input = "\n".join(lines)
-    
-    
-    rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, preferred_model_keys=[args.llm], force_local=args.local)
-    decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", preferred_model_keys=[args.llm], force_local=args.local)
-    presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, use_cache=False, preferred_model_keys=[args.llm], force_local=args.local)
-    
-    chat, response = FewShotProvider.few_shot_textToPresentation(presentation_details, preferred_model_keys=[args.llm], force_local=args.local)
-    while True:
-        while True:
-            try:
-                presentation_json = response.split("```")[1].split("```")[0]
-                presentation = PptxPresentation.from_json(presentation_json)
-                presentation.save()
-                break
-            except Exception as e:
-                chat.add_message(Role.USER, "Your json object did not follow the expected format, please try again.\nError: " + str(e))
-                response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, use_cache=False, preferred_model_keys=[args.llm], force_local=args.local)
-                chat.add_message(Role.ASSISTANT, response)
-                
-        print(colored("Presentation saved.", 'green'))
-        print(colored("Please choose an option:", 'cyan', attrs=["bold"]))
-        print(colored("1. Add details", 'yellow'))
-        print(colored("2. Regenerate", 'yellow'))
-        print(colored("3. Add Images, this may take a while...", 'yellow'))
-        print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
-        user_input = input(colored("Enter your choice: ", 'blue'))
-        if user_input == "1":
-            add_details_prompt = FewShotProvider.few_shot_rephrase(f"Please think step by step to add relevant/ missing details to the following topic: {presentation_details}", preferred_model_keys=[args.llm])
-            suggested_details = LlmRouter.generate_completion(f"{add_details_prompt} {presentation_details}", strength=AIStrengths.STRONG, preferred_model_keys=[args.llm], force_local=args.local)
-            next_prompt = f"Please add the following details to the presentation: \n{suggested_details}"
-        elif user_input == "2":
-            next_prompt = "I am unhappy with your suggested presentation, please try again."
-        else:
-            next_prompt = user_input
-            
-        next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, preferred_model_keys=[args.llm], force_local=args.local)
-        chat.add_message(Role.USER, next_prompt)
-        response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, preferred_model_keys=[args.llm], force_local=args.local)
-
-def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_input:str = ""):
-    if not user_input:
-        print(colored("Please enter your search request. *Multiline mode* Type '--f' on a new line when finished.", "blue"))
-        lines = []
-        while True:
-            line = input()
-            if line == "--f":
-                break
-            lines.append(line)
-        user_input = "\n".join(lines)
-    
-    # rephrased_user_input = FewShotProvider.few_shot_rephrase(f"Can you answer my question using the information from the text below? Question: {user_input}", preferred_model_keys=[args.llm], force_local=args.local)
-    # extract_data_prompt = FewShotProvider.few_shot_rephrase(f"Please extract datapoints from the below text that are relevant to answer this question: {user_input} ", preferred_model_keys=[args.llm], force_local=args.local, silent=False)
-    user_input_embedding = OllamaClient.generate_embedding(user_input)
-    
-    instruction = FewShotProvider.few_shot_rephrase(f"This is a chat between a user and his private artificial intelligence assistant. The assistant uses the documents to answer the users questions factually, detailed and reliably. The assistant indicates if the answer cannot be found in the documents.", preferred_model_keys=[args.llm], force_local=args.local, silent=True)
-    chat = Chat(instruction)
-    while True:
-        collected_data = ""
-        files = list_files_recursive(os.getcwd(), 2)
-        
-        i: int = 0
-        for file_path in files:
-            file_index = files.index(file_path) + 1
-            print(colored(f"({file_index}/{len(files)}) Processing file: {file_path}", "yellow"))
-            file_name = os.path.basename(file_path).replace(" ", "_")
-            
-            if file_path.endswith(".pdf"):
-                text_content, image_content = extract_pdf_content(file_path)
-                # digestible_contents = split_string_into_chunks(text_content, max_chunk_size=120000 if "128k" in args.llm else 6000)
-                digestible_contents = split_string_into_chunks(text_content)
-                for digestible_content in digestible_contents:
-                    digestible_content_hash = hashlib.md5(digestible_content.encode()).hexdigest()
-                    digestible_content_id = f"{digestible_content_hash}_{file_name}"
-                    if not collection.get(digestible_content_id)['documents']:
-                        embedding = OllamaClient.generate_embedding(digestible_content)
-                        collection.add(
-                            ids=[digestible_content_id],
-                            embeddings=embedding,
-                            documents=[digestible_content]
-                        )
-        results = collection.query(
-            query_embeddings=user_input_embedding,
-            n_results=10
-        )
-        for ids, relevant_data in zip(results['ids'][0], results['documents'][0]):
-            file_name = "".join(ids.split("_")[1:])
-            collected_data += f"```{file_name}\n{relevant_data}\n```\n"
-                #     contains_useful_data, _ = FewShotProvider.few_shot_YesNo(f"Does the text below contain information relevant to the following question?\nQuestion: {user_input}\n\n```\n{digestible_content}\n```", preferred_model_keys=[args.llm], force_local=args.local, silent=False)
-                #     if contains_useful_data:
-                #         relevant_data = LlmRouter.generate_completion(extract_data_prompt + f"\n```pdf\n{file_name}.pdf\n{digestible_content}\n```", instruction=f"This is a chat between a user and a highly advanced artificial intelligence assistant. The assistant uses the given text to return factual and detailed answers relvant to the user's questions. The assistant indicates when the answer cannot be found in the context.", preferred_model_keys=[args.llm], force_local=args.local, silent=False)
-                #         # contains_useful_data, _ = FewShotProvider.few_shot_YesNo(f"Does the below text provide relevant information to answer this question? Question: {user_input}\n\n```\n{relevant_data}\n```", preferred_model_keys=[args.llm], force_local=args.local, silent=False)
-                #             # if contains_useful_data:
-                #         collected_data += f"```pdf\n{file_name}\n{relevant_data}\n```\n"
-
-        collected_data = collected_data.strip().strip("\n").strip()
-        print(colored(f"DEBUG: collected_data token count: {len(collected_data)/4}", "yellow"))
-        chat.add_message(Role.USER, f"### Question:\n{user_input}\n\n### Documents:\n{collected_data}\n\n### Question:\n{user_input}")
-        print(chat.messages[-1][1])
-        while True:
-            response = LlmRouter.generate_completion(chat, preferred_model_keys=[args.llm], force_local=args.local)
-            chat.add_message(Role.ASSISTANT, response)
-            user_input = input(colored("Enter your response, (Type '--f' to start a new search): ", "blue")).lower()
-            if ("--f" in user_input):
-                user_input = input(colored("Enter your search request, previous context is still available: ", "blue")).lower()
-                break
-            chat.add_message(Role.USER, user_input)
-
 def main():
-    load_dotenv()
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    # print(env_path)
+    load_dotenv(env_path)
+    # print(os.path.exists(env_path))
+    # print(open(env_path).read())
+    # print([item[0] for item in os.environ.items()])
+    
+    
     args = parse_cli_args()
     print(args)
     working_dir = os.getcwd()
@@ -477,17 +223,20 @@ def main():
             print(colored(last_response, 'magenta'))
     
     if args.edit != None: # code edit mode
-        code_assistant(args, context_chat)    
+        code_assistant(args, context_chat, args.edit)    
     
-    if args.fixpy:
-        code_agent(args, context_chat)
+    if args.fixpy != None:
+        code_agent(args, context_chat, args.fixpy)
 
-    if args.presentation:
+    if args.presentation != None:
         presentation_assistant(args, context_chat, args.presentation)
     
-    if args.find:
+    if args.find != None:
         search_folder_assistant(args, context_chat, args.find)
-        
+    
+    if args.majority != None:
+        majority_response_assistant(args, context_chat, args.majority)
+    
     prompt_context_augmentation: str = ""
     temporary_prompt_context_augmentation: str = ""
     

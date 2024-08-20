@@ -1,5 +1,4 @@
 import os
-from dotenv import load_dotenv
 import pandas as pd
 from datetime import datetime, timedelta
 from googleapiclient.discovery import build
@@ -78,7 +77,6 @@ class YoutubeScraper:
         return pd.DataFrame(videos)
 
 if __name__ == "__main__":
-    load_dotenv()
     YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
     youtubeScraper = YoutubeScraper(YOUTUBE_API_KEY)
     
