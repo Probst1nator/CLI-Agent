@@ -264,36 +264,39 @@ This command will search for any running processes that match the pattern "cli-a
             "I don't think so. As a virtual cli-assistant i do not posses any physical body which I could use to stand up."
         )
         
-        all_commands = get_atuin_history(200)
-        if all_commands:
-            for command in all_commands:
-                if not collection.get(command)['documents']:
-                    cmd_embedding = OllamaClient.generate_embedding(command, "bge-m3")
-                    if not cmd_embedding:
-                        break
-                    collection.add(
-                        ids=[command],
-                        embeddings=cmd_embedding,
-                        documents=[command]
-                    )
-            
-            cmd_embedding = OllamaClient.generate_embedding(userRequest, "bge-m3")
-            results = collection.query(
-                query_embeddings=cmd_embedding,
-                n_results=10
-            )
-            retrieved_cmds = results['documents'][0]
-            retrieved_cmds_str = "\n".join([f"{i+1}. {cmd}" for i, cmd in enumerate(retrieved_cmds)])
-            
-            chat.add_message(
-                Role.USER,
-                f"For context I am now giving you 10 commands which seem similar to my next request, please potentially consider the way they are constructed for predicting more relevant commands, given the environment.\n{retrieved_cmds_str}"
-            )
-            
-            chat.add_message(
-                Role.ASSISTANT,
-                "I understand, thank you for providing this context. Please go ahead, what would you like to do next?"
-            )
+        try:
+            all_commands = get_atuin_history(200)
+            if all_commands:
+                for command in all_commands:
+                    if not collection.get(command)['documents']:
+                        cmd_embedding = OllamaClient.generate_embedding(command, "bge-m3")
+                        if not cmd_embedding:
+                            break
+                        collection.add(
+                            ids=[command],
+                            embeddings=cmd_embedding,
+                            documents=[command]
+                        )
+                
+                cmd_embedding = OllamaClient.generate_embedding(userRequest, "bge-m3")
+                results = collection.query(
+                    query_embeddings=cmd_embedding,
+                    n_results=10
+                )
+                retrieved_cmds = results['documents'][0]
+                retrieved_cmds_str = "\n".join([f"{i+1}. {cmd}" for i, cmd in enumerate(retrieved_cmds)])
+                
+                chat.add_message(
+                    Role.USER,
+                    f"For context I am now giving you 10 commands which seem similar to my next request, please potentially consider the way they are constructed for predicting more relevant commands, given the environment.\n{retrieved_cmds_str}"
+                )
+                
+                chat.add_message(
+                    Role.ASSISTANT,
+                    "I understand, thank you for providing this context. Please go ahead, what would you like to do next?"
+                )
+        except Exception as e:
+            print(colored(f"DEBUG: Error in few_shot_CmdAgent: {e}"), "red")
 
         # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
         #     userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)

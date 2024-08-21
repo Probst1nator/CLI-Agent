@@ -24,112 +24,12 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from assistants import code_agent, code_assistant, majority_response_assistant, presentation_assistant, search_folder_assistant
 from classes.cls_pptx_presentation import PptxPresentation
-from tooling import extract_pdf_content, list_files_recursive, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture
+from tooling import extract_blocks, extract_pdf_content, list_files_recursive, recolor, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture
 from classes.cls_web_scraper import search_and_scrape, get_github_readme
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_chat import Chat, Role
-
-
-def extract_blocks(text: str) -> List[Tuple[str, str]]:
-    """
-    Extract code blocks encased by ``` from a text.
-    This function handles various edge cases, including:
-    - Nested code blocks
-    - Incomplete code blocks
-    - Code blocks with or without language specifiers
-    - Whitespace and newline variations
-    Args:
-        text (str): The input text containing code blocks.
-    Returns:
-        List[Tuple[str, str]]: A list of tuples containing the block type (language) and the block content. If no language is specified, the type will be an empty string.
-    """
-    
-    def find_matching_end(start: int) -> Optional[int]:
-        """Find the matching end of a code block, handling nested blocks."""
-        stack = 1
-        for i in range(start + 3, len(text)):
-            if text[i:i+3] == '```':
-                if i == 0 or text[i-1] in ['\n', '\r']:
-                    stack -= 1
-                    if stack == 0:
-                        return i
-            elif text[i:i+3] == '```' and (i+3 == len(text) or text[i+3] in ['\n', '\r']):
-                stack += 1
-        return None
-
-    blocks: List[Tuple[str, str]] = []
-    start = 0
-
-    while True:
-        start = text.find('```', start)
-        if start == -1:
-            break
-
-        # Check if it's the start of a line
-        if start > 0 and text[start-1] not in ['\n', '\r']:
-            start += 3
-            continue
-
-        end = find_matching_end(start)
-        if end is None:
-            # Unclosed block, treat the rest of the text as a block
-            end = len(text)
-
-        # Extract the block content
-        block_content = text[start+3:end].strip()
-
-        # Determine the language (if specified)
-        first_newline = block_content.find('\n')
-        if first_newline != -1:
-            language = block_content[:first_newline].strip()
-            content = block_content[first_newline+1:].strip()
-        else:
-            # Single line block or no language specified
-            language = ''
-            content = block_content
-
-        blocks.append((language, content))
-        start = end + 3
-
-    return blocks
-
-
-ColorType = Literal['black', 'grey', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 
-                    'light_grey', 'dark_grey', 'light_red', 'light_green', 'light_yellow', 
-                    'light_blue', 'light_magenta', 'light_cyan', 'white']
-
-def recolor(text: str, start_string_sequence: str, end_string_sequence: str, color: ColorType = 'red') -> str:
-    """
-    Returns the response with different colors, with text between
-    start_string_sequence and end_string_sequence colored differently.
-    Handles multiple instances of such sequences.
-
-    :param text: The entire response string to recolor.
-    :param start_string_sequence: The string sequence marking the start of the special color zone.
-    :param end_string_sequence: The string sequence marking the end of the special color zone.
-    :param color: The color to use for text within the special color zone.
-    :return: The colored response string.
-    """
-    last_end_index = 0
-    colored_response = ""
-    while True:
-        start_index = text.find(start_string_sequence, last_end_index)
-        if start_index == -1:
-            colored_response += colored(text[last_end_index:], 'light_blue')
-            break
-
-        end_index = text.find(end_string_sequence, start_index + len(start_string_sequence))
-        if end_index == -1:
-            colored_response += colored(text[last_end_index:], 'light_blue')
-            break
-
-        colored_response += colored(text[last_end_index:start_index], 'light_blue')
-        colored_response += colored(text[start_index:end_index + len(end_string_sequence)], color)
-        last_end_index = end_index + len(end_string_sequence)
-
-    return colored_response
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -144,31 +44,29 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enter your first message instantly.")
     parser.add_argument("-l", "--local", action="store_true",
                         help="Use the local Ollama backend for language processing.")
-    parser.add_argument("--llm", type=str, nargs='?', const='phi3:medium-128k', default='',
+    parser.add_argument("--llm", nargs='?', const='phi3:medium-128k', type=str,
                         help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3:medium-128k", "phi3:3.8b", "llama3.1"]')
     parser.add_argument("-i", "--interactive", action="store_true",
                         help="Enable microphone input and text-to-speech.")
     parser.add_argument("-s", "--speak", action="store_true",
                         help="Enable text-to-speech for agent responses.")
-    parser.add_argument("-o", "--optimize", action="store_true", default=True,
-                        help="Enable optimizations.")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-w", action="store_true",
                         help="Use web search to enhance responses.")
-    parser.add_argument("-a", "--auto", nargs='?', const=10, default=None, type=int,
+    parser.add_argument("-a", "--auto", nargs='?', const=10, type=int,
                         help="""Enable autonomous execution without user confirmation. 
 Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
 Add a custom integer to change this delay.""", metavar="DELAY")
-    parser.add_argument("-e", "--edit", type=str, nargs='?', default=None,
+    parser.add_argument("-e", "--edit", nargs='?', const="", type=str,
                         help="Edit either the file at the specified path or the contents of the clipboard.")
-    parser.add_argument("-p", "--presentation", nargs='?', default=None, type=str,
+    parser.add_argument("-p", "--presentation", nargs='?', const="", type=str,
                         help="Interactively create a presentation.")    
-    parser.add_argument("-u", "--utilise", nargs='?', default=None, type=str,
+    parser.add_argument("-u", "--utilise", nargs='?', const="", type=str,
                         help="Intelligently use a given path/file. (Examples: --utilise 'path/to/file.py' or --utilise 'file.xx' or --utilise 'folder')")
-    parser.add_argument("-f", "--find", nargs='?', default=None, type=str,
+    parser.add_argument("-f", "--find", nargs='?', const="", type=str,
                         help="Search the directory for something.")
-    parser.add_argument("-ma", "--majority", nargs='?', default=None, type=str,
+    parser.add_argument("-ma", "--majority", nargs='?', const="", type=str,
                         help="Generate a response based on the majority of all local models.")
     parser.add_argument("-h", "--help", action="store_true",
                         help="Display this help")

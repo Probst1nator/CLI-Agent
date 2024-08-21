@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Literal, Optional, Tuple
 import sqlite3
 import os
 from typing import List, Tuple
@@ -760,4 +760,101 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
+def extract_blocks(text: str) -> List[Tuple[str, str]]:
+    """
+    Extract code blocks encased by ``` from a text.
+    This function handles various edge cases, including:
+    - Nested code blocks
+    - Incomplete code blocks
+    - Code blocks with or without language specifiers
+    - Whitespace and newline variations
+    Args:
+        text (str): The input text containing code blocks.
+    Returns:
+        List[Tuple[str, str]]: A list of tuples containing the block type (language) and the block content. If no language is specified, the type will be an empty string.
+    """
+    
+    def find_matching_end(start: int) -> Optional[int]:
+        """Find the matching end of a code block, handling nested blocks."""
+        stack = 1
+        for i in range(start + 3, len(text)):
+            if text[i:i+3] == '```':
+                if i == 0 or text[i-1] in ['\n', '\r']:
+                    stack -= 1
+                    if stack == 0:
+                        return i
+            elif text[i:i+3] == '```' and (i+3 == len(text) or text[i+3] in ['\n', '\r']):
+                stack += 1
+        return None
 
+    blocks: List[Tuple[str, str]] = []
+    start = 0
+
+    while True:
+        start = text.find('```', start)
+        if start == -1:
+            break
+
+        # Check if it's the start of a line
+        if start > 0 and text[start-1] not in ['\n', '\r']:
+            start += 3
+            continue
+
+        end = find_matching_end(start)
+        if end is None:
+            # Unclosed block, treat the rest of the text as a block
+            end = len(text)
+
+        # Extract the block content
+        block_content = text[start+3:end].strip()
+
+        # Determine the language (if specified)
+        first_newline = block_content.find('\n')
+        if first_newline != -1:
+            language = block_content[:first_newline].strip()
+            content = block_content[first_newline+1:].strip()
+        else:
+            # Single line block or no language specified
+            language = ''
+            content = block_content
+
+        blocks.append((language, content))
+        start = end + 3
+
+    return blocks
+
+
+ColorType = Literal['black', 'grey', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 
+                    'light_grey', 'dark_grey', 'light_red', 'light_green', 'light_yellow', 
+                    'light_blue', 'light_magenta', 'light_cyan', 'white']
+
+def recolor(text: str, start_string_sequence: str, end_string_sequence: str, color: ColorType = 'red') -> str:
+    """
+    Returns the response with different colors, with text between
+    start_string_sequence and end_string_sequence colored differently.
+    Handles multiple instances of such sequences.
+
+    :param text: The entire response string to recolor.
+    :param start_string_sequence: The string sequence marking the start of the special color zone.
+    :param end_string_sequence: The string sequence marking the end of the special color zone.
+    :param color: The color to use for text within the special color zone.
+    :return: The colored response string.
+    """
+    last_end_index = 0
+    colored_response = ""
+    while True:
+        start_index = text.find(start_string_sequence, last_end_index)
+        if start_index == -1:
+            colored_response += colored(text[last_end_index:], 'light_blue')
+            break
+
+        end_index = text.find(end_string_sequence, start_index + len(start_string_sequence))
+        if end_index == -1:
+            colored_response += colored(text[last_end_index:], 'light_blue')
+            break
+
+        colored_response += colored(text[last_end_index:start_index], 'light_blue')
+        colored_response += colored(text[start_index:end_index + len(end_string_sequence)], color)
+        last_end_index = end_index + len(end_string_sequence)
+
+    return colored_response
