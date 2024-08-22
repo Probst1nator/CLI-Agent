@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from assistants import code_agent, code_assistant, majority_response_assistant, presentation_assistant, search_folder_assistant
 from classes.cls_pptx_presentation import PptxPresentation
-from tooling import extract_blocks, extract_pdf_content, list_files_recursive, recolor, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture
+from tooling import extract_blocks, extract_pdf_content, list_files_recursive, recolor, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture, update_cmd_collection
 from classes.cls_web_scraper import search_and_scrape, get_github_readme
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.cls_llm_router import AIStrengths, LlmRouter
@@ -46,8 +46,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Use the local Ollama backend for language processing.")
     parser.add_argument("--llm", nargs='?', const='phi3:medium-128k', type=str,
                         help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3:medium-128k", "phi3:3.8b", "llama3.1"]')
-    parser.add_argument("-i", "--interactive", action="store_true",
-                        help="Enable microphone input and text-to-speech.")
+    parser.add_argument("-stt", "--speech_to_text", action="store_true",
+                        help="Enable microphone input and text-to-speech. (Wip: please split this up)")
     parser.add_argument("-s", "--speak", action="store_true",
                         help="Enable text-to-speech for agent responses.")
     parser.add_argument("-c", action="store_true",
@@ -72,6 +72,8 @@ Add a custom integer to change this delay.""", metavar="DELAY")
                         help="Display this help")
     parser.add_argument("-fp", "--fixpy", type=str,
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
+    parser.add_argument("--preload", action="store_true",
+                        help="Preload systems like embeddings and other resources.")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -88,6 +90,7 @@ Add a custom integer to change this delay.""", metavar="DELAY")
 
 def main():
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    print("Environment path: ", env_path)
     # print(env_path)
     load_dotenv(env_path)
     # print(os.path.exists(env_path))
@@ -97,6 +100,13 @@ def main():
     
     args = parse_cli_args()
     print(args)
+    
+    if args.preload:
+        print(colored("Preloading resources...", "green"))
+        print(colored("Generating atuin-command-history embeddings...", "green"))
+        update_cmd_collection()
+        exit(0)
+    
     working_dir = os.getcwd()
     vscode_path = os.path.join(working_dir, ".vscode")
     config_path = os.path.join(vscode_path, "cli-agent.json")
@@ -106,8 +116,7 @@ def main():
     if args.c:
         context_chat = Chat.load_from_json()
     
-    
-    if args.interactive:
+    if args.speech_to_text:
         # setup microphone
         pyaudio_instance = pyaudio.PyAudio()
         default_microphone_info = pyaudio_instance.get_default_input_device_info()
@@ -142,7 +151,7 @@ def main():
         if args.message:
             next_prompt = args.message
             args.message = None
-        elif args.interactive:
+        elif args.speech_to_text:
             next_prompt = ""
             while not next_prompt:
                 with source:
@@ -246,7 +255,7 @@ def main():
         else:
             llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, [args.llm], force_local=args.local)
         
-        if (args.speak or args.interactive):
+        if (args.speak or args.speech_to_text):
             spoken_response = remove_blocks(llm_response, ["md"])
             text_to_speech(spoken_response)
         
@@ -264,9 +273,9 @@ def main():
         if not bash_blocks:
             continue  # or other logic to handle non-command responses
         
-        if args.auto is None and not args.interactive:
+        if args.auto is None and not args.speech_to_text:
             # text_to_speech("Do you want me to execute these steps?")
-            # if args.interactive:
+            # if args.speech_to_text:
             #     print(colored("Do you want me to execute these steps? (Yes/no) ", 'yellow'))
             #     user_input = listen_microphone(source, r)[0]
             # else:
