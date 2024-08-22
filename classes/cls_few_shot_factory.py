@@ -11,9 +11,9 @@ from classes.cls_chat import Chat, Role
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.cls_pptx_presentation import PptxPresentation, Slide
-from tooling import run_command, select_and_execute_commands, get_atuin_history
+from tooling import run_command, select_and_execute_commands, get_atuin_history, update_cmd_collection
 
-persistent_storage_path = os.path.expanduser('~/.local/share') + "/cli-agent"
+persistent_storage_path = os.path.expanduser('~/.local/share/cli-agent')
 client = chromadb.PersistentClient(persistent_storage_path)
 collection = client.get_or_create_collection(name="commands")
 
@@ -265,19 +265,7 @@ This command will search for any running processes that match the pattern "cli-a
         )
         
         try:
-            all_commands = get_atuin_history(200)
-            if all_commands:
-                for command in all_commands:
-                    if not collection.get(command)['documents']:
-                        cmd_embedding = OllamaClient.generate_embedding(command, "bge-m3")
-                        if not cmd_embedding:
-                            break
-                        collection.add(
-                            ids=[command],
-                            embeddings=cmd_embedding,
-                            documents=[command]
-                        )
-                
+                update_cmd_collection()
                 cmd_embedding = OllamaClient.generate_embedding(userRequest, "bge-m3")
                 results = collection.query(
                     query_embeddings=cmd_embedding,

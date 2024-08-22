@@ -858,3 +858,22 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
         last_end_index = end_index + len(end_string_sequence)
 
     return colored_response
+
+
+persistent_storage_path = os.path.expanduser('~/.local/share/cli-agent')
+client = chromadb.PersistentClient(persistent_storage_path)
+collection = client.get_or_create_collection(name="commands")
+
+def update_cmd_collection():
+    all_commands = get_atuin_history(200)
+    if all_commands:
+        for command in all_commands:
+            if not collection.get(command)['documents']:
+                cmd_embedding = OllamaClient.generate_embedding(command, "bge-m3")
+                if not cmd_embedding:
+                    break
+                collection.add(
+                    ids=[command],
+                    embeddings=cmd_embedding,
+                    documents=[command]
+                )
