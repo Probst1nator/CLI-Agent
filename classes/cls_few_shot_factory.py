@@ -12,9 +12,9 @@ from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.cls_pptx_presentation import PptxPresentation, Slide
 from tooling import run_command, select_and_execute_commands, get_atuin_history, update_cmd_collection
+from globals import g
 
-persistent_storage_path = os.path.expanduser('~/.local/share/cli-agent')
-client = chromadb.PersistentClient(persistent_storage_path)
+client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
 collection = client.get_or_create_collection(name="commands")
 
 # class Agent:

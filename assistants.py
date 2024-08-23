@@ -16,14 +16,9 @@ from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.cls_pptx_presentation import PptxPresentation
 from tooling import extract_pdf_content, list_files_recursive, run_python_script, split_string_into_chunks
+from globals import g
 
-# Define the path for persistent storage
-persistent_storage_path = os.path.expanduser('~/.local/share/cli-agent')
-
-# Initialize a persistent ChromaDB client
-client = chromadb.PersistentClient(persistent_storage_path)
-
-# Create or get a collection named "documents"
+client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
 collection = client.get_or_create_collection(name="documents")
 
 # # # helper methods
@@ -588,3 +583,168 @@ def code_agent(args: argparse.Namespace, context_chat: Chat, script_path: str):
                     print(colored(f"Removed deprecated patched version {i}.", 'green'))
             exit(0)
 # # # agents
+
+# # # pipelines
+import subprocess
+import os
+from typing import List, Tuple, Dict
+from termcolor import colored
+
+def git_message_generator(args: argparse.Namespace, context_chat: Chat, user_input: str = ""):
+    def run_git_command(command: List[str], error_message: str) -> str:
+        """Runs a git command and handles potential errors."""
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise ValueError(f"{error_message}\nCommand: {' '.join(command)}\nError: {result.stderr}")
+        return result.stdout.strip()
+
+    def get_current_branch() -> str:
+        """Retrieves the name of the current branch."""
+        return run_git_command(
+            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            "Failed to get current branch name."
+        )
+
+    def get_all_commit_history() -> List[str]:
+        """Retrieves all commit hashes of the current branch."""
+        result = run_git_command(
+            ['git', 'log', '--format=%H'],
+            "Failed to retrieve branch commit history."
+        )
+        commits = result.split('\n') if result else []
+        if not commits or commits[0] == '':
+            print(colored("No commits found on this branch.", "yellow"))
+            return []
+        return commits
+
+    def get_commit_files(commit_hash: str) -> List[str]:
+        """Retrieves the list of files changed in a specific commit."""
+        return run_git_command(
+            ['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', commit_hash],
+            f"Failed to retrieve file list for commit {commit_hash}."
+        ).split('\n')
+
+    def get_file_diff(commit_hash: str, file_path: str) -> str:
+        """Retrieves the diff for a specific file in a commit."""
+        return run_git_command(
+            ['git', 'show', '--format=', '--no-color', f'{commit_hash}:{file_path}'],
+            f"Failed to retrieve diff for file {file_path} in commit {commit_hash}."
+        )
+
+    def generate_commit_message(diff: str, topic: str, file_path: str) -> str:
+        """
+        Generates a new commit message based on the diff, topic, and file path.
+        The commit message includes a template based on the file path structure.
+        """
+        prompt = f"Based on the following git diff for file '{file_path}' and the general topic '{topic}', generate a concise and informative commit message:\n\n{diff}"
+        print(colored(prompt, "yellow"))
+        message = LlmRouter.generate_completion(prompt, preferred_model_keys=[args.llm], force_local=args.local)
+        
+        detected_commit_topic = ""
+        template = ""
+        for word in ["glados", "ra", "amun", "radiosystem", "firmware"]:
+            if f"/{word}/" in file_path.lower():
+                detected_commit_topic = word
+                break
+        if detected_commit_topic:
+            parts = file_path.split(f"/{detected_commit_topic}/", 1)
+            if len(parts) > 1:
+                relative_path = parts[1]
+                path_parts = relative_path.split('/')
+                
+                # Generate the template
+                template = f"{detected_commit_topic}: "
+                for part in path_parts[:-1]:  # Exclude the last part (file name)
+                    template += part[0] + "/"
+                
+                # Add the full file name without extension
+                template += os.path.splitext(path_parts[-1])[0] + ": "
+        
+        return f"{template}{message}"
+
+    def apply_new_commit(file_path: str, file_content: str, new_message: str):
+        """Creates a new commit for a single file with the given message."""
+        if not file_path:
+            print(colored("Warning: Encountered an empty file path. Skipping this commit.", "yellow"))
+            return
+        
+        directory = os.path.dirname(file_path)
+        if directory and not os.path.exists(directory):
+            os.makedirs(directory)
+        
+        with open(file_path, 'w') as f:
+            f.write(file_content)
+        run_git_command(['git', 'add', file_path], f"Failed to stage file {file_path}")
+        escaped_message = new_message.replace('"', '\\"').replace('$', '\\$')
+        run_git_command(['git', 'commit', '-m', escaped_message], f"Failed to create commit for {file_path}")
+
+    def split_and_rewrite_commits(commit_hashes: List[str], topic: str) -> None:
+        """Splits commits with multiple files and rewrites the commit history."""
+        temp_branch = f"temp_branch_{os.urandom(4).hex()}"
+        run_git_command(['git', 'checkout', '-b', temp_branch], f"Failed to create temporary branch {temp_branch}")
+        
+        try:
+            for commit_hash in reversed(commit_hashes):
+                files = get_commit_files(commit_hash)
+                for file_path in files:
+                    if not file_path.strip():
+                        continue
+                    file_content = get_file_diff(commit_hash, file_path)
+                    diff = run_git_command(['git', 'diff', '--no-color', f'{commit_hash}^..{commit_hash}', '--', file_path],
+                                           f"Failed to get diff for {file_path}")
+                    new_message = generate_commit_message(diff, topic, file_path)
+                    apply_new_commit(file_path, file_content, new_message)
+                    print(colored(f"Created commit for {file_path} from original commit {commit_hash[:7]}", "green"))
+            
+            current_branch = get_current_branch()
+            run_git_command(['git', 'checkout', current_branch], f"Failed to switch back to {current_branch}")
+            run_git_command(['git', 'reset', '--hard', temp_branch], f"Failed to reset {current_branch} to {temp_branch}")
+            run_git_command(['git', 'branch', '-D', temp_branch], f"Failed to delete temporary branch {temp_branch}")
+        except Exception as e:
+            print(colored(f"Error during commit splitting: {str(e)}", "red"))
+            current_branch = get_current_branch()
+            run_git_command(['git', 'checkout', current_branch], f"Failed to switch back to {current_branch}")
+            run_git_command(['git', 'branch', '-D', temp_branch], f"Failed to delete temporary branch {temp_branch}")
+            raise
+
+    # Main pipeline logic
+    print(colored("Starting Git Message Generator Pipeline with Commit Splitting", "cyan"))
+
+    try:
+        # Check if we're in a git repository
+        run_git_command(['git', 'rev-parse', '--is-inside-work-tree'], "Not a git repository.")
+
+        if not user_input.strip():
+            raise ValueError("User input (commit topic) cannot be empty.")
+
+        # Step 1: Identify the current branch
+        current_branch = get_current_branch()
+        if current_branch == 'HEAD':
+            raise ValueError("You are in 'detached HEAD' state. Please checkout a branch.")
+
+        print(colored(f"Current branch: {current_branch}", "yellow"))
+
+        # Step 2: Retrieve all commit history
+        print(colored("Retrieving all commit history...", "yellow"))
+        commit_hashes = get_all_commit_history()
+        if not commit_hashes:
+            print(colored("No commits found on this branch. Nothing to process.", "yellow"))
+            return
+        print(colored(f"Found {len(commit_hashes)} commits on this branch", "green"))
+
+        # Step 3: Split commits and rewrite history
+        print(colored("Splitting commits and rewriting history...", "yellow"))
+        split_and_rewrite_commits(commit_hashes, user_input)
+
+        print(colored("Git Message Generator Pipeline with Commit Splitting completed successfully", "cyan"))
+    except subprocess.CalledProcessError as e:
+        print(colored(f"Git command failed: {e}", "red"))
+        print(colored(f"Error output: {e.stderr}", "red"))
+    except ValueError as e:
+        print(colored(f"Error: {str(e)}", "red"))
+    except Exception as e:
+        print(colored(f"Unexpected error: {str(e)}", "red"))
+    finally:
+        print(colored("Git Message Generator Pipeline finished", "cyan"))
+    exit(0)
+# # # pipelines
