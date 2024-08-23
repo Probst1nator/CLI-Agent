@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import hashlib
+from pathlib import Path
 from typing import List, Literal, Optional, Tuple
 from pyfiglet import figlet_format
 import speech_recognition as sr
@@ -22,7 +23,7 @@ import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-from assistants import code_agent, code_assistant, majority_response_assistant, presentation_assistant, search_folder_assistant
+from assistants import code_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, search_folder_assistant
 from classes.cls_pptx_presentation import PptxPresentation
 from tooling import extract_blocks, extract_pdf_content, list_files_recursive, recolor, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture, update_cmd_collection
 from classes.cls_web_scraper import search_and_scrape, get_github_readme
@@ -30,6 +31,7 @@ from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_chat import Chat, Role
+from globals import g
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -68,12 +70,14 @@ Add a custom integer to change this delay.""", metavar="DELAY")
                         help="Search the directory for something.")
     parser.add_argument("-ma", "--majority", nargs='?', const="", type=str,
                         help="Generate a response based on the majority of all local models.")
-    parser.add_argument("-h", "--help", action="store_true",
-                        help="Display this help")
     parser.add_argument("-fp", "--fixpy", type=str,
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
     parser.add_argument("--preload", action="store_true",
                         help="Preload systems like embeddings and other resources.")
+    parser.add_argument("--git_message_generator", nargs='?', const="", type=str,
+                        help="Will rework all messages done by the user on the current branch. Enter the projects theme for better results.")
+    parser.add_argument("-h", "--help", action="store_true",
+                        help="Display this help")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -89,14 +93,8 @@ Add a custom integer to change this delay.""", metavar="DELAY")
 
 
 def main():
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    print("Environment path: ", env_path)
-    # print(env_path)
-    load_dotenv(env_path)
-    # print(os.path.exists(env_path))
-    # print(open(env_path).read())
-    # print([item[0] for item in os.environ.items()])
-    
+    print("Environment path: ", g.PROJ_ENV_FILE_PATH)
+    load_dotenv(g.PROJ_ENV_FILE_PATH)
     
     args = parse_cli_args()
     print(args)
@@ -107,9 +105,6 @@ def main():
         update_cmd_collection()
         exit(0)
     
-    working_dir = os.getcwd()
-    vscode_path = os.path.join(working_dir, ".vscode")
-    config_path = os.path.join(vscode_path, "cli-agent.json")
     context_chat = Chat()
     next_prompt = ""
     
@@ -143,6 +138,10 @@ def main():
     
     if args.majority != None:
         majority_response_assistant(args, context_chat, args.majority)
+    
+    if args.git_message_generator:
+        git_message_generator(args, context_chat, args.git_message_generator)
+    
     
     prompt_context_augmentation: str = ""
     temporary_prompt_context_augmentation: str = ""
@@ -213,7 +212,7 @@ def main():
                     break
                 lines.append(line)
             next_prompt = "\n".join(lines)
-            
+        
         
         if next_prompt.endswith("--h"):
             next_prompt = next_prompt[:-3]
@@ -222,6 +221,7 @@ def main():
             print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
 # cli-agent: KeyBindings:
 # cli-agent: --r: Regenerates the last response.
+# cli-agent: --llm: Set the language model to use. (Examples: "phi3:medium-128k", "claude3.5", "gpt-4o")
 # cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --a: Toggles autonomous command execution.
@@ -231,7 +231,7 @@ def main():
 # cli-agent: Type 'quit' to exit the program.
 """, "yellow"))
             continue
-            
+        
         if args.w:
             recent_context_str = context_chat.get_messages_as_string(-3)
             query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
@@ -261,8 +261,10 @@ def main():
         
         # remove temporary context augmentation from the last user message
         context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, ""))
-        if os.path.exists(vscode_path):
-            with open(config_path, 'w') as file:
+
+        # save the context_chat to a json file
+        if os.path.exists(g.PROJ_VSCODE_DIR_PATH):
+            with open(g.PROJ_CONFIG_FILE_PATH, 'w') as file:
                 json_content: dict[str,str] = {}
                 json_content["history"] = context_chat._to_dict()
                 json.dump(json_content, file, indent=2)
