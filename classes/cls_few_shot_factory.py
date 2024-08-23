@@ -309,10 +309,17 @@ This command will search for any running processes that match the pattern "cli-a
                 if i % 2 == 1:  # Odd-indexed parts
                     parts[i] = "bash\n" + parts[i]
             response = "```".join(parts)
+        
         if ("apt" in response and "install" in response and not "-y" in response):
             applied_hardcoded_fixes = True
             response = response.replace("apt install", "apt install -y")
             response = response.replace("apt-get install", "apt-get install -y")
+        
+        if ("apt" in response and "purge" in response and not "-y" in response):
+            applied_hardcoded_fixes = True
+            response = response.replace("apt purge", "apt purge -y")
+            response = response.replace("apt-get purge", "apt-get purge -y")
+        
         if applied_hardcoded_fixes:
             print(colored("DEBUG: Applied hardcoded fix(es) to the response.", "yellow"))
         
