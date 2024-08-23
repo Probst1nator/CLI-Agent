@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 import ollama
 from termcolor import colored
@@ -45,19 +45,27 @@ class OllamaClient(ChatClientInterface):
             return False
 
     @staticmethod
-    def generate_response(chat: Chat, model: str = "phi3", temperature: float = 0.8, silent: bool = False, **kwargs) -> Optional[str]:
+    def generate_response(chat: Chat, model: str = "phi3", temperature: float = 0.8, silent: bool = False, tools: Optional[List[Dict[str, Any]]] = None) -> Optional[str | List[Dict[str, Any]]]:
         """
-        Generates a response using the Ollama API.
+        Generates a response using the Ollama API, with support for tool calling.
 
         Args:
             chat (Chat): The chat object containing messages.
-            model (str): The model identifier.
+            model (str): The model identifier (e.g., "phi3", "llama3.1").
             temperature (float): The temperature setting for the model.
             silent (bool): Whether to suppress print statements.
-            base64_images (List[str]): List of base64-encoded images.
+            tools (List[Dict[str, Any]], optional): A list of tool definitions for the model to use.
 
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
+
+        Tool Calling:
+            - If tools are provided, the model may generate tool calls in its response.
+            - Tool calls are returned in the 'tool_calls' field of the response.
+            - The calling code is responsible for executing tool calls and providing results in subsequent interactions.
+
+        Note:
+            Ensure you're using a model that supports tool calling (e.g., Llama 3.1, Mistral Nemo).
         """
         tooling = CustomColoring()
         logger.debug(json.dumps({"last_message":chat.messages[-1][1]}, indent=2))
@@ -84,29 +92,24 @@ class OllamaClient(ChatClientInterface):
                                 print(f"Ollama-Api: <{colored(model, 'green')}> is generating response using <{colored(host, 'green')}>...")
                             # Check if the host is reachable
                             client = ollama.Client(host=f'http://{host}:11434')
-                            response_stream = client.chat(model, chat.to_ollama(), True, keep_alive=1800, options=ollama.Options())
-                            
-                            refused = False
-                            full_response = ""
-                            for line in response_stream:
-                                next_string = line["message"]["content"]
-                                full_response += next_string
+                            if tools:
+                                response = client.chat(model=model, messages=chat.to_ollama(), stream=False, options=ollama.Options(), keep_alive=1800, tools=tools)
+                                tool_calls = response["tool_calls"]
+                                return tool_calls
+                            else:
+                                response_stream = client.chat(model=model, messages=chat.to_ollama(), stream=True, options=ollama.Options(), keep_alive=1800)
+                                full_response = ""
+                                for line in response_stream:
+                                    next_string = line["message"]["content"]
+                                    full_response += next_string
+                                    if not silent:
+                                        print(tooling.apply_color(next_string), end="")
                                 if not silent:
-                                    print(tooling.apply_color(next_string), end="")
-                                # refusal check
-                                lower_response = full_response.lower()
-                                if model != "WizardLM-2-7B-abliterated-Q4_K_M.gguf" and any(item in lower_response for item in ["tut mir leid", "i am sorry", "i'm sorry", "entschuldigung", "i apologize", "i apologise", "ich kann keine"]):
-                                    print(f"Ollama-Api: <{colored(model, 'red')}> refused...")
-                                    model = "WizardLM-2-7B-abliterated-Q4_K_M.gguf"
-                                    refused = True
-                                    break
-                            if refused:
-                                continue
-                            if not silent:
-                                print()
-                            logger.debug(json.dumps({"full_response":full_response}, indent=2))
-                            return full_response
-                    
+                                    print()
+                                logger.debug(json.dumps({"full_response":full_response}, indent=2))
+                                return full_response
+                                
+                        
                         except Exception as e:
                             print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
                             OllamaClient.failed_hosts.append(host+model)
@@ -121,7 +124,7 @@ class OllamaClient(ChatClientInterface):
 
 
     @staticmethod
-    def generate_embedding( text: str, model: str = "bge-m3") -> List[float]:
+    def generate_embedding(text: str, model: str = "bge-m3") -> List[float]:
         """
         Generates an embedding for the given text using the specified Ollama model.
         
@@ -135,7 +138,7 @@ class OllamaClient(ChatClientInterface):
         Raises:
         Exception: If there's an error in generating the embedding.
         """
-        response:List[float] = []
+        response: List[float] = []
         for env_var in os.environ:
             if env_var.startswith("OLLAMA_HOST_"):
                 host = os.getenv(env_var)
