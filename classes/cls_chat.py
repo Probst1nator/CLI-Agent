@@ -6,6 +6,7 @@ from typing import Dict, List, Sequence, Tuple, Union
 
 from termcolor import colored
 
+from globals import g
 from ollama._types import Message
 
 class Role(Enum):
@@ -14,9 +15,6 @@ class Role(Enum):
     ASSISTANT = "assistant"
 
 class Chat:
-    persistent_storage_path = os.path.expanduser('~/.local/share') + "/cli-agent"
-    os.makedirs(persistent_storage_path, exist_ok=True)
-    
     def __init__(self, instruction_message: str = ""):
         """
         Initializes a new Chat instance.
@@ -108,7 +106,7 @@ class Chat:
         :param file_name: The name of the file to save to.
         :param append: Whether to append to the file.
         """
-        file_path = os.path.join(self.persistent_storage_path,file_name)
+        file_path = os.path.join(g.PROJ_VSCODE_DIR_PATH,file_name)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
         if append:
@@ -129,7 +127,7 @@ class Chat:
         :param file_name: The name of the file to load from.
         :return: The loaded Chat instance.
         """
-        file_path = os.path.join(cls.persistent_storage_path, file_name)
+        file_path = os.path.join(g.PROJ_VSCODE_DIR_PATH, file_name)
         with open(file_path, "r") as file:
             data_dict = json.load(file)
         return cls.from_dict(data_dict)

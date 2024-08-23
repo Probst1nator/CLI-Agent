@@ -32,7 +32,13 @@ from pdfminer.pdfpage import PDFPage
 from classes.ai_providers.cls_openai_interface import OpenAIChat
 from classes.cls_chat import Chat, Role
 from classes.ai_providers.cls_ollama_interface import OllamaClient
+from globals import g
 from logger import logger
+
+import tkinter as tk
+from PIL import ImageGrab, Image, ImageTk
+import os
+import base64
 
 def run_command(command: str, verbose: bool = True, max_output_length:int = 16000) -> Tuple[str,str]:
     """
@@ -254,10 +260,6 @@ def read_from_terminal(num_lines: int, file_path: str = "/tmp/terminal_output.tx
         return cleaned_lines
 
 
-import tkinter as tk
-from PIL import ImageGrab, Image, ImageTk
-import os
-import base64
 
 class ScreenCapture:
     def __init__(self) -> None:
@@ -860,8 +862,7 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
     return colored_response
 
 
-persistent_storage_path = os.path.expanduser('~/.local/share/cli-agent')
-client = chromadb.PersistentClient(persistent_storage_path)
+client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
 collection = client.get_or_create_collection(name="commands")
 
 def update_cmd_collection():

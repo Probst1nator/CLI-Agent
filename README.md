@@ -1,70 +1,39 @@
+# Simple CLI-Agent using Groq-API and Ollama Backends
 
-# CLI Agent Using Groq-API, Ollama, OpenAI, and Anthropic Backends
-
-This project introduces a CLI (Command Line Interface) Agent that utilizes the Groq-API, Ollama, OpenAI, and Anthropic backends.
+This project introduces a CLI (Command Line Interface) Agent leveraging the Groq-API and Ollama backends, based on the Local Language Model Toolkit Project I've developed.
 
 ## Getting Started
 
-### Requirements
+### Prerequisites
 
-```bash
-sudo apt-get install libportaudio2 portaudio19-dev python3-tk
-pip install -r requirements.txt
-```
+- **Operating System:** Currently, only Ubuntu is supported.
 
-#### Docker/ Groq
+### Installation
 
-The large language model requires hosting. I recommend using the Groq-API for fast and robust model responses. However, Ollama, OpenAI, and Anthropic are also viable options.
+1. **Using the Installer Script**
 
-Please add your `GROQ_API_KEY`, `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` to the `.env` file. Keys can be obtained here:
-
-- [Groq-API Key](https://console.groq.com/keys)
-- [OpenAI API Key](https://beta.openai.com/signup/)
-- [Anthropic API Key](https://console.anthropic.com/settings/keys)
-
-To run the Ollama backend in a Docker container, use the following command:
-   ```bash
-   sudo docker run -d --name ollama --restart always -p 5000:11434 ollama/ollama:latest
-   ```
-
-#### Run from script
-
-1. For straightforward usage of the Agent, execute the following:
+   To add the CLI-Agent to your system, execute the `installer.sh` script:
 
    ```bash
-   chmod +x ./easy_runner.sh
-   ./easy_runner.sh
-   ```
-
-#### Run from cli
-
-1. To integrate the CLI Agent into your command line environment, run the `add_alias_to_bash.sh` script:
-
-   ```bash
-   chmod +x ./installer.sh
    ./installer.sh
+   ```
+
+2. **Running Manually**
+
+   Alternatively, you can run the Agent manually by executing `main.py`:
+
+   ```bash
+   python3 ./main.py
    ```
 
 ### Features
 
-- **Command Suggestions:** The Agent recommends commands and, upon your approval, carries them out. It responds and adapts based on the output from these commands.
-
-### Release Information
-
-#### Latest Release: v1.1.0
-
-The latest release of the CLI-Agent incorporates the following features:
-
-- Integration with Groq-API, Ollama, OpenAI, and Anthropic backends
-- Command suggestion and execution capabilities
-- Compatibility with the Ubuntu operating system
-
-You can download the release assets, such as source code and installation scripts, from the [GitHub Releases page](https://github.com/Probst1nator/CLI-Agent/releases).
+- **Command Suggestions:** The Agent suggests commands and, upon your confirmation, executes them. It will then discuss and act based on the output of these commands.
 
 ## Contributing
 
-Feel free to comment, develop or follow.
+Your thoughts, feedback, and contributions are highly appreciated. Whether you're proposing changes, committing updates, or sharing ideas, every form of engagement enriches the project. Feel free to get involved.
 
 ## License
 
-This project is open source and released under an as-is license. You are free to use, modify, and customize it as per your requirements.
+This project is open source and available under an as-is license. You are free to use, modify, and adapt it according to your needs.

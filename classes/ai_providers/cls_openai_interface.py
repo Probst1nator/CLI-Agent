@@ -6,6 +6,7 @@ from classes.cls_chat import Chat
 from classes.cls_custom_coloring import CustomColoring
 import speech_recognition as sr
 import os
+from globals import g
 
 from classes.cls_ai_provider_interface import ChatClientInterface
 
@@ -73,7 +74,7 @@ class OpenAIChat(ChatClientInterface):
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_VSCODE_DIR_PATH) as temp_audio_file:
                 temp_audio_file.write(audio_data.get_wav_data())
                 temp_audio_file_path = temp_audio_file.name
 

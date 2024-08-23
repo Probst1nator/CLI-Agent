@@ -1,20 +1,11 @@
 import os
 import logging
 from termcolor import colored
+from globals import g
 
 def setup_logger():
-    working_dir = os.getcwd()
-    vscode_path = os.path.join(working_dir, ".vscode")
+    log_file_path = os.path.join(g.PROJ_VSCODE_DIR_PATH, 'cli-agent.log')
     
-    if os.path.exists(vscode_path):
-        log_file_path = os.path.join(vscode_path, 'cli-agent.log')
-    else:
-        usr_dir = os.path.expanduser('~/.local/share')
-        logs_path = os.path.join(usr_dir, 'cli-agent', 'logs')
-        os.makedirs(logs_path, exist_ok=True)
-        log_file_path = os.path.join(logs_path, 'cli-agent.log')
-
-    # Create a logger
     logger = logging.getLogger('cli_agent')
     logger.setLevel(logging.DEBUG)  # Set to DEBUG to capture all levels
 

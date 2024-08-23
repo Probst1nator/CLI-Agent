@@ -13,6 +13,7 @@ from classes.ai_providers.cls_groq_interface import GroqChat
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.ai_providers.cls_openai_interface import OpenAIChat
 from logger import logger
+from globals import g
 
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
@@ -113,9 +114,7 @@ class LlmRouter:
         Initialize the LlmRouter instance.
         """
         # Set up cache directory and file path
-        user_cli_agent_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
-        os.makedirs(user_cli_agent_dir, exist_ok=True)
-        self.cache_file_path = f"{user_cli_agent_dir}/llm_cache.json"
+        self.cache_file_path = f"{g.PROJ_VSCODE_DIR_PATH}/llm_cache.json"
         
         # Load cache and initialize retry models and failed models set
         self.cache = self._load_cache()
