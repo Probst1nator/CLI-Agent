@@ -28,3 +28,5 @@ python-pptx
 PyPDF2
 chromadb
 pdfminer.six
+brave-search
+llama-index

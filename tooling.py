@@ -1,9 +1,10 @@
+from collections import defaultdict
+from datetime import datetime
 import hashlib
 import json
 import os
 import re
 import subprocess
-import sys
 from typing import Any, List, Literal, Optional, Tuple
 import sqlite3
 import os
@@ -12,13 +13,10 @@ import chromadb
 from gtts import gTTS
 import numpy as np
 from librosa import *
-from prompt_toolkit.application import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout
-from prompt_toolkit.widgets import CheckboxList, Frame, Label
+
+from classes.cls_few_shot_factory import FewShotProvider
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
-import pyperclip
 from termcolor import colored
 from pynput import keyboard
 from speech_recognition import Recognizer, AudioSource, AudioData
@@ -30,7 +28,6 @@ from pdfminer.layout import LAParams
 from pdfminer.pdfpage import PDFPage
 
 from classes.ai_providers.cls_openai_interface import OpenAIChat
-from classes.cls_chat import Chat, Role
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from globals import g
 from logger import logger
@@ -39,152 +36,6 @@ import tkinter as tk
 from PIL import ImageGrab, Image, ImageTk
 import os
 import base64
-
-def run_command(command: str, verbose: bool = True, max_output_length:int = 16000) -> Tuple[str,str]:
-    """
-    Run a shell command and capture its output, truncating if necessary.
-    
-    Args:
-        command (str): The shell command to execute.
-        verbose (bool): Whether to print the command and its output.
-        max_output_length (int): Maximum length of the output to return.
-        
-    Returns:
-        Tuple[str, str]: A tuple containing the formatted result and raw output.
-    """
-    
-    output_lines = []  # List to accumulate output lines
-
-    try:
-        if (verbose):
-            print(colored(command, 'light_green'))
-        with subprocess.Popen(command, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) as process:
-            if process.stdout is not None:
-                output_string = ""
-                for line in process.stdout:
-                    output_string += line
-                    if verbose:
-                        print(line, end='')  # Print lines as they are received
-
-            # Wait for the process to terminate and capture remaining output, if any
-            remaining_output, error = process.communicate()
-
-            # It's possible, though unlikely, that new output is generated between the last readline and communicate call
-            if remaining_output:
-                output_lines.append(remaining_output)
-
-            # Combine all captured output lines into a single string
-            final_output = ''.join(output_lines)
-            
-            if len(final_output) > max_output_length:
-                half_length = max_output_length // 2
-                final_output = final_output[:half_length] + "\n\n...Response truncated due to length.\n\n" + final_output[-half_length:]
-
-            result = {
-                'output': final_output,
-                'error': error,
-                'exit_code': process.returncode
-            }
-            
-            # Conditional checks on result can be implemented here as needed
-            result_formatted = command
-            if (result["output"]):
-                result_formatted += f"\n{result['output']}"
-            if (result["error"] and result["exit_code"] != 0):
-                result_formatted += f"\n{result['error']}"
-            if (not result["output"] and result["exit_code"] == 0):
-                result_formatted += "\t# Command executed successfully"
-
-            return result_formatted, output_string
-    except subprocess.CalledProcessError as e:
-        # If a command fails, this block will be executed
-        result = {
-            'output': e.stdout,
-            'error': e.stderr,
-            'exit_code': e.returncode
-        }
-        # Conditional checks on result can be implemented here as needed
-        result_formatted = command
-        if (result["output"]):
-            result_formatted += f"\n{result['output']}"
-        if (result["error"]):
-            result_formatted += f"\n{result['error']}"
-
-        return result_formatted, ""
-
-
-def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose: bool = True) -> Tuple[str,str]:
-    """
-    Allow the user to select and execute a list of commands.
-
-    Args:
-        commands (List[str]): The list of commands to choose from.
-        skip_user_confirmation (bool): If True, execute all commands without user confirmation.
-        verbose (bool): Whether to print command outputs.
-
-    Returns:
-        Tuple[str, str]: Formatted result and execution summarization.
-    """
-    if not skip_user_confirmation:
-        checkbox_list = CheckboxList(
-            values=[(cmd, cmd) for i, cmd in enumerate(commands)],
-            default_values=[cmd for cmd in commands]
-        )
-        bindings = KeyBindings()
-
-        @bindings.add("e")
-        def _execute(event) -> None:
-            """Trigger command execution if "Execute Commands" is selected."""
-            app.exit(result=checkbox_list.current_values)
-
-        @bindings.add("c")
-        def _copy_and_quit(event) -> None:
-            """Copy selected commands and quit."""
-            selected_commands = " && ".join(checkbox_list.current_values)
-            pyperclip.copy(selected_commands)
-            app.exit(result=["exit"])
-            
-        @bindings.add("a")
-        def _abort(event) -> None:
-            """Abort the command selection process."""
-            app.exit(result=[])
-
-        # Instruction message
-        instructions = Label(text="Press 'e' to execute commands or 'c' to copy selected commands and quit. ('a' to abort)")
-
-        # Define the layout with the instructions
-        root_container = HSplit([
-            Frame(title="Select commands to execute, in order", body=checkbox_list),
-            instructions  # Add the instructions to the layout
-        ])
-        layout = Layout(root_container)
-
-        # Create the application
-        app:Application = Application(layout=layout, key_bindings=bindings, full_screen=False)
-
-        # Run the application and get the selected option(s)
-        selected_commands = app.run()
-        if selected_commands == ["exit"]:
-            print(colored("Selected commands copied to clipboard.", "light_green"))
-            sys.exit(0)
-    else:
-        selected_commands = commands
-
-    # Execute selected commands and collect their outputs
-    results = []
-    
-    # Execute selected commands and collect their outputs
-    formatted_results: List[str] = []
-    for cmd in selected_commands:
-        if cmd in commands:
-            result, output = run_command(cmd, verbose)
-            results.append(result)
-            formatted_results.append(f"```cmd\n{result}\n```\n```cmd_log\n{output}\n```")
-    
-    execution_summarization = "```terminal_response\n" + "\n".join(results) + "\n```"
-    
-    return "\n\n".join(formatted_results), execution_summarization
-
 
 def fetch_search_results(query: str) -> List[str]:
     """
@@ -402,48 +253,6 @@ def search_files_for_term(search_term: str) -> List[Tuple[str, str]]:
                     print(f"Error reading {file_path}: {e}")
     return result
 
-def wip_gather_intel(search_term: str) -> str:
-    """
-    Gather intelligence on a search term by analyzing its occurrences in files.
-    
-    Args:
-        search_term (str): The term to gather intelligence on.
-        
-    Returns:
-        str: The gathered intelligence.
-    """
-    path_contents: List[tuple[str,str]] = search_files_for_term(search_term)
-    if (len(path_contents)):
-        return f"No files containing the term '{search_term}' could be found."
-    path_contents.sort(key=lambda x: len(x[1]), reverse=True) # Sort by length of content, descending
-    print(f"Found {len(path_contents)} files with the search term.")
-    filtered_path_contents = [(path, content) for path, content in path_contents if len(content) < 10000]
-    print(f"Filtered to {len(filtered_path_contents)} files with the search term.")
-    if len(filtered_path_contents) > 5:
-        filtered_path_contents = filtered_path_contents[:5]
-    print(f"Refiltered to {len(filtered_path_contents)} files with the search term.")
-    
-    session = OllamaClient()
-    chat = Chat("In this conversation the user provides content which is incrementally reviewed and understood by the assistant. The assistant provides detailed, yet concise, responses.")   
-    for path, content in filtered_path_contents:
-        print(f"Path: {path}")
-        # print(f"Content: {content}")
-        fileending = path.split(".")[-1]
-        prompt = f"Please infer the likely context of the given file: {path}\n'''{fileending}\”{content}\n'''"
-        chat.add_message(Role.USER, prompt)
-        response = session.generate_response(chat, "llama3-gradient", force_local=True)
-        chat.add_message(Role.ASSISTANT, response)
-        chat.add_message(Role.USER, f"Please explain all ocurrences of '{search_term}' in the file. Work ocurrence by ocurrence and provide a contextual explanation.")
-        response = session.generate_response(chat, "llama3-gradient", force_local=True)
-        chat.add_message(Role.ASSISTANT, response)
-        chat.messages.pop(-3)
-        chat.messages.pop(-3)
-
-    chat.add_message(Role.USER, f"Explain '{search_term}' in detail.")
-    # intel = session.generate_completion(chat, "mixtral", f"Sure! Based on our conversation")
-    intel = ""
-    return intel
-
 
 def run_python_script(script_path: str) -> Tuple[Optional[str], Optional[str]]:
     """
@@ -556,7 +365,7 @@ def text_to_speech(text: str, lang_key: str = 'en', enable_keyboard_interrupt: b
 def listen_microphone(
     source: AudioSource,
     r: Recognizer,
-    max_duration: Optional[int] = 40,
+    max_duration: int = 40,
     language: str = ""
 ) -> Tuple[str, str]:
     """
@@ -572,7 +381,7 @@ def listen_microphone(
     """
     print(colored("Listening to microphone...", "yellow"))
     with source:
-        audio: AudioData = r.listen(source, timeout=max_duration, phrase_time_limit=max_duration/2)
+        audio: AudioData = r.listen(source, timeout=max_duration, phrase_time_limit=max_duration / 2)
     print(colored("Not listening anymore...", "yellow"))
     transcription, language = OpenAIChat.transcribe_audio(audio, language=language)
     # Print the recognized text
@@ -862,10 +671,10 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
     return colored_response
 
 
-client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-collection = client.get_or_create_collection(name="commands")
 
 def update_cmd_collection():
+    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+    collection = client.get_or_create_collection(name="commands")
     all_commands = get_atuin_history(200)
     if all_commands:
         for command in all_commands:
@@ -878,3 +687,115 @@ def update_cmd_collection():
                     embeddings=cmd_embedding,
                     documents=[command]
                 )
+
+
+def pdf_or_folder_to_database(pdf_or_folder_path: str, collection: chromadb.Collection):
+    """
+    Extracts content from a PDF file or multiple PDFs in a folder (and its subfolders),
+    processes them into propositions, and stores them in a Chroma database.
+    This function performs the following steps for each PDF:
+    1. Extracts text and image content from the PDF.
+    2. Splits the text content into digestible chunks.
+    3. Converts each chunk into propositions.
+    4. Embeds and stores each proposition in the database.
+    Args:
+    pdf_or_folder_path (str): The file path of a single PDF or a folder containing multiple PDFs.
+    collection (chromadb.Collection): The collection to store the extracted propositions in.
+    Raises:
+    FileNotFoundError: If the pdf_or_folder_path does not exist.
+    ValueError: If the pdf_or_folder_path is neither a file nor a directory.
+    """
+    if not os.path.exists(pdf_or_folder_path):
+        raise FileNotFoundError(f"The path {pdf_or_folder_path} does not exist.")
+
+    if os.path.isfile(pdf_or_folder_path):
+        # Process a single PDF file
+        _process_single_pdf(pdf_or_folder_path, collection)
+    elif os.path.isdir(pdf_or_folder_path):
+        # Process all PDF files in the directory and its subdirectories
+        for root, dirs, files in os.walk(pdf_or_folder_path):
+            for filename in files:
+                if filename.lower().endswith('.pdf'):
+                    file_path = os.path.join(root, filename)
+                    _process_single_pdf(file_path, collection)
+    else:
+        raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
+
+def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection):
+    """
+    Helper function to process a single PDF file.
+    Args:
+    pdf_file_path (str): The file path of the PDF to process.
+    collection (chromadb.Collection): The collection to store the extracted propositions in.
+    """
+    file_name = os.path.basename(pdf_file_path).replace(" ", "_")
+    last_modified = datetime.fromtimestamp(os.stat(pdf_file_path).st_mtime).isoformat()
+
+    text_content, image_content = extract_pdf_content(pdf_file_path)
+    digestible_contents = split_string_into_chunks(text_content)
+    
+    # Check if the file has already been processed
+    existing_entries = collection.get(
+        where={
+            "$and": [
+                {"file_name": file_name},
+                {"last_modified": last_modified}
+            ]
+        }
+    )
+    
+    if existing_entries['ids'] and existing_entries['metadatas']:
+        # Count the number of unique digestible contents in the existing entries
+        existing_digestible_contents = set(entry['source_text'] for entry in existing_entries['metadatas'])
+        
+        if len(existing_digestible_contents) == len(digestible_contents):
+            print(colored(f"Skipping {file_name} as it has already been processed.", "yellow"))
+            return
+        else:
+            print(colored(f"Reprocessing {file_name} due to a detected mismatch in the processed and found content.", "yellow"))
+    
+    # Process and embed each chunk of the PDF content
+    for digestible_content in digestible_contents:
+        digestible_content = f"# Filepath: {pdf_file_path} \n\n" + digestible_content
+        print(colored(f"File path: {pdf_file_path}", "yellow"))
+        print(colored(digestible_content, "magenta"))
+        print(colored(f"Digestible content length:\t{len(digestible_content)}", "yellow"))
+        propositions: List[str] = FewShotProvider.few_shot_textToPropositions(digestible_content, force_local=True, silent = False)
+        print(colored(f"Proposition chunks count:\t{len(propositions)}", "green"))
+        # propositions_str = '\n'.join(propositions)
+        # print(colored(f"DEBUG: Proposition chunks:\n{propositions_str}", "cyan"))
+        
+        for proposition in propositions:
+            proposition_chunk_hash = hashlib.md5(proposition.encode()).hexdigest()
+            proposition_chunk_id = f"{proposition_chunk_hash}"
+            
+            # Add the content to the collection if it doesn't exist
+            if not collection.get(proposition_chunk_id)['documents']:
+                proposition_chunk_embedding = OllamaClient.generate_embedding(proposition)
+                collection.add(
+                    ids=[proposition_chunk_id],
+                    embeddings=proposition_chunk_embedding,
+                    metadatas=[{"file_path": pdf_file_path, "file_name": file_name, "last_modified": last_modified, "source_text": digestible_content}],
+                    documents=[proposition]
+                )
+    
+def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
+    if not results['documents'] or not results['metadatas']:
+        return "The knowledge database seems empty, please report this to the user as this is likely a bug. A system-supervisor should be informed."
+    # Group documents by source
+    source_groups = defaultdict(list)
+    for document, metadata in zip(*results["documents"], *results["metadatas"]):
+        source_groups[metadata['file_path']].append(document)
+    # Create the retrieved context string
+    retrieved_context = ""
+    for source, documents in source_groups.items():
+        retrieved_context += f"## SOURCE: {source}\n"
+        for document in documents:
+            retrieved_context += f"### CONTENT:\n{document}\n"
+        retrieved_context += "\n"  # Add an extra newline between sources
+    retrieved_context = retrieved_context.strip()
+    
+    prompt = f"""# QUESTION:\n{user_query}
+# CONTEXT:\n{retrieved_context}"""
+
+    return prompt

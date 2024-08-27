@@ -1,59 +1,64 @@
 import base64
+import os
 import re
+from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 from googlesearch import search
 from termcolor import colored
+from dotenv import load_dotenv
+from classes.cls_few_shot_factory import FewShotProvider
 
-def search_and_scrape(query: str, num_sites: int = 1) -> list[str]:
+from brave import Brave
+
+def scrape_text_from_url(url: str) -> str:
     """
-    Perform a Google search using the given query and scrape the content of the specified number of sites.
-    
-    Args:
-        query (str): The search query.
-        num_sites (int): The number of sites to scrape. Default is 1.
-        
-    Returns:
-        list: A list of strings, each containing the scraped text from the respective search results.
-        
-    Raises:
-        requests.RequestException: If there is an error fetching a webpage.
+    Scrape the human-readable text from a given URL.
+    :param url: The URL to scrape
+    :return: The scraped text content
     """
-    # Perform a Google search and get the top results
-    print (colored(f"Searching {num_sites} sites on the internet, please give me a second...", "green"))
-    results = search(query, num_results=num_sites*4)
-    
-    scraped_contents = []
-    
-    for result in results:
-        print(f"Result URL: {result}")
-        
-        # Fetch the webpage content
-        try:
-            page_response = requests.get(result, headers={'User-Agent': 'Mozilla/5.0'})
-            page_response.raise_for_status()
-        except requests.RequestException as e:
-            print(f"Error fetching the webpage: {e}")
-            continue
-        
-        # Parse the HTML content
-        soup = BeautifulSoup(page_response.content, 'html.parser')
-        
-        # Extract and print the text
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # Remove script and style elements
         for script in soup(["script", "style"]):
             script.decompose()
-        
+        # Get text
         text = soup.get_text()
+        # Break into lines and remove leading and trailing space on each
         lines = (line.strip() for line in text.splitlines())
+        # Break multi-headlines into a line each
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        # Remove blank lines
         text = '\n'.join(chunk for chunk in chunks if chunk)
-        
-        scraped_contents.append(text)
-        
-        if (len(scraped_contents) == num_sites):
-            return scraped_contents
+        return text
+    except Exception as e:
+        print(f"Error scraping {url}: {str(e)}")
+        return ""
+
+def search_brave(query: str, num_results: int = 2, summarization_llm: str = "") -> list[str]:
+    """
+    Search the web using the Brave browser and return the scraped readable texts from each result.
+    :param query: The search query
+    :param num_results: The number of results to return
+    :return: A list of scraped text contents from the found sites
+    """
+    brave = Brave(os.getenv('BRAVE_API_KEY'))
+    search_results = brave.search(q=query, count=num_results)
+    scraped_texts = []
+    for web_result in search_results.web_results:
+        # print(web_result.title)
+        # print(web_result.url)
+        # print(web_result.description)
+        # print(web_result.age)
+        scraped_content = scrape_text_from_url(web_result['url'])
+        scraped_texts.append(scraped_content)
     
-    return scraped_contents
+    if summarization_llm:
+        summarized_content = FewShotProvider.few_shot_distilText(query, scraped_texts, [summarization_llm])
+        return [summarized_content]
+    return scraped_texts
 
 def get_github_readme(repo_url: str) -> str:
     """

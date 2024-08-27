@@ -2,7 +2,7 @@ import json
 import math
 import os
 from enum import Enum
-from typing import Dict, List, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from termcolor import colored
 
@@ -42,11 +42,42 @@ class Chat:
                     return self
             self.messages.append((role, content))
         return self
-    
-    def get_messages_as_string(self, start_index: int, end_index: int = -1) -> str:
-        selected_messages = self.messages[start_index:end_index]
-        return "\n".join([f"{message[0].name}: {message[1]}" for message in selected_messages])
-        
+
+    def get_messages_as_string(self, start_index: int, end_index: Optional[int] = None) -> str:
+        """
+        Get a string representation of messages from start_index to end_index.
+        Args:
+        start_index (int): The starting index of messages to include. Negative indices count from the end.
+        end_index (Optional[int]): The ending index of messages to include (exclusive).
+                                If None, includes all messages from start_index to the end.
+                                Negative indices count from the end.
+        Returns:
+        str: A string representation of the selected messages.
+        """
+        # Normalize indices
+        normalized_start = start_index if start_index >= 0 else len(self.messages) + start_index
+        normalized_end = end_index if end_index is None else (
+            end_index if end_index >= 0 else len(self.messages) + end_index
+        )
+        # Clamp indices to valid range
+        normalized_start = max(0, min(normalized_start, len(self.messages)))
+        if normalized_end is not None:
+            normalized_end = max(normalized_start, min(normalized_end, len(self.messages)))
+        else:
+            normalized_end = len(self.messages)
+        selected_messages = self.messages[normalized_start:normalized_end]
+        # Build the string representation
+        message_strings = []
+        for message in selected_messages:
+            if isinstance(message, (list, tuple)) and len(message) >= 2:
+                sender = message[0]
+                content = message[1]
+                sender_name = sender.name if hasattr(sender, 'name') else str(sender)
+                message_strings.append(f"{sender_name}: {content}")
+            else:
+                # Handle potential malformed messages
+                message_strings.append(str(message))
+        return "\n".join(message_strings)
     
     def __getitem__(self, key: Union[int, slice, Tuple[int, ...]]) -> "Chat":
         """
@@ -72,7 +103,7 @@ class Chat:
             return new_chat
         else:
             raise TypeError("Invalid argument type.")
-
+    
     def __str__(self):
         """
         Returns a string representation of the chat messages.

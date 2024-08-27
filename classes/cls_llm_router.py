@@ -30,6 +30,7 @@ class Llm:
         provider: ChatClientInterface, 
         model_key: str, 
         pricing_in_dollar_per_1M_tokens: Optional[float], 
+        has_tool_use: bool, 
         available_local: bool, 
         has_vision: bool, 
         context_window: int, 
@@ -52,6 +53,7 @@ class Llm:
         self.provider = provider
         self.model_key = model_key
         self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
+        self.has_tool_use = has_tool_use
         self.local = available_local
         self.has_vision = has_vision
         self.context_window = context_window
@@ -69,25 +71,25 @@ class Llm:
         # Define and return a list of available LLM instances
         return [
             # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, False, 131072, None, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, False, 131072, 30000, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama-3.1-8b-instant", None, False, False, 131072, 30000, AIStrengths.FAST),
-            Llm(GroqChat(), "llama3-70b-8192", None, False, False, 8192, 6000, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama3-8b-8192", None, False, False, 8192, 30000, AIStrengths.FAST),
-            # Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, 8192, 30000, AIStrengths.STRONG),
-            # Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, 8192, 30000, AIStrengths.FAST),
-            Llm(GroqChat(), "gemma2-9b-it", None, False, False, 8192, 15000, AIStrengths.FAST),
+            Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, False, False, 131072, 30000, AIStrengths.STRONG),
+            Llm(GroqChat(), "llama-3.1-8b-instant", None, False, False, False, 131072, 30000, AIStrengths.FAST),
+            Llm(GroqChat(), "llama3-70b-8192", None, False, False, False, 8192, 6000, AIStrengths.STRONG),
+            Llm(GroqChat(), "llama3-8b-8192", None, False, False, False, 8192, 30000, AIStrengths.FAST),
+            # Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.STRONG),
+            # Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.FAST),
+            Llm(GroqChat(), "gemma2-9b-it", None, False, False, False, 8192, 15000, AIStrengths.FAST),
             
-            Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, 200000, 4096, AIStrengths.STRONG),
-            Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, 200000, 4096, AIStrengths.FAST),
-            Llm(OpenAIChat(), "gpt-4o", 10, False, True, 128000, None, AIStrengths.STRONG),
-            Llm(OpenAIChat(), "gpt-4o-mini", 0.4, False, True, 128000, None, AIStrengths.FAST),
+            Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, False, 200000, 4096, AIStrengths.STRONG),
+            Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, False, 200000, 4096, AIStrengths.FAST),
+            Llm(OpenAIChat(), "gpt-4o", 10, False, False, True, 128000, None, AIStrengths.STRONG),
+            Llm(OpenAIChat(), "gpt-4o-mini", 0.4, False, False, True, 128000, None, AIStrengths.FAST),
             
-            Llm(OllamaClient(), 'llama3.1:8b', None, True, False, 4096, None, AIStrengths.STRONG),
-            Llm(OllamaClient(), "phi3:3.8b", None, True, False, 4096, None, AIStrengths.FAST),
-            Llm(OllamaClient(), "llava-llama3:8b", None, True, True, 4096, None, AIStrengths.STRONG),
-            Llm(OllamaClient(), "llava-phi3:3.8b", None, True, True, 4096, None, AIStrengths.FAST),
-            Llm(OllamaClient(), "mistral-nemo:12b", None, True, True, 128000, None, AIStrengths.STRONG),
-            Llm(OllamaClient(), "phi3:medium-128k", None, True, True, 4096, None, AIStrengths.STRONG),
+            # Llm(OllamaClient(), "Hermes-3-Llama-3.1-8B.Q4_K_M.gguf:latest", None, False, True, False, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "phi3.5:3.8b", None, False, True, False, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "llava-llama3:8b", None, False, True, True, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "llava-phi3:3.8b", None, False, True, True, 4096, None, AIStrengths.FAST),
+            Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, None, AIStrengths.STRONG),
         ]
 
 
@@ -192,7 +194,7 @@ class LlmRouter:
             logger.error(f"Failed to update cache: {e}")
 
     @classmethod
-    def get_models(cls, preferred_model_keys: List[str] = [], strength: AIStrengths = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
+    def get_models(cls, preferred_model_keys: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
         """
         Get a list of available models based on the given constraints.
         
@@ -225,7 +227,7 @@ class LlmRouter:
 
         return available_models
 
-    def get_model(self, preferred_model_keys: List[str] = [], strength: AIStrengths = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
+    def get_model(self, preferred_model_keys: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
@@ -282,7 +284,7 @@ class LlmRouter:
 
         return None
     
-    def model_capable_check(self, model: Llm, chat: Chat, strength: AIStrengths, local: bool, force_free: bool = False, has_vision: bool = False) -> bool:
+    def model_capable_check(self, model: Llm, chat: Chat, strength: Optional[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False) -> bool:
         """
         Check if a model is capable of handling the given constraints.
         
@@ -380,7 +382,7 @@ class LlmRouter:
                             print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
                             for char in cached_completion:
                                 print(tooling.apply_color(char), end="")
-                                time.sleep(0.01) # better observable for the user
+                                time.sleep(0.001) # better observable for the user
                             print()
                         return cached_completion
 

@@ -5,6 +5,7 @@ from globals import g
 
 def setup_logger():
     log_file_path = os.path.join(g.PROJ_VSCODE_DIR_PATH, 'cli-agent.log')
+    os.remove(log_file_path) if os.path.exists(log_file_path) else None
     
     logger = logging.getLogger('cli_agent')
     logger.setLevel(logging.DEBUG)  # Set to DEBUG to capture all levels
