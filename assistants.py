@@ -1,10 +1,11 @@
 import argparse
+from collections import defaultdict
 import hashlib
 import os
 import re
 import sys
 import time
-from typing import List
+from typing import List, Tuple
 
 import chromadb
 import pyperclip
@@ -15,11 +16,10 @@ from classes.cls_chat import Chat, Role
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.cls_pptx_presentation import PptxPresentation
-from tooling import extract_pdf_content, list_files_recursive, run_python_script, split_string_into_chunks
+from classes.cls_web_scraper import search_brave
+from tooling import create_rag_prompt, extract_pdf_content, list_files_recursive, pdf_or_folder_to_database, run_python_script, split_string_into_chunks
 from globals import g
 
-client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-collection = client.get_or_create_collection(name="documents")
 
 # # # helper methods
 
@@ -42,6 +42,8 @@ collection = client.get_or_create_collection(name="documents")
 
 # The actual implementation of helper methods would follow this comment block,
 # each with its own documentation and explanatory comments.
+
+
 def extract_single_snippet(response: str, allow_no_end: bool = False) -> str:
     """
     Extracts a single code snippet from a given response string.
@@ -53,7 +55,7 @@ def extract_single_snippet(response: str, allow_no_end: bool = False) -> str:
     Args:
         response (str): The input string containing potential code snippets.
         allow_no_end (bool, optional): If True, allows extraction even if no end 
-                                       marker is found. Defaults to False.
+                                        marker is found. Defaults to False.
 
     Returns:
         str: The extracted code snippet, or an empty string if no valid snippet is found.
@@ -88,7 +90,7 @@ def extract_single_snippet(response: str, allow_no_end: bool = False) -> str:
 
 
 # # # assistants
-def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str = ""):
+def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: str = "", preferred_model_keys: List[str] = [], force_local: bool = False) -> str:
     """
     A function that assists with code-related tasks such as adding docstrings, refactoring, and explaining code.
 
@@ -101,13 +103,15 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str 
     2. Optionally adds clipboard content to the code.
     3. Processes the code based on user input or automatic mode.
     4. Generates and returns modified code or explanations.
+    
+    Will return the modified code if pre_chosen_option is set to something other than "1" or "", else it will prompt the user for input and continue indefinetely.
     """
     snippets_to_process: List[str] = []
     result = ""
     if file_path:
         # Read the content of the file specified by the --edit argument
-        with open(args.edit, 'r') as file:
-            file_ending = os.path.splitext(args.edit)[1]
+        with open(file_path, 'r') as file:
+            file_ending = os.path.splitext(file_path)[1]
             file_content = file.read()
             file_snippet = f"```{file_ending}\n{file_content}\n```"
             snippets_to_process = [file_snippet]
@@ -133,7 +137,7 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str 
             elif "ts" in file_ending:
                 chunking_delimiter = "function "
             else:
-                chunking_delimiter = FewShotProvider.few_shot_objectFromTemplate([{"py": "def "}, {"typescript": "function "}], target_description="A delimiter to split the code into smaller chunks.", preferred_model_keys=[args.llm], force_local=args.local)
+                chunking_delimiter = FewShotProvider.few_shot_objectFromTemplate([{"py": "def "}, {"typescript": "function "}], target_description="A delimiter to split the code into smaller chunks.", preferred_model_keys=preferred_model_keys, force_local=force_local)
                 print(colored(f"Using delimiter: {chunking_delimiter}", "yellow"))
                 try:
                     print(colored("Press Ctrl+C to abort.", 'yellow'))
@@ -152,7 +156,7 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str 
                         lines.append(line)
                     chunking_delimiter = "\n".join(lines)
                 
-        if args.auto:
+        if pre_chosen_option == "1":
             # Automatic mode: Generate code overview and prepare prompt for docstring addition
             abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_model_keys=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
             if len(abstract_code_overview)/4 >= 2048:
@@ -163,14 +167,18 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str 
             # Second turn, do not process the same snippets again
             if result:
                 snippets_to_process = []
-            # Manual mode: Present options to the user
-            print(colored("Please choose an option:", 'cyan', attrs=["bold"]))
-            print(colored("1. Add docstrings", 'yellow'))
-            print(colored("2. Refactor", 'yellow'))
-            print(colored("3. Explain", 'yellow'))
-            print(colored("4. Use a custom delimiter for splitting the code into chunks", 'yellow'))
-            print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
-            user_input = input(colored("Enter your choice: ", 'blue'))
+            
+            if not pre_chosen_option:
+                # Manual mode: Present options to the user
+                print(colored("Please choose an option:", 'cyan', attrs=["bold"]))
+                print(colored("1. Add docstrings", 'yellow'))
+                print(colored("2. Refactor", 'yellow'))
+                print(colored("3. Explain", 'yellow'))
+                print(colored("4. Perform web search", 'yellow'))
+                print(colored("5. Use a custom delimiter for splitting the code into chunks", 'yellow'))
+                print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
+                user_input = input(colored("Enter your choice: ", 'blue'))
+            user_input = pre_chosen_option
             
             # Process user input and set the appropriate prompt
             if user_input == "1":
@@ -180,6 +188,16 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str 
             elif user_input == "3":
                 next_prompt = "Please explain the code, providing a concise explanation of the code's functionality and use."
             elif user_input == "4":
+                web_query = input(colored("Enter your search query (defaults to the topic of the last 3 messages): ", 'blue'))
+                if not web_query:
+                    recent_context_str = context_chat.get_messages_as_string(-3)
+                    query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
+                web_search_result = search_brave(query, 2)
+                context_chat.add_message(Role.USER, f"I found something on the web, please relate it to the code we're working on:\n```web_search\n{web_search_result}```")
+                response = LlmRouter.generate_completion(context_chat, preferred_model_keys=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+                context_chat.add_message(Role.ASSISTANT, response)
+                continue
+            elif user_input == "5":
                 # Process code in chunks
                 print(colored("Enter your custom delimiter to split the code into digestible chunks. Type '--f' on a new line when finished.", "blue"))
                 lines = []
@@ -206,7 +224,9 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str 
             if not next_prompt:
                 continue
         
-        args.auto = False
+        # workaround this is used for vscode hotkey functionality and will also work for pipeline choices but if will break/(interrupt for user input) if the pipeline wants to do "1"
+        if pre_chosen_option == "1":
+            pre_chosen_option = ""
         
         if chunking_delimiter:
             # Create regex pattern: match delimiter at start of string or after newline
@@ -222,15 +242,15 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str 
         # Print number of processed snippets
         print(colored(f"Processing {len(snippets_to_process)} snippets.", "yellow"))
         
-        # Rephrase the prompt using few-shot learning
-        next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, [LlmRouter.last_used_model, "llama-3.1-70b-versatile", "llama-3.1-405b-reasoning", "gpt-4o", "claude-3-5-sonnet"])
+        # # Rephrase the prompt using few-shot learning
+        # next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, [LlmRouter.last_used_model, "llama-3.1-70b-versatile", "llama-3.1-405b-reasoning", "gpt-4o", "claude-3-5-sonnet"])
 
         generated_snippets: List[str] = []
         for snippet in snippets_to_process:
             
             # Prepare the prompt based on the number of snippets
             if len(snippets_to_process) == 1:
-                # Check if the snippet is already in the context_chat messages
+                # Add the snippet only if it hasn't been added before
                 if not any(snippet in message for message in context_chat.messages):
                     next_prompt_i = next_prompt + f"\n\n{snippet}"
             else:
@@ -254,7 +274,9 @@ def code_assistant(args: argparse.Namespace, context_chat: Chat, file_path: str 
             # Replace the original snippets with the generated snippets
             result = file_content
             for source_snippet, generated_snippet in zip(snippets_to_process, generated_snippets):
-                result = result.replace(source_snippet, generated_snippet)
+                # remove first and last line from source_snippet
+                clean_snippet = "\n".join(source_snippet.split("\n")[1:-1])
+                result = result.replace(clean_snippet, generated_snippet)
                 
             pyperclip.copy(result)
             print(colored("Result copied to clipboard.", 'green'))
@@ -365,6 +387,8 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
     4. Generates responses using an AI model based on the relevant documents found.
     5. Engages in an interactive conversation with the user, allowing for follow-up questions or new searches.
     """
+    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+    collection = client.get_or_create_collection(name="documents")
 
     # Collect user input if not provided
     if not user_input:
@@ -402,7 +426,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
                 # Process and embed each chunk of the PDF content
                 for digestible_content in digestible_contents:
                     digestible_content_hash = hashlib.md5(digestible_content.encode()).hexdigest()
-                    digestible_content_id = f"{digestible_content_hash}_{file_name}"
+                    digestible_content_id = f"{digestible_content_hash}"
                     
                     # Add the content to the collection if it doesn't exist
                     if not collection.get(digestible_content_id)['documents']:
@@ -419,13 +443,14 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
             n_results=10
         )
 
-        # Collect relevant data from the search results
-        for ids, relevant_data in zip(results['ids'][0], results['documents'][0]):
-            file_name = "".join(ids.split("_")[1:])
-            collected_data += f"```{file_name}\n{relevant_data}\n```\n"
+        if results['documents']:
+            # Collect relevant data from the search results
+            for ids, relevant_data in zip(results['ids'][0], results['documents'][0]):
+                file_name = "".join(ids.split("_")[1:])
+                collected_data += f"```{file_name}\n{relevant_data}\n```\n"
 
-        collected_data = collected_data.strip().strip("\n").strip()
-        print(colored(f"DEBUG: collected_data token count: {len(collected_data)/4}", "yellow"))
+            collected_data = collected_data.strip().strip("\n").strip()
+            print(colored(f"DEBUG: collected_data token count: {len(collected_data)/4}", "yellow"))
 
         # Prepare the chat message with the user's question and relevant documents
         chat.add_message(Role.USER, f"### Question:\n{user_input}\n\n### Documents:\n{collected_data}\n\n### Question:\n{user_input}")
@@ -441,7 +466,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
                 break
             chat.add_message(Role.USER, user_input)
 
-def majority_response_assistant(args: argparse.Namespace, context_chat: Chat, user_input: str = ""):
+def majority_response_assistant(args: argparse.Namespace, context_chat: Chat, user_input: str = "", preferred_model_keys=["phi3.5:3.8b"]):
     """
     An assistant function that leverages multiple AI models to provide comprehensive and consensus-based answers to user queries.
     This assistant, called "majority_vote_assistant", operates by consulting various models and synthesizing their outputs.
@@ -476,21 +501,52 @@ def majority_response_assistant(args: argparse.Namespace, context_chat: Chat, us
 
         chat = Chat("You are a data scientist tasked with performing a comprehensive meta analysis of responses from various experts on a given topic. Please summarize the responses, highlighting the key points and areas of agreement or disagreement. Be thorough and work step by step to grasp and reveal each relevant nuance of the conversation.")
         chat.add_message(Role.USER, f"Question: {user_input}\n\n{model_responses_str}")
-        response = LlmRouter.generate_completion(chat=chat, preferred_model_keys=["phi3:medium-128k"], force_local=force_local)
+        response = LlmRouter.generate_completion(chat=chat, preferred_model_keys=preferred_model_keys, force_local=force_local)
         chat.add_message(Role.ASSISTANT, response)
         chat.add_message(Role.USER, f"Please provide a final, concise and accurate answer to the question: {user_input}")
-        response = LlmRouter.generate_completion(chat=chat, preferred_model_keys=["phi3:medium-128k"], force_local=force_local)
+        response = LlmRouter.generate_completion(chat=chat, preferred_model_keys=preferred_model_keys, force_local=force_local)
         chat.add_message(Role.ASSISTANT, response)
         while True:
             user_input = input(colored("Enter your response: ", "blue"))
             chat.add_message(Role.USER, user_input)
-            response = LlmRouter.generate_completion(chat=chat, preferred_model_keys=["phi3:medium-128k"], force_local=force_local)
+            response = LlmRouter.generate_completion(chat=chat, preferred_model_keys=preferred_model_keys, force_local=force_local)
             chat.add_message(Role.ASSISTANT, response)
 
+
+def documents_assistant(question_context: Chat|str, pdf_or_folder_path: str = "") -> Tuple[str, Chat]:
+    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+    collection = client.get_or_create_collection(name=hashlib.md5(pdf_or_folder_path.encode()).hexdigest())
+    # This is going to take a while and should be done seperately, before runtime
+    pdf_or_folder_to_database(pdf_or_folder_path, collection)
+    
+    if isinstance(question_context, str):
+        chat = Chat("This is a chat between a user and an artificial intelligence assistant. The assistant gives helpful, detailed, reliable and polite answers to the user's questions based on the context. The assistant should also indicate when the answer cannot be found in the context.")
+        chat.add_message(Role.USER, question_context)
+    else:
+        chat = question_context
+
+    user_query = chat.messages[-1][1]
+    # Generate embedding for the user's input query
+    user_input_embedding = OllamaClient.generate_embedding(user_query)
+    
+    # Perform a similarity search based on the user's query
+    results = collection.query(
+        query_embeddings=user_input_embedding,
+        n_results=10
+    )
+    
+    prompt = create_rag_prompt(results, user_query)
+    
+    chat.messages[-1] = (Role.USER, prompt)
+    
+    response = LlmRouter.generate_completion(chat, temperature=0.6, force_local=True)
+    chat.add_message(Role.ASSISTANT, response)
+    
+    return response, chat
 # # # assistants
 
 # # # agents
-def code_agent(args: argparse.Namespace, context_chat: Chat, script_path: str):
+def python_error_agent(context_chat: Chat, script_path: str):
     """
     An agent function that iteratively fixes and executes a Python script.
 
@@ -547,7 +603,7 @@ def code_agent(args: argparse.Namespace, context_chat: Chat, script_path: str):
             fixed_script = extract_single_snippet(script_fix)
             
             # Write fixed script to a new file
-            script_path = args.fixpy.replace(".py", f"_patchV{fix_iteration}.py")
+            script_path = script_path.replace(".py", f"_patchV{fix_iteration}.py")
             with open(script_path, 'w') as file:
                 file.write(fixed_script)
                 print(colored(f"Iteration {fix_iteration}: Patched script written to {script_path}", 'yellow'))
@@ -571,7 +627,7 @@ def code_agent(args: argparse.Namespace, context_chat: Chat, script_path: str):
             # Prompt user to overwrite original script
             user_input = input(colored("Do you wish to overwrite the original script with the successfully executed version? (Y/n) ", 'yellow')).lower()
             if user_input == "y" or user_input == "":
-                with open(args.fixpy, 'w') as file:
+                with open(script_path, 'w') as file:
                     file.write(fixed_script)
                     print(colored(f"Script overwritten with patched version.", 'green'))
             
@@ -579,9 +635,157 @@ def code_agent(args: argparse.Namespace, context_chat: Chat, script_path: str):
             user_input = input(colored("Do you wish to remove the other deprecated patched versions? (Y/n) ", 'yellow')).lower()
             if user_input == "y" or user_input == "":
                 for i in range(fix_iteration):
-                    os.remove(args.fixpy.replace(".py", f"_patchV{i}.py"))
+                    os.remove(script_path.replace(".py", f"_patchV{i}.py"))
                     print(colored(f"Removed deprecated patched version {i}.", 'green'))
             exit(0)
+
+
+def file_modification_agent(file_path: str, modification_request: str) -> bool:
+    """
+    An agent function that modifies a specified file based on a given modification request.
+
+    Args:
+        file_path (str): The path to the file to be modified.
+        modification_request (str): A description of the modifications to be made.
+
+    Returns:
+        bool: True if the modification was successful, False otherwise.
+    """
+    try:
+        # Create a Chat object for the code_assistant
+        chat = Chat()
+        # Use the code_assistant to generate the modified code
+        script_content = code_assistant(chat, file_path, modification_request)
+        # Write the modified content back to the file
+        with open(file_path, 'w') as file:
+            file.write(script_content)
+        print(colored(f"Successfully modified {file_path}", "green"))
+        return True
+    except Exception as e:
+        print(colored(f"An unexpected error occurred: {str(e)}", "red"))
+    return False
+
+def project_agent(args: argparse.Namespace, modification_request: str, context_chat: Chat, project_directory_path: str):
+    """
+    An agent function that works on an entire project, integrating the capabilities of
+    the code_agent and code_assistant for comprehensive project management and code improvement.
+
+    Args:
+        args (argparse.Namespace): Command-line arguments containing settings and preferences.
+        context_chat (Chat): A Chat object to maintain conversation context.
+        project_directory_path (str): Path to the project directory.
+    """
+
+    def create_project_directory():
+        """Creates the project directory if it doesn't exist."""
+        if not os.path.exists(project_directory_path):
+            os.makedirs(project_directory_path)
+            print(colored(f"Created new project directory: {project_directory_path}", "green"))
+        else:
+            print(colored(f"Using existing project directory: {project_directory_path}", "yellow"))
+
+    def analyze_project_structure() -> Dict[str, List[str]]:
+        """Analyzes the project structure and returns a dictionary of files grouped by type."""
+        project_structure: Dict[str,List[str]] = {}
+        for root, _, files in os.walk(project_directory_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                file_type = os.path.splitext(file)[1][1:]  # Get file extension without the dot
+                if file_type not in project_structure:
+                    project_structure[file_type] = []
+                project_structure[file_type].append(os.path.relpath(file_path, project_directory_path))
+        return project_structure
+
+
+    def implement_plan(filepath_instruction_tuplelist: List[Tuple[str, str]]):
+        """
+        Implements the generated plan
+        """
+        for file_path, instruction in filepath_instruction_tuplelist:
+            python_error_agent(Chat(), file_path)
+
+    def execute_code_agent(file_path: str) -> bool:
+        """
+        Executes the code_agent on a specific file.
+        Returns True if the code_agent successfully fixed the file, False otherwise.
+        """
+        try:
+            # Assuming code_agent is a function that takes similar arguments
+            python_error_agent(Chat(), file_path)
+            return True
+        except Exception as e:
+            print(colored(f"Code agent failed for {file_path}: {str(e)}", "yellow"))
+            return False
+
+    def execute_code_assistant(file_path: str, content: str) -> str:
+        """
+        Executes the code_assistant on a specific file content.
+        Returns the modified content.
+        """
+        assistant_chat = Chat()
+        assistant_chat.add_message(Role.USER, f"Please improve the following code:\n\n{content}")
+        response = LlmRouter.generate_completion(assistant_chat, preferred_model_keys=[args.llm], force_local=args.local)
+        return response
+
+    def process_file(operation: str, file_path: str, content: str) -> None:
+        """Processes a single file using the appropriate agent."""
+        full_path = os.path.join(project_directory_path, file_path)
+
+        if operation == "DELETE":
+            if os.path.exists(full_path):
+                os.remove(full_path)
+                print(colored(f"Deleted file: {file_path}", "yellow"))
+            return
+
+        if operation == "CREATE" or operation == "MODIFY":
+            if operation == "CREATE" or not os.path.exists(full_path):
+                # For new files or non-existent files, use code_assistant directly
+                improved_content = execute_code_assistant(file_path, content)
+            else:
+                # For existing files, try code_agent first, then fall back to code_assistant
+                if not execute_code_agent(full_path):
+                    with open(full_path, 'r') as file:
+                        existing_content = file.read()
+                    improved_content = execute_code_assistant(file_path, existing_content)
+                else:
+                    # If code_agent succeeded, read the improved content from the file
+                    with open(full_path, 'r') as file:
+                        improved_content = file.read()
+
+            # Write the improved content to the file
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, 'w') as file:
+                file.write(improved_content)
+
+            print(colored(f"{'Created' if operation == 'CREATE' else 'Modified'} file: {file_path}", "green"))
+
+    create_project_directory()
+    
+    project_structure = analyze_project_structure()
+    filepath_instruction_tuplelist, planner_chat = FewShotProvider.few_shot_projectModificationPlanning(project_structure, modification_request, preferred_model_keys=[args.llm], force_local=args.local)
+
+    while True:
+        print(colored("Generated Project Plan:", "cyan"))
+        print(filepath_instruction_tuplelist)
+        user_input = input(colored("Do you want to implement this plan? (yes/no/modify): ", "yellow")).lower()
+        if user_input == 'yes':
+            implement_plan(filepath_instruction_tuplelist)
+        elif user_input == 'modify':
+            change_request = input(colored("Enter your change request: ", "yellow"))
+            planner_chat.add_message(Role.USER, f"The user entered a change request, please reflect on it and provide the adjusted plan in the same format as before: {change_request}")
+            adjusted_plan_str = LlmRouter.generate_completion(planner_chat, preferred_model_keys=[args.llm], force_local=args.local)
+            filepath_instruction_tuplelist = FewShotProvider._parse_projectModificationPlanningResponse(adjusted_plan_str)
+            continue
+        elif user_input == 'no':
+            print(colored("Plan implementation skipped.", "yellow"))
+        else:
+            print(colored("Invalid input. Skipping plan implementation.", "red"))
+
+        user_input = input(colored("Do you want to continue working on the project? (yes/no): ", "yellow")).lower()
+        if user_input != 'yes':
+            break
+
+        print(colored("Project agent finished working on the project.", "green"))
 # # # agents
 
 # # # pipelines
@@ -691,7 +895,7 @@ def git_message_generator(args: argparse.Namespace, context_chat: Chat, user_inp
                         continue
                     file_content = get_file_diff(commit_hash, file_path)
                     diff = run_git_command(['git', 'diff', '--no-color', f'{commit_hash}^..{commit_hash}', '--', file_path],
-                                           f"Failed to get diff for {file_path}")
+                                            f"Failed to get diff for {file_path}")
                     new_message = generate_commit_message(diff, topic, file_path)
                     apply_new_commit(file_path, file_content, new_message)
                     print(colored(f"Created commit for {file_path} from original commit {commit_hash[:7]}", "green"))

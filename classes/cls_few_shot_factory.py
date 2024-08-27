@@ -1,6 +1,4 @@
-from dataclasses import asdict
 import json
-import os
 import re
 from typing import Any, Dict, List, Tuple
 
@@ -11,7 +9,7 @@ from classes.cls_chat import Chat, Role
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.ai_providers.cls_ollama_interface import OllamaClient
 from classes.cls_pptx_presentation import PptxPresentation, Slide
-from tooling import run_command, select_and_execute_commands, get_atuin_history, update_cmd_collection
+from cmd_execution import select_and_execute_commands
 from globals import g
 
 client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
@@ -60,8 +58,14 @@ class FewShotProvider:
         chat.add_message(Role.USER, "When will the suntime in bavaria be on 12 hours long?")
         chat.add_message(Role.ASSISTANT, "equinox date in Bavaria daylight hours 12 hours")
         
-        chat.add_message(Role.USER, "Wann wird die Sonnenscheindauer in Bayern 12 Stunden lang sein?")
-        chat.add_message(Role.ASSISTANT, "Tagundnachtgleiche in Bayern Sonnenscheindauer 12 Stunden")
+        chat.add_message(Role.USER, "What are the main differences between Python and JavaScript for web development? I'm trying to decide which one to learn first.")
+        chat.add_message(Role.ASSISTANT, "Python vs JavaScript web development comparison")
+        
+        chat.add_message(Role.USER, "döner vs currywurst was is besser")
+        chat.add_message(Role.ASSISTANT, "Döner vs Currywurst Vergleich beliebtheit Deutschland") 
+        
+        chat.add_message(Role.USER, "derivatives vs integrals whats the diff")
+        chat.add_message(Role.ASSISTANT, "derivatives vs integrals differences calculus")
         
         chat.add_message(Role.USER, text)
         response: str = LlmRouter.generate_completion(chat, strength=AIStrengths.FAST)
@@ -114,7 +118,7 @@ class FewShotProvider:
         return "yes" in response.lower(), chat
 
     @classmethod
-    def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, local:bool = None, optimize: bool = False) -> Tuple[str,Chat]:
+    def few_shot_CmdAgentExperimental(self, userRequest: str, model: str, force_local:bool = False, optimize: bool = False) -> Tuple[str,Chat]:
         """
         Experimental command agent that provides shell commands based on user input.
 
@@ -134,13 +138,13 @@ class FewShotProvider:
         response: str = LlmRouter.generate_completion(
             chat,
             [model],
-            force_local=local
+            force_local=force_local
         )
         chat.add_message(Role.ASSISTANT, response)
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, preferred_model_keys: List[str], force_local:bool = None, silent: bool = False) -> Tuple[str,Chat]:
+    def few_shot_CmdAgent(self, userRequest: str, preferred_model_keys: List[str], force_local:bool = False, silent: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -265,12 +269,12 @@ This command will search for any running processes that match the pattern "cli-a
         )
         
         try:
-                update_cmd_collection()
-                cmd_embedding = OllamaClient.generate_embedding(userRequest, "bge-m3")
-                results = collection.query(
-                    query_embeddings=cmd_embedding,
-                    n_results=10
-                )
+            cmd_embedding = OllamaClient.generate_embedding(userRequest, "bge-m3")
+            results = collection.query(
+                query_embeddings=cmd_embedding,
+                n_results=10
+            )
+            if results['documents']:
                 retrieved_cmds = results['documents'][0]
                 retrieved_cmds_str = "\n".join([f"{i+1}. {cmd}" for i, cmd in enumerate(retrieved_cmds)])
                 
@@ -362,12 +366,12 @@ This command will search for any running processes that match the pattern "cli-a
             Dict[str, Any]: The processed text with inserted actions and the actions list.
         """
         prompt = f"""
-        Add actions to the following text using this notation: {{action_type:action_value}}
-        Available actions: {', '.join(available_actions)}
-        Actions should be placed sparingly but optimally to evoke a most coherent and natural flow.
-        Example: "The bell made a ding {{sound:ding}} sound."
-        Here's the text to process:
-        {text}
+Add actions to the following text using this notation: {{action_type:action_value}}
+Available actions: {', '.join(available_actions)}
+Actions should be placed sparingly but optimally to evoke a most coherent and natural flow.
+Example: "The bell made a ding {{sound:ding}} sound."
+Here's the text to process:
+{text}
         """
         
         chat = Chat()
@@ -635,3 +639,271 @@ Create a similar object based on this description: {target_description}""")
             else:
                 setattr(obj, k, v)
         return obj
+    
+    @classmethod
+    def few_shot_distilText(cls, query: str, scraped_contents: List[str], summarization_llms: List[str], force_free: bool = True) -> str:
+        """
+        Summarizes the scraped content using a distillation model.
+
+        Args:
+            query (str): The query used to search for the content.
+            scraped_content (str): The scraped content to summarize.
+            summarization_llm (str): The summarization model to use.
+
+        Returns:
+            str: The summarized content.
+        """
+        summarizations = []
+        for scraped_content in scraped_contents:
+            while len(scraped_content)/4 > 4096:
+                digestible_text = scraped_content[:8192]
+                scraped_content = scraped_content[8192:]
+                chat = Chat("You are a text summarizer. Given a query and scraped content, you summarize the text to provide a concise and factual overview.")
+                chat.add_message(Role.USER, f"""Please interpret the below website-content, can you extract information relevant to the query?
+QUERY:
+{query}
+CONTENT:
+{digestible_text}""")
+                summary = LlmRouter.generate_completion(chat, summarization_llms, force_free=force_free)
+                summarizations.append(summary)
+        while len(summarizations) > 1:
+            chat = Chat("You are a expert data scientist. Please combine the provided summaries to create a concise, but as detailed as needed, overview.")
+            chat.add_message(Role.USER, f"""Please summarize the below summaries, the topic is '{query}':
+```summary_1
+{summarizations.pop(0)}
+```
+```summary_2
+{summarizations.pop(1)}
+```
+""")
+            summary = LlmRouter.generate_completion(chat, summarization_llms, force_free=force_free)
+            summarizations.append(summary)
+        return summarizations[0]
+
+
+
+
+    @classmethod
+    def few_shot_projectModificationPlanning(cls, structure_description: Dict[str, List[str]], modification_request: str, preferred_model_keys: List[str], force_local: bool = False) -> Tuple[List[Tuple[str, str]], Chat]:
+        """
+        Analyzes the project structure and identifies files that likely need modification based on a given request.
+
+        Args:
+            structure_description (Dict[str, List[str]]): Dictionary of files grouped by type.
+            modification_request (str): The modification request to fulfill.
+            preferred_model_keys (List[str]): List of preferred model keys for LLM.
+            force_local (bool): If True, force the use of a local model.
+
+        Returns:
+            List[Tuple[str, str]]: List of tuples containing (file_path, explanation) for recommended modifications.
+        """
+        chat = Chat("""You are a software development expert. Given a project structure (grouped by file types) and a modification request, identify the files that likely need to be modified to fulfill the request. 
+For each file, provide a brief explanation of why it needs to be modified. 
+Present your response in the following format:
+
+1. file_path_1
+Explanation: Reason for modifying this file.
+
+2. file_path_2
+Explanation: Reason for modifying this file.
+
+... and so on.
+
+Limit your response to the most important files (usually 3-5) that need modification.""")
+
+        # Example 1
+        chat.add_message(Role.USER, """Analyze the following project structure and respond with the file(s) that likely need modification in order to fulfill the following request 'Add a new API endpoint for user registration':
+
+{
+    "py": [
+        "src/api/__init__.py",
+        "src/api/users.py",
+        "src/api/auth.py",
+        "src/models/__init__.py",
+        "src/models/user.py",
+        "src/services/__init__.py",
+        "src/services/user_service.py",
+        "src/main.py",
+        "tests/test_api.py"
+    ],
+    "yml": [
+        "config.yml"
+    ]
+}""")
+
+        chat.add_message(Role.ASSISTANT, """1. src/api/users.py
+Explanation: This file likely contains the API endpoints for user-related operations. It needs to be modified to add the new endpoint for user registration.
+
+2. src/services/user_service.py
+Explanation: This file probably contains the business logic for user operations. It needs to be updated to include the logic for user registration.
+
+3. src/models/user.py
+Explanation: This file defines the user model. It may need updates if new fields are required for user registration.
+
+4. tests/test_api.py
+Explanation: This file contains API tests. It should be updated to include tests for the new user registration endpoint.
+
+5. src/main.py
+Explanation: This file might need minor changes if the new route needs to be explicitly registered or if any app-wide configurations need to be updated for the new endpoint.""")
+
+        # Example 2
+        chat.add_message(Role.USER, """Analyze the following project structure and respond with the file(s) that likely need modification in order to fulfill the following request 'Implement caching for database queries':
+
+{
+    "py": [
+        "app/database/__init__.py",
+        "app/database/connection.py",
+        "app/database/queries.py",
+        "app/cache/__init__.py",
+        "app/cache/redis_client.py",
+        "app/services/__init__.py",
+        "app/services/data_service.py",
+        "app/main.py",
+        "tests/test_database.py"
+    ],
+    "ini": [
+        "config.ini"
+    ]
+}""")
+
+        chat.add_message(Role.ASSISTANT, """1. app/database/queries.py
+Explanation: This file likely contains the database queries. It needs to be modified to implement caching logic for the queries.
+
+2. app/services/data_service.py
+Explanation: This file probably contains the data retrieval and manipulation logic. It needs to be updated to integrate the caching mechanism with the existing data operations.
+
+3. app/cache/redis_client.py
+Explanation: This file handles Redis operations. It may need modifications to support the specific caching requirements for database queries.
+
+4. config.ini
+Explanation: This configuration file might need updates to include cache-related settings, such as Redis connection details or caching policies.
+
+5. tests/test_database.py
+Explanation: This file contains database-related tests. It should be updated to include tests for the new caching functionality.""")
+
+        # Actual task
+        structure_str = json.dumps(structure_description, indent=2)
+        chat.add_message(Role.USER, f"Analyze the following project structure and respond with the file(s) that likely need modification in order to fulfill the following request '{modification_request}':\n\n{structure_str}")
+
+        response: str = LlmRouter.generate_completion(
+            chat,
+            strength=AIStrengths.FAST,
+            preferred_model_keys=preferred_model_keys,
+            force_local=force_local
+        )
+
+        # Parse the response into a list of tuples
+        parsed_response = cls._parse_projectModificationPlanningResponse(response)
+        return parsed_response, chat
+    
+    @classmethod
+    def _parse_projectModificationPlanningResponse(cls, response: str) -> List[Tuple[str, str]]:
+        """
+        Parses the AI's response into a list of tuples (file_path, explanation).
+        """
+        result = []
+        lines = response.strip().split('\n')
+        current_file = None
+        current_explanation: List[str] = []
+        for line in lines:
+            if re.match(r'^\d+\.', line):
+                if current_file:
+                    result.append((current_file, ' '.join(current_explanation)))
+                current_file = line.split('.', 1)[1].strip()
+                current_explanation = []
+            elif line.startswith('Explanation:'):
+                current_explanation.append(line.split(':', 1)[1].strip())
+            elif current_explanation:
+                current_explanation.append(line.strip())
+        if current_file:
+            result.append((current_file, ' '.join(current_explanation)))
+        return result
+    
+    @classmethod
+    def few_shot_textToPropositions(cls, text: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = False) -> List[str]:
+        """
+        Extracts explicit, reliable factual propositions from the given text, supporting multiple languages.
+
+        Args:
+            text (str): The input text to extract propositions from.
+            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            force_local (bool, optional): If True, force the use of a local model.
+            silent (bool, optional): If True, suppress output during processing.
+
+        Returns:
+            List[str]: A list of strings representing the extracted factual propositions.
+        """
+        chat = Chat("""You are a reliable fact extractor. Your task is to extract clear, verifiable and meaningful information from the given document.
+
+Key Principles:
+1. Extract only objective facts directly supported by the document.
+2. Make each fact self-contained and easily understandable.
+3. Include necessary context, dates, and sources within each fact.
+4. Break complex statements into simpler, distinct facts.
+5. Use the original language for non-English documents.
+6. Restate the information presented in the document, rewording it to provide context and clarity, making it understandable on its own without referencing the original document.
+
+Avoid:
+- Opinions or subjective statements
+- Facts with critical missing information
+- Adding information not explicitly stated in the document
+
+Presentation:
+1. Begin with "Here are the extracted facts:"
+2. List facts in numbered lines
+3. If no clear facts can be extracted, respond only with "No clear facts could be extracted."
+
+Remember: Focus on quality over quantity. Each fact should be clear, as detailed as required for out-of-context validity, and directly supported by the document.""")
+
+        # Example 1: German text about Informatik
+        chat.add_message(Role.USER, """Extrahiere faktische Aussagen aus dem folgenden Dokument:
+# Filepath: '/Users/yohanOettinger/Downloads/Informatik.pdf'
+
+Informatik ist die Wissenschaft der systematischen Verarbeitung von Informationen, insbesondere der automatischen Verarbeitung mit Hilfe von Computern. Sie wurde in Deutschland in den 1960er Jahren als akademisches Fach etabliert. 
+Zu den Teilgebieten der Informatik gehören unter anderem Theoretische Informatik, Praktische Informatik, Technische Informatik und Angewandte Informatik. Ein zentrales Konzept in der Informatik ist der Algorithmus, eine eindeutige Handlungsvorschrift zur Lösung eines Problems. 
+Die Programmiersprache C, entwickelt von Dennis Ritchie in den frühen 1970er Jahren, hatte einen großen Einfluss auf die Entwicklung moderner Programmiersprachen. Heute spielt die Informatik eine wichtige Rolle in vielen Bereichen, 
+von der Künstlichen Intelligenz bis zur Cybersicherheit.""")
+
+        chat.add_message(Role.ASSISTANT, """Hier sind die extrahierten Fakten:
+
+1. Informatik ist die Wissenschaft der systematischen Informationsverarbeitung.
+2. Computer werden in der Informatik zur automatischen Informationsverarbeitung eingesetzt.
+3. Informatik wurde in den 1960er Jahren als akademisches Fach in Deutschland etabliert.
+4. Die Informatik umfasst Teilgebiete wie Theoretische, Praktische, Technische und Angewandte Informatik.
+5. Ein Algorithmus ist eine eindeutige Handlungsvorschrift zur Problemlösung.
+6. Dennis Ritchie entwickelte die Programmiersprache C in den frühen 1970er Jahren.
+7. Die Programmiersprache C beeinflusste die Entwicklung moderner Programmiersprachen maßgeblich.
+8. Künstliche Intelligenz ist ein Anwendungsbereich der Informatik.
+9. Cybersicherheit ist ein Anwendungsgebiet der Informatik.""")
+
+        # Example 2: Text about Mona Lisa
+        chat.add_message(Role.USER, """Extract factual propositions from the following document:
+# Filepath: /home/lmao/OneDrive/MonaLisa.pdf
+
+The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings in the world. Some people believe it's overrated, but it attracts millions of visitors to the Louvre in Paris each year. The exact date of its creation is disputed, but it's generally believed to have been painted in the early 16th century.""")
+
+        chat.add_message(Role.ASSISTANT, """Here are the extracted facts:
+
+1. Leonardo da Vinci malte die Mona Lisa.
+2. Die Mona Lisa wird im Louvre in Paris ausgestellt.
+3. Die Mona Lisa zieht jährlich Millionen von Besuchern an.
+4. Die Mona Lisa entstand vermutlich im frühen 16. Jahrhundert.""")
+
+        # Actual task
+        chat.add_message(Role.USER, f"Extrahiere faktische Aussagen aus dem folgenden Dokument:\n{text}")
+
+        response: str = LlmRouter.generate_completion(
+            chat,
+            preferred_model_keys=preferred_model_keys,
+            force_local=force_local,
+            force_free=True,
+            silent=silent
+        )
+
+        # Remove the first default line
+        shortened_response = response.split('\n', 1)[-1].strip()
+        # Ensure the input starts with a newline so that the first proposition is correctly identified
+        modified_response = '\n' + shortened_response
+        # Split the response where a number followed by a period and space is at the start of a line
+        propositions = [prop.strip() for prop in re.split(r'\n\d+\.\s+', modified_response) if prop.strip()]
+        return propositions

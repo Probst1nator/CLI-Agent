@@ -1,34 +1,24 @@
 #!/usr/bin/env python3
 
-import hashlib
-from pathlib import Path
-from typing import List, Literal, Optional, Tuple
 from pyfiglet import figlet_format
 import speech_recognition as sr
 from dotenv import load_dotenv
 from termcolor import colored
-import pyperclip
 import argparse
-import chromadb
 import pyaudio
-import json
-import json
-import json
 import time
 import sys
-import os
-import os
 import re
 import warnings
+
+from cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-from assistants import code_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, search_folder_assistant
-from classes.cls_pptx_presentation import PptxPresentation
-from tooling import extract_blocks, extract_pdf_content, list_files_recursive, recolor, run_python_script, select_and_execute_commands, listen_microphone, remove_blocks, split_string_into_chunks, text_to_speech, ScreenCapture, update_cmd_collection
-from classes.cls_web_scraper import search_and_scrape, get_github_readme
-from classes.ai_providers.cls_ollama_interface import OllamaClient
-from classes.cls_llm_router import AIStrengths, LlmRouter
+from assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
+from tooling import extract_blocks,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
+from classes.cls_web_scraper import get_github_readme, search_brave
+from classes.cls_llm_router import LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_chat import Chat, Role
 from globals import g
@@ -46,38 +36,36 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enter your first message instantly.")
     parser.add_argument("-l", "--local", action="store_true",
                         help="Use the local Ollama backend for language processing.")
-    parser.add_argument("--llm", nargs='?', const='phi3:medium-128k', type=str,
-                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3:medium-128k", "phi3:3.8b", "llama3.1"]')
-    parser.add_argument("-stt", "--speech_to_text", action="store_true",
-                        help="Enable microphone input and text-to-speech. (Wip: please split this up)")
     parser.add_argument("-s", "--speak", action="store_true",
                         help="Enable text-to-speech for agent responses.")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-w", action="store_true",
+    parser.add_argument("-w", "--web_search", action="store_true",
                         help="Use web search to enhance responses.")
     parser.add_argument("-a", "--auto", nargs='?', const=10, type=int,
-                        help="""Enable autonomous execution without user confirmation. 
-Because this is dangerous, any generated command is only executed after a delay of %(const)s seconds, by default.
-Add a custom integer to change this delay.""", metavar="DELAY")
+                        help="""Skip user confirmation for command execution.""", metavar="DELAY")
     parser.add_argument("-e", "--edit", nargs='?', const="", type=str,
                         help="Edit either the file at the specified path or the contents of the clipboard.")
     parser.add_argument("-p", "--presentation", nargs='?', const="", type=str,
                         help="Interactively create a presentation.")    
-    parser.add_argument("-u", "--utilise", nargs='?', const="", type=str,
-                        help="Intelligently use a given path/file. (Examples: --utilise 'path/to/file.py' or --utilise 'file.xx' or --utilise 'folder')")
-    parser.add_argument("-f", "--find", nargs='?', const="", type=str,
-                        help="Search the directory for something.")
+    parser.add_argument("-h", "--help", action="store_true",
+                        help="Display this help")
+    
     parser.add_argument("-ma", "--majority", nargs='?', const="", type=str,
                         help="Generate a response based on the majority of all local models.")
     parser.add_argument("-fp", "--fixpy", type=str,
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
+    parser.add_argument("-doc", "--documents", nargs='?', const="", type=str,
+                        help="Uses a pdf or folder of pdfs to generate a response.")
+    parser.add_argument("-stt", "--speech_to_text", action="store_true",
+                        help="Enable microphone input and text-to-speech. (Wip: please split this up)")
+    
+    parser.add_argument("--llm", nargs='?', const='phi3.5:3.8b', type=str,
+                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3.5:3.8b", "llama3.1:8b", "claude3.5", "gpt-4o"]')
     parser.add_argument("--preload", action="store_true",
                         help="Preload systems like embeddings and other resources.")
     parser.add_argument("--git_message_generator", nargs='?', const="", type=str,
                         help="Will rework all messages done by the user on the current branch. Enter the projects theme for better results.")
-    parser.add_argument("-h", "--help", action="store_true",
-                        help="Display this help")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -91,8 +79,7 @@ Add a custom integer to change this delay.""", metavar="DELAY")
     return args
 
 
-
-def main():
+def main() -> None:
     print("Environment path: ", g.PROJ_ENV_FILE_PATH)
     load_dotenv(g.PROJ_ENV_FILE_PATH)
     
@@ -105,7 +92,7 @@ def main():
         update_cmd_collection()
         exit(0)
     
-    context_chat = Chat()
+    context_chat: Chat|None = None
     next_prompt = ""
     
     if args.c:
@@ -118,28 +105,39 @@ def main():
         microphone_device_index = default_microphone_info['index']
         r = sr.Recognizer()
         source = sr.Microphone(device_index=microphone_device_index)
-        if len(context_chat.messages) > 0:
-            # tts last response
-            last_response = context_chat.messages[-1][1]
-            text_to_speech(last_response)
-            print(colored(last_response, 'magenta'))
+        if context_chat:
+            if len(context_chat.messages) > 0:
+                # tts last response
+                last_response = context_chat.messages[-1][1]
+                text_to_speech(last_response)
+                print(colored(last_response, 'magenta'))
     
     if args.edit != None: # code edit mode
-        code_assistant(args, context_chat, args.edit)    
+        if not context_chat:
+            context_chat = Chat()
+        pre_chosen_option = ""
+        if (args.auto):
+            pre_chosen_option = "1"
+        code_assistant(context_chat, args.edit, pre_chosen_option)    
     
     if args.fixpy != None:
-        code_agent(args, context_chat, args.fixpy)
+        if not context_chat:
+            context_chat = Chat()
+        python_error_agent(context_chat, args.fixpy)
 
     if args.presentation != None:
+        if not context_chat:
+            context_chat = Chat()
         presentation_assistant(args, context_chat, args.presentation)
     
-    if args.find != None:
-        search_folder_assistant(args, context_chat, args.find)
-    
     if args.majority != None:
+        if not context_chat:
+            context_chat = Chat()
         majority_response_assistant(args, context_chat, args.majority)
     
     if args.git_message_generator:
+        if not context_chat:
+            context_chat = Chat()
         git_message_generator(args, context_chat, args.git_message_generator)
     
     
@@ -159,11 +157,26 @@ def main():
         else:
             next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
         
+        
+        if args.documents != None:
+            if args.documents:
+                file_or_folder_path = args.documents
+            else:
+                file_or_folder_path = g.CURRENT_WORKING_DIR_PATH
+            
+            if (context_chat):
+                context_chat.add_message(Role.USER, next_prompt)
+                response, context_chat = documents_assistant(context_chat, file_or_folder_path)
+            else:
+                # Init
+                response, context_chat = documents_assistant(next_prompt, file_or_folder_path)
+            continue
+        
         if next_prompt.lower().endswith('--q'):
             print(colored("Exiting...", "red"))
             break
         
-        if next_prompt.endswith("--r"):
+        if next_prompt.endswith("--r") and context_chat:
             if len(context_chat.messages) < 2:
                 print(colored(f"# cli-agent: No chat history found, cannot regenerate last response.", "red"))
                 continue
@@ -199,7 +212,7 @@ def main():
             continue
         
         if next_prompt.endswith("--w"):
-            args.w = True
+            args.web_search = True
             print(colored(f"# cli-agent: KeyBinding detected: Websearch enabled, type (--h) for info", "green"))
             continue
         
@@ -221,7 +234,7 @@ def main():
             print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
 # cli-agent: KeyBindings:
 # cli-agent: --r: Regenerates the last response.
-# cli-agent: --llm: Set the language model to use. (Examples: "phi3:medium-128k", "claude3.5", "gpt-4o")
+# cli-agent: --llm: Set the language model to use. (Examples: "phi3.5:3.8b", "claude3.5", "gpt-4o")
 # cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --a: Toggles autonomous command execution.
@@ -232,27 +245,31 @@ def main():
 """, "yellow"))
             continue
         
-        if args.w:
-            recent_context_str = context_chat.get_messages_as_string(-3)
+        if args.web_search:
+            # recent_context_str = context_chat.get_messages_as_string(-3)
+            recent_context_str = next_prompt
             query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
-            results = search_and_scrape(query, 2)
-            temporary_prompt_context_augmentation += f"\n\n```web_search_result\n{''.join(results)}\n```"
-            args.w = False
+            results = search_brave(query, 2)
+            temporary_prompt_context_augmentation += f"\n\n```web_search_results\n{''.join(results)}\n```"
+            args.web_search = False
         
         
         if "https://github.com/" in next_prompt and next_prompt.count("/") >= 4:
-            github_repo_url = re.search("(?P<url>https?://[^\s]+)", next_prompt).group("url")
-            github_readme = get_github_readme(github_repo_url)
-            prompt_context_augmentation += f"\n\nHere's the readme from the github repo:\n```md\n{github_readme}\n```"
+            match = re.search("(?P<url>https?://[^\s]+)", next_prompt)
+            if match:
+                github_repo_url = match.group("url")
+                github_readme = get_github_readme(github_repo_url)
+                prompt_context_augmentation += f"\n\nHere's the readme from the github repo:\n```md\n{github_readme}\n```"
         
         next_prompt +=  temporary_prompt_context_augmentation  # appending relevant content to generate better responses
         next_prompt +=  prompt_context_augmentation  # appending relevant content to generate better responses
         
-        if len(context_chat.messages) > 1:
+        if context_chat and len(context_chat.messages) > 1:
             context_chat.add_message(Role.USER, next_prompt)
             llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
+            update_cmd_collection()
             llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, [args.llm], force_local=args.local)
         
         if (args.speak or args.speech_to_text):
@@ -263,11 +280,7 @@ def main():
         context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, ""))
 
         # save the context_chat to a json file
-        if os.path.exists(g.PROJ_VSCODE_DIR_PATH):
-            with open(g.PROJ_CONFIG_FILE_PATH, 'w') as file:
-                json_content: dict[str,str] = {}
-                json_content["history"] = context_chat._to_dict()
-                json.dump(json_content, file, indent=2)
+        context_chat.save_to_json()
 
         reponse_blocks = extract_blocks(llm_response)
         

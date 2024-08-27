@@ -45,13 +45,13 @@ class OllamaClient(ChatClientInterface):
             return False
 
     @staticmethod
-    def generate_response(chat: Chat, model: str = "phi3", temperature: float = 0.8, silent: bool = False, tools: Optional[List[Dict[str, Any]]] = None) -> Optional[str | List[Dict[str, Any]]]:
+    def generate_response(chat: Chat, model: str = "phi3.5:3.8b", temperature: float = 0.8, silent: bool = False, tools: Optional[List[Dict[str, Any]]] = None) -> Optional[str | List[Dict[str, Any]]]:
         """
         Generates a response using the Ollama API, with support for tool calling.
 
         Args:
             chat (Chat): The chat object containing messages.
-            model (str): The model identifier (e.g., "phi3", "llama3.1").
+            model (str): The model identifier (e.g., "phi3.5:3.8b", "llama3.1").
             temperature (float): The temperature setting for the model.
             silent (bool): Whether to suppress print statements.
             tools (List[Dict[str, Any]], optional): A list of tool definitions for the model to use.
@@ -67,6 +67,10 @@ class OllamaClient(ChatClientInterface):
         Note:
             Ensure you're using a model that supports tool calling (e.g., Llama 3.1, Mistral Nemo).
         """
+        options = ollama.Options()
+        if ("hermes" in model.lower()):
+            options.update(stop=["<|end_of_text|>"])
+            
         tooling = CustomColoring()
         logger.debug(json.dumps({"last_message":chat.messages[-1][1]}, indent=2))
         # logger.debug(json.dumps({"last_message":chat.messages[0], "model":model, "temperature":temperature, "silent":silent}, indent=2))
@@ -93,11 +97,11 @@ class OllamaClient(ChatClientInterface):
                             # Check if the host is reachable
                             client = ollama.Client(host=f'http://{host}:11434')
                             if tools:
-                                response = client.chat(model=model, messages=chat.to_ollama(), stream=False, options=ollama.Options(), keep_alive=1800, tools=tools)
+                                response = client.chat(model=model, messages=chat.to_ollama(), stream=False, options=options, keep_alive=1800, tools=tools)
                                 tool_calls = response["tool_calls"]
                                 return tool_calls
                             else:
-                                response_stream = client.chat(model=model, messages=chat.to_ollama(), stream=True, options=ollama.Options(), keep_alive=1800)
+                                response_stream = client.chat(model=model, messages=chat.to_ollama(), stream=True, options=options, keep_alive=1800)
                                 full_response = ""
                                 for line in response_stream:
                                     next_string = line["message"]["content"]
