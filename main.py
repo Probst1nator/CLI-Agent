@@ -44,9 +44,9 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Use web search to enhance responses.")
     parser.add_argument("-a", "--auto", nargs='?', const=10, type=int,
                         help="""Skip user confirmation for command execution.""", metavar="DELAY")
-    parser.add_argument("-e", "--edit", nargs='?', const="", type=str,
+    parser.add_argument("-e", "--edit", nargs='?', const="", type=str, metavar="FILEPATH",
                         help="Edit either the file at the specified path or the contents of the clipboard.")
-    parser.add_argument("-p", "--presentation", nargs='?', const="", type=str,
+    parser.add_argument("-p", "--presentation", nargs='?', const="", type=str, metavar="TOPIC",
                         help="Interactively create a presentation.")    
     parser.add_argument("-h", "--help", action="store_true",
                         help="Display this help")
@@ -55,7 +55,7 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Generate a response based on the majority of all local models.")
     parser.add_argument("-fp", "--fixpy", type=str,
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
-    parser.add_argument("-doc", "--documents", nargs='?', const="", type=str,
+    parser.add_argument("-doc", "--documents", nargs='?', const="", type=str, metavar="PATH",
                         help="Uses a pdf or folder of pdfs to generate a response.")
     parser.add_argument("-stt", "--speech_to_text", action="store_true",
                         help="Enable microphone input and text-to-speech. (Wip: please split this up)")
@@ -64,7 +64,7 @@ def parse_cli_args() -> argparse.Namespace:
                         help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3.5:3.8b", "llama3.1:8b", "claude3.5", "gpt-4o"]')
     parser.add_argument("--preload", action="store_true",
                         help="Preload systems like embeddings and other resources.")
-    parser.add_argument("--git_message_generator", nargs='?', const="", type=str,
+    parser.add_argument("--git_message_generator", nargs='?', const="", type=str, metavar="TOPIC",
                         help="Will rework all messages done by the user on the current branch. Enter the projects theme for better results.")
     
     # Parse known arguments and capture any unrecognized ones
@@ -130,15 +130,21 @@ def main() -> None:
             context_chat = Chat()
         presentation_assistant(args, context_chat, args.presentation)
     
-    if args.majority != None:
+    if args.majority:
         if not context_chat:
             context_chat = Chat()
-        majority_response_assistant(args, context_chat, args.majority)
+        user_input = ""
+        if args.message:
+            user_input = args.message
+        majority_response_assistant(args, context_chat, args.message)
     
     if args.git_message_generator:
         if not context_chat:
             context_chat = Chat()
-        git_message_generator(args, context_chat, args.git_message_generator)
+        user_input = ""
+        if args.message:
+            user_input = args.message
+        git_message_generator(args.git_message_generator, user_input)
     
     
     prompt_context_augmentation: str = ""
