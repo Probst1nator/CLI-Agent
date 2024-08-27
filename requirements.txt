@@ -30,3 +30,4 @@ chromadb
 pdfminer.six
 brave-search
 llama-index
+GitPython
