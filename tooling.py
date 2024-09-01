@@ -413,7 +413,7 @@ def remove_blocks(text: str, except_types: Optional[List[str]] = None) -> str:
     
     return re.sub(pattern, replacement, text, flags=re.DOTALL)
 
-def clean_pdf_text(text):
+def clean_pdf_text(text: str):
     # Step 1: Handle unicode characters (preserving special characters)
     text = text.encode('utf-8', 'ignore').decode('utf-8')
     # Step 2: Remove excessive newlines and spaces
@@ -799,3 +799,26 @@ def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
 # CONTEXT:\n{retrieved_context}"""
 
     return prompt
+
+
+
+def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
+    all_contents = []
+
+    if os.path.isfile(pdf_or_folder_path):
+        if pdf_or_folder_path.lower().endswith('.pdf'):
+            text_content, image_content = extract_pdf_content(pdf_or_folder_path)
+            # if ("steffen" in text_content.lower()):
+            all_contents.append(clean_pdf_text(text_content))
+    elif os.path.isdir(pdf_or_folder_path):
+        for root, _, files in os.walk(pdf_or_folder_path):
+            for file in files:
+                if file.lower().endswith('.pdf'):
+                    file_path = os.path.join(root, file)
+                    text_content, image_content = extract_pdf_content(file_path)
+                    # if ("steffen" in text_content.lower()):
+                    all_contents.append(clean_pdf_text(text_content))
+    else:
+        raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
+
+    return "\n\n".join(all_contents)
