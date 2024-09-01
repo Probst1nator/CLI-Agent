@@ -20,7 +20,7 @@ from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_llm_router import AIStrengths, LlmRouter
 from classes.cls_pptx_presentation import PptxPresentation
 from classes.cls_web_scraper import search_brave
-from tooling import create_rag_prompt, extract_pdf_content, list_files_recursive, pdf_or_folder_to_database, run_python_script, split_string_into_chunks
+from tooling import create_rag_prompt, extract_pdf_content, get_joined_pdf_contents, list_files_recursive, pdf_or_folder_to_database, run_python_script, split_string_into_chunks
 from globals import g
 
 
@@ -516,32 +516,33 @@ def majority_response_assistant(args: argparse.Namespace, context_chat: Chat, us
             chat.add_message(Role.ASSISTANT, response)
 
 
-def documents_assistant(question_context: Chat|str, pdf_or_folder_path: str = "") -> Tuple[str, Chat]:
-    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-    collection = client.get_or_create_collection(name=hashlib.md5(pdf_or_folder_path.encode()).hexdigest())
-    # This is going to take a while and should be done seperately, before runtime
-    pdf_or_folder_to_database(pdf_or_folder_path, collection)
-    
+def documents_assistant(question_context: Chat|str, pdf_or_folder_path: str = "", use_needle_in_a_haystack: bool = False) -> Tuple[str, Chat]:
     if isinstance(question_context, str):
         chat = Chat("This is a chat between a user and an artificial intelligence assistant. The assistant gives helpful, detailed, reliable and polite answers to the user's questions based on the context. The assistant should also indicate when the answer cannot be found in the context.")
         chat.add_message(Role.USER, question_context)
     else:
         chat = question_context
-
     user_query = chat.messages[-1][1]
-    # Generate embedding for the user's input query
-    user_input_embedding = OllamaClient.generate_embedding(user_query)
     
-    # Perform a similarity search based on the user's query
-    results = collection.query(
-        query_embeddings=user_input_embedding,
-        n_results=10
-    )
+    if use_needle_in_a_haystack:
+        joined_docs = get_joined_pdf_contents(pdf_or_folder_path)
+        prompt = f"# query\n{user_query}\n\n## context{joined_docs}"
+    else:
+        client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+        collection = client.get_or_create_collection(name=hashlib.md5(pdf_or_folder_path.encode()).hexdigest())
+        # This is going to take a while and should be done seperately, before runtime
+        pdf_or_folder_to_database(pdf_or_folder_path, collection)
+        # Generate embedding for the user's input query
+        user_input_embedding = OllamaClient.generate_embedding(user_query)
+        # Perform a similarity search based on the user's query
+        results = collection.query(
+            query_embeddings=user_input_embedding,
+            n_results=10
+        )
+        prompt = create_rag_prompt(results, user_query)
     
-    prompt = create_rag_prompt(results, user_query)
     
     chat.messages[-1] = (Role.USER, prompt)
-    
     response = LlmRouter.generate_completion(chat, temperature=0.6, force_local=True)
     chat.add_message(Role.ASSISTANT, response)
     

@@ -57,6 +57,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
     parser.add_argument("-doc", "--documents", nargs='?', const="", type=str, metavar="PATH",
                         help="Uses a pdf or folder of pdfs to generate a response.")
+    parser.add_argument("-doc2", "--documents2", nargs='?', const="", type=str, metavar="PATH",
+                        help="Uses a pdf or folder of pdfs to generate a response. Uses needle in a haystack approach.")
     parser.add_argument("-stt", "--speech_to_text", action="store_true",
                         help="Enable microphone input and text-to-speech. (Wip: please split this up)")
     
@@ -178,6 +180,23 @@ def main() -> None:
                 response, context_chat = documents_assistant(next_prompt, file_or_folder_path)
             continue
         
+        if args.documents2 != None:
+            if args.documents2:
+                file_or_folder_path = args.documents2
+            else:
+                file_or_folder_path = g.CURRENT_WORKING_DIR_PATH
+            
+            print(colored(f"Using needle in a haystack approach", "green"))
+            print(colored(f"Searching for the file or folder at: {file_or_folder_path}", "green"))
+            
+            if (context_chat):
+                context_chat.add_message(Role.USER, next_prompt)
+                response, context_chat = documents_assistant(context_chat, file_or_folder_path, True)
+            else:
+                # Init
+                response, context_chat = documents_assistant(next_prompt, file_or_folder_path, True)
+            continue
+        
         if next_prompt.lower().endswith('--q'):
             print(colored("Exiting...", "red"))
             break
@@ -261,11 +280,12 @@ def main() -> None:
         
         
         if "https://github.com/" in next_prompt and next_prompt.count("/") >= 4:
-            match = re.search("(?P<url>https?://[^\s]+)", next_prompt)
+            match = re.search(r"(?P<url>https?://[^\s]+)", next_prompt)
             if match:
                 github_repo_url = match.group("url")
                 github_readme = get_github_readme(github_repo_url)
                 prompt_context_augmentation += f"\n\nHere's the readme from the github repo:\n```md\n{github_readme}\n```"
+
         
         next_prompt +=  temporary_prompt_context_augmentation  # appending relevant content to generate better responses
         next_prompt +=  prompt_context_augmentation  # appending relevant content to generate better responses
@@ -275,7 +295,7 @@ def main() -> None:
             llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            update_cmd_collection()
+            # update_cmd_collection()
             llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, [args.llm], force_local=args.local)
         
         if (args.speak or args.speech_to_text):
