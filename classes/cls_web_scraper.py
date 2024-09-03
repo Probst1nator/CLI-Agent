@@ -9,7 +9,7 @@ from termcolor import colored
 from dotenv import load_dotenv
 from classes.cls_few_shot_factory import FewShotProvider
 
-from brave import Brave
+# from brave import Brave
 
 def scrape_text_from_url(url: str) -> str:
     """
@@ -44,21 +44,22 @@ def search_brave(query: str, num_results: int = 2, summarization_llm: str = "") 
     :param num_results: The number of results to return
     :return: A list of scraped text contents from the found sites
     """
-    brave = Brave(os.getenv('BRAVE_API_KEY'))
-    search_results = brave.search(q=query, count=num_results)
-    scraped_texts = []
-    for web_result in search_results.web_results:
-        # print(web_result.title)
-        # print(web_result.url)
-        # print(web_result.description)
-        # print(web_result.age)
-        scraped_content = scrape_text_from_url(web_result['url'])
-        scraped_texts.append(scraped_content)
+    # brave = Brave(os.getenv('BRAVE_API_KEY'))
+    # search_results = brave.search(q=query, count=num_results)
+    # scraped_texts = []
+    # for web_result in search_results.web_results:
+    #     # print(web_result.title)
+    #     # print(web_result.url)
+    #     # print(web_result.description)
+    #     # print(web_result.age)
+    #     scraped_content = scrape_text_from_url(web_result['url'])
+    #     scraped_texts.append(scraped_content)
     
-    if summarization_llm:
-        summarized_content = FewShotProvider.few_shot_distilText(query, scraped_texts, [summarization_llm])
-        return [summarized_content]
-    return scraped_texts
+    # if summarization_llm:
+    #     summarized_content = FewShotProvider.few_shot_distilText(query, scraped_texts, [summarization_llm])
+    #     return [summarized_content]
+    # return scraped_texts
+    return "Sorry this feature is not available at the moment"
 
 def get_github_readme(repo_url: str) -> str:
     """

@@ -2,6 +2,7 @@ import json
 import re
 from typing import Any, Dict, List, Tuple
 
+import ollama
 import chromadb
 from termcolor import colored
 
@@ -83,7 +84,7 @@ class FewShotProvider:
     #     return (response, chat)
         
     @classmethod 
-    def few_shot_YesNo(self, userRequest: str, preferred_model_keys: List[str]=[], force_local: bool = False, silent: bool = False) -> Tuple[bool,Chat]:
+    def few_shot_YesNo(self, userRequest: str | Chat, preferred_model_keys: List[str]=[], force_local: bool = False, silent: bool = False, force_free: bool = False) -> Tuple[bool,Chat]:
         """
         Determines whether the answer to the user's question is 'yes' or 'no'.
 
@@ -95,24 +96,29 @@ class FewShotProvider:
         Returns:
             Tuple[str, Chat]: The response and the full chat.
         """
-        chat: Chat = Chat("You are a yes/no classifier. Determine if the answer to the user is either yes or no and respond accordingly.")
-        chat.add_message(Role.USER, "Is 8/7 a natural number?")
-        chat.add_message(Role.ASSISTANT, "No")
-        chat.add_message(Role.USER, """Does the below text provide relevant information to answer this question: Does Germany have a population of 84.000.000?\n\n```txt\nGermany,[e] officially the Federal Republic of Germany (FRG),[f] is a country in Central Europe. It lies between the Baltic and North Sea to the north and the Alps to the south. Its 16 constituent states have a total population of over 84 million in an area of 357,569 km2 (138,058 sq mi), making it the most populous member state of the European Union. It borders Denmark to the north, Poland and Czechia to the east, Austria and Switzerland to the south, and France, Luxembourg, Belgium, and the Netherlands to the west. The nation's capital and most populous city is Berlin and its main financial centre is Frankfurt; the largest urban area is the Ruhr.\n""")
-        chat.add_message(Role.ASSISTANT, "Yes")
-        chat.add_message(Role.USER, "Was 9/11 a inside job?")
-        chat.add_message(Role.ASSISTANT, "No")
-        chat.add_message(Role.USER, "Fehlt der folgenden Sequenz eine Zahl: 1, 2, 3, 5, 6?")
-        chat.add_message(Role.ASSISTANT, "Yes")
-        chat.add_message(Role.USER, "The next request will be very long, the question will be at its start, please ensure you only answer with 'Yes' or 'No'.\nAre you ready?")
-        chat.add_message(Role.ASSISTANT, "Yes")
-        chat.add_message(Role.USER, userRequest)
+        if isinstance(userRequest, str):
+            chat: Chat = Chat("You are a yes/no classifier. Determine if the answer to the user is either yes or no and respond accordingly.")
+            chat.add_message(Role.USER, "Is 8/7 a natural number?")
+            chat.add_message(Role.ASSISTANT, "No")
+            chat.add_message(Role.USER, """Does the below text provide relevant information to answer this question: Does Germany have a population of 84.000.000?\n\n```txt\nGermany,[e] officially the Federal Republic of Germany (FRG),[f] is a country in Central Europe. It lies between the Baltic and North Sea to the north and the Alps to the south. Its 16 constituent states have a total population of over 84 million in an area of 357,569 km2 (138,058 sq mi), making it the most populous member state of the European Union. It borders Denmark to the north, Poland and Czechia to the east, Austria and Switzerland to the south, and France, Luxembourg, Belgium, and the Netherlands to the west. The nation's capital and most populous city is Berlin and its main financial centre is Frankfurt; the largest urban area is the Ruhr.\n""")
+            chat.add_message(Role.ASSISTANT, "Yes")
+            chat.add_message(Role.USER, "Was 9/11 a inside job?")
+            chat.add_message(Role.ASSISTANT, "No")
+            chat.add_message(Role.USER, "Fehlt der folgenden Sequenz eine Zahl: 1, 2, 3, 5, 6?")
+            chat.add_message(Role.ASSISTANT, "Yes")
+            chat.add_message(Role.USER, "The next request will be very long, the question will be at its start, please ensure you only answer with 'Yes' or 'No'.\nAre you ready?")
+            chat.add_message(Role.ASSISTANT, "Yes")
+            chat.add_message(Role.USER, userRequest)
+        else:
+            chat = userRequest
         
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.FAST,
             preferred_model_keys=preferred_model_keys, 
-            force_local=force_local
+            force_local=force_local,
+            force_free=force_free,
+            silent=silent,
         )
         chat.add_message(Role.ASSISTANT, response)
         return "yes" in response.lower(), chat
@@ -419,7 +425,7 @@ Here's the text to process:
     
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, preferred_model_keys: List[str] = [""], force_local: bool = False, silent: bool = True) -> str:
+    def few_shot_rephrase(self, userRequest: str, preferred_model_keys: List[str] = [""], force_local: bool = False, silent: bool = True, force_free = False) -> str:
         """
         Rephrases the given request to enhance clarity while preserving the intended meaning.
 
@@ -435,12 +441,10 @@ Here's the text to process:
             chat = Chat("The system rephrases the given request in its own words, it takes care to keep the intended meaning while enhancing the clarity of the request. It always answers using the same response pattern.")
             chat.add_message(Role.USER, "Rephrase: 'show me puppies'")
             chat.add_message(Role.ASSISTANT, "Rephrased version: 'Show me images of puppies'")
-            chat.add_message(Role.USER, "Rephrase: 'what is the main city of germans?'")
-            chat.add_message(Role.ASSISTANT, "Rephrased version: 'Can you name the capital of germany?'")
+            chat.add_message(Role.USER, "Rephrase: '¿Cuál es la principal ciudad de los alemanes?'")
+            chat.add_message(Role.ASSISTANT, "Rephrased version: '¿Puedes nombrar la capital de Alemania?'")
             chat.add_message(Role.USER, "Rephrase: 'whats 4*8'")
             chat.add_message(Role.ASSISTANT, "Rephrased version: 'Please calculate the product of 4*8'")
-            chat.add_message(Role.USER, "Rephrase: 'hi'")
-            chat.add_message(Role.ASSISTANT, "Rephrased version: 'Hi!'")
             chat.add_message(Role.USER, f"Rephrase: '{userRequest}'")
             
             preferred_rephrase_model_keys = []
@@ -459,6 +463,7 @@ Here's the text to process:
                 chat,
                 preferred_model_keys,
                 force_local=force_local,
+                force_free=force_free,
                 silent=silent,
                 temperature=0.4
             )
@@ -907,3 +912,207 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         # Split the response where a number followed by a period and space is at the start of a line
         propositions = [prop.strip() for prop in re.split(r'\n\d+\.\s+', modified_response) if prop.strip()]
         return propositions
+
+    @classmethod
+    def few_shot_toInteger(cls, text: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = False, force_free:bool = False) -> int:
+        """
+        Converts a given text representation of a number into an integer using few-shot learning.
+
+        Args:
+            text (str): The input text to convert to an integer.
+            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            force_local (bool, optional): If True, force the use of a local model.
+            silent (bool, optional): If True, suppress output during processing.
+
+        Returns:
+            int: The integer representation of the input text.
+        """
+        chat = Chat("""You are an expert in converting various textual representations of numbers into integers. Your task is to analyze the given text and return the corresponding integer value. Follow these guidelines:
+
+    1. Handle various formats including words, digits, and mixed representations.
+    2. Support multiple languages.
+    3. Interpret contextual clues to determine the intended number.
+    4. Handle negative numbers and zero.
+    5. If the input is ambiguous or cannot be converted to an integer, return None.
+
+    Respond with only the integer value or None, without any additional explanation.""")
+
+        # Example 1: English word representation
+        chat.add_message(Role.USER, "Convert to integer: five hundred and twenty-three")
+        chat.add_message(Role.ASSISTANT, "523")
+
+        # Example 2: Digit representation
+        chat.add_message(Role.USER, "Convert to integer: 1,234")
+        chat.add_message(Role.ASSISTANT, "1234")
+
+        # Example 3: German representation
+        chat.add_message(Role.USER, "Convert to integer: zweitausenddreihundertvierundvierzig")
+        chat.add_message(Role.ASSISTANT, "2344")
+
+        # Example 4: Mixed representation
+        chat.add_message(Role.USER, "Convert to integer: 2 million five hundred thousand and 99")
+        chat.add_message(Role.ASSISTANT, "2500099")
+
+        # Example 5: Negative number
+        chat.add_message(Role.USER, "Convert to integer: minus three hundred and twelve")
+        chat.add_message(Role.ASSISTANT, "-312")
+
+        # Example 6: Zero
+        chat.add_message(Role.USER, "Convert to integer: null")
+        chat.add_message(Role.ASSISTANT, "0")
+
+        # Example 7: Ambiguous input
+        chat.add_message(Role.USER, "Convert to integer: a dozen oranges")
+        chat.add_message(Role.ASSISTANT, "None")
+
+        # Actual task
+        chat.add_message(Role.USER, f"Convert to integer: {text}")
+
+        response: str = LlmRouter.generate_completion(
+            chat,
+            preferred_model_keys=preferred_model_keys,
+            force_local=force_local,
+            force_free=force_free,
+            silent=silent
+        )
+
+        try:
+            result = int(response.strip())
+            return result
+        except ValueError:
+            return None
+
+    @classmethod
+    def few_shot_textToQuestions(cls, text: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = False) -> List[str]:
+        """
+        Generates an extensive list of questions that can be answered using the contents of the given text.
+
+        Args:
+            text (str): The input text to generate questions from.
+            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            force_local (bool, optional): If True, force the use of a local model.
+            silent (bool, optional): If True, suppress output during processing.
+
+        Returns:
+            List[str]: A list of strings representing the generated questions.
+        """
+        chat = Chat("""You are an expert question generator. Your task is to create a comprehensive list of questions that can be answered using the information provided in the given text. Follow these guidelines:
+
+    1. Generate a diverse range of questions covering various aspects of the text.
+    2. Include questions of different types: factual, analytical, comparative, and inferential.
+    3. Ensure questions are clear, concise, and directly answerable from the text.
+    4. Avoid questions that require information not present in the text.
+    5. Generate questions in the same language as the input text.
+    6. Aim for a minimum of 10 questions, but generate more if the text content allows.
+
+    Presentation:
+    1. Begin with "Generated questions:"
+    2. List questions in numbered lines
+    3. If the text doesn't contain enough information for questions, respond with "Insufficient information to generate meaningful questions."
+
+    Remember: Focus on creating questions that thoroughly explore the content of the text and encourage a deeper understanding of the material.""")
+
+        # Example 1: Text about climate change
+        chat.add_message(Role.USER, """Generate questions for the following text:
+    Climate change is a long-term shift in global or regional climate patterns. Often climate change refers specifically to the rise in global temperatures from the mid-20th century to present. The main driver of climate change is the greenhouse effect. Some gases in the Earth's atmosphere act a bit like the glass in a greenhouse, trapping the sun's heat and stopping it from leaking back into space. Many of these greenhouse gases occur naturally, but human activity is increasing the concentrations of some of them in the atmosphere, particularly carbon dioxide (CO2), methane, and nitrous oxide. CO2 is the greenhouse gas most commonly produced by human activities and it is responsible for 64% of man-made global warming.""")
+
+        chat.add_message(Role.ASSISTANT, """Generated questions:
+    1. What is climate change?
+    2. What specific aspect does climate change often refer to?
+    3. What is the main driver of climate change?
+    4. How do greenhouse gases affect the Earth's temperature?
+    5. Are all greenhouse gases man-made?
+    6. Which greenhouse gases are being increased by human activity?
+    7. What is the most common greenhouse gas produced by human activities?
+    8. What percentage of man-made global warming is CO2 responsible for?
+    9. How do greenhouse gases in the atmosphere compare to glass in a greenhouse?
+    10. When did the rise in global temperatures that we often refer to as climate change begin?
+    11. What are the three main greenhouse gases mentioned in the text that are increased by human activity?
+    12. How does the greenhouse effect contribute to climate change?
+    13. Are there any natural sources of greenhouse gases mentioned in the text?
+    14. What is the relationship between human activities and the concentration of greenhouse gases in the atmosphere?
+    15. How does the text define the greenhouse effect?""")
+
+        # Example 2: Text about the history of computers
+        chat.add_message(Role.USER, """Generate questions for the following text:
+    The history of computers begins with the abacus, a manual counting device. In the 17th century, mechanical calculators were invented. The first general-purpose computer, ENIAC, was built in 1945. It used vacuum tubes and could perform calculations much faster than previous machines. In the 1950s, transistors replaced vacuum tubes, making computers smaller and more reliable. The first microprocessor, the Intel 4004, was introduced in 1971, paving the way for personal computers. Apple II, one of the first successful mass-produced microcomputers, was launched in 1977. The World Wide Web was invented by Tim Berners-Lee in 1989, revolutionizing how we use computers and access information.""")
+
+        chat.add_message(Role.ASSISTANT, """Generated questions:
+    1. What is considered the beginning of computer history?
+    2. When were mechanical calculators invented?
+    3. What was the name of the first general-purpose computer?
+    4. In which year was ENIAC built?
+    5. What technology did ENIAC use?
+    6. How did ENIAC's calculation speed compare to previous machines?
+    7. What replaced vacuum tubes in computers during the 1950s?
+    8. How did the transition to transistors affect computers?
+    9. When was the first microprocessor introduced?
+    10. What was the name of the first microprocessor?
+    11. What impact did the microprocessor have on computer development?
+    12. Which computer is mentioned as one of the first successful mass-produced microcomputers?
+    13. In what year was the Apple II launched?
+    14. Who invented the World Wide Web?
+    15. When was the World Wide Web invented?
+    16. How did the invention of the World Wide Web impact computer use?
+    17. What technological advancements are mentioned in the text that contributed to the evolution of computers?
+    18. How did computer size change over time according to the text?
+    19. What is the chronological order of major developments in computer history as presented in the text?
+    20. How did the development of computers impact information access according to the text?""")
+
+        # Actual task
+        chat.add_message(Role.USER, f"Generate questions for the following text:\n{text}")
+
+        response: str = LlmRouter.generate_completion(
+            chat,
+            preferred_model_keys=preferred_model_keys,
+            force_local=force_local,
+            force_free=True,
+            silent=silent
+        )
+
+        # Remove the first default line
+        shortened_response = response.split('\n', 1)[-1].strip()
+        # Split the response where a number followed by a period and space is at the start of a line
+        questions = [q.strip() for q in re.split(r'\n\d+\.\s+', shortened_response) if q.strip()]
+        return questions
+
+
+    @classmethod
+    def few_shot_contextToJson(cls, context: str, silent:bool = False):
+        # Initialize the model
+        model = ollama.Client()
+
+        # Define the template for extraction
+        template = '''
+        {
+        "Model": {
+            "Name": "",
+            "Number of parameters": ""
+        },
+        "Usage": {
+            "Use case": [],
+            "Licence": ""
+        }
+        }
+        '''
+
+        # The text to extract information from
+        text = '''
+        We introduce Mistral 7B, a 7–billion-parameter language model engineered for superior performance and efficiency. Mistral 7B outperforms the best open 13B model (Llama 2) across all evaluated benchmarks, and the best released 34B model (Llama 1) in reasoning, mathematics, and code generation. Our model leverages grouped-query attention (GQA) for faster inference, coupled with sliding window attention (SWA) to effectively handle sequences of arbitrary length with a reduced inference cost. We also provide a model fine-tuned to follow instructions, Mistral 7B – Instruct, that surpasses Llama 2 13B – chat model both on human and automated benchmarks. Our models are released under the Apache 2.0 license.
+        '''
+
+        # Construct the prompt
+        prompt = f'''
+        ### Template:
+
+        {template}
+
+        ### Text:
+
+        {context}
+        '''
+
+        # Generate the response
+        response = model.generate(model="nuextract", prompt=prompt)
+
+        print(response.response)

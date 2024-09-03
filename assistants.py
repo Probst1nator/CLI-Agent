@@ -25,28 +25,6 @@ from globals import g
 
 
 # # # helper methods
-
-# Note: The following section is reserved for helper methods.
-# Helper methods are typically small, reusable functions that perform specific tasks
-# to support the main functionality of the script. They can include utility functions,
-# data processing functions, or any other auxiliary operations needed by the main program.
-
-# Examples of potential helper methods (not implemented here) could include:
-# - Functions for data validation
-# - Text processing utilities
-# - File handling operations
-# - Logging and error handling routines
-
-# When implementing helper methods, consider:
-# 1. Keeping them focused on a single task
-# 2. Using descriptive names that indicate their purpose
-# 3. Adding appropriate docstrings to explain their functionality and parameters
-# 4. Ensuring they are easily testable and maintainable
-
-# The actual implementation of helper methods would follow this comment block,
-# each with its own documentation and explanatory comments.
-
-
 def extract_single_snippet(response: str, allow_no_end: bool = False) -> str:
     """
     Extracts a single code snippet from a given response string.
@@ -171,7 +149,9 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             if result:
                 snippets_to_process = []
             
-            if not pre_chosen_option:
+            if pre_chosen_option:
+                user_input = pre_chosen_option
+            else:
                 # Manual mode: Present options to the user
                 print(colored("Please choose an option:", 'cyan', attrs=["bold"]))
                 print(colored("1. Add docstrings", 'yellow'))
@@ -181,7 +161,6 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 print(colored("5. Use a custom delimiter for splitting the code into chunks", 'yellow'))
                 print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
                 user_input = input(colored("Enter your choice: ", 'blue'))
-            user_input = pre_chosen_option
             
             # Process user input and set the appropriate prompt
             if user_input == "1":
@@ -423,7 +402,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
             
             # Extract content from PDF files
             if file_path.endswith(".pdf"):
-                text_content, image_content = extract_pdf_content(file_path)
+                text_content = extract_pdf_content(file_path)
                 digestible_contents = split_string_into_chunks(text_content)
                 
                 # Process and embed each chunk of the PDF content
@@ -528,10 +507,8 @@ def documents_assistant(question_context: Chat|str, pdf_or_folder_path: str = ""
         joined_docs = get_joined_pdf_contents(pdf_or_folder_path)
         prompt = f"# query\n{user_query}\n\n## context{joined_docs}"
     else:
-        client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-        collection = client.get_or_create_collection(name=hashlib.md5(pdf_or_folder_path.encode()).hexdigest())
         # This is going to take a while and should be done seperately, before runtime
-        pdf_or_folder_to_database(pdf_or_folder_path, collection)
+        collection = pdf_or_folder_to_database(pdf_or_folder_path)
         # Generate embedding for the user's input query
         user_input_embedding = OllamaClient.generate_embedding(user_query)
         # Perform a similarity search based on the user's query
