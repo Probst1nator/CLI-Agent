@@ -14,9 +14,10 @@ import warnings
 from cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 
 from assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
-from tooling import extract_blocks,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
+from tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
 from classes.cls_web_scraper import get_github_readme, search_brave
 from classes.cls_llm_router import LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
@@ -92,6 +93,9 @@ def main() -> None:
         print(colored("Preloading resources...", "green"))
         print(colored("Generating atuin-command-history embeddings...", "green"))
         update_cmd_collection()
+        print(colored("Generating pdf embeddings for cli-agent directory...", "green"))
+        pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=False, preferred_model_keys=["phi3.5:3.8b"])
+        print(colored("Preloading complete.", "green"))
         exit(0)
     
     context_chat: Chat|None = None

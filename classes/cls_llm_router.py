@@ -85,8 +85,8 @@ class Llm:
             Llm(OpenAIChat(), "gpt-4o-mini", 0.4, False, False, True, 128000, None, AIStrengths.FAST),
             
             # Llm(OllamaClient(), "Hermes-3-Llama-3.1-8B.Q4_K_M.gguf:latest", None, False, True, False, 4096, None, AIStrengths.STRONG),
-            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "phi3.5:3.8b", None, False, True, False, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-llama3:8b", None, False, True, True, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-phi3:3.8b", None, False, True, True, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, None, AIStrengths.STRONG),
@@ -227,7 +227,7 @@ class LlmRouter:
 
         return available_models
 
-    def get_model(self, preferred_model_keys: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> Optional[Llm]:
+    def get_model(self, preferred_model_keys: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
@@ -246,13 +246,17 @@ class LlmRouter:
         if (chat.count_tokens() > 4000 and not force_free and not force_local):
             print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
         
-        # Search for exact model key match first
+        # Search for model key match first
         for model_key in preferred_model_keys:
             if model_key not in self.failed_models and model_key:
-                model = next((model for model in self.retry_models if model_key in model.model_key), None)
+                model = next((model for model in self.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local)), None)
                 if model:
                     return model
 
+        if force_preferred_model:
+            # return a dummy model to force Ollama to download it
+            return Llm(OllamaClient(), preferred_model_keys[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
+        
         # Search online models by capability next
         if not force_local:
             for model in self.retry_models:
@@ -320,13 +324,15 @@ class LlmRouter:
         strength: AIStrengths = AIStrengths.STRONG,
         start_response_with: str = "",
         instruction: str = "You are a helpful assistant.",
-        temperature: float = 0.75,
+        temperature: Optional[float] = None,
         base64_images: List[str] = [],
         include_start_response_str: bool = True,
         use_cache: bool = True,
         force_local: Optional[bool] = None,
         force_free: bool = False,
-        silent: bool = False
+        force_preferred_model: bool = False,
+        silent: bool = False,
+        re_print_prompt: bool = False
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -367,14 +373,16 @@ class LlmRouter:
         while True:
             try:
                 # Get an appropriate model
-                model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
+                model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
                 
                 # If no model is available, clear failed models and retry
                 if not model:
                     print(colored(f"# # # All models failed # # # RETRYING... # # #", "red"))
                     instance.failed_models.clear()
-                    model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
+                    model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
 
+                if re_print_prompt:
+                    print(colored(f"\n\nPROMPT: {chat.messages[-1][1]}", "blue"))
                 if use_cache:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                     if cached_completion:
