@@ -12,6 +12,7 @@ from ollama._types import Message
 class Role(Enum):
     SYSTEM = "system"
     USER = "user"
+    IPYTHON = "ipython"
     ASSISTANT = "assistant"
 
 class Chat:
@@ -296,17 +297,24 @@ class Chat:
         
         :return: The chat messages in OpenAI chat format.
         """
-        return [
-            {"role": message[0].value, "content": message[1]}
-            for message in self.messages
-        ]
+        result = []
+        for i, message in enumerate(self.messages):
+            if message[0].value == "ipython" and i > 0:
+                result[-1]["content"] += f"\n\n{message[1]}"
+            else:
+                result.append({"role": message[0].value, "content": message[1]})
+        return result
+
     def to_groq(self) -> List[Dict[str, str]]:
         """
         Formats the chat messages for Groq API consumption.
         
         :return: The formatted messages as a list of dictionaries.
         """
-        return [
-            {"role": message[0].value, "content": message[1]}
-            for message in self.messages
-        ]
+        result = []
+        for i, message in enumerate(self.messages):
+            if message[0].value == "ipython" and i > 0:
+                result[-1]["content"] += f"\n\n{message[1]}"
+            else:
+                result.append({"role": message[0].value, "content": message[1]})
+        return result
