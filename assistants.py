@@ -96,18 +96,6 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             file_content = file.read()
             file_snippet = f"```{file_ending}\n{file_content}\n```"
             snippets_to_process = [file_snippet]
-
-    # Prompt user to add clipboard content
-    try:
-        print(colored("Add clipboard? Press (ctrl+c) to add.","yellow"))
-        for remaining in range(3, 0, -1):
-            sys.stdout.write("\r" + colored(f"Ignoring clipboard in {remaining}s... ", 'yellow'))
-            sys.stdout.flush()
-            time.sleep(1)
-        sys.stdout.write("\n")  # Ensure we move to a new line after countdown
-    except KeyboardInterrupt:
-        clipboard_content = pyperclip.paste()
-        snippets_to_process[0] += f"```userClipboard\n{clipboard_content}\n```"
     
     while True:
         next_prompt = ""
@@ -144,6 +132,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_model_keys=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
             next_prompt = "Augment the below code snippet with thorough docstrings and step-by-step explanatory comments. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
             next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
+            pre_chosen_option = ""
         else:
             # Second turn, do not process the same snippets again
             if result:
@@ -151,6 +140,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             
             if pre_chosen_option:
                 user_input = pre_chosen_option
+                pre_chosen_option = ""
             else:
                 # Manual mode: Present options to the user
                 print(colored("Please choose an option:", 'cyan', attrs=["bold"]))
@@ -159,6 +149,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 print(colored("3. Explain", 'yellow'))
                 print(colored("4. Perform web search", 'yellow'))
                 print(colored("5. Use a custom delimiter for splitting the code into chunks", 'yellow'))
+                print(colored("6. Add clipboard contents", 'yellow'))
                 print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
                 user_input = input(colored("Enter your choice: ", 'blue'))
             
@@ -189,6 +180,9 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                         break
                     lines.append(line)
                 chunking_delimiter = "\n".join(lines)
+            elif user_input == "6":
+                clipboard_content = pyperclip.paste()
+                snippets_to_process.append(f"Here have a look at my clipboard:\n```\n{clipboard_content}\n```")
             else:
                 next_prompt = user_input
             
@@ -206,10 +200,6 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             if not next_prompt:
                 continue
         
-        # workaround this is used for vscode hotkey functionality and will also work for pipeline choices but if will break/(interrupt for user input) if the pipeline wants to do "1"
-        if pre_chosen_option == "1":
-            pre_chosen_option = ""
-        
         if chunking_delimiter:
             # Create regex pattern: match delimiter at start of string or after newline
             pattern = f'(^|\n)(?={re.escape(chunking_delimiter)})'
@@ -224,9 +214,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
         # Print number of processed snippets
         print(colored(f"Processing {len(snippets_to_process)} snippets.", "yellow"))
         
-        # # Rephrase the prompt using few-shot learning
-        # next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, [LlmRouter.last_used_model, "llama-3.1-70b-versatile", "llama-3.1-405b-reasoning", "gpt-4o", "claude-3-5-sonnet"])
-
+        #! Actual code processing and generation starts here
         generated_snippets: List[str] = []
         for snippet in snippets_to_process:
             
