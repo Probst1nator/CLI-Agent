@@ -84,7 +84,7 @@ class FewShotProvider:
     #     return (response, chat)
         
     @classmethod 
-    def few_shot_YesNo(self, userRequest: str | Chat, preferred_model_keys: List[str]=[], force_local: bool = False, silent: bool = False, force_free: bool = False) -> Tuple[bool,Chat]:
+    def few_shot_YesNo(self, userRequest: str | Chat, preferred_model_keys: List[str]=[], force_local: bool = False, silent: bool = False, force_free: bool = False, force_preferred_model: bool = False) -> Tuple[bool,Chat]:
         """
         Determines whether the answer to the user's question is 'yes' or 'no'.
 
@@ -116,6 +116,7 @@ class FewShotProvider:
             chat,
             strength=AIStrengths.FAST,
             preferred_model_keys=preferred_model_keys, 
+            force_preferred_model=force_preferred_model,
             force_local=force_local,
             force_free=force_free,
             silent=silent,
@@ -1116,3 +1117,61 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         response = model.generate(model="nuextract", prompt=prompt)
 
         print(response.response)
+
+    @classmethod
+    def few_shot_toPythonRequirements(cls, implementationDescription: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
+        """
+        Generates the contents for a requirements.txt file based on the given implementation description.
+
+        Args:
+            implementationDescription (str): Description of the implementation.
+            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            force_local (bool, optional): If True, force the use of a local model.
+            silent (bool, optional): If True, suppress output during processing.
+
+        Returns:
+            str: The contents for a requirements.txt file.
+        """
+        chat = Chat("""You are an expert Python developer. Your task is to analyze the given implementation description and generate a requirements.txt file containing the necessary Python packages for the implementation. Follow these guidelines:
+
+        1. Include only the necessary packages for the described implementation.
+        2. Use standard package names as they appear in PyPI.
+        3. Specify version numbers only when strictly necessary.
+        4. Include one package per line.
+        5. If the implementation doesn't require any external packages, return an empty string.
+
+        Respond with only the contents of the requirements.txt file, without any additional explanation.""")
+
+        # Example 1: Web scraping implementation
+        chat.add_message(Role.USER, "Generate requirements for: A web scraping script using BeautifulSoup and requests to extract data from websites. The script also uses pandas to store the data in a CSV file.")
+        chat.add_message(Role.ASSISTANT, """beautifulsoup4
+    requests
+    pandas""")
+
+        # Example 2: Machine learning implementation
+        chat.add_message(Role.USER, "Generate requirements for: A machine learning project using TensorFlow for deep learning, scikit-learn for preprocessing, and matplotlib for visualizations. The project also uses numpy for numerical operations.")
+        chat.add_message(Role.ASSISTANT, """tensorflow
+    scikit-learn
+    matplotlib
+    numpy""")
+
+        # Example 3: Flask web application
+        chat.add_message(Role.USER, "Generate requirements for: A Flask web application with SQLAlchemy for database management, Flask-WTF for form handling, and Pillow for image processing. The app uses pytest for testing.")
+        chat.add_message(Role.ASSISTANT, """Flask
+    SQLAlchemy
+    Flask-WTF
+    Pillow
+    pytest""")
+
+        # Actual task
+        chat.add_message(Role.USER, f"Generate requirements for: {implementationDescription}")
+
+        response: str = LlmRouter.generate_completion(
+            chat,
+            preferred_model_keys=preferred_model_keys,
+            force_local=force_local,
+            force_free=True,
+            silent=silent
+        )
+
+        return response.strip()

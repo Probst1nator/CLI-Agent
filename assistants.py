@@ -130,7 +130,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_model_keys=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
             if len(abstract_code_overview)/4 >= 2048:
                 abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_model_keys=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
-            next_prompt = "Augment the below code snippet with thorough docstrings and step-by-step explanatory comments. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
+            next_prompt = "Augment the below code snippet with thorough docstrings and step-by-step explanatory comments. Do not include empty newlines in your docstrings. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
             next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
             pre_chosen_option = ""
         else:
@@ -182,7 +182,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 chunking_delimiter = "\n".join(lines)
             elif user_input == "6":
                 clipboard_content = pyperclip.paste()
-                snippets_to_process.append(f"Here have a look at my clipboard:\n```\n{clipboard_content}\n```")
+                snippets_to_process.insert(0, f"Here have a look at my clipboard:\n```\n{clipboard_content}\n```")
             else:
                 next_prompt = user_input
             
@@ -212,34 +212,42 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 snippets_to_process[i] = chunking_delimiter + snippets_to_process[i]
 
         # Print number of processed snippets
-        print(colored(f"Processing {len(snippets_to_process)} snippets.", "yellow"))
         
         #! Actual code processing and generation starts here
+        # check for additional snippets to add for processing
         generated_snippets: List[str] = []
-        for snippet in snippets_to_process:
-            
-            # Prepare the prompt based on the number of snippets
-            if len(snippets_to_process) == 1:
-                # Add the snippet only if it hasn't been added before
-                if not any(snippet in message for message in context_chat.messages):
-                    next_prompt_i = next_prompt + f"\n\n{snippet}"
-            else:
-                next_prompt_i = next_prompt + f"Please provide your modified snippet without any additional code such that it can be a drop in replacement for the below snippet:\n\n{snippet}"
-            
-            # Add the prompt to the chat context
-            context_chat.add_message(Role.USER, next_prompt_i)
-            
-            # Generate a response using the LlmRouter
+        if snippets_to_process:
+            print(colored(f"Processing {len(snippets_to_process)} snippets.", "yellow"))
+            for snippet in snippets_to_process:
+                # Prepare the prompt based on the number of snippets
+                if len(snippets_to_process) == 1:
+                    # Add the snippet only if it hasn't been added before
+                    if not any(snippet in message for message in context_chat.messages):
+                        next_prompt_i = next_prompt + f"\n\n{snippet}"
+                else:
+                    next_prompt_i = next_prompt + f"Please provide your modified snippet without any additional code such that it can be a drop in replacement for the below snippet:\n\n{snippet}"
+                # Add the prompt to the chat context
+                context_chat.add_message(Role.USER, next_prompt_i)
+                # Generate a response using the LlmRouter
+                response = LlmRouter.generate_completion(context_chat, preferred_model_keys=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+                extracted_snippet = extract_single_snippet(response, allow_no_end=True)
+                # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
+                if (extracted_snippet):
+                    generated_snippets.append(extracted_snippet)
+                # Add the assistant's response to the chat context
+                context_chat.add_message(Role.ASSISTANT, response)
+        else:
+            # Only use prompt + context without adding snippets
+            context_chat.add_message(Role.USER, next_prompt)
             response = LlmRouter.generate_completion(context_chat, preferred_model_keys=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
             extracted_snippet = extract_single_snippet(response, allow_no_end=True)
             # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
             if (extracted_snippet):
                 generated_snippets.append(extracted_snippet)
-            
             # Add the assistant's response to the chat context
             context_chat.add_message(Role.ASSISTANT, response)
         
-        # Check if all snippets were regenerated
+        # Check if generated snippets can automatically replace the original snippets
         if len(snippets_to_process) == len(generated_snippets):
             # Replace the original snippets with the generated snippets
             result = file_content
@@ -247,9 +255,14 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 # remove first and last line from source_snippet
                 clean_snippet = "\n".join(source_snippet.split("\n")[1:-1])
                 result = result.replace(clean_snippet, generated_snippet)
-                
             pyperclip.copy(result)
             print(colored("Result copied to clipboard.", 'green'))
+        # Snippets were generated but need to be handled by hand
+        elif len(snippets_to_process) <= len(generated_snippets):
+            result = "\n".join(generated_snippets)
+            pyperclip.copy(result)
+            print(colored("Result copied to clipboard.", 'green'))
+        # Something likely went wrong
         else:
             print(colored("INFO: Snippets were not reimplemented by the assistant.", 'yellow'))
             if (len(snippets_to_process) > 1):
