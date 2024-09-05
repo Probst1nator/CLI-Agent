@@ -248,7 +248,7 @@ class LlmRouter:
         
         # Search for model key match first
         for model_key in preferred_model_keys:
-            if model_key not in self.failed_models and model_key:
+            if (model_key not in self.failed_models or force_preferred_model) and model_key:
                 model = next((model for model in self.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local)), None)
                 if model:
                     return model
@@ -328,7 +328,7 @@ class LlmRouter:
         base64_images: List[str] = [],
         include_start_response_str: bool = True,
         use_cache: bool = True,
-        force_local: Optional[bool] = None,
+        force_local: bool = False,
         force_free: bool = False,
         force_preferred_model: bool = False,
         silent: bool = False,
@@ -457,7 +457,7 @@ class LlmRouter:
                         print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
                         for char in cached_completion:
                             print(tooling.apply_color(char), end="")
-                            time.sleep(0.01) # better observable for the user
+                            time.sleep(0.001) # better observable for the user
                         print()
                     return cached_completion
 

@@ -12,6 +12,7 @@ import re
 import warnings
 
 from cmd_execution import select_and_execute_commands
+from agentic_self.cls_AgentProcess import AgentProcess
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
@@ -22,7 +23,9 @@ from classes.cls_web_scraper import get_github_readme, search_brave
 from classes.cls_llm_router import LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_chat import Chat, Role
+from agentic_self.cls_AgenticPythonProcess import AgenticPythonProcess
 from globals import g
+
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -63,6 +66,8 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-stt", "--speech_to_text", action="store_true",
                         help="Enable microphone input and text-to-speech. (Wip: please split this up)")
     
+    parser.add_argument("--exp", action="store_true",
+                        help='Experimental agentic hierarchical optimization state machine.')
     parser.add_argument("--llm", nargs='?', const='phi3.5:3.8b', type=str,
                         help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3.5:3.8b", "llama3.1:8b", "claude3.5", "gpt-4o"]')
     parser.add_argument("--preload", action="store_true",
@@ -97,6 +102,16 @@ def main() -> None:
         pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=False, preferred_model_keys=["phi3.5:3.8b"])
         print(colored("Preloading complete.", "green"))
         exit(0)
+    
+    if args.exp:
+        while True:
+            print(colored("Experimental agentic hierarchical optimization state machine.", "green"))
+            user_input = input(colored("Enter new user request or press enter to run an iteration of AgenticSelf, type 'exit' to exit: ", 'blue'))
+            if user_input == "exit":
+                exit(0)
+            agent = AgenticPythonProcess()
+            agent.run(user_input)
+        
     
     context_chat: Chat|None = None
     next_prompt = ""
@@ -228,8 +243,11 @@ def main() -> None:
             continue
         
         if next_prompt.startswith("--llm"):
-            next_prompt = next_prompt.replace("--llm ", "")
-            args.llm = next_prompt
+            user_input = input(colored("Enter the llm to use (phi3.5:3.8b, claude3.5, gpt-4o), or leave empty for automatic: ", 'blue'))
+            if user_input:
+                args.llm = user_input
+            else:
+                args.llm = None
             next_prompt = ""
             print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
             continue
