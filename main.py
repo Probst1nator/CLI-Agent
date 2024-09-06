@@ -12,7 +12,6 @@ import re
 import warnings
 
 from cmd_execution import select_and_execute_commands
-from agentic_self.cls_AgentProcess import AgentProcess
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
@@ -23,7 +22,7 @@ from classes.cls_web_scraper import get_github_readme, search_brave
 from classes.cls_llm_router import LlmRouter
 from classes.cls_few_shot_factory import FewShotProvider
 from classes.cls_chat import Chat, Role
-from agentic_self.cls_AgenticPythonProcess import AgenticPythonProcess
+from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
 from globals import g
 
 

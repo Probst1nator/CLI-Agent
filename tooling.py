@@ -14,7 +14,6 @@ from typing import List, Tuple
 import chromadb
 from gtts import gTTS
 import numpy as np
-from librosa import *
 
 from classes.cls_chat import Chat, Role
 from classes.cls_few_shot_factory import FewShotProvider

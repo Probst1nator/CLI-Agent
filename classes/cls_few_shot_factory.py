@@ -13,22 +13,6 @@ from classes.cls_pptx_presentation import PptxPresentation, Slide
 from cmd_execution import select_and_execute_commands
 from globals import g
 
-client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-collection = client.get_or_create_collection(name="commands")
-
-# class Agent:
-#     tools:List[str] = []
-
-#     def __init__():
-#         pass
-    
-#     def chat(prompt:str) -> str:
-#         few_shot_chat:Chat = Chat("You are an ai-agent. Use strategic step by step planning to advance your current state toward optimal actions.")
-#         user_prompt: str = "Please pick you next action to take:"
-#         few_shot_chat.add_message(Role.USER, user_prompt)
-#         OllamaClient().generate_completion(few_shot_chat)
-    
-    
 class FewShotProvider:
     """A provider of various few-shot learning-based functionalities."""
     session = OllamaClient()
@@ -276,6 +260,8 @@ This command will search for any running processes that match the pattern "cli-a
         )
         
         try:
+            client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+            collection = client.get_or_create_collection(name="commands")
             cmd_embedding = OllamaClient.generate_embedding(userRequest, "bge-m3")
             results = collection.query(
                 query_embeddings=cmd_embedding,
