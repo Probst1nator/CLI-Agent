@@ -2,9 +2,6 @@ import os
 import subprocess
 import sys
 from typing import List, Tuple
-import os
-from typing import List, Tuple
-from librosa import *
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout
@@ -12,13 +9,6 @@ from prompt_toolkit.widgets import CheckboxList, Frame, Label
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pyperclip
-from termcolor import colored
-
-from globals import g
-from logger import logger
-
-import os
-
 from termcolor import colored
 
 
