@@ -837,14 +837,14 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         # Transform the extractable information to a german presentation
         chat = Chat()
         chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n'''\n{coherent_extraction}\n'''")
-        high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_model_keys=["llama3-70b-8192"] + preferred_model_keys, force_local = force_local, silent = True)
+        high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_model_keys, force_local = force_local, silent = True)
         chat.add_message(Role.ASSISTANT, high_level_extraction_analysis)
         chat.add_message(Role.USER, "Can you please summarize all details of the document in a coherent manner? The summary will be used to provide advice to students, this requires you to only provide facts that have plenty of context of topic and subject available. If such context is not present, always choose to skip unreliable or inaccurate information completely. Do not mention when you are ignoring content because of this.")
-        factual_summarization = LlmRouter.generate_completion(chat, preferred_model_keys=["llama3-70b-8192"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
+        factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
         chat.add_message(Role.ASSISTANT, factual_summarization)
         praesentieren_prompt = "Bitte präsentiere die Informationen in dem Dokument in einer Weise, die für Studenten leicht verständlich ist. Verwende einfache Sprache und ganze Sätze, um die Informationen zu vermitteln. Verwende Neologismen wenn angemessen. Beginne deine Antwort bitte direkt mit dem präsentieren."
         chat.add_message(Role.USER, praesentieren_prompt)
-        raw_informationen = LlmRouter.generate_completion(chat, preferred_model_keys=["llama-3.1-8b-instant"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
+        raw_informationen = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
         
         # Transform the used ontology to the production model
         chat = Chat("You bist ein hilfreicher KI-Assistent der Friedrich-Alexander-Universität.")
@@ -854,7 +854,7 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         # We need to try models similar to the production model for the resulting onology to fit optimally
         # Todo: Still waiting for phi3.5-moe to become available on ollama or as gguf on huggingface
         for model_key in ["phi3.5", "phi3:mini-4k", "phi3:medium-4k", "llava-phi3"]:
-            informationen = LlmRouter.generate_completion(chat, preferred_model_keys=[model_key], force_local = force_local, silent = True, force_free = True, force_preferred_model = True)
+            informationen = LlmRouter.generate_completion(chat, preferred_models=[model_key], force_local = force_local, silent = True, force_free = True, force_preferred_model = True)
             if not informationen:
                 break
             # Safe guard for any issues that might ocurr

@@ -51,12 +51,12 @@ class AgenticPythonProcess:
                         raise RuntimeError(f"Failed to get envision acceptable goal directed strategy after {max_retries} attempts")
                     print(colored("Step 3.1/6: ", "yellow") + "Envisioning goal directed strategy...")
                     reasoning_chat.add_message(Role.USER, "Please provide a goal directed strategy that the system should follow to achieve the desired outcome. Your suggested strategy must be implementable using consecutive Python methods. For now, only provide a deailed outline of the strategy.")
-                    strategy_outline = LlmRouter.generate_completion(reasoning_chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+                    strategy_outline = LlmRouter.generate_completion(reasoning_chat, preferred_models=[self.llm_key], force_preferred_model=True)
                     reasoning_chat.add_message(Role.ASSISTANT, strategy_outline)
                     print(colored("Step 3.2/6: ", "yellow") + "Critiquing vision...")
                     critique_chat = Chat("As a critical component in a system of llm agents, your task is to evaluate the proposed strategy. Review the system's memory state to determine if this is a viable course of action that aligns with the users intent. Respond in a chain of thought in natural language.")
                     critique_chat.add_message(Role.USER, f"# # # SYSTEM MEMORY # # #\n{memory_reasoning}\n\n# # # PROPOSED STRATEGY # # #\n{strategy_outline}")
-                    critique_response = LlmRouter.generate_completion(critique_chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+                    critique_response = LlmRouter.generate_completion(critique_chat, preferred_models=[self.llm_key], force_preferred_model=True)
                     accept_strategy = FewShotProvider.few_shot_YesNo(f"Is the proposed strategy acceptable? Please respond with 'yes' or 'no'.\n\n{critique_response}")
                     if accept_strategy:
                         break
@@ -116,18 +116,21 @@ class AgenticPythonProcess:
             
         print(colored("AgenticAI run completed successfully!", "cyan", attrs=["bold"]))
 
+    # def coordinator_agent(self):
+    #     self.top_level_chat = Chat("You are the coordinating component of an agentic ai system. Please reflect on your memory to identify the next ")
+
     def _LLM_memory_reasoning(self) -> Tuple[str, Chat]:
         memory: List[Tuple[str, str, str]] = self._STATE_get_memory()
         memory_str = "\n".join([f"Timestamp: {datetime} Title: {title} Content: {contents}" for datetime, title, contents in memory])
         chat = Chat("You are part of a larger system of llm agents, tasked with reviewing the system's current memory state. The system's goal is to implement strategic Python methods to increase its helpfulness to the user. Analyze the memory to understand how it relates to the latest system state and how to proceed accordingly.")
         chat.add_message(Role.USER, f"Please review the system's memory and provide a summary of the most relevant information for the current system state. \n# # # SYSTEM MEMORY # # #\n{memory_str}")
-        response = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+        response = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
         return response, chat
 
     def _LLM_action_reasoning(self, available_methods: List[str], reasoning_chat: Chat) -> Tuple[str, Chat]:
         available_actions_str = "\n".join(available_methods)
         reasoning_chat.add_message(Role.USER, f"Interesting, consider the following available actions that are available to the system, please review the if any stand out as currently relevant:\n{available_actions_str}")
-        response = LlmRouter.generate_completion(reasoning_chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+        response = LlmRouter.generate_completion(reasoning_chat, preferred_models=[self.llm_key], force_preferred_model=True)
         return response, reasoning_chat
 
     def _get_available_methods(self) -> List[str]:
@@ -140,14 +143,14 @@ class AgenticPythonProcess:
         chat = Chat("You are a component in a system of llm agents, responsible for selecting methods based on the system's current memory state. Your goal is to choose the most appropriate Python method to enhance the system's ability to assist the user.")
         prompt = f"Please review the system's memory and choose the single best suited method for the next action. Please provide a reasoning about the context before providing your choice."
         chat.add_message(Role.USER, prompt + f"\n # # # SYSTEM MEMORY # # #\n{memory_reasoning}\n\n# # # AVAILABLE METHODS # # #\n{tools_str}")
-        response = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+        response = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
         chat.add_message(Role.ASSISTANT, response)
         chat.add_message(Role.USER, "Please provide your method choice and reasoning in the following WELL FORMED JSON FORMAT, using this TEMPLATE: {\"method\": \"method_name\", \"reasoning\": \"Your reasoning here\"}\nDO NOT ADD ANY METHODS THAT WERE NOT SPECIFIED IN THE AVAILABLE METHODS. DO NOT INCLUDE PARAMS IN THE JSON.")
         
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                method_json = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+                method_json = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
                 json_start = method_json.find('{')
                 json_end = method_json.rfind('}') + 1
                 if json_start != -1 and json_end != -1:
@@ -165,14 +168,14 @@ class AgenticPythonProcess:
         chat = Chat("As a critical component in a system of llm agents, your task is to evaluate the chosen method for the next action. Review the system's memory state and available methods to determine if this is truly the optimal course of action to increase helpfulness to the user.")
         prompt = f"Please review the chosen method and the reasoning behind it. Decide if this is truly the best course of action given the current system memory and available methods. If you believe this is the best action, respond with 'ACCEPT'. If you believe a better action is possible, respond with 'REJECT'. Provide your reasoning for this decision.\n\nChosen Method: {picked_method}\nReasoning: {method_reasoning}\n\nMemory Reasoning: {memory_reasoning}\n\nAvailable Methods: {', '.join(available_methods)}"
         chat.add_message(Role.USER, prompt)
-        critique = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+        critique = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
         chat.add_message(Role.ASSISTANT, critique)
         chat.add_message(Role.USER, "Please provide your decision and reasoning in the following WELL FORMED JSON FORMAT, using this TEMPLATE: {\"decision\": \"ACCEPT/REJECT\", \"reasoning\": \"Your reasoning here\"}")
         
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                decision_json = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+                decision_json = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
                 json_start = decision_json.find('{')
                 json_end = decision_json.rfind('}') + 1
                 if json_start != -1 and json_end != -1:
@@ -196,7 +199,7 @@ Memory Reasoning: {memory_reasoning}
 """
 
         chat.add_message(Role.USER, prompt)
-        response = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+        response = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
         implement_new_method = FewShotProvider.few_shot_YesNo(f"Should a new method be implemented? Please respond with 'yes' or 'no'. \n\n{response})")
         if implement_new_method:
             return "implement_new_method"
@@ -249,7 +252,7 @@ Memory Reasoning: {memory_reasoning}
         chat.add_message(Role.USER, f"Here's the task description, answer with ready if you're ready for the method we want to use to proceed according to plan. {memory_reasoning}")
         chat.add_message(Role.ASSISTANT, "READY")
         chat.add_message(Role.USER, "Provide parameters for the following method, respond only in this WELL FORMED JSON TEMPLATE, ONLY PROVIDE A SINGLE OBJECT: {\"param1_title\": \"param1_value\", \"param2_title\": \"param2_value\", ...}\n\n" + method_full)
-        response_json_str = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+        response_json_str = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
         json_start = response_json_str.find('{')
         json_end = response_json_str.rfind('}') + 1
         if json_start != -1 and json_end != -1:
@@ -329,7 +332,7 @@ Memory Reasoning: {memory_reasoning}
             chat.add_message(Role.IPYTHON, method_output_str)
         else:
             chat.add_message(Role.IPYTHON, f"Warning, output too large to display in full. Shortening to first 4096 characters:\n{method_output_str[:4096]}...")
-        method_reflection = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+        method_reflection = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
         chat.add_message(Role.ASSISTANT, method_reflection)
         return chat
 
@@ -339,7 +342,7 @@ Memory Reasoning: {memory_reasoning}
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                new_memory_str = LlmRouter.generate_completion(chat, preferred_model_keys=[self.llm_key], force_preferred_model=True)
+                new_memory_str = LlmRouter.generate_completion(chat, preferred_models=[self.llm_key], force_preferred_model=True)
                 json_start = new_memory_str.find('{')
                 json_end = new_memory_str.rfind('}') + 1
                 if json_start != -1 and json_end != -1:

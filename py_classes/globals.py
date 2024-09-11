@@ -2,7 +2,7 @@
 import os
 
 class Globals:
-    PROJ_DIR_PATH = os.path.dirname(os.path.abspath(__file__))
+    PROJ_DIR_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     PROJ_VSCODE_DIR_PATH = os.path.join(PROJ_DIR_PATH, '.vscode')
     PROJ_ENV_FILE_PATH = os.path.join(PROJ_DIR_PATH, '.env')
     PROJ_AGENTIC_PATH = os.path.join(PROJ_DIR_PATH, 'agentic')
