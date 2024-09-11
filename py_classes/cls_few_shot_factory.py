@@ -99,7 +99,7 @@ class FewShotProvider:
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.FAST,
-            preferred_model_keys=preferred_model_keys, 
+            preferred_models=preferred_model_keys, 
             force_preferred_model=force_preferred_model,
             force_local=force_local,
             force_free=force_free,
@@ -509,7 +509,7 @@ Implementation of opponent modeling for strategic advantages.
 A hierarchical learning approach to separate strategy and execution."""
         rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
         decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
-        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
+        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, silent=True, preferred_models=preferred_model_keys, force_local=force_local)
         chat.add_message(Role.USER, presentation_details)
         
         create_presentation_response = FewShotProvider.few_shot_rephrase("I will create a presentation titled 'ER-Force Strategy Optimization' that covers the main points of your discussion.", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local).strip(".")
@@ -523,7 +523,7 @@ A hierarchical learning approach to separate strategy and execution."""
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.STRONG,
-            preferred_model_keys=preferred_model_keys, 
+            preferred_models=preferred_model_keys, 
             force_local=force_local
         )
         chat.add_message(
@@ -598,7 +598,7 @@ Create a similar object based on this description: {target_description}""")
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.FAST,
-            preferred_model_keys=preferred_model_keys,
+            preferred_models=preferred_model_keys,
             force_local=force_local
         )
 
@@ -780,7 +780,7 @@ Explanation: This file contains database-related tests. It should be updated to 
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.FAST,
-            preferred_model_keys=preferred_model_keys,
+            preferred_models=preferred_model_keys,
             force_local=force_local
         )
 
@@ -886,7 +886,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_model_keys=preferred_model_keys,
+            preferred_models=preferred_model_keys,
             force_local=force_local,
             force_free=True,
             silent=silent
@@ -957,7 +957,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_model_keys=preferred_model_keys,
+            preferred_models=preferred_model_keys,
             force_local=force_local,
             force_free=force_free,
             silent=silent
@@ -1051,7 +1051,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_model_keys=preferred_model_keys,
+            preferred_models=preferred_model_keys,
             force_local=force_local,
             force_free=True,
             silent=silent
@@ -1160,7 +1160,7 @@ pytest
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_model_keys=preferred_model_keys,
+            preferred_models=preferred_model_keys,
             force_local=force_local,
             force_free=True,
             silent=silent

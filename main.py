@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:
 
 from py_methods.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
 from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
-from py_classes.cls_web_scraper import get_github_readme, search_brave
+from py_classes.cls_web_scraper import WebTools
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_few_shot_factory import FewShotProvider
 from py_classes.cls_chat import Chat, Role
@@ -53,13 +53,12 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Interactively create a presentation.")    
     parser.add_argument("-h", "--help", action="store_true",
                         help="Display this help")
-    
-    parser.add_argument("-ma", "--majority", nargs='?', const="", type=str,
+    parser.add_argument("-ma", "--majority", action="store_true",
                         help="Generate a response based on the majority of all local models.")
     parser.add_argument("-fp", "--fixpy", type=str,
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
     parser.add_argument("-doc", "--documents", nargs='?', const="", type=str, metavar="PATH",
-                        help="Uses a pdf or folder of pdfs to generate a response.")
+                        help="Uses a pdf or folder of pdfs to generate a response. Uses retrieval-based approach.")
     parser.add_argument("-doc2", "--documents2", nargs='?', const="", type=str, metavar="PATH",
                         help="Uses a pdf or folder of pdfs to generate a response. Uses needle in a haystack approach.")
     parser.add_argument("-stt", "--speech_to_text", action="store_true",
@@ -150,14 +149,6 @@ def main() -> None:
         if not context_chat:
             context_chat = Chat()
         presentation_assistant(args, context_chat, args.presentation)
-    
-    if args.majority:
-        if not context_chat:
-            context_chat = Chat()
-        user_input = ""
-        if args.message:
-            user_input = args.message
-        majority_response_assistant(args, context_chat, args.message)
     
     if args.git_message_generator:
         if not context_chat:
@@ -263,6 +254,11 @@ def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Websearch enabled, type (--h) for info", "green"))
             continue
         
+        if next_prompt.endswith("--maj"):
+            args.majority = True    
+            print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
+            continue
+        
         if next_prompt.endswith("--m"):
             print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
             lines = []
@@ -285,18 +281,20 @@ def main() -> None:
 # cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --a: Toggles autonomous command execution.
-# cli-agent: --m: Multiline input mode.
 # cli-agent: --w: Perform a websearch before answering.
+# cli-agent: --maj: Run the majority response assistant.
+# cli-agent: --m: Multiline input mode.
 # cli-agent: --h: Shows this help message.
 # cli-agent: Type 'quit' to exit the program.
 """, "yellow"))
             continue
         
+        
         if args.web_search:
             # recent_context_str = context_chat.get_messages_as_string(-3)
             recent_context_str = next_prompt
             query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
-            results = search_brave(query, 2)
+            results = WebTools.search_brave(query, 2)
             temporary_prompt_context_augmentation += f"\n\n```web_search_results\n{''.join(results)}\n```"
             args.web_search = False
         
@@ -305,19 +303,29 @@ def main() -> None:
             match = re.search(r"(?P<url>https?://[^\s]+)", next_prompt)
             if match:
                 github_repo_url = match.group("url")
-                github_readme = get_github_readme(github_repo_url)
+                github_readme = WebTools.get_github_readme(github_repo_url)
                 prompt_context_augmentation += f"\n\nHere's the readme from the github repo:\n```md\n{github_readme}\n```"
 
         
         next_prompt +=  temporary_prompt_context_augmentation  # appending relevant content to generate better responses
         next_prompt +=  prompt_context_augmentation  # appending relevant content to generate better responses
         
-        if context_chat and len(context_chat.messages) > 1:
+        if args.majority:
+            # Majority voting behavior
+            majority_chat, majority_response = majority_response_assistant(next_prompt, args.message)
+            if not context_chat:
+                context_chat = majority_chat
+            else:
+                context_chat.add_message(Role.USER, next_prompt)
+                context_chat.add_message(Role.ASSISTANT, majority_response)
+            continue
+        elif context_chat and len(context_chat.messages) > 1:
+            # Default continuation
             context_chat.add_message(Role.USER, next_prompt)
             llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            # update_cmd_collection()
+            # Default behavior initalization
             llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, [args.llm], force_local=args.local)
         
         if (args.speak or args.speech_to_text):
