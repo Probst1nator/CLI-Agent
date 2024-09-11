@@ -14,14 +14,14 @@ import git
 import pyperclip
 from termcolor import colored
 
-from classes.ai_providers.cls_ollama_interface import OllamaClient
-from classes.cls_chat import Chat, Role
-from classes.cls_few_shot_factory import FewShotProvider
-from classes.cls_llm_router import AIStrengths, LlmRouter
-from classes.cls_pptx_presentation import PptxPresentation
-from classes.cls_web_scraper import search_brave
-from tooling import create_rag_prompt, extract_pdf_content, get_joined_pdf_contents, list_files_recursive, pdf_or_folder_to_database, run_python_script, split_string_into_chunks
-from globals import g
+from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+from py_classes.cls_chat import Chat, Role
+from py_classes.cls_few_shot_factory import FewShotProvider
+from py_classes.cls_llm_router import AIStrengths, LlmRouter
+from py_classes.cls_pptx_presentation import PptxPresentation
+from py_classes.cls_web_scraper import search_brave
+from py_methods.tooling import create_rag_prompt, extract_pdf_content, get_joined_pdf_contents, list_files_recursive, pdf_or_folder_to_database, run_python_script, split_string_into_chunks
+from py_classes.globals import g
 
 
 # # # helper methods
@@ -130,7 +130,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_model_keys=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
             if len(abstract_code_overview)/4 >= 2048:
                 abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_model_keys=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
-            next_prompt = "Augment the below code snippet with thorough docstrings and step-by-step explanatory comments. Do not include empty newlines in your docstrings. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
+            next_prompt = "Augment the below code snippet with docstrings focusing on a concise overview of usage and parameters, alos add explanatory comments where the code seems highly complex. Do not include empty newlines in your docstrings. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
             next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
             pre_chosen_option = ""
         else:

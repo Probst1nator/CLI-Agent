@@ -11,19 +11,19 @@ import sys
 import re
 import warnings
 
-from cmd_execution import select_and_execute_commands
+from py_methods.cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 
-from assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
-from tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
-from classes.cls_web_scraper import get_github_readme, search_brave
-from classes.cls_llm_router import LlmRouter
-from classes.cls_few_shot_factory import FewShotProvider
-from classes.cls_chat import Chat, Role
+from py_methods.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
+from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
+from py_classes.cls_web_scraper import get_github_readme, search_brave
+from py_classes.cls_llm_router import LlmRouter
+from py_classes.cls_few_shot_factory import FewShotProvider
+from py_classes.cls_chat import Chat, Role
 from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
-from globals import g
+from py_classes.globals import g
 
 
 
@@ -108,6 +108,7 @@ def main() -> None:
             user_input = input(colored("Enter new user request or press enter to run an iteration of AgenticSelf, type 'exit' to exit: ", 'blue'))
             if user_input == "exit":
                 exit(0)
+            # agent = AgenticPythonProcess("human")
             agent = AgenticPythonProcess()
             agent.run(user_input)
         

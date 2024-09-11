@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
-from classes.cls_chat import Chat
+from py_classes.cls_chat import Chat
 
 class ChatClientInterface(ABC):
     @abstractmethod

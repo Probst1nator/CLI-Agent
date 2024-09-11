@@ -4,16 +4,17 @@ import os
 import time
 from typing import Dict, List, Optional, Set
 from termcolor import colored
-from classes.cls_custom_coloring import CustomColoring
-from classes.cls_chat import Chat, Role
+from py_classes.ai_providers.cls_human_as_interface import HumanAPI
+from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_chat import Chat, Role
 from enum import Enum
-from classes.ai_providers.cls_anthropic_interface import AnthropicChat
-from classes.cls_ai_provider_interface import ChatClientInterface
-from classes.ai_providers.cls_groq_interface import GroqChat
-from classes.ai_providers.cls_ollama_interface import OllamaClient
-from classes.ai_providers.cls_openai_interface import OpenAIChat
-from logger import logger
-from globals import g
+from py_classes.ai_providers.cls_anthropic_interface import AnthropicAPI
+from py_classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.ai_providers.cls_groq_interface import GroqAPI
+from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
+from py_methods.logger import logger
+from py_classes.globals import g
 
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
@@ -71,18 +72,19 @@ class Llm:
         # Define and return a list of available LLM instances
         return [
             # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, False, 131072, None, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama-3.1-70b-versatile", None, False, False, False, 131072, 30000, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama-3.1-8b-instant", None, False, False, False, 131072, 30000, AIStrengths.FAST),
-            Llm(GroqChat(), "llama3-70b-8192", None, False, False, False, 8192, 6000, AIStrengths.STRONG),
-            Llm(GroqChat(), "llama3-8b-8192", None, False, False, False, 8192, 30000, AIStrengths.FAST),
+            Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, AIStrengths.STRONG),
+            Llm(GroqAPI(), "llama-3.1-70b-versatile", None, False, False, False, 131072, 30000, AIStrengths.STRONG),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 131072, 30000, AIStrengths.FAST),
+            Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 8192, 6000, AIStrengths.STRONG),
+            Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 8192, 30000, AIStrengths.FAST),
             # Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.STRONG),
             # Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.FAST),
-            Llm(GroqChat(), "gemma2-9b-it", None, False, False, False, 8192, 15000, AIStrengths.FAST),
+            Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, 15000, AIStrengths.FAST),
             
-            Llm(AnthropicChat(), "claude-3-5-sonnet", 9, False, False, False, 200000, 4096, AIStrengths.STRONG),
-            Llm(AnthropicChat(), "claude-3-haiku-20240307", 1, False, False, False, 200000, 4096, AIStrengths.FAST),
-            Llm(OpenAIChat(), "gpt-4o", 10, False, False, True, 128000, None, AIStrengths.STRONG),
-            Llm(OpenAIChat(), "gpt-4o-mini", 0.4, False, False, True, 128000, None, AIStrengths.FAST),
+            Llm(AnthropicAPI(), "claude-3-5-sonnet", 9, False, False, False, 200000, 4096, AIStrengths.STRONG),
+            Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, 4096, AIStrengths.FAST),
+            Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, None, AIStrengths.STRONG),
+            Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, None, AIStrengths.FAST),
             
             # Llm(OllamaClient(), "Hermes-3-Llama-3.1-8B.Q4_K_M.gguf:latest", None, False, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "phi3.5:3.8b", None, False, True, False, 4096, None, AIStrengths.STRONG),
@@ -332,7 +334,7 @@ class LlmRouter:
         force_free: bool = False,
         force_preferred_model: bool = False,
         silent: bool = False,
-        re_print_prompt: bool = False
+        re_print_prompt: bool = False,
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -390,7 +392,7 @@ class LlmRouter:
                             print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
                             for char in cached_completion:
                                 print(tooling.apply_color(char), end="")
-                                time.sleep(0.001) # better observable for the user
+                                time.sleep(0) # better observable for the user
                             print()
                         return cached_completion
 
@@ -400,6 +402,7 @@ class LlmRouter:
                 return start_response_with + response if include_start_response_str else response
 
             except Exception as e:
+                print(colored(f"Error with model {model.model_key}: {e}", "red"))
                 logger.error(f"Error with model {model.model_key}: {e}")
                 instance.failed_models.add(model.model_key)
 

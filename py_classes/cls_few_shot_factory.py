@@ -6,12 +6,12 @@ import ollama
 import chromadb
 from termcolor import colored
 
-from classes.cls_chat import Chat, Role
-from classes.cls_llm_router import AIStrengths, LlmRouter
-from classes.ai_providers.cls_ollama_interface import OllamaClient
-from classes.cls_pptx_presentation import PptxPresentation, Slide
-from cmd_execution import select_and_execute_commands
-from globals import g
+from py_classes.cls_chat import Chat, Role
+from py_classes.cls_llm_router import AIStrengths, LlmRouter
+from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+from py_classes.cls_pptx_presentation import PptxPresentation, Slide
+from py_methods.cmd_execution import select_and_execute_commands
+from py_classes.globals import g
 
 class FewShotProvider:
     """A provider of various few-shot learning-based functionalities."""
@@ -1124,31 +1124,37 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         2. Use standard package names as they appear in PyPI.
         3. Specify version numbers only when strictly necessary.
         4. Include one package per line.
-        5. If the implementation doesn't require any external packages, return an empty string.
-
-        Respond with only the contents of the requirements.txt file, without any additional explanation.""")
+        5. If the implementation doesn't require any external packages, return an empty string.""")
 
         # Example 1: Web scraping implementation
         chat.add_message(Role.USER, "Generate requirements for: A web scraping script using BeautifulSoup and requests to extract data from websites. The script also uses pandas to store the data in a CSV file.")
-        chat.add_message(Role.ASSISTANT, """beautifulsoup4
-    requests
-    pandas""")
+        chat.add_message(Role.ASSISTANT, """Sure here are the requirements:
+'''txt
+beautifulsoup4
+requests
+pandas
+'''""")
 
         # Example 2: Machine learning implementation
         chat.add_message(Role.USER, "Generate requirements for: A machine learning project using TensorFlow for deep learning, scikit-learn for preprocessing, and matplotlib for visualizations. The project also uses numpy for numerical operations.")
-        chat.add_message(Role.ASSISTANT, """tensorflow
-    scikit-learn
-    matplotlib
-    numpy""")
+        chat.add_message(Role.ASSISTANT, """Sure here are the requirements:
+'''txt
+tensorflow
+scikit-learn
+matplotlib
+numpy
+'''""")
 
         # Example 3: Flask web application
         chat.add_message(Role.USER, "Generate requirements for: A Flask web application with SQLAlchemy for database management, Flask-WTF for form handling, and Pillow for image processing. The app uses pytest for testing.")
-        chat.add_message(Role.ASSISTANT, """Flask
-    SQLAlchemy
-    Flask-WTF
-    Pillow
-    pytest""")
-
+        chat.add_message(Role.ASSISTANT, """Sure here are the requirements:
+'''txt
+Flask
+SQLAlchemy
+Flask-WTF
+Pillow
+pytest
+'''""")
         # Actual task
         chat.add_message(Role.USER, f"Generate requirements for: {implementationDescription}")
 
@@ -1159,5 +1165,10 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             force_free=True,
             silent=silent
         )
-
-        return response.strip()
+    
+        # Extract content between '''txt and '''
+        match = re.search(r"'''txt\n(.*?)'''", response, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        else:
+            return ""

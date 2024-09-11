@@ -1,0 +1,9 @@
+// this version should have a main_coordinator_chat, the main coordinator chat will use the below pseudcode as control processing:
+Memory reflection
+while True:
+    //Adapted from Yann LeCun's "Action-Perception-Divergence" to "(Perception/ Divergence)-Action"
+    Envision goal -> Envision strategy -> Pick Action -> Finetune Action (Generate Params) -> Execute Action -> Reflect on Action results -> Add memory
+
+
+
+Next goal

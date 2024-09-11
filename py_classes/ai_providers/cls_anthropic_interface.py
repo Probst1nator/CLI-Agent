@@ -3,11 +3,11 @@ from typing import Optional
 from anthropic import Anthropic
 
 from termcolor import colored
-from classes.cls_custom_coloring import CustomColoring
-from classes.cls_chat import Chat, Role
-from classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_chat import Chat, Role
+from py_classes.cls_ai_provider_interface import ChatClientInterface
 
-class AnthropicChat(ChatClientInterface):
+class AnthropicAPI(ChatClientInterface):
     """
     Implementation of the ChatClientInterface for the Anthropic API.
     """

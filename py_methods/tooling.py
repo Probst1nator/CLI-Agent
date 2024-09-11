@@ -15,9 +15,9 @@ import chromadb
 from gtts import gTTS
 import numpy as np
 
-from classes.cls_chat import Chat, Role
-from classes.cls_few_shot_factory import FewShotProvider
-from classes.cls_llm_router import LlmRouter
+from py_classes.cls_chat import Chat, Role
+from py_classes.cls_few_shot_factory import FewShotProvider
+from py_classes.cls_llm_router import LlmRouter
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 from termcolor import colored
@@ -30,10 +30,10 @@ from pdfminer.converter import TextConverter
 from pdfminer.layout import LAParams
 from pdfminer.pdfpage import PDFPage
 
-from classes.ai_providers.cls_openai_interface import OpenAIChat
-from classes.ai_providers.cls_ollama_interface import OllamaClient
-from globals import g
-from logger import logger
+from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
+from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+from py_classes.globals import g
+from py_methods.logger import logger
 
 import tkinter as tk
 from PIL import ImageGrab, Image, ImageTk
@@ -386,7 +386,7 @@ def listen_microphone(
     with source:
         audio: AudioData = r.listen(source, timeout=max_duration, phrase_time_limit=max_duration / 2)
     print(colored("Not listening anymore...", "yellow"))
-    transcription, language = OpenAIChat.transcribe_audio(audio, language=language)
+    transcription, language = OpenAIAPI.transcribe_audio(audio, language=language)
     # Print the recognized text
     print("Microphone transcription: " + colored(transcription, "green"))
     
