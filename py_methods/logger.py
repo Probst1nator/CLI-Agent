@@ -1,7 +1,7 @@
 import os
 import logging
 from termcolor import colored
-from globals import g
+from py_classes.globals import g
 
 def setup_logger():
     log_file_path = os.path.join(g.PROJ_VSCODE_DIR_PATH, 'cli-agent.log')

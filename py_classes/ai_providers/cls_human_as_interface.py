@@ -1,63 +1,59 @@
 import tempfile
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from openai import OpenAI
 from termcolor import colored
-from classes.cls_chat import Chat
-from classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_chat import Chat
+from py_classes.cls_custom_coloring import CustomColoring
 import speech_recognition as sr
 import os
-from globals import g
+from py_classes.globals import g
 
-from classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.cls_ai_provider_interface import ChatClientInterface
 
-class OpenAIChat(ChatClientInterface):
+class HumanAPI(ChatClientInterface):
     """
     Implementation of the ChatClientInterface for the OpenAI API.
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str = "gpt-4o", temperature: float = 0.7, silent: bool = False, base64_images: List[str] = []) -> Optional[str]:
+    def generate_response(chat: Chat, base64_images: List[str] = [], tools: Optional[List[Dict[str,Any]]] = None, model: str = "human", temperature=0.0, silent: bool = False ) -> Optional[str]:
         """
-        Generates a response using the OpenAI API.
+        Generates a response by prompting the human in front of the terminal .
 
         Args:
             chat (Chat): The chat object containing messages.
-            model (str): The model identifier.
-            temperature (float): The temperature setting for the model.
-            silent (bool): Whether to suppress print statements.
-
+            base64_images (List[str]): The images as base64 strings
+            tools: (Optional[List[Dict[str,Any]]]) The tools available for use
+            model (str): Unused
+            temperature: (float): Unused 
+            silent (bool): Unused
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
         """
         try:
-            client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+            print(colored(f"Human-Api: User is asked for a response...", "green"))
+            print(colored(("# " * 20) + "CHAT BEGIN" + (" #" * 20), "yellow"))
+            chat.print_chat()
+            print(colored(("# " * 20) + "CHAT STOP" + (" #" * 21), "yellow"))
             
-            if silent:
-                print(f"OpenAI-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
-            else:
-                print(f"OpenAI-Api: <{colored(model, 'green')}> is generating response...")
-
-            stream = client.chat.completions.create(
-                model=model,
-                messages=chat.to_openai(),
-                temperature=temperature,
-                stream=True
-            )
+            print(colored("# # # Enter your multiline response. Type '--f' on a new line when finished.", "blue"))
+            lines = []
+            while True:
+                line = input()
+                if line == "--f":
+                    break
+                lines.append(line)
+            full_response = "\n".join(lines)
 
             full_response = ""
             token_keeper = CustomColoring()
-            for chunk in stream:
-                token = chunk.choices[0].delta.content
-                if token:
-                    if not silent:
-                        print(token_keeper.apply_color(token), end="")
-                    full_response += token
-            if not silent:
-                print()
+            for character in full_response:
+                print(token_keeper.apply_color(character), end="")
+            print()
             return full_response
 
         except Exception as e:
-            raise Exception(f"OpenAI API error: {e}")
+            raise Exception(f"Human-API error: {e}")
 
     @staticmethod
     def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1") -> tuple[str,str]:

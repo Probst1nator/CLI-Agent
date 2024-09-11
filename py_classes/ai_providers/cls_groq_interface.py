@@ -2,11 +2,11 @@ import os
 from typing import Optional, Tuple
 from groq import Groq
 from termcolor import colored
-from classes.cls_custom_coloring import CustomColoring
-from classes.cls_chat import Chat
-from classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_chat import Chat
+from py_classes.cls_ai_provider_interface import ChatClientInterface
 
-class GroqChat(ChatClientInterface):
+class GroqAPI(ChatClientInterface):
     """
     Implementation of the ChatClientInterface for the Groq API.
     """

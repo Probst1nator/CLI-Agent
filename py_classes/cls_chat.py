@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from termcolor import colored
 
-from globals import g
+from py_classes.globals import g
 from ollama._types import Message
 
 class Role(Enum):
@@ -26,22 +26,22 @@ class Chat:
         self.base64_images: List[str] = []
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
-
+    
     def add_message(self, role: Role, content: str) -> "Chat":
         """
         Adds a message to the chat.
         
         :param role: The role of the message sender.
         :param content: The content of the message.
-        :param used_model: The model used to generate the message.
         :return: The updated Chat instance.
         """
         if content and role:
-            if (len(self.messages)>0):
-                if self.messages[-1][0] == role:
-                    self.messages[-1] = (role, self.messages[-1][1] + content)
-                    return self
-            self.messages.append((role, content))
+            if self.messages and self.messages[-1][0] == role:
+                # If the last message has the same role, append the new content
+                self.messages[-1] = (role, self.messages[-1][1] + '\n' + content)
+            else:
+                # Otherwise, add a new message
+                self.messages.append((role, content))
         return self
 
     def get_messages_as_string(self, start_index: int, end_index: Optional[int] = None) -> str:
@@ -120,16 +120,25 @@ class Chat:
 
     def print_chat(self):
         """
-        Prints the chat messages with colored roles.
+        Prints the chat messages with colored and bold roles, and similarly colored content using termcolor.
         """
         for role, content in self.messages:
             role_value = role.value if isinstance(role, Role) else role
+            
             if role in {Role.ASSISTANT, Role.SYSTEM}:
-                formatted_content = colored(content, 'blue')
-                print(f"{formatted_content} :{role_value}")
+                role_color = 'blue'
+                content_color = 'cyan'
+            elif role == Role.USER:
+                role_color = 'light_green'
+                content_color = 'green'
             else:
-                formatted_role = colored(role_value, 'green')
-                print(f"{formatted_role}: {content}")
+                role_color = 'light_yellow'
+                content_color = 'yellow'
+
+            formatted_role = colored(f"{role_value.upper()}:\n", role_color, attrs=['bold', "underline"])
+            formatted_content = colored(content, content_color)
+            
+            print(f"{formatted_role} {formatted_content}")
 
     def save_to_json(self, file_name: str = "recent_chat.json", append: bool = False):
         """

@@ -6,11 +6,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from dotenv import load_dotenv
 import ollama
 from termcolor import colored
-from classes.cls_chat import Chat
-from classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_chat import Chat
+from py_classes.cls_custom_coloring import CustomColoring
 import os
-from logger import logger
-from classes.cls_ai_provider_interface import ChatClientInterface
+from py_methods.logger import logger
+from py_classes.cls_ai_provider_interface import ChatClientInterface
 import socket
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -190,13 +190,15 @@ class OllamaClient(ChatClientInterface):
         """
         try:
             hostname, port = host.split(':') if ':' in host else (host, 11434)
-            with socket.create_connection((hostname, int(port)), timeout=3):
+            print(colored(f"Checking host {host}...", "yellow"))
+            with socket.create_connection((hostname, int(port)), timeout=10):
                 return True
         except (socket.timeout, socket.error):
+            print(colored(f"Host {host} is unreachable", "red"))
             return False
 
     @staticmethod
-    def get_valid_client(model_key: str) -> Tuple[Optional[ollama.Client], str]:
+    def get_valid_client(model_key: str) -> Tuple[ollama.Client|None, str]:
         """
         Returns a valid client for the given model, pulling the model if necessary on auto-download hosts.
         
@@ -204,7 +206,7 @@ class OllamaClient(ChatClientInterface):
             model_key (str): The model to find a valid client for.
         
         Returns:
-            Optional[ollama.Client]: A valid client if found, None otherwise.
+            Tuple[Optional[ollama.Client], str]: [A valid client or None, found model_key].
         """
         ollama_hosts = [os.getenv(env_var) for env_var in os.environ if env_var.startswith("OLLAMA_HOST_") and env_var.count('_') == 2]
         auto_download_hosts = set(os.getenv(env_var) for env_var in os.environ if env_var.startswith("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS_"))
@@ -243,6 +245,7 @@ class OllamaClient(ChatClientInterface):
                                     
                                     sys.stdout.write('\r' + status)
                                     sys.stdout.flush()
+                            print()
                             return client, model_key
                         except Exception as e:
                             print(f"Error pulling model {model_key} on host {host}: {e}")
@@ -256,7 +259,7 @@ class OllamaClient(ChatClientInterface):
     @staticmethod
     def generate_response(
         chat: Chat,
-        model: str = "phi3.5:3.8b",
+        model_key: str = "phi3.5:3.8b",
         temperature: Optional[float] = 0.75,
         silent: bool = False,
         tools: Optional[List[FunctionTool]] = None
@@ -275,31 +278,36 @@ class OllamaClient(ChatClientInterface):
             Optional[Union[str, List[ToolCall]]]: The generated response, or None if an error occurs.
         """
         options = ollama.Options()
-        if "hermes" in model.lower():
+        if "hermes" in model_key.lower():
             options.update(stop=["<|end_of_text|>"])
         if temperature:
             options.update(temperature=temperature)
+        options.update(max_tokens=1500)
+        
+        # ! This is a bad solution because a remote machine likely has a different core count, but will work for the Pepper project as needed
+        # cpu_core_count = os.cpu_count()-1 # lets leave one core for other processes
+        # options.update(num_thread=cpu_core_count)
         
         tooling = CustomColoring()
         logger.debug(json.dumps({"last_message": chat.messages[-1][1]}, indent=2))
 
         client: ollama.Client | None
-        client, model = OllamaClient.get_valid_client(model)
+        client, model_key = OllamaClient.get_valid_client(model_key)
         if not client:
-            logger.error(f"No valid host found for model {model}")
+            logger.error(f"No valid host found for model {model_key}")
             return None
         assert client is not None
         host: str = client._client.base_url.host
 
         try:
             if silent:
-                print(f"Ollama-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response using <{colored(host, 'green')}>...")
+                print(f"Ollama-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response using <{colored(host, 'green')}>...")
             else:
-                print(f"Ollama-Api: <{colored(model, 'green')}> is generating response using <{colored(host, 'green')}>...")
+                print(f"Ollama-Api: <{colored(model_key, 'green')}> is generating response using <{colored(host, 'green')}>...")
             
             if tools:
                 response = client.chat(
-                    model=model,
+                    model=model_key,
                     messages=chat.to_ollama(),
                     stream=False,
                     options=options,
@@ -312,7 +320,7 @@ class OllamaClient(ChatClientInterface):
                 else:
                     return response["message"]["content"]
             else:
-                response_stream = client.chat(model=model, messages=chat.to_ollama(), stream=True, options=options, keep_alive=1800)
+                response_stream = client.chat(model=model_key, messages=chat.to_ollama(), stream=True, options=options, keep_alive=1800)
                 full_response = ""
                 for line in response_stream:
                     next_string = line["message"]["content"]
@@ -322,12 +330,14 @@ class OllamaClient(ChatClientInterface):
                 if not silent:
                     print()
                 logger.debug(json.dumps({"full_response": full_response}, indent=2))
+                if "instruction" in full_response.lower():
+                    full_response = full_response.split("instruction")[0]
                 return full_response
 
         except Exception as e:
-            print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
-            OllamaClient.unreachable_hosts.append(f"{host}{model}")
-            logger.error(f"Ollama-Api: Failed to generate response using <{host}> with model <{model}>: {e}")
+            print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model_key, 'red')}>: {e}")
+            OllamaClient.unreachable_hosts.append(f"{host}{model_key}")
+            logger.error(f"Ollama-Api: Failed to generate response using <{host}> with model <{model_key}>: {e}")
             return None
 
     @staticmethod
@@ -344,7 +354,7 @@ class OllamaClient(ChatClientInterface):
             Optional[Dict[str, Any]]: The raw response from the API, or None if an error occurs.
         """
         if not host:
-            client = OllamaClient.get_valid_client(model)
+            client, model_key = OllamaClient.get_valid_client(model)
             if not client:
                 raise ValueError("No validated Ollama hosts available")
         else:
@@ -369,7 +379,7 @@ class OllamaClient(ChatClientInterface):
         Returns:
             Optional[List[float]]: The generated embedding as a list of floats, or None if an error occurs.
         """
-        client: ollama.Client | None = OllamaClient.get_valid_client(model)
+        client, model_key = OllamaClient.get_valid_client(model)
         if not client:
             logger.error(f"No valid host found for model {model}")
             return None
