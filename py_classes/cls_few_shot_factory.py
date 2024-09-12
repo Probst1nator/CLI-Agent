@@ -1172,3 +1172,167 @@ pytest
             return match.group(1).strip()
         else:
             return ""
+
+    @classmethod
+    def few_shot_GenerateHtmlPage(
+        cls,
+        page_description: str,
+        preferred_model_keys: List[str] = [],
+        force_preferred_model: bool = False,
+        force_local: bool = False,
+        silent: bool = False,
+        force_free: bool = True
+    ) -> Tuple[str|None, Chat]:
+        """
+        Generates an HTML page based on the given description.
+
+        Args:
+            page_description (str): A description of the desired HTML page.
+            preferred_model_keys (List[str], optional): List of preferred model keys.
+            force_preferred_model (bool, optional): If True, force the use of a preferred model.
+            force_local (bool, optional): If True, force the use of a local model.
+            silent (bool, optional): If True, suppress output.
+            force_free (bool, optional): If True, force the use of a free model.
+
+        Returns:
+            Tuple[str, Chat]: The generated HTML content and the GenerateHtmlPage-Chat.
+        """
+        chat = Chat("You are an expert HTML developer. Generate a complete, valid HTML page based on the given description. Include appropriate CSS styling within a <style> tag in the <head> section. Use semantic HTML5 tags where appropriate. Ensure the page is responsive and follows modern web design principles.")
+
+        example_html_description="""Ich helfe dir gerne!
+
+Beide Studiengänge sind interessant und können dich auf verschiedene Karrierewege vorbereiten.
+
+**Data Science:**
+
+* Du lernst Grundlagen der Mathematik, Informatik und Statistik
+* Du erlernst Werkzeuge wie Python, R oder SQL
+* Du wirst in die Lage versetzt, komplexe Daten zu analysieren und mithilfe von Algorithmen Schlussfolgerungen zu ziehen
+* Karrieremöglichkeiten liegen in der Industrie, Forschung, Finance und vielen weiteren Bereichen
+
+**Technomathematik:**
+
+* Du lernst Mathematik mit einem Schwerpunkt auf Anwendungen in Technik und Naturwissenschaften
+* Du erlernst Grundlagen der Analysis, Linearen Algebra und Numerischen Methoden
+* Du wirst in die Lage versetzt, komplexe Probleme mathematisch zu modellieren und Lösungen zu finden
+* Karrieremöglichkeiten liegen in der Industrie, Forschung, IT und vielen weiteren Bereichen
+
+**Dein Entscheid:**
+
+Wenn du dich für Datenanalyse und Algorithmen interessierst und gerne mit großen Datensätzen arbeitest, könnte Data Science dein Weg sein. Wenn du jedoch eher ein mathematisches Verständnis für technische Anwendungen suchst, könnte Technomathematik der richtige Weg für dich sein.
+
+Ich hoffe, das hilft dir! Lass mich wissen, wenn du noch weitere Fragen hast."""
+        
+        chat.add_message(Role.USER, "Erstelle bitte eine HTML-Übersicht zu folgendem Text:\n" + example_html_description)
+        chat.add_message(Role.ASSISTANT, """Gerne, hier ist der HTML-Code:
+```html
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vergleich: Data Science vs. Technomathematik</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f4f8;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        .comparison {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+        }
+        .field {
+            flex-basis: 48%;
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .field h2 {
+            text-align: center;
+            color: #fff;
+            padding: 10px;
+            margin: -20px -20px 20px -20px;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+        }
+        .data-science h2 {
+            background-color: #3498db;
+        }
+        .technomathematik h2 {
+            background-color: #e74c3c;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        .decision {
+            margin-top: 30px;
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .decision h2 {
+            color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <h1>Vergleich: Data Science vs. Technomathematik</h1>
+    
+    <div class="comparison">
+        <div class="field data-science">
+            <h2>Data Science</h2>
+            <ul>
+                <li>Grundlagen der Mathematik, Informatik und Statistik</li>
+                <li>Werkzeuge wie Python, R oder SQL</li>
+                <li>Analyse komplexer Daten und Anwendung von Algorithmen</li>
+                <li>Karrieremöglichkeiten in Industrie, Forschung, Finance und weiteren Bereichen</li>
+            </ul>
+        </div>
+        
+        <div class="field technomathematik">
+            <h2>Technomathematik</h2>
+            <ul>
+                <li>Mathematik mit Schwerpunkt auf Anwendungen in Technik und Naturwissenschaften</li>
+                <li>Grundlagen der Analysis, Linearen Algebra und Numerischen Methoden</li>
+                <li>Mathematische Modellierung komplexer Probleme und Lösungsfindung</li>
+                <li>Karrieremöglichkeiten in Industrie, Forschung, IT und weiteren Bereichen</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="decision">
+        <h2>Deine Entscheidung</h2>
+        <p><strong>Data Science:</strong> Wenn du dich für Datenanalyse und Algorithmen interessierst und gerne mit großen Datensätzen arbeitest.</p>
+        <p><strong>Technomathematik:</strong> Wenn du eher ein mathematisches Verständnis für technische Anwendungen suchst.</p>
+    </div>
+</body>
+</html>
+```""")
+
+        chat.add_message(Role.USER, f"Generate an HTML page based on this description: {page_description}")
+
+        response: str = LlmRouter.generate_completion(
+            chat=chat,
+            preferred_models=preferred_models,
+            force_preferred_model=force_preferred_model,
+            force_local=force_local,
+            force_free=force_free,
+            silent=silent
+        )
+
+        chat.add_message(Role.ASSISTANT, response)
+        
+        html_block = re.search(r'```html\n(.*?)```', response, re.DOTALL)
+        
+        return html_block, chat

@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 
 from py_methods.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
-from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
+from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection, visualize_context
 from py_classes.cls_web_scraper import WebTools
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_few_shot_factory import FewShotProvider
@@ -257,6 +257,11 @@ def main() -> None:
         if next_prompt.endswith("--maj"):
             args.majority = True    
             print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
+            continue
+        
+        if next_prompt.endswith("--vis"):
+            print(colored(f"# cli-agent: KeyBinding detected: Visualize, this will generate a html site and display it, type (--h) for info", "green"))
+            visualize_context(context_chat)
             continue
         
         if next_prompt.endswith("--m"):
