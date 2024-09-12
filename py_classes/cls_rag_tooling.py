@@ -183,12 +183,12 @@ class RagTooling:
             if may_continue_on_next_page: 
                 if not "1 Modulbezeichnung" in remaining_pages:
                     # First heuristic
-                    may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n'''document\n{coherent_extraction_cache}\n'''", preferred_model_keys=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
+                    may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n'''document\n{coherent_extraction_cache}\n'''", preferred_models=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
                     
                     # Second heuristic
                     if may_continue_on_next_page and i < len(pages_extracted_content) - 1:
                         yes_no_chat.add_message(Role.USER, f"This is the next page of the document, does it start a new topic/subject different to the previous page I showed you before? If a new topic/subject is started respond with 'yes', otherwise 'no'.\n'''document\n{pages_extracted_content[i+1]}\n'''")
-                        is_next_page_new_topic, yes_no_chat = FewShotProvider.few_shot_YesNo(yes_no_chat, preferred_model_keys=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
+                        is_next_page_new_topic, yes_no_chat = FewShotProvider.few_shot_YesNo(yes_no_chat, preferred_models=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
                         may_continue_on_next_page = not is_next_page_new_topic
                 else:
                     # if "1 Modulbezeichnung" is found in the remaining pages [i+2:] and not in the next Page, then we can continue on the next page
@@ -224,7 +224,7 @@ class RagTooling:
             # Safe guards for any issues that might ocurr
             informations_valid: bool = informations and not len(informations)>2048
             if informations_valid:
-                is_understandable, _ = FewShotProvider.few_shot_YesNo(f"Is this understandable and readable? \n'''\n{informations}\n'''", preferred_model_keys=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
+                is_understandable, _ = FewShotProvider.few_shot_YesNo(f"Is this understandable and readable? \n'''\n{informations}\n'''", preferred_models=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
                 if is_understandable:
                     alle_informationen.append(informations)
                 else:

@@ -63,6 +63,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Uses a pdf or folder of pdfs to generate a response. Uses needle in a haystack approach.")
     parser.add_argument("-stt", "--speech_to_text", action="store_true",
                         help="Enable microphone input and text-to-speech. (Wip: please split this up)")
+    parser.add_argument("-vis", "--visualize", action="store_true",
+                        help="Visualize the chat on a html page.")
     
     parser.add_argument("--exp", action="store_true",
                         help='Experimental agentic hierarchical optimization state machine.')
@@ -97,7 +99,7 @@ def main() -> None:
         print(colored("Generating atuin-command-history embeddings...", "green"))
         update_cmd_collection()
         print(colored("Generating pdf embeddings for cli-agent directory...", "green"))
-        pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=False, preferred_model_keys=["phi3.5:3.8b"])
+        pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=False, preferred_models=["phi3.5:3.8b"])
         print(colored("Preloading complete.", "green"))
         exit(0)
     
@@ -163,6 +165,9 @@ def main() -> None:
     temporary_prompt_context_augmentation: str = ""
     
     while True:
+        if args.visualize and context_chat:
+            visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
+        
         if args.message:
             next_prompt = args.message
             args.message = None
@@ -261,7 +266,7 @@ def main() -> None:
         
         if next_prompt.endswith("--vis"):
             print(colored(f"# cli-agent: KeyBinding detected: Visualize, this will generate a html site and display it, type (--h) for info", "green"))
-            visualize_context(context_chat)
+            visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
             continue
         
         if next_prompt.endswith("--m"):

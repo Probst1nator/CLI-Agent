@@ -740,7 +740,7 @@ def update_cmd_collection():
                 )
 
 
-def pdf_or_folder_to_database(pdf_or_folder_path: str, preferred_model_keys:List[str]=["llama3.1", "phi3.5"], force_local: bool = True) -> chromadb.Collection:
+def pdf_or_folder_to_database(pdf_or_folder_path: str, preferred_models:List[str]=["llama3.1", "phi3.5"], force_local: bool = True) -> chromadb.Collection:
     """
     Extracts content from a PDF file or multiple PDFs in a folder (and its subfolders),
     processes them into propositions, and stores them in a Chroma database.
@@ -764,20 +764,20 @@ def pdf_or_folder_to_database(pdf_or_folder_path: str, preferred_model_keys:List
 
     if os.path.isfile(pdf_or_folder_path) and pdf_or_folder_path.lower().endswith('.pdf'):
         # Process a single PDF file
-        _process_single_pdf(pdf_or_folder_path, collection, preferred_model_keys=preferred_model_keys, force_local=force_local)
+        _process_single_pdf(pdf_or_folder_path, collection, preferred_models=preferred_models, force_local=force_local)
     elif os.path.isdir(pdf_or_folder_path):
         # Process all PDF files in the directory and its subdirectories
         for root, dirs, files in os.walk(pdf_or_folder_path):
             for filename in files:
                 if filename.lower().endswith('.pdf'):
                     file_path = os.path.join(root, filename)
-                    _process_single_pdf(file_path, collection, preferred_model_keys=preferred_model_keys, force_local=force_local)
+                    _process_single_pdf(file_path, collection, preferred_models=preferred_models, force_local=force_local)
     else:
         raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
 
     return collection
 
-def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, preferred_model_keys: List[str] = [], force_local: bool = True) -> None:
+def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, preferred_models: List[str] = [], force_local: bool = True) -> None:
     """
     Helper function to process a single PDF file.
     Args:
@@ -814,12 +814,12 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         if may_continue_on_next_page: 
             if not "1 Modulbezeichnung" in remaining_pages:
                 # First heuristic
-                may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n'''document\n{coherent_extraction_cache}\n'''", preferred_model_keys=["gemma2-9b-it"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
+                may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n'''document\n{coherent_extraction_cache}\n'''", preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
                 
                 # Second heuristic
                 if may_continue_on_next_page and i < len(pages_extracted_content) - 1:
                     yes_no_chat.add_message(Role.USER, f"This is the next page of the document, does it start a new topic/subject different to the previous page I showed you before? If a new topic/subject is started respond with 'yes', otherwise 'no'.\n'''document\n{pages_extracted_content[i+1]}\n'''")
-                    is_next_page_new_topic, yes_no_chat = FewShotProvider.few_shot_YesNo(yes_no_chat, preferred_model_keys=["gemma2-9b-it"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
+                    is_next_page_new_topic, yes_no_chat = FewShotProvider.few_shot_YesNo(yes_no_chat, preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
                     may_continue_on_next_page = not is_next_page_new_topic
             else:
                 # if "1 Modulbezeichnung" is found in the remaining pages [i+2:] and not in the next Page, then we can continue on the next page
@@ -839,14 +839,14 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         # Transform the extractable information to a german presentation
         chat = Chat()
         chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n'''\n{coherent_extraction}\n'''")
-        high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_model_keys, force_local = force_local, silent = True)
+        high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, silent = True)
         chat.add_message(Role.ASSISTANT, high_level_extraction_analysis)
         chat.add_message(Role.USER, "Can you please summarize all details of the document in a coherent manner? The summary will be used to provide advice to students, this requires you to only provide facts that have plenty of context of topic and subject available. If such context is not present, always choose to skip unreliable or inaccurate information completely. Do not mention when you are ignoring content because of this.")
-        factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
+        factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, silent = True, force_free = True)
         chat.add_message(Role.ASSISTANT, factual_summarization)
         praesentieren_prompt = "Bitte präsentiere die Informationen in dem Dokument in einer Weise, die für Studenten leicht verständlich ist. Verwende einfache Sprache und ganze Sätze, um die Informationen zu vermitteln. Verwende Neologismen wenn angemessen. Beginne deine Antwort bitte direkt mit dem präsentieren."
         chat.add_message(Role.USER, praesentieren_prompt)
-        raw_informationen = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
+        raw_informationen = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"] + preferred_models, force_local = force_local, silent = True, force_free = True)
         
         # Transform the used ontology to the production model
         chat = Chat("You bist ein hilfreicher KI-Assistent der Friedrich-Alexander-Universität.")
@@ -860,7 +860,7 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
             if not informationen:
                 break
             # Safe guard for any issues that might ocurr
-            ist_verstaendlich, _ = FewShotProvider.few_shot_YesNo(f"Sind die folgenden Informationen verständlich kommuniziert?\n'''\n{informationen}\n'''", preferred_model_keys=["gemma2-9b-it"] + preferred_model_keys, force_local = force_local, silent = True, force_free = True)
+            ist_verstaendlich, _ = FewShotProvider.few_shot_YesNo(f"Sind die folgenden Informationen verständlich kommuniziert?\n'''\n{informationen}\n'''", preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
             if ist_verstaendlich:
                 break
             else:
@@ -932,12 +932,12 @@ def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
     return "\n\n".join(all_contents)
 
 
-def visualize_context(context_chat: Chat, force_local: bool = False) -> None:
-    html, chat = FewShotProvider.few_shot_GenerateHtmlPage(context_chat.get_messages_as_string(-2), force_local=force_local)
+def visualize_context(context_chat: Chat, preferred_models: List[str] = [], force_local: bool = False) -> None:
+    html, chat = FewShotProvider.few_shot_GenerateHtmlPage(context_chat.get_messages_as_string(-2), preferred_models=preferred_models, force_local=force_local)
     
     # Create a temporary file to store the HTML content
-    with tempfile.NamedTemporaryFile(delete=True, suffix='.html', mode='w', encoding='utf-8') as temp_file:
-        temp_file.write(html)
-        temp_file_path = temp_file.name
-        # Open the temporary file in the default web browser
-        webbrowser.open('file://' + os.path.realpath(temp_file_path))
+    file_path = g.PROJ_VSCODE_DIR_PATH + "/tmp_context_visualization.html"
+    with open(file_path, "w") as file:
+        file.write(html)
+    # Open the temporary file in the default web browser
+    webbrowser.open('file://' + os.path.realpath(file_path))
