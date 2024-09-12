@@ -370,12 +370,12 @@ class LlmRouter:
         if base64_images:
             chat.base64_images = base64_images
         
-        if not preferred_models or preferred_models == [""]:
+        if not preferred_models or preferred_models == [""] or preferred_models == [None]:
             preferred_models = []
 
         while True:
             try:
-                if preferred_models and isinstance(preferred_models[0], str):
+                if not preferred_models or isinstance(preferred_models[0], str):
                     # Get an appropriate model
                     model = instance.get_model(strength=strength, preferred_model_keys=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
                 else:

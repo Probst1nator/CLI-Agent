@@ -135,7 +135,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, preferred_model_keys: List[str], force_local:bool = False, silent: bool = False) -> Tuple[str,Chat]:
+    def few_shot_CmdAgent(self, userRequest: str, preferred_model_keys: List[str] = [], force_local:bool = False, silent: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
