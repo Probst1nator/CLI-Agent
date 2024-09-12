@@ -7,10 +7,12 @@ import os
 import pickle
 import re
 import subprocess
+import tempfile
 from typing import Any, List, Literal, Optional, Tuple
 import sqlite3
 import os
 from typing import List, Tuple
+import webbrowser
 import chromadb
 from gtts import gTTS
 import numpy as np
@@ -928,3 +930,14 @@ def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
         raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
 
     return "\n\n".join(all_contents)
+
+
+def visualize_context(context_chat: Chat, force_local: bool = False) -> None:
+    html, chat = FewShotProvider.few_shot_GenerateHtmlPage(context_chat.get_messages_as_string(-2), force_local=force_local)
+    
+    # Create a temporary file to store the HTML content
+    with tempfile.NamedTemporaryFile(delete=True, suffix='.html', mode='w', encoding='utf-8') as temp_file:
+        temp_file.write(html)
+        temp_file_path = temp_file.name
+        # Open the temporary file in the default web browser
+        webbrowser.open('file://' + os.path.realpath(temp_file_path))
