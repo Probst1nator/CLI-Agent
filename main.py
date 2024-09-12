@@ -66,7 +66,7 @@ def parse_cli_args() -> argparse.Namespace:
     
     parser.add_argument("--exp", action="store_true",
                         help='Experimental agentic hierarchical optimization state machine.')
-    parser.add_argument("--llm", nargs='?', const='phi3.5:3.8b', type=str,
+    parser.add_argument("--llm", nargs='?', const='phi3.5:3.8b', type=str, default="",
                         help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3.5:3.8b", "llama3.1:8b", "claude3.5", "gpt-4o"]')
     parser.add_argument("--preload", action="store_true",
                         help="Preload systems like embeddings and other resources.")
