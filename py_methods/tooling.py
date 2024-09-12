@@ -933,7 +933,7 @@ def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
 
 
 def visualize_context(context_chat: Chat, preferred_models: List[str] = [], force_local: bool = False) -> None:
-    html, chat = FewShotProvider.few_shot_GenerateHtmlPage(context_chat.get_messages_as_string(-2), preferred_models=preferred_models, force_local=force_local)
+    html, chat = FewShotProvider.few_shot_GenerateHtmlPage(context_chat.get_messages_as_string(-3), preferred_models=preferred_models, force_local=force_local)
     
     # Create a temporary file to store the HTML content
     file_path = g.PROJ_VSCODE_DIR_PATH + "/tmp_context_visualization.html"

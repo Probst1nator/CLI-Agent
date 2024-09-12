@@ -273,7 +273,7 @@ This command will search for any running processes that match the pattern "cli-a
                 
                 chat.add_message(
                     Role.USER,
-                    f"For context I am now giving you 10 commands which seem similar to my next request, please potentially consider the way they are constructed for predicting more relevant commands, given the environment.\n{retrieved_cmds_str}"
+                    f"For context I am now giving you 10 commands which seem similar to my next request, please potentially consider the way they are constructed for predicting more relevant commands.\n{retrieved_cmds_str}"
                 )
                 
                 chat.add_message(

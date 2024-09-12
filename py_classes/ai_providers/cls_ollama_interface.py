@@ -388,7 +388,7 @@ class OllamaClient(ChatClientInterface):
 
         try:
             print(f"Ollama-Api: <{colored(model, 'green')}> is generating embedding using <{colored(host, 'green')}>...")
-            response = client.embeddings(model=model, prompt=text)
+            response = client.embeddings(model=model, prompt=text, keep_alive=3600)
             return response["embedding"]
         except Exception as e:
             print(f"Ollama-Api: Failed to generate embedding using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
