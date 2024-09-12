@@ -53,9 +53,9 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Interactively create a presentation.")    
     parser.add_argument("-h", "--help", action="store_true",
                         help="Display this help")
-    parser.add_argument("-ma", "--majority", action="store_true",
+    parser.add_argument("-maj", "--majority", action="store_true",
                         help="Generate a response based on the majority of all local models.")
-    parser.add_argument("-fp", "--fixpy", type=str,
+    parser.add_argument("-fpy", "--fixpy", type=str,
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
     parser.add_argument("-doc", "--documents", nargs='?', const="", type=str, metavar="PATH",
                         help="Uses a pdf or folder of pdfs to generate a response. Uses retrieval-based approach.")
@@ -164,7 +164,11 @@ def main() -> None:
     prompt_context_augmentation: str = ""
     temporary_prompt_context_augmentation: str = ""
     
+    # Main loop
     while True:
+        # save the context_chat to a json file
+        context_chat.save_to_json()
+    
         if args.visualize and context_chat:
             visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
         
@@ -344,9 +348,6 @@ def main() -> None:
         
         # remove temporary context augmentation from the last user message
         context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, ""))
-
-        # save the context_chat to a json file
-        context_chat.save_to_json()
 
         reponse_blocks = extract_blocks(llm_response)
         
