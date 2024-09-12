@@ -68,7 +68,7 @@ class FewShotProvider:
     #     return (response, chat)
         
     @classmethod 
-    def few_shot_YesNo(self, userRequest: str | Chat, preferred_model_keys: List[str]=[], force_local: bool = False, silent: bool = False, force_free: bool = False, force_preferred_model: bool = False) -> Tuple[bool,Chat]:
+    def few_shot_YesNo(self, userRequest: str | Chat, preferred_models: List[str]=[], force_local: bool = False, silent: bool = False, force_free: bool = False, force_preferred_model: bool = False) -> Tuple[bool,Chat]:
         """
         Determines whether the answer to the user's question is 'yes' or 'no'.
 
@@ -99,7 +99,7 @@ class FewShotProvider:
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.FAST,
-            preferred_models=preferred_model_keys, 
+            preferred_models=preferred_models, 
             force_preferred_model=force_preferred_model,
             force_local=force_local,
             force_free=force_free,
@@ -135,7 +135,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, preferred_model_keys: List[str] = [], force_local:bool = False, silent: bool = False) -> Tuple[str,Chat]:
+    def few_shot_CmdAgent(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -149,7 +149,7 @@ class FewShotProvider:
             Tuple[str, Chat]: The response and the full chat.
         """
         chat: Chat = Chat(
-            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise.", preferred_model_keys, force_local, silent=True)
+            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise.", preferred_models, force_local, silent=True)
         )
 
         chat.add_message(
@@ -284,7 +284,7 @@ This command will search for any running processes that match the pattern "cli-a
             print(colored(f"DEBUG: Error in few_shot_CmdAgent: {e}"), "red")
 
         # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
-        #     userRequest = self.few_shot_rephrase(userRequest, preferred_model_keys, force_local, silent=True)
+        #     userRequest = self.few_shot_rephrase(userRequest, preferred_models, force_local, silent=True)
         
         chat.add_message(
             Role.USER,
@@ -293,7 +293,7 @@ This command will search for any running processes that match the pattern "cli-a
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_model_keys,
+            preferred_models,
             force_local=force_local,
             silent=silent
         )
@@ -412,7 +412,7 @@ Here's the text to process:
     
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, preferred_model_keys: List[str] = [""], force_local: bool = False, silent: bool = True, force_free = False) -> str:
+    def few_shot_rephrase(self, userRequest: str, preferred_models: List[str] = [""], force_local: bool = False, silent: bool = True, force_free = False) -> str:
         """
         Rephrases the given request to enhance clarity while preserving the intended meaning.
 
@@ -435,7 +435,7 @@ Here's the text to process:
             chat.add_message(Role.USER, f"Rephrase: '{userRequest}'")
             
             preferred_rephrase_model_keys = []
-            for preferred_model_key in preferred_model_keys:
+            for preferred_model_key in preferred_models:
                 if not force_local:
                     if "llama" in preferred_model_key or "" == preferred_model_key:
                         preferred_rephrase_model_keys.append("llama3-8b-8192")
@@ -448,7 +448,7 @@ Here's the text to process:
             
             response: str = LlmRouter.generate_completion(
                 chat,
-                preferred_model_keys,
+                preferred_models,
                 force_local=force_local,
                 force_free=force_free,
                 silent=silent,
@@ -470,7 +470,7 @@ Here's the text to process:
             return userRequest
     
     @classmethod
-    def few_shot_textToPresentation(self, text: str, preferred_model_keys: List[str]=[], force_local: bool = False) -> Tuple[Chat, str]:
+    def few_shot_textToPresentation(self, text: str, preferred_models: List[str]=[], force_local: bool = False) -> Tuple[Chat, str]:
         slides_1 = [
             Slide("Hybrid Approach (Marvin + ML)", 
                 "• Combine existing 'Marvin' strategy with ML models\n"
@@ -497,7 +497,7 @@ Here's the text to process:
         ]
         presentation_1 = PptxPresentation("ER-Force Strategy Optimization", "Strategy meeting 2024", slides_1)
         
-        instruction = FewShotProvider.few_shot_rephrase("You are a presentation creator. Given a topic or text, generate a concise, informative presentation", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
+        instruction = FewShotProvider.few_shot_rephrase("You are a presentation creator. Given a topic or text, generate a concise, informative presentation", silent=True, preferred_models=preferred_models, force_local=force_local)
         chat = Chat(instruction)
         
         user_input = """My robotics team ER-Force is discussing the optimization of our robot strategy tomorrow. The following points will be discussed:
@@ -507,23 +507,23 @@ Real-time adaptability through online learning.
 Use of transfer learning to improve initial performance.
 Implementation of opponent modeling for strategic advantages.
 A hierarchical learning approach to separate strategy and execution."""
-        rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
-        decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local)
-        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, silent=True, preferred_models=preferred_model_keys, force_local=force_local)
+        rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, silent=True, preferred_models=preferred_models, force_local=force_local)
+        decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", silent=True, preferred_models=preferred_models, force_local=force_local)
+        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, silent=True, preferred_models=preferred_models, force_local=force_local)
         chat.add_message(Role.USER, presentation_details)
         
-        create_presentation_response = FewShotProvider.few_shot_rephrase("I will create a presentation titled 'ER-Force Strategy Optimization' that covers the main points of your discussion.", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local).strip(".")
+        create_presentation_response = FewShotProvider.few_shot_rephrase("I will create a presentation titled 'ER-Force Strategy Optimization' that covers the main points of your discussion.", silent=True, preferred_models=preferred_models, force_local=force_local).strip(".")
         chat.add_message(Role.ASSISTANT, f"""{create_presentation_response}
         ```
         {presentation_1.to_json()}```""")
         
-        thanks_prompt = FewShotProvider.few_shot_rephrase("Thank you! You have generated exactly the right JSON data. Keep this exact format.\nNow create such a presentation for this", silent=True, preferred_model_keys=preferred_model_keys, force_local=force_local).strip(".")
+        thanks_prompt = FewShotProvider.few_shot_rephrase("Thank you! You have generated exactly the right JSON data. Keep this exact format.\nNow create such a presentation for this", silent=True, preferred_models=preferred_models, force_local=force_local).strip(".")
         chat.add_message(Role.USER, f"{thanks_prompt}: {text}")
         
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.STRONG,
-            preferred_models=preferred_model_keys, 
+            preferred_models=preferred_models, 
             force_local=force_local
         )
         chat.add_message(
@@ -533,14 +533,14 @@ A hierarchical learning approach to separate strategy and execution."""
         return chat, response
 
     @classmethod
-    def few_shot_objectFromTemplate(cls, example_objects: List[Any], target_description: str, preferred_model_keys: List[str] = [], force_local: bool = False) -> Any:
+    def few_shot_objectFromTemplate(cls, example_objects: List[Any], target_description: str, preferred_models: List[str] = [], force_local: bool = False) -> Any:
         """
         Returns an object based on a list of example objects and a target description.
 
         Args:
             example_objects (List[Any]): A list of objects to use as examples.
             target_description (str): Description of the target object to create.
-            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            preferred_models (List[str], optional): List of preferred model keys for LLM.
             force_local (bool, optional): If True, force the use of a local model.
 
         Returns:
@@ -598,7 +598,7 @@ Create a similar object based on this description: {target_description}""")
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.FAST,
-            preferred_models=preferred_model_keys,
+            preferred_models=preferred_models,
             force_local=force_local
         )
 
@@ -676,14 +676,14 @@ CONTENT:
 
 
     @classmethod
-    def few_shot_projectModificationPlanning(cls, structure_description: Dict[str, List[str]], modification_request: str, preferred_model_keys: List[str], force_local: bool = False) -> Tuple[List[Tuple[str, str]], Chat]:
+    def few_shot_projectModificationPlanning(cls, structure_description: Dict[str, List[str]], modification_request: str, preferred_models: List[str], force_local: bool = False) -> Tuple[List[Tuple[str, str]], Chat]:
         """
         Analyzes the project structure and identifies files that likely need modification based on a given request.
 
         Args:
             structure_description (Dict[str, List[str]]): Dictionary of files grouped by type.
             modification_request (str): The modification request to fulfill.
-            preferred_model_keys (List[str]): List of preferred model keys for LLM.
+            preferred_models (List[str]): List of preferred model keys for LLM.
             force_local (bool): If True, force the use of a local model.
 
         Returns:
@@ -780,7 +780,7 @@ Explanation: This file contains database-related tests. It should be updated to 
         response: str = LlmRouter.generate_completion(
             chat,
             strength=AIStrengths.FAST,
-            preferred_models=preferred_model_keys,
+            preferred_models=preferred_models,
             force_local=force_local
         )
 
@@ -812,13 +812,13 @@ Explanation: This file contains database-related tests. It should be updated to 
         return result
     
     @classmethod
-    def few_shot_textToPropositions(cls, text: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = False) -> List[str]:
+    def few_shot_textToPropositions(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> List[str]:
         """
         Extracts explicit, reliable factual propositions from the given text, supporting multiple languages.
 
         Args:
             text (str): The input text to extract propositions from.
-            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            preferred_models (List[str], optional): List of preferred model keys for LLM.
             force_local (bool, optional): If True, force the use of a local model.
             silent (bool, optional): If True, suppress output during processing.
 
@@ -886,7 +886,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_models=preferred_model_keys,
+            preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
             silent=silent
@@ -901,13 +901,13 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         return propositions
 
     @classmethod
-    def few_shot_toInteger(cls, text: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = False, force_free:bool = False) -> int:
+    def few_shot_toInteger(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False, force_free:bool = False) -> int:
         """
         Converts a given text representation of a number into an integer using few-shot learning.
 
         Args:
             text (str): The input text to convert to an integer.
-            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            preferred_models (List[str], optional): List of preferred model keys for LLM.
             force_local (bool, optional): If True, force the use of a local model.
             silent (bool, optional): If True, suppress output during processing.
 
@@ -957,7 +957,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_models=preferred_model_keys,
+            preferred_models=preferred_models,
             force_local=force_local,
             force_free=force_free,
             silent=silent
@@ -970,13 +970,13 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             return None
 
     @classmethod
-    def few_shot_textToQuestions(cls, text: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = False) -> List[str]:
+    def few_shot_textToQuestions(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> List[str]:
         """
         Generates an extensive list of questions that can be answered using the contents of the given text.
 
         Args:
             text (str): The input text to generate questions from.
-            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            preferred_models (List[str], optional): List of preferred model keys for LLM.
             force_local (bool, optional): If True, force the use of a local model.
             silent (bool, optional): If True, suppress output during processing.
 
@@ -1051,7 +1051,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_models=preferred_model_keys,
+            preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
             silent=silent
@@ -1105,13 +1105,13 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         print(response.response)
 
     @classmethod
-    def few_shot_toPythonRequirements(cls, implementationDescription: str, preferred_model_keys: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
+    def few_shot_toPythonRequirements(cls, implementationDescription: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
         """
         Generates the contents for a requirements.txt file based on the given implementation description.
 
         Args:
             implementationDescription (str): Description of the implementation.
-            preferred_model_keys (List[str], optional): List of preferred model keys for LLM.
+            preferred_models (List[str], optional): List of preferred model keys for LLM.
             force_local (bool, optional): If True, force the use of a local model.
             silent (bool, optional): If True, suppress output during processing.
 
@@ -1160,7 +1160,7 @@ pytest
 
         response: str = LlmRouter.generate_completion(
             chat,
-            preferred_models=preferred_model_keys,
+            preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
             silent=silent
@@ -1177,7 +1177,7 @@ pytest
     def few_shot_GenerateHtmlPage(
         cls,
         page_description: str,
-        preferred_model_keys: List[str] = [],
+        preferred_models: List[str] = [],
         force_preferred_model: bool = False,
         force_local: bool = False,
         silent: bool = False,
@@ -1188,7 +1188,7 @@ pytest
 
         Args:
             page_description (str): A description of the desired HTML page.
-            preferred_model_keys (List[str], optional): List of preferred model keys.
+            preferred_models (List[str], optional): List of preferred model keys.
             force_preferred_model (bool, optional): If True, force the use of a preferred model.
             force_local (bool, optional): If True, force the use of a local model.
             silent (bool, optional): If True, suppress output.
@@ -1199,39 +1199,39 @@ pytest
         """
         chat = Chat("You are an expert HTML developer. Generate a complete, valid HTML page based on the given description. Include appropriate CSS styling within a <style> tag in the <head> section. Use semantic HTML5 tags where appropriate. Ensure the page is responsive and follows modern web design principles.")
 
-        example_html_description="""Ich helfe dir gerne!
+        example_html_description="""I'd be happy to help you!
 
-Beide Studiengänge sind interessant und können dich auf verschiedene Karrierewege vorbereiten.
+Both courses of study are interesting and can prepare you for various career paths.
 
 **Data Science:**
 
-* Du lernst Grundlagen der Mathematik, Informatik und Statistik
-* Du erlernst Werkzeuge wie Python, R oder SQL
-* Du wirst in die Lage versetzt, komplexe Daten zu analysieren und mithilfe von Algorithmen Schlussfolgerungen zu ziehen
-* Karrieremöglichkeiten liegen in der Industrie, Forschung, Finance und vielen weiteren Bereichen
+* You'll learn fundamentals of mathematics, computer science, and statistics
+* You'll master tools like Python, R, or SQL
+* You'll be equipped to analyze complex data and draw conclusions using algorithms
+* Career opportunities lie in industry, research, finance, and many other fields
 
-**Technomathematik:**
+**Technomathematics:**
 
-* Du lernst Mathematik mit einem Schwerpunkt auf Anwendungen in Technik und Naturwissenschaften
-* Du erlernst Grundlagen der Analysis, Linearen Algebra und Numerischen Methoden
-* Du wirst in die Lage versetzt, komplexe Probleme mathematisch zu modellieren und Lösungen zu finden
-* Karrieremöglichkeiten liegen in der Industrie, Forschung, IT und vielen weiteren Bereichen
+* You'll study mathematics with a focus on applications in technology and natural sciences
+* You'll learn fundamentals of analysis, linear algebra, and numerical methods
+* You'll be able to mathematically model complex problems and find solutions
+* Career opportunities lie in industry, research, IT, and many other areas
 
-**Dein Entscheid:**
+**Your Decision:**
 
-Wenn du dich für Datenanalyse und Algorithmen interessierst und gerne mit großen Datensätzen arbeitest, könnte Data Science dein Weg sein. Wenn du jedoch eher ein mathematisches Verständnis für technische Anwendungen suchst, könnte Technomathematik der richtige Weg für dich sein.
+If you're interested in data analysis and algorithms and enjoy working with large datasets, Data Science might be your path. However, if you're more inclined towards gaining a mathematical understanding for technical applications, Technomathematics could be the right choice for you.
 
-Ich hoffe, das hilft dir! Lass mich wissen, wenn du noch weitere Fragen hast."""
-        
-        chat.add_message(Role.USER, "Erstelle bitte eine HTML-Übersicht zu folgendem Text:\n" + example_html_description)
-        chat.add_message(Role.ASSISTANT, """Gerne, hier ist der HTML-Code:
+I hope this helps! Let me know if you have any further questions."""
+
+        chat.add_message(Role.USER, "Please create an HTML overview of the following text:\n" + example_html_description)
+        chat.add_message(Role.ASSISTANT, """Certainly, here's the HTML code:
 ```html
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vergleich: Data Science vs. Technomathematik</title>
+    <title>Comparison: Data Science vs. Technomathematics</title>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -1268,7 +1268,7 @@ Ich hoffe, das hilft dir! Lass mich wissen, wenn du noch weitere Fragen hast."""
         .data-science h2 {
             background-color: #3498db;
         }
-        .technomathematik h2 {
+        .technomathematics h2 {
             background-color: #e74c3c;
         }
         ul {
@@ -1287,40 +1287,40 @@ Ich hoffe, das hilft dir! Lass mich wissen, wenn du noch weitere Fragen hast."""
     </style>
 </head>
 <body>
-    <h1>Vergleich: Data Science vs. Technomathematik</h1>
+    <h1>Comparison: Data Science vs. Technomathematics</h1>
     
     <div class="comparison">
         <div class="field data-science">
             <h2>Data Science</h2>
             <ul>
-                <li>Grundlagen der Mathematik, Informatik und Statistik</li>
-                <li>Werkzeuge wie Python, R oder SQL</li>
-                <li>Analyse komplexer Daten und Anwendung von Algorithmen</li>
-                <li>Karrieremöglichkeiten in Industrie, Forschung, Finance und weiteren Bereichen</li>
+                <li>Fundamentals of mathematics, computer science, and statistics</li>
+                <li>Tools like Python, R, or SQL</li>
+                <li>Analysis of complex data and application of algorithms</li>
+                <li>Career opportunities in industry, research, finance, and other fields</li>
             </ul>
         </div>
         
-        <div class="field technomathematik">
-            <h2>Technomathematik</h2>
+        <div class="field technomathematics">
+            <h2>Technomathematics</h2>
             <ul>
-                <li>Mathematik mit Schwerpunkt auf Anwendungen in Technik und Naturwissenschaften</li>
-                <li>Grundlagen der Analysis, Linearen Algebra und Numerischen Methoden</li>
-                <li>Mathematische Modellierung komplexer Probleme und Lösungsfindung</li>
-                <li>Karrieremöglichkeiten in Industrie, Forschung, IT und weiteren Bereichen</li>
+                <li>Mathematics with focus on applications in technology and natural sciences</li>
+                <li>Fundamentals of analysis, linear algebra, and numerical methods</li>
+                <li>Mathematical modeling of complex problems and solution finding</li>
+                <li>Career opportunities in industry, research, IT, and other areas</li>
             </ul>
         </div>
     </div>
     
     <div class="decision">
-        <h2>Deine Entscheidung</h2>
-        <p><strong>Data Science:</strong> Wenn du dich für Datenanalyse und Algorithmen interessierst und gerne mit großen Datensätzen arbeitest.</p>
-        <p><strong>Technomathematik:</strong> Wenn du eher ein mathematisches Verständnis für technische Anwendungen suchst.</p>
+        <h2>Your Decision</h2>
+        <p><strong>Data Science:</strong> If you're interested in data analysis and algorithms and enjoy working with large datasets.</p>
+        <p><strong>Technomathematics:</strong> If you're more inclined towards gaining a mathematical understanding for technical applications.</p>
     </div>
 </body>
 </html>
 ```""")
 
-        chat.add_message(Role.USER, f"Generate an HTML page based on this description: {page_description}")
+        chat.add_message(Role.USER, f"Nice, now please make the next ones more aesthetically pleasing, optionally incorporate emojis as icons, do not use external dependencies other than image urls. Your code will be used as is so do not use placeholders. Please create a HTML page to visualize the latest discussed topic(s): {page_description}")
 
         response: str = LlmRouter.generate_completion(
             chat=chat,
@@ -1335,4 +1335,9 @@ Ich hoffe, das hilft dir! Lass mich wissen, wenn du noch weitere Fragen hast."""
         
         html_block = re.search(r'```html\n(.*?)```', response, re.DOTALL)
         
-        return html_block, chat
+        if html_block:
+            html_content = html_block.group(1)  # Get the content inside the HTML block
+        else:
+            html_content = ""  # Or you might want to raise an exception here
+        
+        return html_content, chat

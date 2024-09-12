@@ -71,7 +71,7 @@ def extract_single_snippet(response: str, allow_no_end: bool = False) -> str:
 
 
 # # # assistants
-def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: str = "", preferred_model_keys: List[str] = [], force_local: bool = False) -> str:
+def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: str = "", preferred_models: List[str] = [], force_local: bool = False) -> str:
     """
     A function that assists with code-related tasks such as adding docstrings, refactoring, and explaining code.
 
@@ -106,7 +106,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             elif "ts" in file_ending:
                 chunking_delimiter = "function "
             else:
-                chunking_delimiter = FewShotProvider.few_shot_objectFromTemplate([{"py": "def "}, {"typescript": "function "}], target_description="A delimiter to split the code into smaller chunks.", preferred_model_keys=preferred_model_keys, force_local=force_local)
+                chunking_delimiter = FewShotProvider.few_shot_objectFromTemplate([{"py": "def "}, {"typescript": "function "}], target_description="A delimiter to split the code into smaller chunks.", preferred_models=preferred_models, force_local=force_local)
                 print(colored(f"Using delimiter: {chunking_delimiter}", "yellow"))
                 try:
                     print(colored("Press Ctrl+C to abort.", 'yellow'))
@@ -300,16 +300,16 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
         user_input = "\n".join(lines)
     
     # Rephrase user input using few-shot learning
-    rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, preferred_model_keys=[args.llm], force_local=args.local)
+    rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, preferred_models=[args.llm], force_local=args.local)
 
     # Generate a prompt for decomposing the topic into subtopics
-    decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", preferred_model_keys=[args.llm], force_local=args.local)
+    decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", preferred_models=[args.llm], force_local=args.local)
 
     # Generate detailed presentation content based on the decomposed topic
     presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, use_cache=False, preferred_models=[args.llm], force_local=args.local)
     
     # Convert the generated content into a presentation format
-    chat, response = FewShotProvider.few_shot_textToPresentation(presentation_details, preferred_model_keys=[args.llm], force_local=args.local)
+    chat, response = FewShotProvider.few_shot_textToPresentation(presentation_details, preferred_models=[args.llm], force_local=args.local)
 
     while True:
         # Attempt to create and save the presentation from the generated JSON
@@ -338,7 +338,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
         # Process user's choice
         if user_input == "1":
             # Generate and add more details to the presentation
-            add_details_prompt = FewShotProvider.few_shot_rephrase(f"Please think step by step to add relevant/ missing details to the following topic: {presentation_details}", preferred_model_keys=[args.llm])
+            add_details_prompt = FewShotProvider.few_shot_rephrase(f"Please think step by step to add relevant/ missing details to the following topic: {presentation_details}", preferred_models=[args.llm])
             suggested_details = LlmRouter.generate_completion(f"{add_details_prompt} {presentation_details}", strength=AIStrengths.STRONG, preferred_models=[args.llm], force_local=args.local)
             next_prompt = f"Please add the following details to the presentation: \n{suggested_details}"
         elif user_input == "2":
@@ -349,7 +349,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
             next_prompt = user_input
             
         # Rephrase the next prompt and generate a new response
-        next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, preferred_model_keys=[args.llm], force_local=args.local)
+        next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, preferred_models=[args.llm], force_local=args.local)
         chat.add_message(Role.USER, next_prompt)
         response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, preferred_models=[args.llm], force_local=args.local)
 
@@ -388,7 +388,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
     user_input_embedding = OllamaClient.generate_embedding(user_input)
     
     # Prepare the instruction for the AI assistant using few-shot learning
-    instruction = FewShotProvider.few_shot_rephrase(f"This is a chat between a user and his private artificial intelligence assistant. The assistant uses the documents to answer the users questions factually, detailed and reliably. The assistant indicates if the answer cannot be found in the documents.", preferred_model_keys=[args.llm], force_local=args.local, silent=True)
+    instruction = FewShotProvider.few_shot_rephrase(f"This is a chat between a user and his private artificial intelligence assistant. The assistant uses the documents to answer the users questions factually, detailed and reliably. The assistant indicates if the answer cannot be found in the documents.", preferred_models=[args.llm], force_local=args.local, silent=True)
     chat = Chat(instruction)
 
     while True:
@@ -449,7 +449,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
                 break
             chat.add_message(Role.USER, user_input)
 
-def majority_response_assistant(user_input: str = "", force_local: bool = False, preferred_model_keys: List[str] = []) -> Tuple[Chat, str]:
+def majority_response_assistant(user_input: str = "", force_local: bool = False, preferred_models: List[str] = []) -> Tuple[Chat, str]:
     """
     An assistant function that leverages multiple AI models to provide comprehensive and consensus-based answers to user queries.
     This assistant, called "majority_vote_assistant", operates by consulting various models and synthesizing their outputs.
@@ -459,8 +459,8 @@ def majority_response_assistant(user_input: str = "", force_local: bool = False,
         context_chat (Chat): The conversation context (maintained for consistency but not directly used).
         user_input (str, optional): Initial user input for the query. Defaults to an empty string.
     """
-    if len(preferred_model_keys) > 1:
-        models = preferred_model_keys
+    if len(preferred_models) > 1:
+        models = preferred_models
     else:
         if force_local:
             models = LlmRouter.get_models(force_local=force_local)
@@ -749,7 +749,7 @@ def project_agent(args: argparse.Namespace, modification_request: str, context_c
     create_project_directory()
     
     project_structure = analyze_project_structure()
-    filepath_instruction_tuplelist, planner_chat = FewShotProvider.few_shot_projectModificationPlanning(project_structure, modification_request, preferred_model_keys=[args.llm], force_local=args.local)
+    filepath_instruction_tuplelist, planner_chat = FewShotProvider.few_shot_projectModificationPlanning(project_structure, modification_request, preferred_models=[args.llm], force_local=args.local)
 
     while True:
         print(colored("Generated Project Plan:", "cyan"))
@@ -778,7 +778,7 @@ def project_agent(args: argparse.Namespace, modification_request: str, context_c
 # # # pipelines
 from git import Optional, Repo, GitCommandError
 
-def git_message_generator(project_path: str, user_input: str = "", preferred_model_keys: List[str] = [], force_local: bool = False):
+def git_message_generator(project_path: str, user_input: str = "", preferred_models: List[str] = [], force_local: bool = False):
     repo = Repo(project_path)
     skipped_merges = []
     processing_errors = []
@@ -825,7 +825,7 @@ def git_message_generator(project_path: str, user_input: str = "", preferred_mod
     def generate_commit_message(diff: str, topic: str, file_path: str) -> str:
         prompt = f"Based on the following git diff for file '{file_path}' and the general topic '{topic}', generate a concise and informative commit message:\n\n{diff}"
         print(colored(prompt, "yellow"))
-        message = LlmRouter.generate_completion(prompt, instruction="This is a commit message generator. The system is given a commit diff by the user to which it responds with an extremely short and concise commit message, describing the overall changes in 2-10 words. The system does not respond with anything else than the exact concise commit message.", preferred_models=preferred_model_keys, force_local=force_local)
+        message = LlmRouter.generate_completion(prompt, instruction="This is a commit message generator. The system is given a commit diff by the user to which it responds with an extremely short and concise commit message, describing the overall changes in 2-10 words. The system does not respond with anything else than the exact concise commit message.", preferred_models=preferred_models, force_local=force_local)
 
         detected_commit_topic = ""
         template = ""

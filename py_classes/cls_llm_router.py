@@ -196,12 +196,12 @@ class LlmRouter:
             logger.error(f"Failed to update cache: {e}")
 
     @classmethod
-    def get_models(cls, preferred_model_keys: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
+    def get_models(cls, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
         """
         Get a list of available models based on the given constraints.
         
         Args:
-            preferred_model_keys (List[str]): List of preferred model keys.
+            preferred_models (List[str]): List of preferred model keys.
             strength (AIStrengths): The required strength of the model.
             chat (Chat): The chat which the model will be processing.
             force_local (bool): Whether to force local models only.
@@ -215,7 +215,7 @@ class LlmRouter:
         available_models: List[Llm] = []
 
         # Check for exact matches in preferred model keys
-        for model_key in preferred_model_keys:
+        for model_key in preferred_models:
             if model_key and model_key not in instance.failed_models:
                 model = next((model for model in instance.retry_models if model_key in model.model_key), None)
                 if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision):
@@ -230,12 +230,12 @@ class LlmRouter:
 
         return available_models
 
-    def get_model(self, preferred_model_keys: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
+    def get_model(self, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
         Args:
-            preferred_model_keys (List[str]): List of preferred model keys.
+            preferred_models (List[str]): List of preferred model keys.
             strength (AIStrengths): The required strength of the model.
             chat (Chat): The chat which the model will be processing.
             force_local (bool): Whether to force local models only.
@@ -250,7 +250,7 @@ class LlmRouter:
             print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
         
         # Search for model key match first
-        for model_key in preferred_model_keys:
+        for model_key in preferred_models:
             if (model_key not in self.failed_models or force_preferred_model) and model_key:
                 model = next((model for model in self.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local)), None)
                 if model:
@@ -258,7 +258,7 @@ class LlmRouter:
 
         if force_preferred_model:
             # return a dummy model to force Ollama to download it
-            return Llm(OllamaClient(), preferred_model_keys[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
+            return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
         
         # Search online models by capability next
         if not force_local:
@@ -342,7 +342,7 @@ class LlmRouter:
         
         Args:
             chat (Chat|str): The chat prompt or string.
-            preferred_model_keys (List[str]): List of preferred model keys.
+            preferred_models (List[str]): List of preferred model keys.
             strength (Optional[AIStrengths]): The required strength of the model.
             start_response_with (str): Initial string to start the response with.
             instruction (str): Instruction for the chat.
@@ -377,7 +377,7 @@ class LlmRouter:
             try:
                 if not preferred_models or isinstance(preferred_models[0], str):
                     # Get an appropriate model
-                    model = instance.get_model(strength=strength, preferred_model_keys=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
+                    model = instance.get_model(strength=strength, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
                 else:
                     for preferred_model in preferred_models:
                         if preferred_model.model_key not in instance.failed_models:
@@ -388,7 +388,7 @@ class LlmRouter:
                     print(colored(f"# # # All models failed # # # RETRYING... # # #", "red"))
                     instance.failed_models.clear()
                     if preferred_models and isinstance(preferred_models[0], str):
-                        model = instance.get_model(strength=strength, preferred_model_keys=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
+                        model = instance.get_model(strength=strength, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
 
                 if re_print_prompt:
                     print(colored(f"\n\nPROMPT: {chat.messages[-1][1]}", "blue"))

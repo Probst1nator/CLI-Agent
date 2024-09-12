@@ -208,7 +208,7 @@ Memory Reasoning: {memory_reasoning}
 
     def _update_requirements(self, method_description: str, requirements_file_path: str) -> None:
         # write requirments.txt
-        new_requirements = FewShotProvider.few_shot_toPythonRequirements(method_description, preferred_model_keys=self.llm_key)
+        new_requirements = FewShotProvider.few_shot_toPythonRequirements(method_description, preferred_models=self.llm_key)
         self._update_requirements(new_requirements, os.path.join(g.PROJ_AGENTIC_SANDBOX_PATH, "requirements.txt"))
         # Read existing requirements
         existing_requirements: Dict[str, str] = {}
