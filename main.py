@@ -167,7 +167,8 @@ def main() -> None:
     # Main loop
     while True:
         # save the context_chat to a json file
-        context_chat.save_to_json()
+        if context_chat:
+            context_chat.save_to_json()
     
         if args.visualize and context_chat:
             visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
