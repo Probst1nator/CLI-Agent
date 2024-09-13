@@ -932,12 +932,81 @@ def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
     return "\n\n".join(all_contents)
 
 
-def visualize_context(context_chat: Chat, preferred_models: List[str] = [], force_local: bool = False) -> None:
+# # # # Please refactor this into a seperate file or something, its all for the visualize_context method # # # #
+import http.server
+import socketserver
+import webbrowser
+import os
+import socket
+from typing import List
+import threading
+import logging
+
+def get_local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('10.255.255.255', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+    return IP
+
+class DynamicHandler(http.server.SimpleHTTPRequestHandler):
+    html_content = ""
+
+    def do_GET(self) -> None:
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(self.html_content.encode())
+        else:
+            super().do_GET()
+
+    def log_message(self, format, *args) -> None:
+        logging.info("%s - - [%s] %s\n" % (self.address_string(),
+                                            self.log_date_time_string(),
+                                            format % args))
+
+server_thread = None
+log_file = os.path.join(g.PROJ_VSCODE_DIR_PATH, "visualize_context_server.log")
+
+def start_server(port: int = 8000) -> None:
+    Handler = DynamicHandler
+    with socketserver.TCPServer(("", port), Handler) as httpd:
+        local_ip = get_local_ip()
+        print(f"Serving locally at http://localhost:{port}")
+        print(f"To access from another device on the network, use http://{local_ip}:{port}")
+        print(f"Server logs are being written to {log_file}")
+        httpd.serve_forever()
+
+def visualize_context(context_chat: Chat, preferred_models: List[str] = [], force_local: bool = False, host_over_network: bool = False) -> None:
+    global server_thread
+
     html, chat = FewShotProvider.few_shot_GenerateHtmlPage(context_chat.get_messages_as_string(-3), preferred_models=preferred_models, force_local=force_local)
-    
-    # Create a temporary file to store the HTML content
-    file_path = g.PROJ_VSCODE_DIR_PATH + "/tmp_context_visualization.html"
-    with open(file_path, "w") as file:
-        file.write(html)
-    # Open the temporary file in the default web browser
-    webbrowser.open('file://' + os.path.realpath(file_path))
+
+    if host_over_network:
+        # Set up logging
+        logging.basicConfig(filename=log_file, level=logging.INFO,
+                            format='%(asctime)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S')
+
+        # Update the HTML content in the handler
+        DynamicHandler.html_content = html
+
+        # Start the server if it's not already running
+        if server_thread is None or not server_thread.is_alive():
+            server_thread = threading.Thread(target=start_server, daemon=True)
+            server_thread.start()
+
+        # Open the browser
+        webbrowser.open('http://localhost:8000')
+    else:
+        # Create a temporary file to store the HTML content
+        file_path = os.path.join(g.PROJ_VSCODE_DIR_PATH, "tmp_context_visualization.html")
+        with open(file_path, "w") as file:
+            file.write(html)
+        
+        # Open the temporary file in the default web browser
+        webbrowser.open('file://' + os.path.realpath(file_path))
