@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+from random import shuffle
 import time
 from typing import Dict, List, Optional, Set
 from termcolor import colored
@@ -14,7 +15,7 @@ from py_classes.ai_providers.cls_groq_interface import GroqAPI
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
 from py_methods.logger import logger
-from py_classes.globals import g
+from globals import g
 
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
@@ -72,7 +73,7 @@ class Llm:
         # Define and return a list of available LLM instances
         return [
             # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, False, 131072, None, AIStrengths.STRONG),
-            # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, AIStrengths.STRONG),
+            # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, AIStrengths.STRONG), # For testing
             Llm(GroqAPI(), "llama-3.1-70b-versatile", None, False, False, False, 131072, 30000, AIStrengths.STRONG),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 131072, 30000, AIStrengths.FAST),
             Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 8192, 6000, AIStrengths.STRONG),
@@ -80,20 +81,29 @@ class Llm:
             # Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.STRONG),
             # Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.FAST),
             Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, 15000, AIStrengths.FAST),
+            Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 8192, 15000, AIStrengths.FAST),
+            Llm(GroqAPI(), "gemma-7b-it", None, False, False, False, 8192, 15000, AIStrengths.FAST),
             
             Llm(AnthropicAPI(), "claude-3-5-sonnet", 9, False, False, False, 200000, 4096, AIStrengths.STRONG),
             Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, 4096, AIStrengths.FAST),
-            
-            Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, None, AIStrengths.STRONG),
             Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, None, AIStrengths.STRONG),
             Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, None, AIStrengths.FAST),
-            
-            # Llm(OllamaClient(), "Hermes-3-Llama-3.1-8B.Q4_K_M.gguf:latest", None, False, True, False, 4096, None, AIStrengths.STRONG),
-            Llm(OllamaClient(), "phi3.5:3.8b", None, False, True, False, 4096, None, AIStrengths.STRONG),
+            Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, None, AIStrengths.STRONG),
+
+            # Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, False, 128000, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "phi3.5:3.8b", None, False, True, False, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
+
             Llm(OllamaClient(), "llava-llama3:8b", None, False, True, True, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-phi3:3.8b", None, False, True, True, 4096, None, AIStrengths.FAST),
+            Llm(OllamaClient(), "smollm:1.7b", None, False, True, False, 4096, None, AIStrengths.FAST),
+            # Llm(OllamaClient(), "aya:8b", None, False, True, False, 4096, None, AIStrengths.FAST),
+            Llm(OllamaClient(), "wizardlm2:7b", None, False, True, False, 4096, None, AIStrengths.FAST),
+            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "dolphin-llama3", None, False, True, False, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, None, AIStrengths.STRONG),
+
+            # Llm(OllamaClient(), "minicpm-v", None, False, True, True, 4096, None, AIStrengths.FAST),
         ]
 
 
@@ -198,12 +208,12 @@ class LlmRouter:
             logger.error(f"Failed to update cache: {e}")
 
     @classmethod
-    def get_models(cls, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
+    def get_models(cls, preferred_model_keys: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
         """
         Get a list of available models based on the given constraints.
         
         Args:
-            preferred_models (List[str]): List of preferred model keys.
+            preferred_model_keys (List[str]): List of preferred model keys.
             strength (AIStrengths): The required strength of the model.
             chat (Chat): The chat which the model will be processing.
             force_local (bool): Whether to force local models only.
@@ -217,13 +227,12 @@ class LlmRouter:
         available_models: List[Llm] = []
 
         # Check for exact matches in preferred model keys
-        for model_key in preferred_models:
+        for model_key in preferred_model_keys:
             if model_key and model_key not in instance.failed_models:
                 model = next((model for model in instance.retry_models if model_key in model.model_key), None)
                 if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision):
                     available_models.append(model)
-        if available_models:
-            return available_models
+
         # Check all models based on capabilities
         for model in instance.retry_models:
             if model.model_key not in instance.failed_models and not model.model_key in [model.model_key for model in available_models]:
@@ -232,12 +241,12 @@ class LlmRouter:
 
         return available_models
 
-    def get_model(self, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
+    def get_model(self, preferred_model_keys: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), exclude_model_keys: List[str] = [], force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
         Args:
-            preferred_models (List[str]): List of preferred model keys.
+            preferred_model_keys (List[str]): List of preferred model keys.
             strength (AIStrengths): The required strength of the model.
             chat (Chat): The chat which the model will be processing.
             force_local (bool): Whether to force local models only.
@@ -251,45 +260,45 @@ class LlmRouter:
         if (chat.count_tokens() > 4000 and not force_free and not force_local):
             print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
         
-        # Search for model key match first
-        for model_key in preferred_models:
-            if (model_key not in self.failed_models or force_preferred_model) and model_key:
-                model = next((model for model in self.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local)), None)
+        # Search for preferred model key match first
+        for model_key in preferred_model_keys:
+            if (model_key not in self.failed_models or force_preferred_model) and model_key and not any(excluded_key in model_key for excluded_key in exclude_model_keys):
+                model = next((model for model in self.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
                 if model:
                     return model
 
         if force_preferred_model:
             # return a dummy model to force Ollama to download it
-            return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
+            return Llm(OllamaClient(), preferred_model_keys[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
         
         # Search online models by capability next
         if not force_local:
             for model in self.retry_models:
-                if model.model_key not in self.failed_models and not model.local:
+                if model.model_key not in self.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
                     if self.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
                         return model
+            # ignore strength if no online model is found first
             for model in self.retry_models:
-                if model.model_key not in self.failed_models and not model.local:
+                if model.model_key not in self.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
                     if self.model_capable_check(model, chat, None, local=False, force_free=force_free, has_vision=has_vision):
                         return model
 
         # search local models last
         # first by capability
         for model in self.retry_models:
-            if model.model_key not in self.failed_models and model.local:
+            if model.model_key not in self.failed_models and model.local  and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
                 if self.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision):
                     return model
         # ignore strength if no model is found
         for model in self.retry_models:
-            if model.model_key not in self.failed_models and model.local:
+            if model.model_key not in self.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
                 if self.model_capable_check(model, chat, None, local=True, force_free=force_free, has_vision=has_vision):
                     return model
         # ignore context_length and strength if no model is found
         for model in self.retry_models:
-            if model.model_key not in self.failed_models:
-                if (model.local):
-                    if self.model_capable_check(model, Chat(), None, local=True, force_free=force_free, has_vision=has_vision):
-                        return model
+            if model.model_key not in self.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                if self.model_capable_check(model, Chat(), None, local=True, force_free=force_free, has_vision=has_vision):
+                    return model
 
         return None
     
@@ -325,11 +334,11 @@ class LlmRouter:
     def generate_completion(
         cls,
         chat: Chat|str,
-        preferred_models: List[str] | List[Llm] = [],
+        preferred_model_keys: List[str] = [],
         strength: AIStrengths = AIStrengths.STRONG,
         start_response_with: str = "",
         instruction: str = "You are a helpful assistant.",
-        temperature: Optional[float] = 0.7,
+        temperature: Optional[float] = None,
         base64_images: List[str] = [],
         include_start_response_str: bool = True,
         use_cache: bool = True,
@@ -338,13 +347,15 @@ class LlmRouter:
         force_preferred_model: bool = False,
         silent: bool = False,
         re_print_prompt: bool = False,
+        exclude_model_keys: List[str] = ["llama-3.1-"],
+        use_reasoning: bool = True
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
         
         Args:
             chat (Chat|str): The chat prompt or string.
-            preferred_models (List[str]): List of preferred model keys.
+            preferred_model_keys (List[str]): List of preferred model keys.
             strength (Optional[AIStrengths]): The required strength of the model.
             start_response_with (str): Initial string to start the response with.
             instruction (str): Instruction for the chat.
@@ -363,35 +374,59 @@ class LlmRouter:
         tooling = CustomColoring()
         cls.call_counter += 1
         
+        
         # Convert string input to Chat object if necessary
         if isinstance(chat, str):
             chat = Chat(instruction).add_message(Role.USER, chat)
+        
+        if use_reasoning:
+            print(colored(f"# # # Reasoning # # #", "green"))
+            chat.add_message(Role.USER, "I changed my mind, please instead of answering directly, think through the request step by step to ensure you grasp it fully.")
+            reasoning_response = cls.generate_completion(
+                chat,
+                preferred_model_keys=preferred_model_keys,
+                strength=strength,
+                start_response_with=start_response_with,
+                instruction=instruction,
+                temperature=temperature,
+                base64_images=base64_images,
+                include_start_response_str=include_start_response_str,
+                use_cache=use_cache,
+                force_local=force_local,
+                force_free=force_free,
+                force_preferred_model=force_preferred_model,
+                silent=silent,
+                re_print_prompt=re_print_prompt,
+                exclude_model_keys=exclude_model_keys,
+                use_reasoning=False
+            )
+            chat.add_message(Role.ASSISTANT, reasoning_response)
+            chat.add_message(Role.USER, "Great, now please respond to the original request.")
+        
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)
+        
         
         if base64_images:
             chat.base64_images = base64_images
         
-        if not preferred_models or preferred_models == [""] or preferred_models == [None]:
-            preferred_models = []
-
+        if not preferred_model_keys or preferred_model_keys == [""]:
+            preferred_model_keys = []
+        
+        
+        
         while True:
             try:
-                if not preferred_models or isinstance(preferred_models[0], str):
-                    # Get an appropriate model
-                    model = instance.get_model(strength=strength, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
-                else:
-                    for preferred_model in preferred_models:
-                        if preferred_model.model_key not in instance.failed_models:
-                            model = preferred_model
-                            break
+                # Get an appropriate model
+                model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, exclude_model_keys=exclude_model_keys, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
+                
                 # If no model is available, clear failed models and retry
                 if not model:
-                    print(colored(f"# # # All models failed # # # RETRYING... # # #", "red"))
+                    print(colored(f"# # # Could not find valid model # # # RETRYING... # # #", "red"))
                     instance.failed_models.clear()
-                    if preferred_models and isinstance(preferred_models[0], str):
-                        model = instance.get_model(strength=strength, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
-
+                    model = instance.get_model(strength=strength, preferred_model_keys=preferred_model_keys, chat=chat, exclude_model_keys=exclude_model_keys, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
+                    if not model:
+                        raise Exception("Error in generate_completion: Could not find a valid model")
                 if re_print_prompt:
                     print(colored(f"\n\nPROMPT: {chat.messages[-1][1]}", "blue"))
                 if use_cache:
@@ -411,6 +446,77 @@ class LlmRouter:
                 return start_response_with + response if include_start_response_str else response
 
             except Exception as e:
-                print(colored(f"Error with model {model.model_key}: {e}", "red"))
-                logger.error(f"Error with model {model.model_key}: {e}")
-                instance.failed_models.add(model.model_key)
+                if model:
+                    print(colored(f"generate_completion error with model {model.model_key}: {e}", "red"))
+                    logger.error(f"generate_completion error with model {model.model_key}: {e}")
+                    instance.failed_models.add(model.model_key)
+                else:
+                    print(colored(f"generate_completion error: {e}", "red"))
+                    logger.error(f"generate_completion error: {e}")
+
+    @classmethod
+    def generate_completion_raw(
+        cls,
+        chat: Chat|str,
+        model: Llm,
+        start_response_with: str = "",
+        instruction: str = "You are a helpful assistant.",
+        temperature: float = 0.75,
+        base64_images: List[str] = [],
+        include_start_response_str: bool = True,
+        use_cache: bool = True,
+        silent: bool = False
+    ) -> Optional[str]:
+        """
+        Generate a completion response using the specified LLM.
+        
+        Args:
+            chat (Chat|str): The chat prompt or string.
+            model (Llm): The specific model to use.
+            strength (AIStrengths): The required strength of the model.
+            start_response_with (str): Initial string to start the response with.
+            instruction (str): Instruction for the chat.
+            temperature (float): Temperature setting for the model.
+            base64_images (List[str]): List of base64-encoded images.
+            include_start_response_str (bool): Whether to include the start response string.
+            use_cache (bool): Whether to use the cache.
+            force_local (Optional[bool]): Whether to force local models only.
+            force_free (bool): Whether to force free models only.
+            silent (bool): Whether to suppress output.
+
+        Returns:
+            Optional[str]: The generated completion string, or None if the model fails to generate a completion.
+        """
+        instance = cls()
+        tooling = CustomColoring()
+        cls.call_counter += 1
+        
+        # Convert string input to Chat object if necessary
+        if isinstance(chat, str):
+            chat = Chat(instruction).add_message(Role.USER, chat)
+        if start_response_with:
+            chat.add_message(Role.ASSISTANT, start_response_with)
+        
+        if base64_images:
+            chat.base64_images = base64_images
+        
+        try:
+            if use_cache:
+                cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
+                if cached_completion:
+                    if not silent:
+                        print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
+                        for char in cached_completion:
+                            print(tooling.apply_color(char), end="")
+                            time.sleep(0.001) # better observable for the user
+                        print()
+                    return cached_completion
+
+            response = model.provider.generate_response(chat, model.model_key, temperature, silent)
+            instance.last_used_model = model.model_key
+            instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
+            return start_response_with + response if include_start_response_str else response
+
+        except Exception as e:
+            logger.error(f"Error with model {model.model_key}: {e}")
+            return None
