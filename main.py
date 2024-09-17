@@ -11,20 +11,23 @@ import sys
 import re
 import warnings
 
+from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
+from py_classes.ai_providers.cls_stable_diffusion import StableDiffusion
+from py_classes.cls_html_server import HtmlServer
+from py_classes.cls_youtube import YouTube
 from py_methods.cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 
 from py_methods.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
-from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection, visualize_context
+from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
 from py_classes.cls_web_scraper import WebTools
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_few_shot_factory import FewShotProvider
 from py_classes.cls_chat import Chat, Role
 from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
 from py_classes.globals import g
-
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -44,7 +47,9 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-w", "--web_search", action="store_true",
-                        help="Use web search to enhance responses.")
+                        help="Continue the last conversation, retaining its context.")
+    parser.add_argument("-i", "--intelligent", action="store_true",
+                        help="Use the current most intelligent model for the agent.")
     parser.add_argument("-a", "--auto", nargs='?', const=10, type=int,
                         help="""Skip user confirmation for command execution.""", metavar="DELAY")
     parser.add_argument("-e", "--edit", nargs='?', const="", type=str, metavar="FILEPATH",
@@ -74,6 +79,7 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Preload systems like embeddings and other resources.")
     parser.add_argument("--git_message_generator", nargs='?', const="", type=str, metavar="TOPIC",
                         help="Will rework all messages done by the user on the current branch. Enter the projects theme for better results.")
+    parser.add_argument("--yt_slides", type=str, metavar="URL", help="Convert a youtube url to a slideshow")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -103,6 +109,10 @@ def main() -> None:
         print(colored("Preloading complete.", "green"))
         exit(0)
     
+    if args.intelligent:
+        args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
+        print(colored(f"Using the current most intelligent model: {args.llm}", "green"))
+    
     if args.exp:
         while True:
             print(colored("Experimental agentic hierarchical optimization state machine.", "green"))
@@ -112,13 +122,32 @@ def main() -> None:
             # agent = AgenticPythonProcess("human")
             agent = AgenticPythonProcess()
             agent.run(user_input)
-        
+            
+    if args.yt_slides:
+        print(colored("Converting youtube video to slideshow...", "green"))
+        video_path = YouTube.download_video(args.yt_slides, g.PROJ_VSCODE_DIR_PATH)
+        mp3_path = YouTube.convert_video_to_mp3(video_path)
+        pyaihost = PyAiHost()
+        pyaihost.initialize("small")
+        songtext, _ = pyaihost.transcribe_audio(mp3_path)
+        split_songtext = songtext.split("\n")
+        stable_diffusion = StableDiffusion()
+        print(colored(f"Downloaded models: {stable_diffusion.list_downloaded_models()}", "yellow"))
+        stable_diffusion.load_model("CompVis/stable-diffusion-v1-4")
+        for text in split_songtext:
+            image_gen_prompt = FewShotProvider.few_shot_ToImageGenPrompt(text, "llama3.1:8b")
+            stable_diffusion.generate_image(image_gen_prompt, g.PROJ_VSCODE_DIR_PATH, num_inference_steps=20, guidance_scale=2.0)
+        exit(0)
     
+    
+    next_prompt: str = ""
     context_chat: Chat|None = None
-    next_prompt = ""
     
     if args.c:
         context_chat = Chat.load_from_json()
+    else:
+        context_chat = Chat()
+    
     
     if args.speech_to_text:
         # setup microphone
@@ -135,45 +164,55 @@ def main() -> None:
                 print(colored(last_response, 'magenta'))
     
     if args.edit != None: # code edit mode
-        if not context_chat:
-            context_chat = Chat()
         pre_chosen_option = ""
         if (args.auto):
             pre_chosen_option = "1"
         code_assistant(context_chat, args.edit, pre_chosen_option)    
     
     if args.fixpy != None:
-        if not context_chat:
-            context_chat = Chat()
         python_error_agent(context_chat, args.fixpy)
 
     if args.presentation != None:
-        if not context_chat:
-            context_chat = Chat()
         presentation_assistant(args, context_chat, args.presentation)
     
     if args.git_message_generator:
-        if not context_chat:
-            context_chat = Chat()
         user_input = ""
         if args.message:
             user_input = args.message
         git_message_generator(args.git_message_generator, user_input)
     
-    
     prompt_context_augmentation: str = ""
     temporary_prompt_context_augmentation: str = ""
+    previous_model_key: str | None = None
+    server: HtmlServer | None = None
+    
+    # remove empty context chat for few_shot_inits
+    if len(context_chat.messages) == 0:
+        context_chat = None
     
     # Main loop
     while True:
+        # remove temporary context augmentation from the last user message
+        if context_chat:
+            if len(context_chat.messages) > 0:
+                if context_chat.messages[-1][0] == Role.USER:
+                    context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, ""))
+        
         # save the context_chat to a json file
         if context_chat:
             context_chat.save_to_json()
     
         if args.visualize and context_chat:
-            visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
+            if not server:
+                server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
+            server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
         
-        if args.message:
+        if server:
+            while not server.remote_user_input:
+                time.sleep(1)
+            next_prompt = server.remote_user_input
+            server.remote_user_input = ""
+        elif args.message:
             next_prompt = args.message
             args.message = None
         elif args.speech_to_text:
@@ -186,38 +225,7 @@ def main() -> None:
             next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
         
         
-        if args.documents != None:
-            if args.documents:
-                file_or_folder_path = args.documents
-            else:
-                file_or_folder_path = g.CURRENT_WORKING_DIR_PATH
-            
-            if (context_chat):
-                context_chat.add_message(Role.USER, next_prompt)
-                response, context_chat = documents_assistant(context_chat, file_or_folder_path)
-            else:
-                # Init
-                response, context_chat = documents_assistant(next_prompt, file_or_folder_path)
-            continue
-        
-        if args.documents2 != None:
-            if args.documents2:
-                file_or_folder_path = args.documents2
-            else:
-                file_or_folder_path = g.CURRENT_WORKING_DIR_PATH
-            
-            print(colored(f"Using needle in a haystack approach", "green"))
-            print(colored(f"Searching for the file or folder at: {file_or_folder_path}", "green"))
-            
-            if (context_chat):
-                context_chat.add_message(Role.USER, next_prompt)
-                response, context_chat = documents_assistant(context_chat, file_or_folder_path, True)
-            else:
-                # Init
-                response, context_chat = documents_assistant(next_prompt, file_or_folder_path, True)
-            continue
-        
-        if next_prompt.lower().endswith('--q'):
+        if next_prompt.endswith('--q'):
             print(colored("Exiting...", "red"))
             break
         
@@ -229,7 +237,7 @@ def main() -> None:
             next_prompt = context_chat.messages.pop()[1]
             print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
             
-        if next_prompt.startswith("--p"):
+        if next_prompt.endswith("--p"):
             next_prompt = next_prompt[:-3]
             print(colored(f"# cli-agent: KeyBinding detected: Starting ScreenCapture, type (--h) for info [NOT IMPLEMENTED]", "green"))
             # screenCapture = ScreenCapture()
@@ -243,16 +251,6 @@ def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, type (--h) for info", "green"))
             continue
         
-        if next_prompt.startswith("--llm"):
-            user_input = input(colored("Enter the llm to use (phi3.5:3.8b, claude3.5, gpt-4o), or leave empty for automatic: ", 'blue'))
-            if user_input:
-                args.llm = user_input
-            else:
-                args.llm = None
-            next_prompt = ""
-            print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
-            continue
-        
         if next_prompt.endswith("--a"):
             next_prompt = next_prompt[:-3]
             args.auto = not args.auto
@@ -264,10 +262,30 @@ def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Websearch enabled, type (--h) for info", "green"))
             continue
         
+        if next_prompt.startswith("--llm"):
+            user_input = input(colored("Enter the llm to use (phi3.5:3.8b, claude3.5, gpt-4o), or leave empty for automatic: ", 'blue'))
+            if user_input:
+                args.llm = user_input
+            else:
+                args.llm = None
+            next_prompt = ""
+            print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
+            continue
+        
         if next_prompt.endswith("--maj"):
             args.majority = True    
             print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
             continue
+        
+        if next_prompt.endswith("--i"):
+            previous_model_key = args.llm
+            args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
+            if previous_model_key:
+                args.llm = previous_model_key
+                previous_model_key = None
+                print(colored(f"# cli-agent: KeyBinding detected: Disabled the current most intelligent model, now using: {args.llm}, type (--h) for info", "green"))
+            else:    
+                print(colored(f"# cli-agent: KeyBinding detected: Enabled the current most intelligent model: {args.llm}, type (--h) for info", "green"))
         
         if next_prompt.endswith("--vis"):
             print(colored(f"# cli-agent: KeyBinding detected: Visualize, this will generate a html site and display it, type (--h) for info", "green"))
@@ -284,10 +302,8 @@ def main() -> None:
                 lines.append(line)
             next_prompt = "\n".join(lines)
         
-        
         if next_prompt.endswith("--h"):
             next_prompt = next_prompt[:-3]
-            
             print(figlet_format("cli-agent", font="slant"))
             print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
 # cli-agent: KeyBindings:
@@ -304,6 +320,7 @@ def main() -> None:
 """, "yellow"))
             continue
         
+            
         
         if args.web_search:
             # recent_context_str = context_chat.get_messages_as_string(-3)
@@ -322,34 +339,58 @@ def main() -> None:
                 prompt_context_augmentation += f"\n\nHere's the readme from the github repo:\n```md\n{github_readme}\n```"
 
         
-        next_prompt +=  temporary_prompt_context_augmentation  # appending relevant content to generate better responses
+        next_prompt +=  temporary_prompt_context_augmentation  # appending relevant content temporarily to generate better responses
         next_prompt +=  prompt_context_augmentation  # appending relevant content to generate better responses
         
-        if args.majority:
-            # Majority voting behavior
-            majority_chat, majority_response = majority_response_assistant(next_prompt, args.message)
-            if not context_chat:
-                context_chat = majority_chat
-            else:
+        
+        # Document assistant behavior
+        if args.documents2 != None or args.documents != None:
+            if args.documents != None:
+                needle_in_haystack: bool = False
+                if args.documents:
+                    file_or_folder_path = args.documents
+                else:
+                    file_or_folder_path = g.CURRENT_WORKING_DIR_PATH
+            if args.documents2 != None:
+                needle_in_haystack: bool = True
+                if args.documents2:
+                    file_or_folder_path = args.documents2
+                else:
+                    file_or_folder_path = g.CURRENT_WORKING_DIR_PATH
+                print(colored(f"Using needle in a haystack approach", "green"))
+            print(colored(f"Document assistant running for: {file_or_folder_path}", "green"))
+            
+            if (context_chat):
+                # Continuation
                 context_chat.add_message(Role.USER, next_prompt)
-                context_chat.add_message(Role.ASSISTANT, majority_response)
+                response, context_chat = documents_assistant(context_chat, file_or_folder_path, needle_in_haystack)
+            else:
+                # Initialization
+                response, context_chat = documents_assistant(next_prompt, file_or_folder_path, needle_in_haystack)
             continue
-        elif context_chat and len(context_chat.messages) > 1:
-            # Default continuation
+        
+        # Majority voting behavior
+        if args.majority:
+            if not context_chat:
+                context_chat = Chat()
+            context_chat.add_message(Role.USER, next_prompt)
+            context_chat, majority_response = majority_response_assistant(context_chat, args.message)
+            continue
+        
+        # Default behavior (terminal assistant)
+        if context_chat and len(context_chat.messages) > 1:
+            # Continuation
             context_chat.add_message(Role.USER, next_prompt)
             llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            # Default behavior initalization
-            llm_response, context_chat = FewShotProvider.few_shot_CmdAgent(next_prompt, [args.llm], force_local=args.local)
+            # Initalization
+            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local)
         
         if (args.speak or args.speech_to_text):
             spoken_response = remove_blocks(llm_response, ["md"])
             text_to_speech(spoken_response)
         
-        # remove temporary context augmentation from the last user message
-        context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, ""))
-
         reponse_blocks = extract_blocks(llm_response)
         
         bash_blocks = [block[1] for block in reponse_blocks if block[0] == "bash"]
@@ -378,6 +419,10 @@ def main() -> None:
             except KeyboardInterrupt:
                 print(colored("\nExecution aborted by the user.", 'red'))
                 continue  # Skip the execution of commands and start over
+        
+        # save context once before executing
+        if context_chat:
+            context_chat.save_to_json()
         
         temporary_prompt_context_augmentation, execution_summarization = select_and_execute_commands(bash_blocks, args.auto is not None) 
         print(recolor(execution_summarization, "\t#", "successfully", "green"))

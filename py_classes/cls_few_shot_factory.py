@@ -135,7 +135,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_CmdAgent(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False) -> Tuple[str,Chat]:
+    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -1320,7 +1320,7 @@ I hope this helps! Let me know if you have any further questions."""
 </html>
 ```""")
 
-        chat.add_message(Role.USER, f"Nice, now please make the next ones more aesthetically pleasing, optionally incorporate emojis as icons, do not use external dependencies other than image urls. Your code will be used as is so do not use placeholders. Please create a HTML page to visualize the latest discussed topic(s): {page_description}")
+        chat.add_message(Role.USER, f"Nice, now please make the next ones more aesthetically pleasing, incorporate emojis as icons, do not use external dependencies other than image urls. Your code will be used as is so do not use placeholders. Please create a HTML page to visualize the latest discussed topic(s): {page_description}")
 
         response: str = LlmRouter.generate_completion(
             chat=chat,
@@ -1341,3 +1341,53 @@ I hope this helps! Let me know if you have any further questions."""
             html_content = ""  # Or you might want to raise an exception here
         
         return html_content, chat
+    
+    @classmethod
+    def few_shot_ToImageGenPrompt(cls, description: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
+        """
+        Generates an optimized image generation prompt based on the given description.
+
+        Args:
+            description (str): The input description to convert into an image generation prompt.
+            preferred_models (List[str], optional): List of preferred model keys for LLM.
+            force_local (bool, optional): If True, force the use of a local model.
+            silent (bool, optional): If True, suppress output during processing.
+
+        Returns:
+            str: The optimized image generation prompt.
+        """
+        chat = Chat("""You are an expert in creating prompts for AI image generation. Your task is to take a given description and convert it into an optimized prompt suitable for image generation models. Follow these guidelines:
+
+        1. Be specific and detailed in describing visual elements.
+        2. Use clear and concise language.
+        3. Include information about style, mood, lighting, and composition when relevant.
+        4. Avoid abstract concepts or non-visual elements.
+        5. Use commas to separate different elements of the prompt.
+        6. Keep the prompt length reasonable (typically under 100 words).
+
+        Respond with only the optimized prompt, without any additional explanation.""")
+
+        # Example 1: Simple scene
+        chat.add_message(Role.USER, "Convert to image prompt: A cat sitting on a windowsill")
+        chat.add_message(Role.ASSISTANT, "A fluffy orange tabby cat sitting on a wooden windowsill, looking out at a sunny garden, soft natural lighting, detailed fur texture, cozy home atmosphere")
+
+        # Example 2: Fantasy character
+        chat.add_message(Role.USER, "Convert to image prompt: An elf warrior in a forest")
+        chat.add_message(Role.ASSISTANT, "Elegant elven warrior with long silver hair, intricate green and gold armor, wielding a glowing bow, standing in a misty ancient forest, dappled sunlight, mystical atmosphere, digital fantasy art style")
+
+        # Example 3: Abstract concept
+        chat.add_message(Role.USER, "Convert to image prompt: The feeling of nostalgia")
+        chat.add_message(Role.ASSISTANT, "Sepia-toned photograph of a child's hand touching an old vinyl record player, dust particles visible in warm sunlight streaming through a window, vintage toys and books scattered nearby, soft focus, emotional and wistful atmosphere")
+
+        # Actual task
+        chat.add_message(Role.USER, f"Convert to image prompt: {description}")
+
+        response: str = LlmRouter.generate_completion(
+            chat,
+            preferred_models=preferred_models,
+            force_local=force_local,
+            force_free=True,
+            silent=silent
+        )
+
+        return response.strip()
