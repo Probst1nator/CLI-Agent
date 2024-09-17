@@ -89,6 +89,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
     """
     snippets_to_process: List[str] = []
     result = ""
+    preferred_models_before = preferred_models
     if file_path:
         # Read the content of the file specified by the --edit argument
         with open(file_path, 'r') as file:
@@ -150,6 +151,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 print(colored("4. Perform web search", 'yellow'))
                 print(colored("5. Use a custom delimiter for splitting the code into chunks", 'yellow'))
                 print(colored("6. Add clipboard contents", 'yellow'))
+                print(colored("7. Enable the most intelligent model", 'yellow'))
                 print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
                 user_input = input(colored("Enter your choice: ", 'blue'))
             
@@ -183,6 +185,14 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             elif user_input == "6":
                 clipboard_content = pyperclip.paste()
                 snippets_to_process.insert(0, f"Here have a look at my clipboard:\n```\n{clipboard_content}\n```")
+            elif user_input == "7":
+                if preferred_models == [g.CURRENT_MOST_INTELLIGENT_MODEL_KEY]:
+                    preferred_models = preferred_models_before
+                    print(colored("Disabled the most intelligent model.", 'yellow'))
+                else:
+                    preferred_models_before = preferred_models
+                    preferred_models = [g.CURRENT_MOST_INTELLIGENT_MODEL_KEY]
+                    print(colored(f"Enabled the most intelligent model: {preferred_models[0]}", 'yellow'))
             else:
                 next_prompt = user_input
             
@@ -211,7 +221,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             for i in range(1, len(snippets_to_process)):
                 snippets_to_process[i] = chunking_delimiter + snippets_to_process[i]
 
-        # Print number of processed snippets
+        
         
         #! Actual code processing and generation starts here
         # check for additional snippets to add for processing
@@ -229,7 +239,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 # Add the prompt to the chat context
                 context_chat.add_message(Role.USER, next_prompt_i)
                 # Generate a response using the LlmRouter
-                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
                 extracted_snippet = extract_single_snippet(response, allow_no_end=True)
                 # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
                 if (extracted_snippet):
@@ -239,7 +249,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
         else:
             # Only use prompt + context without adding snippets
             context_chat.add_message(Role.USER, next_prompt)
-            response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+            response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
             extracted_snippet = extract_single_snippet(response, allow_no_end=True)
             # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
             if (extracted_snippet):
@@ -267,7 +277,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             print(colored("INFO: Snippets were not reimplemented by the assistant.", 'yellow'))
             if (len(snippets_to_process) > 1):
                 context_chat.add_message(Role.USER, "Please summarize your reasoning step by step and provide a short discussion.")
-                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
 
 
 def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_input: str = ""):
@@ -449,7 +459,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
                 break
             chat.add_message(Role.USER, user_input)
 
-def majority_response_assistant(user_input: str = "", force_local: bool = False, preferred_models: List[str] = []) -> Tuple[Chat, str]:
+def majority_response_assistant(context_chat: Chat, force_local: bool = False, preferred_models: List[str] = []) -> Tuple[Chat, str]:
     """
     An assistant function that leverages multiple AI models to provide comprehensive and consensus-based answers to user queries.
     This assistant, called "majority_vote_assistant", operates by consulting various models and synthesizing their outputs.
@@ -472,16 +482,12 @@ def majority_response_assistant(user_input: str = "", force_local: bool = False,
         
 
     while True:
-        # Collect user input if not provided
-        if not user_input:
-            user_input = input(colored("Enter your request: ", "blue"))
-
         # Distribute query to all available models and gather responses
         model_responses_str = ""
         model_responses = []
         for i, model in enumerate(models):
             try:
-                response = LlmRouter.generate_completion(user_input, preferred_models=[model])
+                response = LlmRouter.generate_completion(context_chat, preferred_models=[model])
                 if not response:
                     continue
                 model_responses_str += f"EXPERT {i}:\n{response}\n\n'''"
@@ -492,13 +498,15 @@ def majority_response_assistant(user_input: str = "", force_local: bool = False,
         print(colored(f"Received responses from {len(model_responses)} models. Summarizing...", "yellow"))
 
         chat = Chat("You are a data scientist tasked with performing a comprehensive meta analysis of responses from various experts on a given topic. Please summarize the responses, highlighting the key points and areas of agreement or disagreement. Be thorough and work step by step to grasp and reveal each relevant nuance of the conversation.")
-        chat.add_message(Role.USER, f"{model_responses_str}TOPIC: {user_input}")
+        chat.add_message(Role.USER, f"{model_responses_str}TOPIC: {context_chat.messages[-1][1]}")
         response = LlmRouter.generate_completion(chat=chat, preferred_models=models, force_local=force_local)
         chat.add_message(Role.ASSISTANT, response)
-        chat.add_message(Role.USER, f"Please provide a final, concise and accurate answer to the following question: {user_input}")
+        chat.add_message(Role.USER, f"Please provide a final, concise and accurate response to the following user input: {context_chat.messages[-1][1]}")
         response = LlmRouter.generate_completion(chat=chat, preferred_models=models, force_local=force_local)
         chat.add_message(Role.ASSISTANT, response)
-        return chat, response
+        
+        context_chat.add_message(Role.ASSISTANT, response)
+        return context_chat, response
 
 
 def documents_assistant(question_context: Chat|str, pdf_or_folder_path: str = "", use_needle_in_a_haystack: bool = False) -> Tuple[str, Chat]:

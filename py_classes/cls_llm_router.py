@@ -83,6 +83,8 @@ class Llm:
             
             Llm(AnthropicAPI(), "claude-3-5-sonnet", 9, False, False, False, 200000, 4096, AIStrengths.STRONG),
             Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, 4096, AIStrengths.FAST),
+            
+            Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, None, AIStrengths.STRONG),
             Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, None, AIStrengths.STRONG),
             Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, None, AIStrengths.FAST),
             
@@ -332,7 +334,7 @@ class LlmRouter:
         include_start_response_str: bool = True,
         use_cache: bool = True,
         force_local: bool = False,
-        force_free: bool = False,
+        force_free: bool = True,
         force_preferred_model: bool = False,
         silent: bool = False,
         re_print_prompt: bool = False,
