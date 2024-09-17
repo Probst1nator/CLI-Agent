@@ -289,7 +289,9 @@ def main() -> None:
         
         if next_prompt.endswith("--vis"):
             print(colored(f"# cli-agent: KeyBinding detected: Visualize, this will generate a html site and display it, type (--h) for info", "green"))
-            visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
+            if not html_server:
+                html_server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
+            html_server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
             continue
         
         if next_prompt.endswith("--m"):
