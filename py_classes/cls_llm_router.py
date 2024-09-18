@@ -282,8 +282,11 @@ class LlmRouter:
                     return model
 
         if force_preferred_model:
-            # return a dummy model to force Ollama to download it
-            return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
+            if force_local:
+                # return a dummy model to force Ollama to download it
+                return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
+            print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
+            return None
         
         # Search online models by capability next
         if not force_local:

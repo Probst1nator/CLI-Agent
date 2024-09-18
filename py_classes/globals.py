@@ -8,7 +8,7 @@ class Globals:
     PROJ_AGENTIC_PATH = os.path.join(PROJ_DIR_PATH, 'agentic')
     PROJ_AGENTIC_SANDBOX_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox')
     PROJ_AGENTIC_SANDBOX_BACKUP_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox_backup')
-    CURRENT_WORKING_DIR_PATH = os.getcwd()  # New property for current working directory
+    CURRENT_WORKING_DIR_PATH = os.getcwd()
     CURRENT_MOST_INTELLIGENT_MODEL_KEY: str = "gpt4-o"
     
 
