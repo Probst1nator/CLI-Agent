@@ -11,8 +11,6 @@ import sys
 import re
 import warnings
 
-from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
-from py_classes.ai_providers.cls_stable_diffusion import StableDiffusion
 from py_classes.cls_html_server import HtmlServer
 from py_classes.cls_youtube import YouTube
 from py_methods.cmd_execution import select_and_execute_commands
@@ -124,6 +122,8 @@ def main() -> None:
             agent.run(user_input)
             
     if args.yt_slides:
+        from py_classes.ai_providers.cls_stable_diffusion import StableDiffusion
+        from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
         print(colored("Converting youtube video to slideshow...", "green"))
         video_path = YouTube.download_video(args.yt_slides, g.PROJ_VSCODE_DIR_PATH)
         mp3_path = YouTube.convert_video_to_mp3(video_path)
@@ -223,7 +223,6 @@ def main() -> None:
                 next_prompt = listen_microphone(source, r)[0]
         else:
             next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
-        
         
         if next_prompt.endswith('--q'):
             print(colored("Exiting...", "red"))
@@ -379,15 +378,18 @@ def main() -> None:
             context_chat, majority_response = majority_response_assistant(context_chat, args.message)
             continue
         
+        # Todo use this param properly with args
+        use_reasoning=False
+        
         # Default behavior (terminal assistant)
         if context_chat and len(context_chat.messages) > 1:
             # Continuation
             context_chat.add_message(Role.USER, next_prompt)
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local)
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
             # Initalization
-            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local)
+            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
         
         if (args.speak or args.speech_to_text):
             spoken_response = remove_blocks(llm_response, ["md"])

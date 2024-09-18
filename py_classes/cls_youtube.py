@@ -1,6 +1,5 @@
 import os
 import yt_dlp
-from moviepy.editor import VideoFileClip
 from typing import Optional
 
 class YouTube:
@@ -61,6 +60,7 @@ class YouTube:
         Raises:
             ValueError: If the file doesn't exist or there's an error during conversion.
         """
+        from moviepy.editor import VideoFileClip
         try:
             if not os.path.exists(file_path):
                 raise ValueError(f"File not found: {file_path}")

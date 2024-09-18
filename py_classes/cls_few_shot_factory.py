@@ -135,7 +135,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False) -> Tuple[str,Chat]:
+    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False, use_reasoning=False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -295,7 +295,8 @@ This command will search for any running processes that match the pattern "cli-a
             chat,
             preferred_models,
             force_local=force_local,
-            silent=silent
+            silent=silent,
+            use_reasoning=use_reasoning
         )
         
         applied_hardcoded_fixes = False

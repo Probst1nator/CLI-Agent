@@ -187,23 +187,36 @@ class LlmRouter:
         cache_key = self._generate_hash(model_key, temperature, chat.to_json(), images)
         return self.cache.get(cache_key)
 
-    def _update_cache(self, model_key: str, temperature: str, chat: Chat, images: List[str], completion: str) -> None:
+    def update_cache(self, model_key: str, temperature: str, chat: Chat, images: List[str], completion: str) -> None:
         """
         Update the cache with a new completion.
-        
         Args:
-            model_key (str): Model identifier.
-            temperature (str): Temperature setting for the model.
-            chat (Chat): The chat prompt.
-            images (List[str]): List of image encodings.
-            completion (str): The generated completion string.
+        model_key (str): Model identifier.
+        temperature (str): Temperature setting for the model.
+        chat (Chat): The chat prompt.
+        images (List[str]): List of image encodings.
+        completion (str): The generated completion string.
         """
-        # Generate cache key, update cache, and save to file
+        # Generate cache key
         cache_key = self._generate_hash(model_key, temperature, chat.to_json(), images)
+        
+        # Update the in-memory cache
         self.cache[cache_key] = completion
+        
         try:
+            # Read existing cache from file
+            if os.path.exists(self.cache_file_path):
+                with open(self.cache_file_path, "r") as json_file:
+                    existing_cache = json.load(json_file)
+            else:
+                existing_cache = {}
+            
+            # Update the existing cache with the new entry
+            existing_cache.update(self.cache)
+            
+            # Write the updated cache back to the file
             with open(self.cache_file_path, "w") as json_file:
-                json.dump(self.cache, json_file, indent=4)
+                json.dump(existing_cache, json_file, indent=4)
         except Exception as e:
             logger.error(f"Failed to update cache: {e}")
 
