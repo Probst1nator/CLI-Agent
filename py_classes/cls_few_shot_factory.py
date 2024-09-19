@@ -135,7 +135,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False, use_reasoning=False) -> Tuple[str,Chat]:
+    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False, add_reasoning: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -149,7 +149,7 @@ class FewShotProvider:
             Tuple[str, Chat]: The response and the full chat.
         """
         chat: Chat = Chat(
-            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise.", preferred_models, force_local, silent=True)
+            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise.", preferred_models, force_local, silent=True, add_reasoning=False)
         )
 
         chat.add_message(
@@ -296,7 +296,7 @@ This command will search for any running processes that match the pattern "cli-a
             preferred_models,
             force_local=force_local,
             silent=silent,
-            use_reasoning=use_reasoning
+            add_reasoning=add_reasoning
         )
         
         applied_hardcoded_fixes = False
@@ -413,7 +413,7 @@ Here's the text to process:
     
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, preferred_models: List[str] = [""], force_local: bool = False, silent: bool = True, force_free = False) -> str:
+    def few_shot_rephrase(self, userRequest: str, preferred_models: List[str] = [""], force_local: bool = False, silent: bool = True, force_free = False, add_reasoning: bool = False) -> str:
         """
         Rephrases the given request to enhance clarity while preserving the intended meaning.
 
@@ -453,7 +453,8 @@ Here's the text to process:
                 force_local=force_local,
                 force_free=force_free,
                 silent=silent,
-                temperature=0.4
+                temperature=0.4,
+                add_reasoning=add_reasoning
             )
             
             chat.add_message(
