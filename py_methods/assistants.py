@@ -498,7 +498,7 @@ def majority_response_assistant(context_chat: Chat, force_local: bool = False, p
         print(colored(f"Received responses from {len(model_responses)} models. Summarizing...", "yellow"))
 
         chat = Chat("You are a data scientist tasked with performing a comprehensive meta analysis of responses from various experts on a given topic. Please summarize the responses, highlighting the key points and areas of agreement or disagreement. Be thorough and work step by step to grasp and reveal each relevant nuance of the conversation.")
-        chat.add_message(Role.USER, f"{model_responses_str}TOPIC: {context_chat.messages[-1][1]}")
+        chat.add_message(Role.USER, f"CONTEXT:\n{model_responses_str}\nUSER_QUERY:\n{context_chat.messages[-1][1]}")
         response = LlmRouter.generate_completion(chat=chat, preferred_models=models, force_local=force_local)
         chat.add_message(Role.ASSISTANT, response)
         chat.add_message(Role.USER, f"Please provide a final, concise and accurate response to the following user input: {context_chat.messages[-1][1]}")

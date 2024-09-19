@@ -381,7 +381,8 @@ class OllamaClient(ChatClientInterface):
         Returns:
             Optional[List[float]]: The generated embedding as a list of floats, or None if an error occurs.
         """
-        
+        if len(text)<3:
+            return None
         client, model_key = OllamaClient.get_valid_client(model)
         if not client:
             logger.error(f"No valid host found for model {model}")

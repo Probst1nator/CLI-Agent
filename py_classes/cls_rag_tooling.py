@@ -303,17 +303,13 @@ class RagTooling:
         str: The generated RAG prompt.
         """
         if not text_and_metas:
-            return "Respond by telling that the knowledge base is empty."
-        # Group documents by source
-        source_groups: Dict[str, List[str]] = defaultdict(list)
-        for document, metadata in text_and_metas:
-            source_groups[metadata['file_path']].append(document)
+            return ""
         # Create the retrieved context string
         prompt: str = ""
-        for i, (source, documents) in enumerate(source_groups.items()):
-            retrieved_context: str = "\n".join(documents)
+        for i, (text, metadata) in enumerate(text_and_metas):
+            retrieved_context: str = "\n".join(text)
             retrieved_context = retrieved_context.replace("\n\n", "\n").strip()
-            prompt += f"Document:{i}\nSource: {source}\nText: {retrieved_context}\n\n"
+            prompt += f"Document:{i}\n\nText: {retrieved_context}\n\n"
 
         prompt += f"Instruction: Use the data from the above documents to provide a helpful and accurate response to the following question.\nQuestion: {user_query}"
         

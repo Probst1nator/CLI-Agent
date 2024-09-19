@@ -473,6 +473,8 @@ class LlmRouter:
                 if model:
                     print(colored(f"generate_completion error with model {model.model_key}: {e}", "red"))
                     logger.error(f"generate_completion error with model {model.model_key}: {e}")
+                    if model.model_key in instance.failed_models:
+                        return None
                     instance.failed_models.add(model.model_key)
                 else:
                     print(colored(f"generate_completion error: {e}", "red"))
