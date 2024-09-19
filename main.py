@@ -379,17 +379,17 @@ def main() -> None:
             continue
         
         # Todo use this param properly with args
-        use_reasoning=False
+        add_reasoning=False
         
         # Default behavior (terminal assistant)
         if context_chat and len(context_chat.messages) > 1:
             # Continuation
             context_chat.add_message(Role.USER, next_prompt)
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, add_reasoning=add_reasoning)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
             # Initalization
-            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
+            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, add_reasoning=add_reasoning)
         
         if (args.speak or args.speech_to_text):
             spoken_response = remove_blocks(llm_response, ["md"])

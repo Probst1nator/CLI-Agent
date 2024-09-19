@@ -2,10 +2,14 @@ import os
 import subprocess
 import sys
 from typing import List, Tuple
+import chromadb
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import CheckboxList, Frame, Label
+from py_classes.globals import g
+
+from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pyperclip
@@ -141,6 +145,9 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
             sys.exit(0)
     else:
         selected_commands = commands
+    
+    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+    collection = client.get_or_create_collection(name="commands")
 
     # Execute selected commands and collect their outputs
     results = []
@@ -151,6 +158,17 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
         if cmd in commands:
             result, output = run_command(cmd, verbose)
             results.append(result)
+            
+            if not collection.get(cmd):
+                cmd_embedding = OllamaClient.generate_embedding(cmd, "bge-m3")
+                if not cmd_embedding:
+                    break
+                collection.add(
+                    ids=[cmd],
+                    embeddings=cmd_embedding,
+                    documents=[cmd]
+                )
+            
             formatted_results.append(f"```cmd\n{result}\n```\n```cmd_log\n{output}\n```")
     
     execution_summarization = "```terminal_response\n" + "\n".join(results) + "\n```"

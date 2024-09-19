@@ -187,7 +187,7 @@ class LlmRouter:
         cache_key = self._generate_hash(model_key, temperature, chat.to_json(), images)
         return self.cache.get(cache_key)
 
-    def update_cache(self, model_key: str, temperature: str, chat: Chat, images: List[str], completion: str) -> None:
+    def _update_cache(self, model_key: str, temperature: str, chat: Chat, images: List[str], completion: str) -> None:
         """
         Update the cache with a new completion.
         Args:
@@ -365,7 +365,7 @@ class LlmRouter:
         silent: bool = False,
         re_print_prompt: bool = False,
         exclude_model_keys: List[str] = ["llama-3.1-"],
-        use_reasoning: bool = True
+        add_reasoning: bool = True
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -396,7 +396,7 @@ class LlmRouter:
         if isinstance(chat, str):
             chat = Chat(instruction).add_message(Role.USER, chat)
         
-        if use_reasoning:
+        if add_reasoning:
             print(colored(f"# # # Reasoning # # #", "green"))
             chat.add_message(Role.USER, "I changed my mind, please instead of answering directly, think through the request step by step to ensure you grasp it fully.")
             reasoning_response = cls.generate_completion(
@@ -415,7 +415,7 @@ class LlmRouter:
                 silent=silent,
                 re_print_prompt=re_print_prompt,
                 exclude_model_keys=exclude_model_keys,
-                use_reasoning=False
+                add_reasoning=False
             )
             chat.add_message(Role.ASSISTANT, reasoning_response)
             chat.add_message(Role.USER, "Great, now please respond to the original request.")

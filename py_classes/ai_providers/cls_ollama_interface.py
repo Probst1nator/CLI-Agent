@@ -3,6 +3,7 @@ from enum import Enum
 import json
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
+import chromadb
 from dotenv import load_dotenv
 import ollama
 from termcolor import colored
@@ -14,6 +15,7 @@ from py_classes.cls_ai_provider_interface import ChatClientInterface
 import socket
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from py_classes.globals import g
 
 class ToolType(Enum):
     """
@@ -379,6 +381,7 @@ class OllamaClient(ChatClientInterface):
         Returns:
             Optional[List[float]]: The generated embedding as a list of floats, or None if an error occurs.
         """
+        
         client, model_key = OllamaClient.get_valid_client(model)
         if not client:
             logger.error(f"No valid host found for model {model}")
@@ -388,8 +391,19 @@ class OllamaClient(ChatClientInterface):
 
         try:
             print(f"Ollama-Api: <{colored(model, 'green')}> is generating embedding using <{colored(host, 'green')}>...")
-            response = client.embeddings(model=model, prompt=text, keep_alive=3600)
-            return response["embedding"]
+            response = client.embeddings(model=model, prompt=text, keep_alive=7200)
+            embedding = response["embedding"]
+            # ! Test: Storing all embeddings as long term memories (storing->preloading->RAG)
+            client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+            collection = client.get_or_create_collection(name="long-term-memories")
+            if not collection.get(text):
+                collection.add(
+                    ids=[text],
+                    embeddings=[embedding],
+                    documents=[text]
+                )
+            # ! Test
+            return embedding
         except Exception as e:
             print(f"Ollama-Api: Failed to generate embedding using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
             OllamaClient.unreachable_hosts.append(f"{host}{model}")
