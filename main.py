@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import chromadb
 from pyfiglet import figlet_format
 import speech_recognition as sr
 from dotenv import load_dotenv
@@ -11,7 +12,9 @@ import sys
 import re
 import warnings
 
+from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.cls_html_server import HtmlServer
+from py_classes.cls_rag_tooling import RagTooling
 from py_classes.cls_youtube import YouTube
 from py_methods.cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -27,6 +30,9 @@ from py_classes.cls_chat import Chat, Role
 from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
 from py_classes.globals import g
 
+
+client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+collection = client.get_or_create_collection(name="commands")
 
 def parse_cli_args() -> argparse.Namespace:
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
@@ -44,6 +50,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enable text-to-speech for agent responses.")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
+    parser.add_argument("-r", "--regenerate", action="store_true",
+                        help="Regenerate the last response.")
     parser.add_argument("-w", "--web_search", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-i", "--intelligent", action="store_true",
@@ -141,10 +149,13 @@ def main() -> None:
     
     
     next_prompt: str = ""
-    context_chat: Chat|None = None
+    context_chat: Chat
     
-    if args.c:
+    if args.c or args.regenerate:
         context_chat = Chat.load_from_json()
+        if args.regenerate:
+            context_chat.messages.pop()
+            next_prompt = context_chat.messages.pop()[1]
     else:
         context_chat = Chat()
     
@@ -206,21 +217,33 @@ def main() -> None:
             if not server:
                 server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
             server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
+            
         
+        # cli args regenerate last message
+        if args.regenerate and len(context_chat.messages) > 0:
+            if context_chat.messages[-1][0] == Role.USER:
+                context_chat.messages.pop()
+                next_prompt = context_chat.messages.pop()[1]
+                print(colored(f"# cli-agent: Regenerating last response.", "green"))
+                print(colored(next_prompt, "blue"))
+        # get controlled from the html server
         if server:
             while not server.remote_user_input:
                 time.sleep(1)
             next_prompt = server.remote_user_input
             server.remote_user_input = ""
+        # cli args message
         elif args.message:
             next_prompt = args.message
             args.message = None
+        # use microphone
         elif args.speech_to_text:
             next_prompt = ""
             while not next_prompt:
                 with source:
                     r.adjust_for_ambient_noise(source, 2)
                 next_prompt = listen_microphone(source, r)[0]
+        # default user input
         else:
             next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
         
@@ -375,7 +398,7 @@ def main() -> None:
             if not context_chat:
                 context_chat = Chat()
             context_chat.add_message(Role.USER, next_prompt)
-            context_chat, majority_response = majority_response_assistant(context_chat, args.message)
+            context_chat, majority_response = majority_response_assistant(context_chat, args.local)
             continue
         
         # Todo use this param properly with args
@@ -383,6 +406,7 @@ def main() -> None:
         
         # Default behavior (terminal assistant)
         if context_chat and len(context_chat.messages) > 1:
+            # next_prompt = RagTooling.retrieve_augment(next_prompt, collection, 5)
             # Continuation
             context_chat.add_message(Role.USER, next_prompt)
             llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, add_reasoning=add_reasoning)
