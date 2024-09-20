@@ -1,4 +1,4 @@
-# A custom general CLI-Agent solution, providing a hackable playground with inside a langchain-like framework
+# A custom general CLI-Agent solution, providing a hackable playground inside a langchain-like framework
 
 This project introduces a CLI (Command Line Interface) Agent leveraging the Groq-API and Ollama backends, based on the Local Language Model Toolkit Project I've developed.
 
