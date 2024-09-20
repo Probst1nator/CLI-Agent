@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+import datetime
+import json
+import os
 import chromadb
 from pyfiglet import figlet_format
 import speech_recognition as sr
@@ -31,8 +34,6 @@ from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
 from py_classes.globals import g
 
 
-client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-collection = client.get_or_create_collection(name="commands")
 
 def parse_cli_args() -> argparse.Namespace:
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
@@ -42,6 +43,8 @@ def parse_cli_args() -> argparse.Namespace:
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
     
+    parser.add_argument("-d", "--daily", action="store_true",
+                        help="Run the daily routine.")
     parser.add_argument("-m", "--message", type=str,
                         help="Enter your first message instantly.")
     parser.add_argument("-l", "--local", action="store_true",
@@ -116,7 +119,14 @@ def main() -> None:
         pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=False, preferred_models=["phi3.5:3.8b"])
         print(colored("Preloading complete.", "green"))
         exit(0)
-        
+    
+    if args.daily:
+        client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+        collection = client.get_or_create_collection(name="long-term-memories")
+    else:
+        client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+        collection = client.get_or_create_collection(name="commands")
+    
     if args.quick:
         use_reasoning = False
         print(colored("Quick mode enabled, reasoning disabled.", "green"))
@@ -417,16 +427,18 @@ def main() -> None:
             context_chat, majority_response = majority_response_assistant(context_chat, args.local)
             continue
         
+        # 
+        next_prompt = RagTooling.retrieve_augment(next_prompt, collection, 5)
+        
         # Default behavior (terminal assistant)
         if context_chat and len(context_chat.messages) > 1:
-            # next_prompt = RagTooling.retrieve_augment(next_prompt, collection, 5)
             # Continuation
             context_chat.add_message(Role.USER, next_prompt)
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, add_reasoning=use_reasoning)
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
             # Initalization
-            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, add_reasoning=use_reasoning)
+            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
         
         if (args.speak or args.speech_to_text):
             spoken_response = remove_blocks(llm_response, ["md"])

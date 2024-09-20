@@ -365,7 +365,8 @@ class LlmRouter:
         silent: bool = False,
         re_print_prompt: bool = False,
         exclude_model_keys: List[str] = ["llama-3.1-"],
-        use_reasoning: bool = True
+        use_reasoning: bool = True,
+        silent_reasoning: bool = True
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -398,7 +399,7 @@ class LlmRouter:
         
         if use_reasoning:
             print(colored(f"# # # Reasoning # # #", "green"))
-            chat.add_message(Role.USER, "I changed my mind, please instead of answering directly, concisely think through the request step by step to ensure you grasp its intend.")
+            chat.add_message(Role.USER, "Think deeply and step by step about this.")
             if not isinstance(preferred_models[0], str):
                 preferred_models_for_reasoning = [model.model_key for model in preferred_models]
             else:
@@ -417,13 +418,13 @@ class LlmRouter:
                 force_local=force_local,
                 force_free=force_free,
                 force_preferred_model=force_preferred_model,
-                silent=silent,
+                silent=silent_reasoning,
                 re_print_prompt=re_print_prompt,
                 exclude_model_keys=exclude_model_keys,
                 use_reasoning=False
             )
             chat.add_message(Role.ASSISTANT, reasoning_response)
-            chat.add_message(Role.USER, "Great, now please respond to the original request.")
+            chat.add_message(Role.USER, "Nice deep thoughts! Now, let's get to the point. Distill your thoughts into a concise response.")
         
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)
