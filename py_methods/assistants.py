@@ -239,7 +239,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 # Add the prompt to the chat context
                 context_chat.add_message(Role.USER, next_prompt_i)
                 # Generate a response using the LlmRouter
-                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models + [LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
                 extracted_snippet = extract_single_snippet(response, allow_no_end=True)
                 # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
                 if (extracted_snippet):

@@ -64,6 +64,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Interactively create a presentation.")    
     parser.add_argument("-h", "--help", action="store_true",
                         help="Display this help")
+    parser.add_argument("-q", "--quick", action="store_true",
+                        help="Disable reasoning for the agent.")
     parser.add_argument("-maj", "--majority", action="store_true",
                         help="Generate a response based on the majority of all local models.")
     parser.add_argument("-fpy", "--fixpy", type=str,
@@ -114,6 +116,12 @@ def main() -> None:
         pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=False, preferred_models=["phi3.5:3.8b"])
         print(colored("Preloading complete.", "green"))
         exit(0)
+        
+    if args.quick:
+        use_reasoning = False
+        print(colored("Quick mode enabled, reasoning disabled.", "green"))
+    else:
+        use_reasoning = True
     
     if args.intelligent:
         args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
@@ -299,6 +307,11 @@ def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
             continue
         
+        if next_prompt.endswith("--rea"):
+            use_reasoning = not use_reasoning
+            print(colored(f"# cli-agent: KeyBinding detected: Reasoning toggled to {use_reasoning}, type (--h) for info", "green"))
+            continue
+        
         if next_prompt.endswith("--i"):
             previous_model_key = args.llm
             args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
@@ -331,15 +344,18 @@ def main() -> None:
             print(figlet_format("cli-agent", font="slant"))
             print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
 # cli-agent: KeyBindings:
+# cli-agent: --h: Shows this help message.
 # cli-agent: --r: Regenerates the last response.
-# cli-agent: --llm: Set the language model to use. (Examples: "phi3.5:3.8b", "claude3.5", "gpt-4o")
 # cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --a: Toggles autonomous command execution.
 # cli-agent: --w: Perform a websearch before answering.
-# cli-agent: --maj: Run the majority response assistant.
 # cli-agent: --m: Multiline input mode.
-# cli-agent: --h: Shows this help message.
+# cli-agent: --i: Toggles to the current most intelligent model.
+# cli-agent: --rea: Toggles reasoning.
+# cli-agent: --vis: Visualize the chat on a html page.
+# cli-agent: --maj: Run the majority response assistant.
+# cli-agent: --llm: Set the language model to use. (Examples: "phi3.5:3.8b", "claude3.5", "gpt-4o")
 # cli-agent: Type 'quit' to exit the program.
 """, "yellow"))
             continue
@@ -401,19 +417,16 @@ def main() -> None:
             context_chat, majority_response = majority_response_assistant(context_chat, args.local)
             continue
         
-        # Todo use this param properly with args
-        add_reasoning=False
-        
         # Default behavior (terminal assistant)
         if context_chat and len(context_chat.messages) > 1:
             # next_prompt = RagTooling.retrieve_augment(next_prompt, collection, 5)
             # Continuation
             context_chat.add_message(Role.USER, next_prompt)
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, add_reasoning=add_reasoning)
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, add_reasoning=use_reasoning)
             context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
             # Initalization
-            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, add_reasoning=add_reasoning)
+            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, add_reasoning=use_reasoning)
         
         if (args.speak or args.speech_to_text):
             spoken_response = remove_blocks(llm_response, ["md"])
