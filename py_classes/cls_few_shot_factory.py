@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import ollama
 import chromadb
@@ -135,7 +135,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False, add_reasoning: bool = False) -> Tuple[str,Chat]:
+    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False, use_reasoning: bool = False, silent_reasoning: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -149,7 +149,7 @@ class FewShotProvider:
             Tuple[str, Chat]: The response and the full chat.
         """
         chat: Chat = Chat(
-            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise.", preferred_models, force_local, silent=True, add_reasoning=False)
+            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise.", preferred_models, force_local, silent=True, use_reasoning=False)
         )
 
         chat.add_message(
@@ -249,39 +249,6 @@ This command will search for any running processes that match the pattern "cli-a
             "I've been found! The output shows the process IDs and command lines for the Python processes that are running the CLI-Agent code. That's meta! 🤖"
         )
         
-        chat.add_message(
-            Role.USER,
-            "Can you stand up?"
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            "I don't think so. As a virtual cli-assistant i do not posses any physical body which I could use to stand up."
-        )
-        
-        try:
-            client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-            collection = client.get_or_create_collection(name="commands")
-            cmd_embedding = OllamaClient.generate_embedding(userRequest, "bge-m3")
-            results = collection.query(
-                query_embeddings=cmd_embedding,
-                n_results=10
-            )
-            if results['documents']:
-                retrieved_cmds = results['documents'][0]
-                retrieved_cmds_str = "\n".join([f"{i+1}. {cmd}" for i, cmd in enumerate(retrieved_cmds)])
-                
-                chat.add_message(
-                    Role.USER,
-                    f"For context I am now giving you 10 commands which seem similar to my next request, please potentially consider the way they are constructed for predicting more relevant commands.\n{retrieved_cmds_str}"
-                )
-                
-                chat.add_message(
-                    Role.ASSISTANT,
-                    "I understand, thank you for providing this context. Please go ahead, what would you like to do next?"
-                )
-        except Exception as e:
-            print(colored(f"DEBUG: Error in few_shot_CmdAgent: {e}"), "red")
 
         # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
         #     userRequest = self.few_shot_rephrase(userRequest, preferred_models, force_local, silent=True)
@@ -296,7 +263,8 @@ This command will search for any running processes that match the pattern "cli-a
             preferred_models,
             force_local=force_local,
             silent=silent,
-            add_reasoning=add_reasoning
+            use_reasoning=use_reasoning,
+            silent_reasoning=silent_reasoning
         )
         
         applied_hardcoded_fixes = False
@@ -413,7 +381,7 @@ Here's the text to process:
     
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, preferred_models: List[str] = [""], force_local: bool = False, silent: bool = True, force_free = False, add_reasoning: bool = False) -> str:
+    def few_shot_rephrase(self, userRequest: str, preferred_models: List[str] = [""], force_local: bool = False, silent: bool = True, force_free = False, use_reasoning: bool = False) -> str:
         """
         Rephrases the given request to enhance clarity while preserving the intended meaning.
 
@@ -454,7 +422,7 @@ Here's the text to process:
                 force_free=force_free,
                 silent=silent,
                 temperature=0.4,
-                add_reasoning=add_reasoning
+                use_reasoning=use_reasoning
             )
             
             chat.add_message(

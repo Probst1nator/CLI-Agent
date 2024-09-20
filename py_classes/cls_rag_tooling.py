@@ -302,16 +302,14 @@ class RagTooling:
         Returns:
         str: The generated RAG prompt.
         """
-        if not text_and_metas:
-            return ""
         # Create the retrieved context string
-        prompt: str = ""
-        for i, (text, metadata) in enumerate(text_and_metas):
+        prompt: str = "CONTEXT:\n"
+        for i, (text, metadata) in enumerate(reversed(text_and_metas)):
             retrieved_context: str = "\n".join(text)
             retrieved_context = retrieved_context.replace("\n\n", "\n").strip()
-            prompt += f"Document:{i}\n\nText: {retrieved_context}\n\n"
+            prompt += f"{i}. {retrieved_context}\n"
 
-        prompt += f"Instruction: Use the data from the above documents to provide a helpful and accurate response to the following question.\nQuestion: {user_query}"
+        prompt += f"\nINSTRUCTION:\nConsider the list from above and aim to provide a intelligent response to the user_query.\nUSER_QUERY: {user_query}"
         
         return prompt
 
@@ -327,11 +325,16 @@ class RagTooling:
         Returns:
         str: The generated RAG prompt.
         """
+        print(colored("# # # Retrieving and Augmenting # # #", "green"))
         user_query_embedding: List[float] = OllamaClient.generate_embedding(user_query)
+        if not user_query_embedding:
+            return user_query
         results: Dict[str, Any] = collection.query(
             query_embeddings=user_query_embedding,
             n_results=top_k*3
         )
+        if len(results["documents"][0]) == 0:
+            return user_query
         text_and_metas = list(zip(results["documents"][0], results["metadatas"][0]))
         # rerank
         reranked_results: List[Tuple[str, Dict[str, str]]] = cls.rerank_results(text_and_metas, user_query, top_k)
