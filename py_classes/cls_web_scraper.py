@@ -4,18 +4,16 @@ import re
 from typing import Optional, List
 import requests
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 from py_classes.cls_few_shot_factory import FewShotProvider
 from brave import Brave
 
 class WebTools:
-    def __init__(self, brave_api_key: str):
+    def __init__(self):
         """
         Initialize the WebTools class with any necessary setup.
         :param brave_api_key: API key for Brave search
         """
-        load_dotenv()  # Load environment variables from .env file
-        self.brave_api_key = brave_api_key
+        self.brave_api_key = os.getenv("BRAVE_API_KEY")
 
     def scrape_text_from_url(self, url: str) -> str:
         """
@@ -102,7 +100,7 @@ class WebTools:
 # Example usage:
 if __name__ == "__main__":
     # Initialize with Brave API key from environment variable
-    web_tools = WebTools(os.getenv('BRAVE_API_KEY'))
+    web_tools = WebTools()
     
     # Example scraping
     url = 'https://example.com'

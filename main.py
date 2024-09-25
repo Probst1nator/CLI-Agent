@@ -184,11 +184,8 @@ def main() -> None:
     next_prompt: str = ""
     context_chat: Chat
     
-    if args.c or args.regenerate:
+    if args.c:
         context_chat = Chat.load_from_json()
-        if args.regenerate:
-            context_chat.messages.pop()
-            next_prompt = context_chat.messages.pop()[1]
     else:
         context_chat = Chat()
     
@@ -253,16 +250,23 @@ def main() -> None:
             
         
         # cli args regenerate last message
-        if args.regenerate and len(context_chat.messages) > 0:
-            if context_chat.messages[-1][0] == Role.USER:
-                context_chat.messages.pop()
-                next_prompt = context_chat.messages.pop()[1]
-                print(colored(f"# cli-agent: Regenerating last response.", "green"))
-                print(colored(next_prompt, "blue"))
+        if args.regenerate:
+            args.regenerate = False
+            if context_chat and len(context_chat.messages) > 1:
+                if context_chat.messages[-1][0] == Role.USER:
+                    context_chat.messages.pop()
+                    next_prompt = context_chat.messages.pop()[1]
+                    print(colored(f"# cli-agent: Regenerating last response.", "green"))
+                    print(colored(next_prompt, "blue"))
         # get controlled from the html server
         if server:
+            waiting_counter = 900
             while not server.remote_user_input:
-                time.sleep(1)
+                time.sleep(0.01)
+                waiting_counter += 1
+                if waiting_counter % 1000 == 0:
+                    print(colored(f"Waiting for user input from the html server at: {server.host_route}", "green"))
+                    waiting_counter = 0
             next_prompt = server.remote_user_input
             server.remote_user_input = ""
         # cli args message
@@ -390,10 +394,10 @@ def main() -> None:
             
         
         if args.web_search:
-            # recent_context_str = context_chat.get_messages_as_string(-3)
-            recent_context_str = next_prompt
+            recent_context_str = context_chat.get_messages_as_string(-3)
+            # recent_context_str = next_prompt
             query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
-            results = WebTools.search_brave(query, 2)
+            results = WebTools().search_brave(query, 2)
             temporary_prompt_context_augmentation += f"\n\n```web_search_results\n{''.join(results)}\n```"
             args.web_search = False
         
