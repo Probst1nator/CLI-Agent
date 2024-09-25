@@ -4,7 +4,6 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 import chromadb
-from dotenv import load_dotenv
 import ollama
 from termcolor import colored
 from py_classes.cls_chat import Chat

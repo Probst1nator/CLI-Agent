@@ -1155,7 +1155,7 @@ pytest
     def few_shot_GenerateHtmlPage(
         cls,
         page_description: str,
-        preferred_models: List[str] = [],
+        preferred_models: List[str] = ["gpt-4o-mini"],
         force_preferred_model: bool = False,
         force_local: bool = False,
         silent: bool = False,
@@ -1298,7 +1298,7 @@ I hope this helps! Let me know if you have any further questions."""
 </html>
 ```""")
 
-        chat.add_message(Role.USER, f"Nice, now please make the next ones more aesthetically pleasing, incorporate emojis as icons, do not use external dependencies other than image urls. Your code will be used as is so do not use placeholders. Please create a HTML page to visualize the latest discussed topic(s): {page_description}")
+        chat.add_message(Role.USER, f"Nice, now please make the next ones more aesthetically pleasing, incorporate emojis as icons and do not try to use any external dependencies. Your code will be used exactly as you have provided so do not use placeholders. Please create a HTML page to visualize the latest discussed topic(s): {page_description}")
 
         response: str = LlmRouter.generate_completion(
             chat=chat,
