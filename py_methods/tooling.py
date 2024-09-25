@@ -16,7 +16,9 @@ import webbrowser
 import chromadb
 from gtts import gTTS
 import numpy as np
+import pyaudio
 
+from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_few_shot_factory import FewShotProvider
 from py_classes.cls_llm_router import LlmRouter
@@ -24,7 +26,7 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 from termcolor import colored
 from pynput import keyboard
-from speech_recognition import Recognizer, AudioSource, AudioData
+from speech_recognition import Microphone, Recognizer, WaitTimeoutError
 from pydub import AudioSegment
 from io import StringIO
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
@@ -91,11 +93,11 @@ def remove_ansi_escape_sequences(text: str) -> str:
     Returns:
         str: Cleaned text without ANSI escape sequences.
     """
-    ansi_escape = re.compile(r'''
+    ansi_escape = re.compile(r"""
         (?:\x1B[@-_])|                  # ESC followed by a character between @ and _
         (?:\x1B\[0-9;]*[ -/]*[@-~])|   # ESC [ followed by zero or more digits or semicolons, then a character between @ and ~
         (?:\x1B\][0-9]*;?[ -/]*[^\a]*\a)  # ESC ] followed by zero or more digits, an optional semicolon, any non-BEL characters, and a BEL
-    ''', re.VERBOSE)
+    """, re.VERBOSE)
     return ansi_escape.sub('', text)
 
 def read_from_terminal(num_lines: int, file_path: str = "/tmp/terminal_output.txt") -> List[str]:
@@ -367,32 +369,84 @@ def text_to_speech(text: str, lang_key: str = 'en', enable_keyboard_interrupt: b
     os.remove(modified_tts_file)
 
 
-def listen_microphone(
-    source: AudioSource,
-    r: Recognizer,
-    max_duration: int = 40,
-    language: str = ""
-) -> Tuple[str, str]:
+r: Recognizer = None
+def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
     """
-    Listen to the microphone and return transcribed text and language.
-    Args:
-        source (AudioSource): The audio source to listen from.
-        r (Recognizer): The speech recognizer object.
-        max_duration (Optional[int]): The maximum duration to listen. Defaults to 15.
-        language (str): The language to use for transcription. Defaults to "".
+    Calibrate the microphone for ambient noise.
 
     Returns:
-        Tuple[str, str]: A tuple containing (transcribed text from the audio, language).
+        sr.Microphone: The calibrated microphone.
     """
-    print(colored("Listening to microphone...", "yellow"))
-    with source:
-        audio: AudioData = r.listen(source, timeout=max_duration, phrase_time_limit=max_duration / 2)
-    print(colored("Not listening anymore...", "yellow"))
-    transcription, language = OpenAIAPI.transcribe_audio(audio, language=language)
-    # Print the recognized text
-    print("Microphone transcription: " + colored(transcription, "green"))
+    global r, source
+    if not r:
+        pyaudio_instance = pyaudio.PyAudio()
+        default_microphone_info = pyaudio_instance.get_default_input_device_info()
+        microphone_device_index = default_microphone_info["index"]
+        r = Recognizer()
+        source = Microphone(device_index=microphone_device_index)
     
-    return transcription, language
+    print(
+        colored(f"Calibrating microphone for {calibration_duration} seconds", "yellow")
+    )
+    with source as source:
+        r.adjust_for_ambient_noise(source, calibration_duration)
+    r.energy_threshold *= 2
+    
+    return source
+
+def listen_microphone(
+    max_listening_duration: Optional[int] = 60, local: bool = False
+) -> Tuple[str, str, bool]:
+    """
+    Listen to the microphone, save to a temporary file, and return transcription.
+    Args:
+    max_duration (Optional[int], optional): The maximum duration to listen. Defaults to 15.
+    language (str): The language of the audio (optional).
+    Returns:
+    Tuple[str, str]: (transcribed text from the audio, language)
+    """
+    global r, source
+    if not r:
+        calibrate_microphone()
+    
+    print(colored("Listening to microphone...", "yellow"))
+
+    try:
+        # Listen for speech until it seems to stop or reaches the maximum duration
+        with source:
+            audio = r.listen(
+                source, timeout=max_listening_duration, phrase_time_limit=max_listening_duration/2
+            )
+
+        print(colored("Not listening anymore...", "yellow"))
+
+        # Create a temporary file to store the audio data
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".wav"
+        ) as temp_audio_file:
+            temp_audio_file.write(audio.get_wav_data())
+            temp_audio_file_path = temp_audio_file.name
+
+        # Transcribe the audio from the temporary file
+        if local:
+            transcription, detected_language = PyAiHost.transcribe_audio(temp_audio_file_path)
+        else:
+            transcription, detected_language = OpenAIAPI.transcribe_audio(temp_audio_file_path)
+
+        print("Microphone transcription: " + colored(transcription, "green"))
+
+        return transcription, detected_language
+
+    except WaitTimeoutError:
+        print(colored("Listening timed out. No speech detected.", "red"))
+    except Exception as e:
+        print(colored(f"An error occurred: {str(e)}", "red"))
+    finally:
+        # Clean up the temporary file
+        if "temp_audio_file_path" in locals():
+            os.remove(temp_audio_file_path)
+        return "", ""
+
 
 def remove_blocks(text: str, except_types: Optional[List[str]] = None) -> str:
     """
@@ -814,11 +868,11 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         if may_continue_on_next_page: 
             if not "1 Modulbezeichnung" in remaining_pages:
                 # First heuristic
-                may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n'''document\n{coherent_extraction_cache}\n'''", preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
+                may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n```document\n{coherent_extraction_cache}\n```", preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
                 
                 # Second heuristic
                 if may_continue_on_next_page and i < len(pages_extracted_content) - 1:
-                    yes_no_chat.add_message(Role.USER, f"This is the next page of the document, does it start a new topic/subject different to the previous page I showed you before? If a new topic/subject is started respond with 'yes', otherwise 'no'.\n'''document\n{pages_extracted_content[i+1]}\n'''")
+                    yes_no_chat.add_message(Role.USER, f"This is the next page of the document, does it start a new topic/subject different to the previous page I showed you before? If a new topic/subject is started respond with 'yes', otherwise 'no'.\n```document\n{pages_extracted_content[i+1]}\n```")
                     is_next_page_new_topic, yes_no_chat = FewShotProvider.few_shot_YesNo(yes_no_chat, preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
                     may_continue_on_next_page = not is_next_page_new_topic
             else:
@@ -838,7 +892,7 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         
         # Transform the extractable information to a german presentation
         chat = Chat()
-        chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n'''\n{coherent_extraction}\n'''")
+        chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n```\n{coherent_extraction}\n```")
         high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, silent = True)
         chat.add_message(Role.ASSISTANT, high_level_extraction_analysis)
         chat.add_message(Role.USER, "Can you please summarize all details of the document in a coherent manner? The summary will be used to provide advice to students, this requires you to only provide facts that have plenty of context of topic and subject available. If such context is not present, always choose to skip unreliable or inaccurate information completely. Do not mention when you are ignoring content because of this.")
@@ -850,7 +904,7 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         
         # Transform the used ontology to the production model
         chat = Chat("You bist ein hilfreicher KI-Assistent der Friedrich-Alexander-Universität.")
-        chat.add_message(Role.USER, f"Bitte präsentiere die angehängten Informationen in einer präzise, so dass die für Studenten leicht verständlich ist. Verwende einfache Sprache und ganze Sätze, um die Informationen zu vermitteln. Verwende Neologismen wenn angemessen. Beginne deine Antwort bitte direkt mit dem präsentieren. \n'''{raw_informationen}\n'''")
+        chat.add_message(Role.USER, f"Bitte präsentiere die angehängten Informationen in einer präzise, so dass die für Studenten leicht verständlich ist. Verwende einfache Sprache und ganze Sätze, um die Informationen zu vermitteln. Verwende Neologismen wenn angemessen. Beginne deine Antwort bitte direkt mit dem präsentieren. \n```{raw_informationen}\n```")
         
         # Because we're working with a very small model it often breaks, this we'll try alernate models until we give up and skip the information
         # We need to try models similar to the production model for the resulting onology to fit optimally
@@ -860,7 +914,7 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
             if not informationen:
                 break
             # Safe guard for any issues that might ocurr
-            ist_verstaendlich, _ = FewShotProvider.few_shot_YesNo(f"Sind die folgenden Informationen verständlich kommuniziert?\n'''\n{informationen}\n'''", preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
+            ist_verstaendlich, _ = FewShotProvider.few_shot_YesNo(f"Sind die folgenden Informationen verständlich kommuniziert?\n```\n{informationen}\n```", preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
             if ist_verstaendlich:
                 break
             else:

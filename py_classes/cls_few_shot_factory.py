@@ -90,7 +90,7 @@ class FewShotProvider:
             chat.add_message(Role.ASSISTANT, "No")
             chat.add_message(Role.USER, "Fehlt der folgenden Sequenz eine Zahl: 1, 2, 3, 5, 6?")
             chat.add_message(Role.ASSISTANT, "Yes")
-            chat.add_message(Role.USER, "The next request will be very long, the question will be at its start, please ensure you only answer with 'Yes' or 'No'.\nAre you ready?")
+            chat.add_message(Role.USER, "The next request will be very long, please ensure you only answer with 'Yes' or 'No'.\nAre you ready?")
             chat.add_message(Role.ASSISTANT, "Yes")
             chat.add_message(Role.USER, userRequest)
         else:
@@ -503,7 +503,7 @@ A hierarchical learning approach to separate strategy and execution."""
         return chat, response
 
     @classmethod
-    def few_shot_objectFromTemplate(cls, example_objects: List[Any], target_description: str, preferred_models: List[str] = [], force_local: bool = False) -> Any:
+    def few_shot_objectFromTemplate(cls, example_objects: List[Any], target_description: str, preferred_models: List[str] = [], force_local: bool = False, use_reasoning: bool = False, silent: bool = False) -> Any:
         """
         Returns an object based on a list of example objects and a target description.
 
@@ -556,6 +556,43 @@ Create a similar object for a senior data scientist specializing in machine lear
   }
 }""")
 
+        
+        few_shot_prompt_obj_jsons = [json.dumps(obj, default=lambda o: o.__dict__, sort_keys=True, indent=2) for obj in [{"code_seperator":"def "}, {"code_seperator":"function "}, {"code_seperator":"static checkMem(*i"}]]
+        few_shot_prompt_objects_str = ",\n".join(few_shot_prompt_obj_jsons)
+        chat.add_message(Role.USER, f"""Example objects:
+[
+{few_shot_prompt_objects_str}
+]
+Create a similar object based on this description: A delimiter to split the following code into smaller chunks:
+// Bind the `deeply::nested::function` path to `other_function`.
+use deeply::nested::function as other_function;
+fn function() {{
+    println!("called `function()`");
+}}
+mod deeply {{
+    pub mod nested {{
+        pub fn function() {{
+            println!("called `deeply::nested::function()`");
+        }}
+    }}
+}}
+fn main() {{
+    // Easier access to `deeply::nested::function`
+    other_function();
+    println!("Entering block");
+    {{
+        // This is equivalent to `use deeply::nested::function as function`.
+        // This `function()` will shadow the outer one.
+        use crate::deeply::nested::function;
+        // `use` bindings have a local scope. In this case, the
+        // shadowing of `function()` is only in this block.
+        function();
+        println!("Leaving block");
+    }}
+    function();
+}}""")
+        
+        chat.add_message(Role.ASSISTANT, '{"code_seperator":"fn "}')
         # Add the actual task
         example_objects_str = ",\n".join(example_jsons)
         chat.add_message(Role.USER, f"""Example objects:
@@ -563,28 +600,40 @@ Create a similar object for a senior data scientist specializing in machine lear
 {example_objects_str}
 ]
 Create a similar object based on this description: {target_description}""")
+        
+        temperature: int = 0
+        while True:
+            try:
+                # Generate the response
+                response: str = LlmRouter.generate_completion(
+                    chat,
+                    strength=AIStrengths.FAST,
+                    preferred_models=preferred_models,
+                    force_local=force_local,
+                    use_reasoning=use_reasoning,
+                    silent=silent,
+                    temperature=temperature
+                )
 
-        # Generate the response
-        response: str = LlmRouter.generate_completion(
-            chat,
-            strength=AIStrengths.FAST,
-            preferred_models=preferred_models,
-            force_local=force_local
-        )
+                # Extract the JSON string from the response
+                json_start = response.find('{')
+                json_end = response.rfind('}') + 1
+                result_json = response[json_start:json_end]
 
-        # Extract the JSON string from the response
-        json_start = response.find('{')
-        json_end = response.rfind('}') + 1
-        result_json = response[json_start:json_end]
+                # Parse the JSON string back into an object
+                result_object = json.loads(result_json)
 
-        # Parse the JSON string back into an object
-        result_object = json.loads(result_json)
-
-        # Recursively convert dict to object if the examples were objects
-        if not isinstance(example_objects[0], dict):
-            result_object = cls._dict_to_obj(result_object)
-
-        return result_object
+                # Recursively convert dict to object if the examples were objects
+                if not isinstance(example_objects[0], dict):
+                    result_object = cls._dict_to_obj(result_object)
+                
+                return result_object
+            except Exception as e:
+                print(colored(f"RETRYING: few_shot_objectFromTemplate failed with response: {response}", "yellow"))
+                print(e)
+                temperature += 0.2
+                if temperature >= 1:
+                    raise e
 
     @staticmethod
     def _dict_to_obj(d):
@@ -1033,47 +1082,6 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         questions = [q.strip() for q in re.split(r'\n\d+\.\s+', shortened_response) if q.strip()]
         return questions
 
-
-    @classmethod
-    def few_shot_contextToJson(cls, context: str, silent:bool = False):
-        # Initialize the model
-        model = ollama.Client()
-
-        # Define the template for extraction
-        template = '''
-        {
-        "Model": {
-            "Name": "",
-            "Number of parameters": ""
-        },
-        "Usage": {
-            "Use case": [],
-            "Licence": ""
-        }
-        }
-        '''
-
-        # The text to extract information from
-        text = '''
-        We introduce Mistral 7B, a 7–billion-parameter language model engineered for superior performance and efficiency. Mistral 7B outperforms the best open 13B model (Llama 2) across all evaluated benchmarks, and the best released 34B model (Llama 1) in reasoning, mathematics, and code generation. Our model leverages grouped-query attention (GQA) for faster inference, coupled with sliding window attention (SWA) to effectively handle sequences of arbitrary length with a reduced inference cost. We also provide a model fine-tuned to follow instructions, Mistral 7B – Instruct, that surpasses Llama 2 13B – chat model both on human and automated benchmarks. Our models are released under the Apache 2.0 license.
-        '''
-
-        # Construct the prompt
-        prompt = f'''
-        ### Template:
-
-        {template}
-
-        ### Text:
-
-        {context}
-        '''
-
-        # Generate the response
-        response = model.generate(model="nuextract", prompt=prompt)
-
-        print(response.response)
-
     @classmethod
     def few_shot_toPythonRequirements(cls, implementationDescription: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
         """
@@ -1099,32 +1107,32 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         # Example 1: Web scraping implementation
         chat.add_message(Role.USER, "Generate requirements for: A web scraping script using BeautifulSoup and requests to extract data from websites. The script also uses pandas to store the data in a CSV file.")
         chat.add_message(Role.ASSISTANT, """Sure here are the requirements:
-'''txt
+```txt
 beautifulsoup4
 requests
 pandas
-'''""")
+```""")
 
         # Example 2: Machine learning implementation
         chat.add_message(Role.USER, "Generate requirements for: A machine learning project using TensorFlow for deep learning, scikit-learn for preprocessing, and matplotlib for visualizations. The project also uses numpy for numerical operations.")
         chat.add_message(Role.ASSISTANT, """Sure here are the requirements:
-'''txt
+```txt
 tensorflow
 scikit-learn
 matplotlib
 numpy
-'''""")
+```""")
 
         # Example 3: Flask web application
         chat.add_message(Role.USER, "Generate requirements for: A Flask web application with SQLAlchemy for database management, Flask-WTF for form handling, and Pillow for image processing. The app uses pytest for testing.")
         chat.add_message(Role.ASSISTANT, """Sure here are the requirements:
-'''txt
+```txt
 Flask
 SQLAlchemy
 Flask-WTF
 Pillow
 pytest
-'''""")
+```""")
         # Actual task
         chat.add_message(Role.USER, f"Generate requirements for: {implementationDescription}")
 
@@ -1136,8 +1144,8 @@ pytest
             silent=silent
         )
     
-        # Extract content between '''txt and '''
-        match = re.search(r"'''txt\n(.*?)'''", response, re.DOTALL)
+        # Extract content between ```txt and ```
+        match = re.search(r"```txt\n(.*?)```", response, re.DOTALL)
         if match:
             return match.group(1).strip()
         else:
@@ -1351,6 +1359,59 @@ I hope this helps! Let me know if you have any further questions."""
 
         # Actual task
         chat.add_message(Role.USER, f"Convert to image prompt: {description}")
+
+        response: str = LlmRouter.generate_completion(
+            chat,
+            preferred_models=preferred_models,
+            force_local=force_local,
+            force_free=True,
+            silent=silent
+        )
+
+        return response.strip()
+    
+    @classmethod
+    def few_shot_toFilePath(cls, text: str, instruction: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
+        """
+        Extracts a file path from a given error message based on the provided instruction.
+
+        Args:
+            text (str): The input text containing the error message.
+            instruction (str): Specific instructions for extracting the file path.
+            preferred_models (List[str], optional): List of preferred model keys for LLM.
+            force_local (bool, optional): If True, force the use of a local model.
+            silent (bool, optional): If True, suppress output during processing.
+
+        Returns:
+            str: The extracted file path.
+        """
+        chat = Chat("""You are an expert in analyzing build error messages and extracting file paths. Your task is to examine the given error message and extract the relevant file path according to the provided instructions. Follow these guidelines:
+
+        1. Carefully analyze the error message to identify the file path.
+        2. Ensure the extracted path is an absolute path if specified in the instructions.
+        3. If the path in the error message is relative, assume it's relative to the current working directory unless otherwise specified.
+        4. Handle different formats of error messages from various compilers and build systems.
+        5. If no valid file path can be extracted, respond with "No valid file path found".
+
+        Respond with only the extracted file path or the "No valid file path found" message, without any additional explanation.""")
+
+        # Example 1: GCC error message
+        chat.add_message(Role.USER, """Text: /home/user/project/src/main.cpp:10:15: error: 'cout' is not a member of 'std'
+    Instruction: Please extract the absolute filepath of the file that caused the error""")
+        chat.add_message(Role.ASSISTANT, "/home/user/project/src/main.cpp")
+
+        # Example 2: Make error message
+        chat.add_message(Role.USER, """Text: make: *** [Makefile:150: src/module.o] Error 1
+    Instruction: Please extract the filepath of the file that caused the error""")
+        chat.add_message(Role.ASSISTANT, "src/module.o")
+
+        # Example 3: Clang error message with relative path
+        chat.add_message(Role.USER, """Text: ./lib/helper.cpp:25:20: error: use of undeclared identifier 'undefined_function'
+    Instruction: Please extract the absolute filepath of the file that caused the error, assuming the current working directory is /home/user/project""")
+        chat.add_message(Role.ASSISTANT, "/home/user/project/lib/helper.cpp")
+
+        # Actual task
+        chat.add_message(Role.USER, f"Text: {text}\nInstruction: {instruction}")
 
         response: str = LlmRouter.generate_completion(
             chat,

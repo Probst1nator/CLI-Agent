@@ -81,11 +81,84 @@ class HtmlServer:
         self.remote_user_input = input_string
         return f"Processed: {input_string}"
 
-    def generate_html_with_input_widget(self, base_html: str) -> str:
+    def add_input_widget_to_html(self, base_html: str) -> str:
         input_widget_html = """
-        <div style="position: fixed; bottom: 0; left: 0; right: 0; background-color: white; padding: 10px;">
-            <textarea id="userInput" style="width: calc(100% - 70px); height: 50px; resize: vertical;"></textarea>
-            <button id="submitButton" style="width: 60px; height: 56px; vertical-align: top;">Enter</button>
+        <style>
+        body {
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        #contentWrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-y: auto;
+            padding-bottom: 80px; /* Adjust based on the height of your input widget */
+        }
+        #mainContent {
+            width: 100%;
+            padding: 20px;
+            padding-bottom: 30px;
+            box-sizing: border-box;
+        }
+        #inputWidgetContainer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #f0f0f0;
+            padding: 10px 0;
+            z-index: 1000;
+        }
+        #inputWidget {
+            width: 90%;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+        }
+        #userInput {
+            flex-grow: 1;
+            height: 36px;
+            border: 1px solid #ccc;
+            background-color: white;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+        #userInput:focus {
+            border-color: #007bff;
+        }
+        #submitButton {
+            width: 50px;
+            height: 36px;
+            margin-left: 8px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s ease;
+        }
+        #submitButton:hover {
+            background-color: #0056b3;
+        }
+        </style>
+        <div id="inputWidgetContainer">
+            <div id="inputWidget">
+                <textarea id="userInput" placeholder="Type your message..."></textarea>
+                <button id="submitButton">Send</button>
+            </div>
         </div>
         <script>
         function submitInput() {
@@ -114,13 +187,31 @@ class HtmlServer:
                 submitInput();
             }
         });
+
+        // Wrap the existing content in a centered div
+        document.addEventListener('DOMContentLoaded', function() {
+            var body = document.body;
+            var contentWrapper = document.createElement('div');
+            contentWrapper.id = 'contentWrapper';
+            var mainContent = document.createElement('div');
+            mainContent.id = 'mainContent';
+            while (body.firstChild) {
+                if (body.firstChild.id !== 'inputWidgetContainer') {
+                    mainContent.appendChild(body.firstChild);
+                } else {
+                    break;
+                }
+            }
+            contentWrapper.appendChild(mainContent);
+            body.insertBefore(contentWrapper, body.firstChild);
+        });
         </script>
         """
         return base_html.replace('</body>', f'{input_widget_html}</body>')
 
     def visualize_context(self, context_chat: 'Chat', preferred_models: List[str] = [], force_local: bool = False, host_over_network: bool = False) -> None:
         base_html, chat = FewShotProvider.few_shot_GenerateHtmlPage(context_chat.get_messages_as_string(-3), preferred_models=preferred_models, force_local=force_local)
-        html = self.generate_html_with_input_widget(base_html)
+        html = self.add_input_widget_to_html(base_html)
 
         if host_over_network:
             # Set up logging

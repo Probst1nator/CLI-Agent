@@ -107,7 +107,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             elif "ts" in file_ending:
                 chunking_delimiter = "function "
             else:
-                chunking_delimiter = FewShotProvider.few_shot_objectFromTemplate([{"py": "def "}, {"typescript": "function "}], target_description="A delimiter to split the code into smaller chunks.", preferred_models=preferred_models, force_local=force_local)
+                chunking_delimiter = FewShotProvider.few_shot_objectFromTemplate([{"code_seperator": "def "}, {"code_seperator": "function "}], target_description=f"\n{file_snippet}\n\nA delimiter to split this code into smaller chunks", preferred_models=preferred_models, force_local=force_local)
                 print(colored(f"Using delimiter: {chunking_delimiter}", "yellow"))
                 try:
                     print(colored("Press Ctrl+C to abort.", 'yellow'))
@@ -128,9 +128,9 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 
         if pre_chosen_option == "1":
             # Automatic mode: Generate code overview and prepare prompt for docstring addition
-            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_models=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
+            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_models=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True, use_reasoning=False)
             if len(abstract_code_overview)/4 >= 2048:
-                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_models=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True)
+                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_models=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True, use_reasoning=False)
             next_prompt = "Augment the below code snippet with docstrings focusing on a concise overview of usage and parameters, alos add explanatory comments where the code seems highly complex. Do not include empty newlines in your docstrings. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
             next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
             pre_chosen_option = ""
@@ -169,7 +169,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                     query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
                 web_search_result = WebTools.search_brave(query, 2)
                 context_chat.add_message(Role.USER, f"I found something on the web, please relate it to the code we're working on:\n```web_search\n{web_search_result}```")
-                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG, use_reasoning=False)
                 context_chat.add_message(Role.ASSISTANT, response)
                 continue
             elif user_input == "5":
@@ -490,7 +490,7 @@ def majority_response_assistant(context_chat: Chat, force_local: bool = False, p
                 response = LlmRouter.generate_completion(context_chat, preferred_models=[model])
                 if not response:
                     continue
-                model_responses_str += f"EXPERT {i}:\n{response}\n\n'''"
+                model_responses_str += f"EXPERT {i}:\n{response}\n\n```"
                 model_responses.append(response)
             except Exception as e:
                 print(colored(f"Error getting response from {model.model_key}: {str(e)}", "red"))

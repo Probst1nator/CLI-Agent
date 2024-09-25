@@ -93,7 +93,8 @@ class Llm:
             # Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, False, 128000, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "phi3.5:3.8b", None, False, True, False, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
-
+            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 4096, None, AIStrengths.STRONG),
+            
             Llm(OllamaClient(), "llava-llama3:8b", None, False, True, True, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-phi3:3.8b", None, False, True, True, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), "smollm:1.7b", None, False, True, False, 4096, None, AIStrengths.FAST),
@@ -397,34 +398,38 @@ class LlmRouter:
         if isinstance(chat, str):
             chat = Chat(instruction).add_message(Role.USER, chat)
         
-        if use_reasoning:
-            print(colored(f"# # # Reasoning # # #", "green"))
-            chat.add_message(Role.USER, "Think deeply and step by step about this.")
-            if not isinstance(preferred_models[0], str):
-                preferred_models_for_reasoning = [model.model_key for model in preferred_models]
-            else:
-                preferred_models_for_reasoning = preferred_models
-            preferred_models_for_reasoning = [model_key.replace("llama-3.1-70b-versatile", "gpt-4o-mini") for model_key in preferred_models_for_reasoning]
-            reasoning_response = cls.generate_completion(
-                chat,
-                preferred_models=preferred_models_for_reasoning,
-                strength=strength,
-                start_response_with=start_response_with,
-                instruction=instruction,
-                temperature=temperature,
-                base64_images=base64_images,
-                include_start_response_str=include_start_response_str,
-                use_cache=use_cache,
-                force_local=force_local,
-                force_free=force_free,
-                force_preferred_model=force_preferred_model,
-                silent=silent_reasoning,
-                re_print_prompt=re_print_prompt,
-                exclude_model_keys=exclude_model_keys,
-                use_reasoning=False
-            )
-            chat.add_message(Role.ASSISTANT, reasoning_response)
-            chat.add_message(Role.USER, "Nice deep thoughts! Now, let's get to the point. Distill your thoughts into a concise response.")
+        # if use_reasoning:
+        #     prompt = chat.messages[-1][1]
+        #     chat.messages[-1] = (Role.USER, "For this request, please think before replying. Find the my intents and explore solutions BEFORE you answer. Please then provide me a with a full well constructed response.")
+        #     chat.add_message(Role.USER, prompt)
+            # chat.add_message(Role.USER, "USER_REQUEST: You are now thinking before replying. Think about the question and understand its context. Find the user's intent and explore solutions. Think concisely. You will be asked later to respond directly to the users, prepare yourself.") # douply add the message to make sure the user sees it
+            # # chat.add_message(Role.SYSTEM, "You are now thinking before replying. Think about the question and understand its context. Find the user's intent and explore solutions. Think concisely. You will be asked later to respond directly to the users, prepare yourself.")
+            # print(colored(f"# # # Reasoning # # #", "green"))
+            # if preferred_models and not isinstance(preferred_models[0], str):
+            #     preferred_models_for_reasoning = [model.model_key for model in preferred_models]
+            # else:
+            #     preferred_models_for_reasoning = preferred_models
+            # preferred_models_for_reasoning = [model_key.replace("llama-3.1-70b-versatile", "gpt-4o-mini") for model_key in preferred_models_for_reasoning]
+            # reasoning_response = cls.generate_completion(
+            #     chat,
+            #     preferred_models=preferred_models_for_reasoning,
+            #     strength=strength,
+            #     start_response_with=start_response_with,
+            #     instruction=instruction,
+            #     temperature=temperature,
+            #     base64_images=base64_images,
+            #     include_start_response_str=include_start_response_str,
+            #     use_cache=use_cache,
+            #     force_local=force_local,
+            #     force_free=force_free,
+            #     force_preferred_model=force_preferred_model,
+            #     silent=silent_reasoning,
+            #     re_print_prompt=re_print_prompt,
+            #     exclude_model_keys=exclude_model_keys,
+            #     use_reasoning=False
+            # )
+            # chat.add_message(Role.ASSISTANT, reasoning_response)
+            # chat.add_message(Role.USER, f"SYSTEM PROMPT: \nYou are now prepared to respond to the user directly, here's the users message: \n{prompt}")
         
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)

@@ -1,3 +1,4 @@
+import copy
 import json
 import math
 import os
@@ -327,3 +328,14 @@ class Chat:
             else:
                 result.append({"role": message[0].value, "content": message[1]})
         return result
+
+    def deep_copy(self) -> 'Chat':
+        """
+        Creates a deep copy of the Chat instance.
+        
+        :return: A new Chat instance that is a deep copy of the current instance.
+        """
+        new_chat = Chat()
+        new_chat.messages = copy.deepcopy(self.messages)
+        new_chat.base64_images = copy.deepcopy(self.base64_images)
+        return new_chat
