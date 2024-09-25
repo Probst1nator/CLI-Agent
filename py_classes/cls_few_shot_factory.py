@@ -34,25 +34,27 @@ class FewShotProvider:
         """
         chat: Chat = Chat("You are a search query generator. Analyze the user's input, whether it's a question, statement, or description, and provide a concise, effective search query suitable for a search engine like Google. Focus on capturing the main topic or intent, using keywords and phrases that would yield relevant results. Avoid unnecessary words and aim for clarity and specificity.")
         
-        chat.add_message(Role.USER, "I've been experiencing frequent headaches and dizziness lately, especially when I stand up quickly. It's been going on for about two weeks now. Should I be concerned? What might be causing this?")
+        consistency_prefix = "Can you respond with a topic descriptor for the following?\n"
+        
+        chat.add_message(Role.USER, consistency_prefix + "I've been experiencing frequent headaches and dizziness lately, especially when I stand up quickly. It's been going on for about two weeks now. Should I be concerned? What might be causing this?")
         chat.add_message(Role.ASSISTANT, "frequent headaches dizziness standing up causes")
         
-        chat.add_message(Role.USER, "The rise of remote work has dramatically changed the landscape of modern offices. Many companies are now adopting hybrid models, allowing employees to split their time between home and office. This shift is impacting everything from real estate decisions to team collaboration strategies.")
+        chat.add_message(Role.USER, consistency_prefix + "The rise of remote work has dramatically changed the landscape of modern offices. Many companies are now adopting hybrid models, allowing employees to split their time between home and office. This shift is impacting everything from real estate decisions to team collaboration strategies.")
         chat.add_message(Role.ASSISTANT, "impact of remote work on office space and collaboration")
         
-        chat.add_message(Role.USER, "When will the suntime in bavaria be on 12 hours long?")
+        chat.add_message(Role.USER, consistency_prefix + "When will the suntime in bavaria be on 12 hours long?")
         chat.add_message(Role.ASSISTANT, "equinox date in Bavaria daylight hours 12 hours")
         
-        chat.add_message(Role.USER, "What are the main differences between Python and JavaScript for web development? I'm trying to decide which one to learn first.")
+        chat.add_message(Role.USER, consistency_prefix + "What are the main differences between Python and JavaScript for web development? I'm trying to decide which one to learn first.")
         chat.add_message(Role.ASSISTANT, "Python vs JavaScript web development comparison")
         
-        chat.add_message(Role.USER, "döner vs currywurst was is besser")
+        chat.add_message(Role.USER, consistency_prefix + "döner vs currywurst was is besser")
         chat.add_message(Role.ASSISTANT, "Döner vs Currywurst Vergleich beliebtheit Deutschland") 
         
-        chat.add_message(Role.USER, "derivatives vs integrals whats the diff")
+        chat.add_message(Role.USER, consistency_prefix + "derivatives vs integrals whats the diff")
         chat.add_message(Role.ASSISTANT, "derivatives vs integrals differences calculus")
         
-        chat.add_message(Role.USER, text)
+        chat.add_message(Role.USER, consistency_prefix + text)
         response: str = LlmRouter.generate_completion(chat, strength=AIStrengths.FAST)
         return response
     

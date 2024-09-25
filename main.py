@@ -394,7 +394,11 @@ def main() -> None:
             
         
         if args.web_search:
-            recent_context_str = context_chat.get_messages_as_string(-3)
+            if context_chat and len(context_chat.messages) > 0:
+                recent_context_str = context_chat.get_messages_as_string(-3)
+            else:
+                recent_context_str = next_prompt
+            
             # recent_context_str = next_prompt
             query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
             results = WebTools().search_brave(query, 2)
