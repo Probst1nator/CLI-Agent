@@ -3,7 +3,7 @@ import os
 
 from termcolor import colored
 
-from py_methods.assistants import extract_single_snippet
+from py_agents.assistants import extract_single_snippet
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.globals import g

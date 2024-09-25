@@ -2,7 +2,7 @@
 line-length = 88  # Set your preferred line length
 target-version = ['py38']  # Set your target Python version
 include = '\.pyi?$'
-exclude = '''
+exclude = ```
     /(
         \.git
         | \.hg
@@ -14,4 +14,4 @@ exclude = '''
         | build
         | dist
     )/
-'''
+```

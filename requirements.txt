@@ -27,6 +27,11 @@ python-pptx
 PyPDF2
 chromadb
 pdfminer.six
-# brave-search # seemingly broken on ubuntu24
+brave-search==0.1.8
 llama-index
 GitPython
+whisper
+pyttsx3
+openai-whisper
+yt-dlp
+sentence_transformers

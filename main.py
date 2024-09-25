@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-import datetime
-import json
 import os
 import chromadb
 from pyfiglet import figlet_format
@@ -15,7 +13,7 @@ import sys
 import re
 import warnings
 
-from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+from py_agents.make_agent import MakeErrorCollectorAgent
 from py_classes.cls_html_server import HtmlServer
 from py_classes.cls_rag_tooling import RagTooling
 from py_classes.cls_youtube import YouTube
@@ -24,7 +22,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 
-from py_methods.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
+from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
 from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
 from py_classes.cls_web_scraper import WebTools
 from py_classes.cls_llm_router import LlmRouter
@@ -49,8 +47,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enter your first message instantly.")
     parser.add_argument("-l", "--local", action="store_true",
                         help="Use the local Ollama backend for language processing.")
-    parser.add_argument("-s", "--speak", action="store_true",
-                        help="Enable text-to-speech for agent responses.")
+    parser.add_argument("-v", "--voice", action="store_true",
+                        help="Enable microphone input and speech-to-text output.")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-r", "--regenerate", action="store_true",
@@ -71,17 +69,20 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Disable reasoning for the agent.")
     parser.add_argument("-maj", "--majority", action="store_true",
                         help="Generate a response based on the majority of all local models.")
+    parser.add_argument("-rag", action="store_true",
+                        help="Will use rag as implemented in the given behavior.")
     parser.add_argument("-fpy", "--fixpy", type=str,
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
     parser.add_argument("-doc", "--documents", nargs='?', const="", type=str, metavar="PATH",
                         help="Uses a pdf or folder of pdfs to generate a response. Uses retrieval-based approach.")
     parser.add_argument("-doc2", "--documents2", nargs='?', const="", type=str, metavar="PATH",
                         help="Uses a pdf or folder of pdfs to generate a response. Uses needle in a haystack approach.")
-    parser.add_argument("-stt", "--speech_to_text", action="store_true",
-                        help="Enable microphone input and text-to-speech. (Wip: please split this up)")
     parser.add_argument("-vis", "--visualize", action="store_true",
                         help="Visualize the chat on a html page.")
-    
+    parser.add_argument("--fmake", nargs=2, type=str, metavar=('MAKE_PATH', 'CHANGED_FILE_PATH'),
+                        help="Runs the make command in the specified path and agentically fixes any errors. "
+                            "MAKE_PATH: The path where to execute the make command. "
+                            "CHANGED_FILE_PATH: The path of the file that was changed before the error occurred.")
     parser.add_argument("--exp", action="store_true",
                         help='Experimental agentic hierarchical optimization state machine.')
     parser.add_argument("--llm", nargs='?', const='phi3.5:3.8b', type=str, default="",
@@ -120,6 +121,17 @@ def main() -> None:
         print(colored("Preloading complete.", "green"))
         exit(0)
     
+    if args.fmake:
+        makeAgent = MakeErrorCollectorAgent()
+        while True:
+            success = makeAgent.execute(command_to_gen_errors=['make', '-C', args.fmake[0], '-j', str(os.cpu_count())], context_file_path=args.fmake[1])
+            if success:
+                exit(0)    
+                
+            do_continue = input(colored("Do you want to iterate once more? (Y/n): ", "yellow"))
+            if "n" in do_continue.lower():
+                exit(0)
+    
     if args.daily:
         client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
         collection = client.get_or_create_collection(name="long-term-memories")
@@ -146,6 +158,9 @@ def main() -> None:
             # agent = AgenticPythonProcess("human")
             agent = AgenticPythonProcess()
             agent.run(user_input)
+            do_continue = input(colored("Do you want to continue? (Y/n): ", "yellow"))
+            if "n" in do_continue.lower():
+                exit(0)
             
     if args.yt_slides:
         from py_classes.ai_providers.cls_stable_diffusion import StableDiffusion
@@ -178,7 +193,7 @@ def main() -> None:
         context_chat = Chat()
     
     
-    if args.speech_to_text:
+    if args.voice:
         # setup microphone
         pyaudio_instance = pyaudio.PyAudio()
         default_microphone_info = pyaudio_instance.get_default_input_device_info()
@@ -255,12 +270,8 @@ def main() -> None:
             next_prompt = args.message
             args.message = None
         # use microphone
-        elif args.speech_to_text:
-            next_prompt = ""
-            while not next_prompt:
-                with source:
-                    r.adjust_for_ambient_noise(source, 2)
-                next_prompt = listen_microphone(source, r)[0]
+        elif args.voice:
+            next_prompt = listen_microphone()[0]
         # default user input
         else:
             next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
@@ -322,6 +333,11 @@ def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Reasoning toggled to {use_reasoning}, type (--h) for info", "green"))
             continue
         
+        if next_prompt.endswith("--rag"):
+            args.rag = not args.rag
+            print(colored(f"# cli-agent: KeyBinding detected: RAG toggled to {args.rag}, type (--h) for info", "green"))
+            continue
+        
         if next_prompt.endswith("--i"):
             previous_model_key = args.llm
             args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
@@ -334,9 +350,9 @@ def main() -> None:
         
         if next_prompt.endswith("--vis"):
             print(colored(f"# cli-agent: KeyBinding detected: Visualize, this will generate a html site and display it, type (--h) for info", "green"))
-            if not html_server:
-                html_server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
-            html_server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
+            if not server:
+                server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
+            server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
             continue
         
         if next_prompt.endswith("--m"):
@@ -362,6 +378,7 @@ def main() -> None:
 # cli-agent: --w: Perform a websearch before answering.
 # cli-agent: --m: Multiline input mode.
 # cli-agent: --i: Toggles to the current most intelligent model.
+# cli-agent: --rag: Toggles retrieval augmented generation (RAG).
 # cli-agent: --rea: Toggles reasoning.
 # cli-agent: --vis: Visualize the chat on a html page.
 # cli-agent: --maj: Run the majority response assistant.
@@ -389,8 +406,7 @@ def main() -> None:
                 prompt_context_augmentation += f"\n\nHere's the readme from the github repo:\n```md\n{github_readme}\n```"
 
         
-        next_prompt +=  temporary_prompt_context_augmentation  # appending relevant content temporarily to generate better responses
-        next_prompt +=  prompt_context_augmentation  # appending relevant content to generate better responses
+        next_prompt = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + next_prompt # add any context augmentation to the prompt
         
         
         # Document assistant behavior
@@ -428,7 +444,8 @@ def main() -> None:
             continue
         
         # 
-        next_prompt = RagTooling.retrieve_augment(next_prompt, collection, 5)
+        if args.rag:
+            next_prompt = RagTooling.retrieve_augment(next_prompt, collection, 3)
         
         # Default behavior (terminal assistant)
         if context_chat and len(context_chat.messages) > 1:
@@ -440,7 +457,7 @@ def main() -> None:
             # Initalization
             llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
         
-        if (args.speak or args.speech_to_text):
+        if (args.voice):
             spoken_response = remove_blocks(llm_response, ["md"])
             text_to_speech(spoken_response)
         
@@ -450,13 +467,15 @@ def main() -> None:
         if not bash_blocks:
             continue  # or other logic to handle non-command responses
         
-        if args.auto is None and not args.speech_to_text:
+        if args.auto is None:
             # text_to_speech("Do you want me to execute these steps?")
-            # if args.speech_to_text:
-            #     print(colored("Do you want me to execute these steps? (Yes/no) ", 'yellow'))
-            #     user_input = listen_microphone(source, r)[0]
-            # else:
-            user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
+            if args.voice:
+                confirmation_response = "Do you want me to execute these steps? (Yes/no)"
+                print(colored(confirmation_response, 'yellow'))
+                text_to_speech(confirmation_response)
+                user_input = listen_microphone(10)[0]
+            else:
+                user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
             if not (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
                 continue
         else:

@@ -403,6 +403,8 @@ class OllamaClient(ChatClientInterface):
                     embeddings=[embedding],
                     documents=[text]
                 )
+            with open(os.path.join(g.PROJ_VSCODE_DIR_PATH, "long_term_memory_textView.txt"), "a") as f:
+                f.write(f"{text}\n\n# # #\n\n")
             # ! Test
             return embedding
         except Exception as e:

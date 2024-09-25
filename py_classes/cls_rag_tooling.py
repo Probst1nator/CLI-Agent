@@ -10,7 +10,6 @@ from typing import Dict, Iterable, List, Tuple, Any, Union
 from collections import defaultdict
 from datetime import datetime
 from termcolor import colored
-from sentence_transformers import CrossEncoder
 
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
 from pdfminer.converter import TextConverter
@@ -183,11 +182,11 @@ class RagTooling:
             if may_continue_on_next_page: 
                 if not "1 Modulbezeichnung" in remaining_pages:
                     # First heuristic
-                    may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n'''document\n{coherent_extraction_cache}\n'''", preferred_models=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
+                    may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n```document\n{coherent_extraction_cache}\n```", preferred_models=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
                     
                     # Second heuristic
                     if may_continue_on_next_page and i < len(pages_extracted_content) - 1:
-                        yes_no_chat.add_message(Role.USER, f"This is the next page of the document, does it start a new topic/subject different to the previous page I showed you before? If a new topic/subject is started respond with 'yes', otherwise 'no'.\n'''document\n{pages_extracted_content[i+1]}\n'''")
+                        yes_no_chat.add_message(Role.USER, f"This is the next page of the document, does it start a new topic/subject different to the previous page I showed you before? If a new topic/subject is started respond with 'yes', otherwise 'no'.\n```document\n{pages_extracted_content[i+1]}\n```")
                         is_next_page_new_topic, yes_no_chat = FewShotProvider.few_shot_YesNo(yes_no_chat, preferred_models=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
                         may_continue_on_next_page = not is_next_page_new_topic
                 else:
@@ -207,13 +206,13 @@ class RagTooling:
             
             # Transform the extractable information to a german presentation
             chat = Chat()
-            chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n'''\n{coherent_extraction}\n'''")
+            chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n```\n{coherent_extraction}\n```")
             high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"], force_local = force_local, force_free = True, silent = True)
             chat.add_message(Role.ASSISTANT, high_level_extraction_analysis)
             chat.add_message(Role.USER, "Can you please summarize all details of the document in a coherent manner? The summary will be used to provide advice to students, this requires you to only provide facts that have plenty of context of topic and subject available. If such context is not present, always choose to skip unreliable or inaccurate information completely. Do not mention when you are ignoring content because of this.")
             factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"], force_local = force_local, silent = True, force_free = True)
             chat.add_message(Role.ASSISTANT, factual_summarization)
-            praesentieren_prompt = "Please present the following information in a way that is easy to understand and in complete sentences. Begin directly with presenting.\n'''\n" + factual_summarization + "\n'''"
+            praesentieren_prompt = "Please present the following information in a way that is easy to understand and in complete sentences. Begin directly with presenting.\n```\n" + factual_summarization + "\n```"
             chat.add_message(Role.USER, praesentieren_prompt)
             presented_information = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"], force_local = force_local, silent = True, force_free = True)
             chat.add_message(Role.ASSISTANT, presented_information)
@@ -224,7 +223,7 @@ class RagTooling:
             # Safe guards for any issues that might ocurr
             informations_valid: bool = informations and not len(informations)>2048
             if informations_valid:
-                is_understandable, _ = FewShotProvider.few_shot_YesNo(f"Is this understandable and readable? \n'''\n{informations}\n'''", preferred_models=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
+                is_understandable, _ = FewShotProvider.few_shot_YesNo(f"Is this understandable and readable? \n```\n{informations}\n```", preferred_models=["gemma2-9b-it"] + [topology_model_key], force_local = force_local, silent = True, force_free = True)
                 if is_understandable:
                     alle_informationen.append(informations)
                 else:
@@ -260,6 +259,7 @@ class RagTooling:
         user_query: str,
         top_k: int = 3
     ) -> List[Tuple[str, dict]]:
+        from sentence_transformers import CrossEncoder
         """
         Rerank the results using a reranker model.
         
