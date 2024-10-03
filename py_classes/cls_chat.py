@@ -339,3 +339,22 @@ class Chat:
         new_chat.messages = copy.deepcopy(self.messages)
         new_chat.base64_images = copy.deepcopy(self.base64_images)
         return new_chat
+    
+    def join(self, chat: 'Chat') -> 'Chat':
+        """
+        Joins the messages of another Chat instance to the current instance.
+        
+        :param chat: The Chat instance to join.
+        :return: The updated Chat instance.
+        """
+        messages_to_add = []
+        if chat.messages[0][0] == Role.SYSTEM:
+            messages_to_add = chat.messages[1:]
+        else:
+            messages_to_add = chat.messages
+        # Doing it like this will take care of duplicate roles
+        for message_to_add in messages_to_add:
+            self.add_message(message_to_add[0], message_to_add[1])
+            
+        self.base64_images.extend(chat.base64_images)
+        return self

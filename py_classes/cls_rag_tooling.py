@@ -331,7 +331,7 @@ class RagTooling:
             return user_query
         results: Dict[str, Any] = collection.query(
             query_embeddings=user_query_embedding,
-            n_results=top_k*3
+            n_results=top_k*100 # TODO: Increase this number for better results, decrease for latency
         )
         if len(results["documents"][0]) == 0:
             return user_query

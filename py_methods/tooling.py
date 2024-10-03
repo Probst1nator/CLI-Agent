@@ -8,6 +8,7 @@ import pickle
 import re
 import subprocess
 import tempfile
+import time
 from typing import Any, List, Literal, Optional, Tuple
 import sqlite3
 import os
@@ -984,3 +985,147 @@ def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
         raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
 
     return "\n\n".join(all_contents)
+
+import subprocess
+import time
+import base64
+from typing import List
+import tempfile
+import os
+import re
+
+def take_screenshot(title: str = 'Firefox', verbose: bool = False) -> List[str]:
+    """
+    Captures screenshots of all windows with the specified title on Linux
+    using xwininfo and import, and returns them as a list of base64 encoded strings.
+    
+    Args:
+    title (str): The title of the windows to capture. Defaults to 'Firefox'.
+    verbose (bool): If True, print detailed error messages. Defaults to False.
+    
+    Returns:
+    List[str]: A list of base64 encoded strings of the captured screenshots.
+    """
+    try:
+        # Find windows matching the title
+        windows_info = subprocess.check_output(['xwininfo', '-root', '-tree'], text=True, stderr=subprocess.DEVNULL)
+        window_ids = re.findall(f'(0x[0-9a-f]+).*{re.escape(title)}', windows_info, re.IGNORECASE)
+        
+        if not window_ids:
+            print(f"No windows with title containing '{title}' found.")
+            return []
+
+        base64_images: List[str] = []
+        captured_count = 0
+        error_count = 0
+
+        for window_id in window_ids:
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                    temp_filename = temp_file.name
+
+                # Capture the screenshot using import
+                subprocess.run(['import', '-window', window_id, temp_filename], 
+                               check=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
+                # Read the screenshot file
+                with open(temp_filename, 'rb') as image_file:
+                    png_data = image_file.read()
+
+                # Remove the temporary file
+                os.unlink(temp_filename)
+                
+                # Convert to base64 and add to list
+                base64_img = base64.b64encode(png_data).decode('utf-8')
+                base64_images.append(base64_img)
+                
+                captured_count += 1
+                if verbose:
+                    print(f"Captured screenshot of window: {window_id}")
+
+            except subprocess.CalledProcessError:
+                error_count += 1
+                if verbose:
+                    print(f"Error capturing window {window_id}")
+                continue  # Skip this window and continue with the next
+
+        print(f"Successfully captured {captured_count} screenshots.")
+        if error_count > 0:
+            print(f"Failed to capture {error_count} windows.")
+
+        return base64_images
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        return []
+
+
+import re
+from lxml import etree
+from zxcvbn import zxcvbn
+from typing import Set
+
+def clean_and_reduce_html(html: str) -> str:
+    """
+    Clean and reduce HTML by removing unnecessary attributes and tags,
+    and shortening high-entropy or long attribute values.
+    
+    Args:
+    html (str): The input HTML string to clean and reduce.
+    
+    Returns:
+    str: The cleaned and reduced HTML string.
+    """
+    allowed_attributes: Set[str] = {
+        'aria-label', 'role', 'type', 'placeholder', 'name', 'title', 'class', 'href', 'alt', 'src'
+    }
+    allowed_tags: Set[str] = {'a', 'button', 'input', 'select', 'textarea', 'label', 'img', 'div', 'span'}
+    max_attribute_length: int = 100
+
+    def clean_element(element: etree._Element):
+        if element.tag.lower() not in allowed_tags:
+            element.getparent().remove(element)
+            return
+
+        # Clean attributes
+        for attr in list(element.attrib.keys()):
+            if attr not in allowed_attributes:
+                del element.attrib[attr]
+            else:
+                value = element.attrib[attr]
+                if len(value) > max_attribute_length:
+                    element.attrib[attr] = value[:max_attribute_length] + '...'
+                elif is_high_entropy(value):
+                    del element.attrib[attr]
+
+        # Recursively clean child elements
+        for child in element:
+            clean_element(child)
+
+    def is_high_entropy(value: str, threshold: float = 3.0) -> bool:
+        """Check if a string has high entropy using zxcvbn."""
+        result = zxcvbn(value)
+        return result['entropy'] > threshold
+
+    def remove_css_selectors(html: str) -> str:
+        """Remove CSS selectors from class names."""
+        def remove_selectors(match):
+            classes = match.group(1).split()
+            cleaned_classes = [c for c in classes if not re.match(r'^[a-z]+[A-Z]', c)]  # Remove camelCase classes
+            return f'class="{" ".join(cleaned_classes)}"'
+
+        return re.sub(r'class="([^"]*)"', remove_selectors, html)
+
+    # Main cleaning process
+    parser = etree.HTMLParser()
+    tree = etree.fromstring(html, parser)
+    clean_element(tree)
+    cleaned_html = etree.tostring(tree, encoding='unicode', method='html')
+    
+    # Remove CSS selectors
+    cleaned_html = remove_css_selectors(cleaned_html)
+    
+    # Additional reduction steps could be added here
+    # For example, removing unnecessary whitespace, comments, etc.
+
+    return cleaned_html

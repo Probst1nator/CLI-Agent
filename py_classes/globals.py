@@ -6,6 +6,7 @@ class Globals:
     PROJ_VSCODE_DIR_PATH = os.path.join(PROJ_DIR_PATH, '.vscode')
     PROJ_ENV_FILE_PATH = os.path.join(PROJ_DIR_PATH, '.env')
     PROJ_AGENTIC_PATH = os.path.join(PROJ_DIR_PATH, 'agentic')
+    PROJ_SANDBOX_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'sandbox')
     PROJ_AGENTIC_SANDBOX_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox')
     PROJ_AGENTIC_SANDBOX_BACKUP_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox_backup')
     CURRENT_WORKING_DIR_PATH = os.getcwd()
