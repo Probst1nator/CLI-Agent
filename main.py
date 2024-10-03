@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
+import json
 import os
+import select
+import shutil
+from typing import List
 import chromadb
 from pyfiglet import figlet_format
 import speech_recognition as sr
@@ -23,7 +27,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 
 from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
-from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
+from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, take_screenshot, text_to_speech, update_cmd_collection
 from py_classes.cls_web_scraper import WebTools
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_few_shot_factory import FewShotProvider
@@ -67,6 +71,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Display this help")
     parser.add_argument("-q", "--quick", action="store_true",
                         help="Disable reasoning for the agent.")
+    parser.add_argument("-img", "--image", action="store_true",
+                        help="Take a screenshot and generate a response based on the contents of the image.")
     parser.add_argument("-maj", "--majority", action="store_true",
                         help="Generate a response based on the majority of all local models.")
     parser.add_argument("-rag", action="store_true",
@@ -122,11 +128,25 @@ def main() -> None:
         exit(0)
     
     if args.fmake:
+        retry_count: int = 0
+        init_sandbox = False
+        context_file_paths: List[str] = []
+        if "[" in args.fmake[1] and "]" in args.fmake[1]:
+            context_file_paths = json.loads(args.fmake[1])
+        else:
+            context_file_paths = [args.fmake[1]]
+            
         makeAgent = MakeErrorCollectorAgent()
-        while True:
-            success = makeAgent.execute(command_to_gen_errors=['make', '-C', args.fmake[0], '-j', str(os.cpu_count())], context_file_path=args.fmake[1])
-            if success:
-                exit(0)    
+        while True: # TODO: automate checking if number of errors are reduced instead of increased 
+            retry_count += 1
+            success = makeAgent.execute(build_dir_path=args.fmake[0], context_file_paths=context_file_paths, init_sandbox=init_sandbox, force_local=args.local)
+            init_sandbox = False
+            if retry_count == 1 and not success:
+                init_sandbox = True
+                print(colored("First attempt failed, trying again with sandbox initialization...", "yellow"))
+                continue
+            # if success:
+            #     exit(0)    
                 
             do_continue = input(colored("Do you want to iterate once more? (Y/n): ", "yellow"))
             if "n" in do_continue.lower():
@@ -141,7 +161,7 @@ def main() -> None:
     
     if args.quick:
         use_reasoning = False
-        print(colored("Quick mode enabled, reasoning disabled.", "green"))
+        print(colored("Quick mode enabled: reasoning disabled.", "green"))
     else:
         use_reasoning = True
     
@@ -237,7 +257,7 @@ def main() -> None:
         if context_chat:
             if len(context_chat.messages) > 0:
                 if context_chat.messages[-1][0] == Role.USER:
-                    context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, ""))
+                    context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, "").strip())
         
         # save the context_chat to a json file
         if context_chat:
@@ -247,7 +267,6 @@ def main() -> None:
             if not server:
                 server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
             server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
-            
         
         # cli args regenerate last message
         if args.regenerate:
@@ -258,6 +277,32 @@ def main() -> None:
                     next_prompt = context_chat.messages.pop()[1]
                     print(colored(f"# cli-agent: Regenerating last response.", "green"))
                     print(colored(next_prompt, "blue"))
+        
+        # screen capture
+        if args.image:
+            args.image = False
+            window_title = "Firefox" # Default window title
+            print(colored(f"Capturing screenshots of '", "green") + colored(f"{window_title}", "yellow") + colored("' press any key to enter another title.", 'green'))
+            try:
+                for remaining in range(3, 0, -1):
+                    sys.stdout.write("\r" + colored(f"Proceeding in {remaining} seconds... ", 'yellow'))
+                    sys.stdout.flush()
+                    time.sleep(1)
+                    if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                        raise KeyboardInterrupt
+                sys.stdout.write("\n")
+            except KeyboardInterrupt:
+                window_title = input(colored("\nEnter the title of the window you want to capture: ", 'blue'))
+                
+            base64_images = take_screenshot(window_title)
+            if not base64_images:
+                print(colored(f"# cli-agent: No images were returned.", "red"))
+                continue
+            for i, base64_image in enumerate(base64_images):
+                print(colored(f"# cli-agent: Converting Image ({i}/{len(base64_images)}) into words...", "green"))
+                image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                prompt_context_augmentation += f'\n\n```vision_{i}\n{image_response_str}\n```'
+        
         # get controlled from the html server
         if server:
             waiting_counter = 900
@@ -292,13 +337,6 @@ def main() -> None:
             next_prompt = context_chat.messages.pop()[1]
             print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
             
-        if next_prompt.endswith("--p"):
-            next_prompt = next_prompt[:-3]
-            print(colored(f"# cli-agent: KeyBinding detected: Starting ScreenCapture, type (--h) for info [NOT IMPLEMENTED]", "green"))
-            # screenCapture = ScreenCapture()
-            # region_image_base64 = screenCapture.return_captured_region_image()
-            # fullscreen_image_base64 = screenCapture.return_fullscreen_image()
-            # session.generate_completion("Put words to the contents of the image for a blind user.", "gpt-4o", )
         
         if next_prompt.endswith("--l"):
             next_prompt = next_prompt[:-3]
@@ -315,6 +353,12 @@ def main() -> None:
         if next_prompt.endswith("--w"):
             args.web_search = True
             print(colored(f"# cli-agent: KeyBinding detected: Websearch enabled, type (--h) for info", "green"))
+            continue
+        
+        if next_prompt.endswith("--img"):
+            next_prompt = next_prompt[:-3]
+            print(colored(f"# cli-agent: KeyBinding detected: Starting ScreenCapture, type (--h) for info", "green"))
+            args.image = True
             continue
         
         if next_prompt.startswith("--llm"):
@@ -376,12 +420,12 @@ def main() -> None:
 # cli-agent: KeyBindings:
 # cli-agent: --h: Shows this help message.
 # cli-agent: --r: Regenerates the last response.
-# cli-agent: --p: Add a screenshot to the next prompt.
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --a: Toggles autonomous command execution.
 # cli-agent: --w: Perform a websearch before answering.
 # cli-agent: --m: Multiline input mode.
 # cli-agent: --i: Toggles to the current most intelligent model.
+# cli-agent: --img: Take a screenshot.
 # cli-agent: --rag: Toggles retrieval augmented generation (RAG).
 # cli-agent: --rea: Toggles reasoning.
 # cli-agent: --vis: Visualize the chat on a html page.
@@ -415,7 +459,7 @@ def main() -> None:
 
         
         next_prompt = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + next_prompt # add any context augmentation to the prompt
-        
+        next_prompt = next_prompt.strip()
         
         # Document assistant behavior
         if args.documents2 != None or args.documents != None:
@@ -448,7 +492,7 @@ def main() -> None:
             if not context_chat:
                 context_chat = Chat()
             context_chat.add_message(Role.USER, next_prompt)
-            context_chat, majority_response = majority_response_assistant(context_chat, args.local)
+            context_chat, majority_response = majority_response_assistant(context_chat, args.local, allow_costly_models=args.intelligent)
             continue
         
         # 

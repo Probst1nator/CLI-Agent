@@ -2,8 +2,6 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-import ollama
-import chromadb
 from termcolor import colored
 
 from py_classes.cls_chat import Chat, Role
@@ -278,12 +276,12 @@ This command will search for any running processes that match the pattern "cli-a
                     parts[i] = "bash\n" + parts[i]
             response = "```".join(parts)
         
-        if ("apt" in response and "install" in response and not "-y" in response):
+        if ("apt" in response and "install" in response and not " -y " in response):
             applied_hardcoded_fixes = True
             response = response.replace("apt install", "apt install -y")
             response = response.replace("apt-get install", "apt-get install -y")
         
-        if ("apt" in response and "purge" in response and not "-y" in response):
+        if ("apt" in response and "purge" in response and not " -y " in response):
             applied_hardcoded_fixes = True
             response = response.replace("apt purge", "apt purge -y")
             response = response.replace("apt-get purge", "apt-get purge -y")
@@ -519,7 +517,7 @@ A hierarchical learning approach to separate strategy and execution."""
             Any: The newly created object based on the examples and description.
         """
         # Convert example objects to JSON strings
-        example_jsons = [json.dumps(obj, default=lambda o: o.__dict__, sort_keys=True, indent=2) for obj in example_objects]
+        example_jsons: List[str] = [json.dumps(obj, default=lambda o: o.__dict__, sort_keys=True, indent=2) for obj in example_objects]
 
         # Create the chat prompt
         chat = Chat("You are an object creator. Given a list of example objects in JSON format and a description, create a new object with a similar structure but different content.")
@@ -530,7 +528,7 @@ A hierarchical learning approach to separate strategy and execution."""
 {
   "name": "John Doe",
   "age": 30,
-  "skills": ["Python", "JavaScript", "SQL"],
+  "skills": ["Python", "JavaScript", "SQL", "Rust", "Docker", "AWS"],
   "contact": {
     "email": "john@example.com",
     "phone": "123-456-7890"
@@ -539,19 +537,19 @@ A hierarchical learning approach to separate strategy and execution."""
 {
   "name": "Jane Smith",
   "age": 28,
-  "skills": ["Java", "C++", "Ruby"],
+  "skills": ["Java", "C++", "Rust"],
   "contact": {
     "email": "jane@example.com",
     "phone": "987-654-3210"
   }
 }
 ]
-Create a similar object for a senior data scientist specializing in machine learning.""")
+Create such object(s) based on this description: A female senior data scientist specializing in machine learning.""")
 
         chat.add_message(Role.ASSISTANT, """{
   "name": "Alice Johnson",
   "age": 35,
-  "skills": ["Python", "R", "TensorFlow", "Scikit-learn", "SQL"],
+  "skills": ["Python", "R", "TensorFlow", "Scikit-learn", "SQL", "Mojo", "C++", "Docker"],
   "contact": {
     "email": "alice.johnson@datatech.com",
     "phone": "555-123-4567"
@@ -565,7 +563,7 @@ Create a similar object for a senior data scientist specializing in machine lear
 [
 {few_shot_prompt_objects_str}
 ]
-Create a similar object based on this description: A delimiter to split the following code into smaller chunks:
+Create such object(s) based on this description: A delimiter to split the following code into smaller chunks:
 // Bind the `deeply::nested::function` path to `other_function`.
 use deeply::nested::function as other_function;
 fn function() {{
@@ -596,12 +594,33 @@ fn main() {{
         
         chat.add_message(Role.ASSISTANT, '{"code_seperator":"fn "}')
         # Add the actual task
-        example_objects_str = ",\n".join(example_jsons)
         chat.add_message(Role.USER, f"""Example objects:
-[
-{example_objects_str}
-]
-Create a similar object based on this description: {target_description}""")
+{json.dumps(example_jsons)}
+Create such object(s) based on this description: {target_description}""")
+        
+        def response_to_obj(response: str) -> Any:
+            # Extract the JSON string from the response
+            json_start_0 = response.find('[')
+            json_end_0 = response.rfind(']') + 1
+            json_start_1 = response.find('{')
+            json_end_1 = response.rfind('}') + 1
+            # use the earlier json_start
+            if json_start_0 != -1 and json_end_0 != -1 and json_start_0 < json_start_1:
+                json_start = json_start_0
+                json_end = json_end_0
+            else:
+                json_start = json_start_1
+                json_end = json_end_1
+            result_json = response[json_start:json_end]
+
+            # Parse the JSON string back into an object
+            result_object = json.loads(result_json)
+
+            # Recursively convert dict to object if the examples were objects
+            if not isinstance(example_objects[0], dict):
+                result_object = cls._dict_to_obj(result_object)
+            
+            return result_object
         
         temperature: int = 0
         while True:
@@ -609,33 +628,54 @@ Create a similar object based on this description: {target_description}""")
                 # Generate the response
                 response: str = LlmRouter.generate_completion(
                     chat,
-                    strength=AIStrengths.FAST,
+                    strength=AIStrengths.STRONG,
                     preferred_models=preferred_models,
                     force_local=force_local,
                     use_reasoning=use_reasoning,
                     silent=silent,
                     temperature=temperature
                 )
-
-                # Extract the JSON string from the response
-                json_start = response.find('{')
-                json_end = response.rfind('}') + 1
-                result_json = response[json_start:json_end]
-
-                # Parse the JSON string back into an object
-                result_object = json.loads(result_json)
-
-                # Recursively convert dict to object if the examples were objects
-                if not isinstance(example_objects[0], dict):
-                    result_object = cls._dict_to_obj(result_object)
+                returned_obj = response_to_obj(response)
                 
-                return result_object
+                is_valid:bool = False
+                if isinstance(returned_obj, list):
+                    is_valid = all([returned_obj[0].get(key) for key in example_objects[0].keys()])
+                else:
+                    is_valid = all([returned_obj.get(key) for key in example_objects[0].keys()])
+                    
+                # Check if returned object contains all the same keys as the example objects
+                if is_valid:
+                    return returned_obj
+                else:
+                    raise ValueError("Returned object does not match the structure of the example object(s). Please try the task again, paying more attention to the keys, values and overall structure of the example(s).")
             except Exception as e:
-                print(colored(f"RETRYING: few_shot_objectFromTemplate failed with response: {response}", "yellow"))
-                print(e)
-                temperature += 0.2
-                if temperature >= 1:
-                    raise e
+                print(colored(f"RETRYING: few_shot_objectFromTemplate: {e}", "yellow"))
+                try:
+                    error_chat = chat.deep_copy()
+                    error_chat.add_message(Role.ASSISTANT, response)
+                    error_chat.add_message(Role.USER, str(e))
+                    # Generate the response
+                    response: str = LlmRouter.generate_completion(
+                        error_chat,
+                        strength=AIStrengths.STRONG,
+                        preferred_models=preferred_models,
+                        force_local=force_local,
+                        use_reasoning=use_reasoning,
+                        silent=silent,
+                        temperature=temperature
+                    )
+                    returned_obj = response_to_obj(response)
+                    # Check if returned object contains all the same keys as the example objects
+                    if all([hasattr(returned_obj, key) for key in example_objects[0].keys()]):
+                        return returned_obj
+                    else:
+                        raise ValueError("Returned object does not match the example objects.")
+                except Exception as e:
+                    temperature += 0.2
+                    if temperature >= 1:
+                        raise e
+                    print(colored(f"RETRYING: few_shot_objectFromTemplate failed, retrying with increased temperature to: {temperature}", "yellow"))
+                
 
     @staticmethod
     def _dict_to_obj(d):

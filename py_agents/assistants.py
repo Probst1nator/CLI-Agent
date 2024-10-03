@@ -459,7 +459,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
                 break
             chat.add_message(Role.USER, user_input)
 
-def majority_response_assistant(context_chat: Chat, force_local: bool = False, preferred_models: List[str] = []) -> Tuple[Chat, str]:
+def majority_response_assistant(context_chat: Chat, force_local: bool = False, preferred_models: List[str] = [], allow_costly_models: bool = False) -> Tuple[Chat, str]:
     """
     An assistant function that leverages multiple AI models to provide comprehensive and consensus-based answers to user queries.
     This assistant, called "majority_vote_assistant", operates by consulting various models and synthesizing their outputs.
@@ -478,8 +478,16 @@ def majority_response_assistant(context_chat: Chat, force_local: bool = False, p
             if len(strong_models) > 1:
                 models = strong_models
         else:
-            models = LlmRouter.get_models(["llama-3.1-70b-versatile", "gemma2-9b-it", "claude-3-haiku-20240307", "gpt-4o-mini"])
-        
+            if allow_costly_models:
+                models = LlmRouter.get_models(["llama-3.2-90b-vision-preview", "claude-3-5-sonnet", "gpt-4o"])
+            else:
+                models = LlmRouter.get_models(["llama-3.2-90b-vision-preview", "gemma2-9b-it", "claude-3-haiku", "gpt-4o-mini"])
+    
+    final_response_models: List[str] = models
+    if allow_costly_models:
+        final_response_models = ["gpt-4o"]
+    else:
+        final_response_models = ["claude-3-5-sonnet"]
 
     while True:
         # Distribute query to all available models and gather responses
@@ -499,10 +507,10 @@ def majority_response_assistant(context_chat: Chat, force_local: bool = False, p
 
         chat = Chat("You are a data scientist tasked with performing a comprehensive meta analysis of responses from various experts on a given topic. Please summarize the responses, highlighting the key points and areas of agreement or disagreement. Be thorough and work step by step to grasp and reveal each relevant nuance of the conversation.")
         chat.add_message(Role.USER, f"CONTEXT:\n{model_responses_str}\nUSER_QUERY:\n{context_chat.messages[-1][1]}")
-        response = LlmRouter.generate_completion(chat=chat, preferred_models=models, force_local=force_local)
+        response = LlmRouter.generate_completion(chat=chat, preferred_models=final_response_models, force_local=force_local)
         chat.add_message(Role.ASSISTANT, response)
         chat.add_message(Role.USER, f"Please condense all, insights and nuances into a deeply helpful response to the following user query: {context_chat.messages[-1][1]}")
-        response = LlmRouter.generate_completion(chat=chat, preferred_models=models, force_local=force_local)
+        response = LlmRouter.generate_completion(chat=chat, preferred_models=final_response_models, force_local=force_local)
         chat.add_message(Role.ASSISTANT, response)
         
         context_chat.add_message(Role.ASSISTANT, response)

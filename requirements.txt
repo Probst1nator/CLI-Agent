@@ -35,3 +35,4 @@ pyttsx3
 openai-whisper
 yt-dlp
 sentence_transformers
+pyautogui

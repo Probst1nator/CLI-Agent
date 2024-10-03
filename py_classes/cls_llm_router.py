@@ -74,6 +74,8 @@ class Llm:
         return [
             # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, False, 131072, None, AIStrengths.STRONG),
             # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, AIStrengths.STRONG), # For testing
+            Llm(GroqAPI(), "llama-3.2-90b-text-preview", None, False, False, False, 8192, 4096, AIStrengths.STRONG),
+            Llm(GroqAPI(), "llama-3.2-11b-text-preview", None, False, False, False, 8192, 4096, AIStrengths.FAST),
             Llm(GroqAPI(), "llama-3.1-70b-versatile", None, False, False, False, 131072, 30000, AIStrengths.STRONG),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 131072, 30000, AIStrengths.FAST),
             Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 8192, 6000, AIStrengths.STRONG),
@@ -83,18 +85,26 @@ class Llm:
             Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, 15000, AIStrengths.FAST),
             Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 8192, 15000, AIStrengths.FAST),
             Llm(GroqAPI(), "gemma-7b-it", None, False, False, False, 8192, 15000, AIStrengths.FAST),
+            Llm(GroqAPI(), "llama-3.2-3b-preview", None, False, False, False, 8192, 4096, AIStrengths.FAST),
+            Llm(GroqAPI(), "llama-3.2-1b-preview", None, False, False, False, 8192, 4096, AIStrengths.FAST),
+            # Llm(GroqAPI(), "llava-v1.5-7b-4096-preview", None, False, False, True, 4096, 4096, AIStrengths.FAST), # currently only supports a single message instead of a context
+            
+            # Catch requests using free local llms, (pretty strong still)
+            Llm(OllamaClient(), "mistral-small:22b", None, False, True, True, 128000, None, AIStrengths.STRONG),
+            Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, None, AIStrengths.FAST),
             
             Llm(AnthropicAPI(), "claude-3-5-sonnet", 9, False, False, False, 200000, 4096, AIStrengths.STRONG),
             Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, 4096, AIStrengths.FAST),
             Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, None, AIStrengths.STRONG),
             Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, None, AIStrengths.FAST),
-            Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, None, AIStrengths.STRONG),
+            # Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, None, AIStrengths.STRONG),
 
-            # Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, False, 128000, None, AIStrengths.STRONG),
+
             Llm(OllamaClient(), "phi3.5:3.8b", None, False, True, False, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 4096, None, AIStrengths.STRONG),
             
+            Llm(OllamaClient(), "minicpm-v:8b", None, False, True, True, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-llama3:8b", None, False, True, True, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-phi3:3.8b", None, False, True, True, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), "smollm:1.7b", None, False, True, False, 4096, None, AIStrengths.FAST),
@@ -102,7 +112,6 @@ class Llm:
             Llm(OllamaClient(), "wizardlm2:7b", None, False, True, False, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "dolphin-llama3", None, False, True, False, 4096, None, AIStrengths.FAST),
-            Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, None, AIStrengths.STRONG),
 
             # Llm(OllamaClient(), "minicpm-v", None, False, True, True, 4096, None, AIStrengths.FAST),
         ]
@@ -434,15 +443,11 @@ class LlmRouter:
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)
         
-        
         if base64_images:
             chat.base64_images = base64_images
         
-        
         if not preferred_models or preferred_models == [""] or preferred_models == [None]:
             preferred_models = []
-        
-        
         
         while True:
             try:
@@ -468,7 +473,7 @@ class LlmRouter:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                     if cached_completion:
                         if not silent:
-                            print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
+                            print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}> <{colored(model.model_key, 'green')}>","blue"))
                             for char in cached_completion:
                                 print(tooling.apply_color(char), end="")
                                 time.sleep(0) # better observable for the user

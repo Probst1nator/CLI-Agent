@@ -192,7 +192,7 @@ class OllamaClient(ChatClientInterface):
         try:
             hostname, port = host.split(':') if ':' in host else (host, 11434)
             print(colored(f"Checking host {host}...", "yellow"))
-            with socket.create_connection((hostname, int(port)), timeout=10):
+            with socket.create_connection((hostname, int(port)), timeout=3):
                 return True
         except (socket.timeout, socket.error):
             print(colored(f"Host {host} is unreachable", "red"))
