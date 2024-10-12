@@ -479,15 +479,11 @@ def majority_response_assistant(context_chat: Chat, force_local: bool = False, p
                 models = strong_models
         else:
             if allow_costly_models:
-                models = LlmRouter.get_models(["llama-3.2-90b-vision-preview", "claude-3-5-sonnet", "gpt-4o"])
+                models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.STRONG)] + LlmRouter.get_models(["claude-3-5-sonnet", "gpt-4o"])
+                final_response_models: List[str] = ["gpt-4o"]
             else:
-                models = LlmRouter.get_models(["llama-3.2-90b-vision-preview", "gemma2-9b-it", "claude-3-haiku", "gpt-4o-mini"])
-    
-    final_response_models: List[str] = models
-    if allow_costly_models:
-        final_response_models = ["gpt-4o"]
-    else:
-        final_response_models = ["claude-3-5-sonnet"]
+                models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.STRONG)] + LlmRouter.get_models(["gemma2-9b-it", "claude-3-haiku", "gpt-4o-mini"])
+                final_response_models: List[str] = [models[0]]
 
     while True:
         # Distribute query to all available models and gather responses

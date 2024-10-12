@@ -396,7 +396,7 @@ def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
     return source
 
 def listen_microphone(
-    max_listening_duration: Optional[int] = 60, local: bool = False
+    max_listening_duration: Optional[int] = 60, force_local: bool = True
 ) -> Tuple[str, str, bool]:
     """
     Listen to the microphone, save to a temporary file, and return transcription.
@@ -428,13 +428,13 @@ def listen_microphone(
             temp_audio_file.write(audio.get_wav_data())
             temp_audio_file_path = temp_audio_file.name
 
-        # Transcribe the audio from the temporary file
-        if local:
-            transcription, detected_language = PyAiHost.transcribe_audio(temp_audio_file_path)
-        else:
-            transcription, detected_language = OpenAIAPI.transcribe_audio(temp_audio_file_path)
+            # Transcribe the audio from the temporary file
+            if force_local:
+                transcription, detected_language = PyAiHost.transcribe_audio(temp_audio_file_path)
+            else:
+                transcription, detected_language = OpenAIAPI.transcribe_audio(temp_audio_file_path)
 
-        print("Microphone transcription: " + colored(transcription, "green"))
+            print("Microphone transcription: " + colored(transcription, "green"))
 
         return transcription, detected_language
 

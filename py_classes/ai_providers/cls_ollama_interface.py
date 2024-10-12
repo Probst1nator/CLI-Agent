@@ -288,6 +288,9 @@ class OllamaClient(ChatClientInterface):
         # ! This is a bad solution because a remote machine likely has a different core count, but will work for the Pepper project as needed
         # cpu_core_count = os.cpu_count()-1 # lets leave one core for other processes
         # options.update(num_thread=cpu_core_count)
+        # ! Hack to try lower ram usage
+        if "mistral-small" in model_key:
+            model_key = "mistral-small:22b-instruct-2409-q3_K_M"
         
         tooling = CustomColoring()
         logger.debug(json.dumps({"last_message": chat.messages[-1][1]}, indent=2))
