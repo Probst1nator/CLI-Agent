@@ -74,9 +74,9 @@ class Llm:
         return [
             # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, False, 131072, None, AIStrengths.STRONG),
             # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, AIStrengths.STRONG), # For testing
-            Llm(GroqAPI(), "llama-3.2-90b-text-preview", None, False, False, False, 8192, 4096, AIStrengths.STRONG),
-            Llm(GroqAPI(), "llama-3.2-11b-text-preview", None, False, False, False, 8192, 4096, AIStrengths.FAST),
+            # Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, False, 8192, 4096, AIStrengths.STRONG),
             Llm(GroqAPI(), "llama-3.1-70b-versatile", None, False, False, False, 131072, 30000, AIStrengths.STRONG),
+            Llm(GroqAPI(), "llama-3.2-11b-vision-preview", None, False, False, False, 8192, 4096, AIStrengths.FAST),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 131072, 30000, AIStrengths.FAST),
             Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 8192, 6000, AIStrengths.STRONG),
             Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 8192, 30000, AIStrengths.FAST),
@@ -89,7 +89,7 @@ class Llm:
             Llm(GroqAPI(), "llama-3.2-1b-preview", None, False, False, False, 8192, 4096, AIStrengths.FAST),
             # Llm(GroqAPI(), "llava-v1.5-7b-4096-preview", None, False, False, True, 4096, 4096, AIStrengths.FAST), # currently only supports a single message instead of a context
             
-            # Catch requests using free local llms, (pretty strong still)
+            # Catch requests using strong local llms
             Llm(OllamaClient(), "mistral-small:22b", None, False, True, True, 128000, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, None, AIStrengths.FAST),
             
@@ -165,20 +165,18 @@ class LlmRouter:
         return hashlib.sha256(hash_input).hexdigest()
 
     def _load_cache(self) -> Dict[str, str]:
-        """
-        Load the cache from a JSON file.
-        
-        Returns:
-            Dict[str, str]: The cache dictionary.
-        """
-        # Load cache from file or return empty dict if file doesn't exist or is invalid
         if not os.path.exists(self.cache_file_path):
             return {}
-        with open(self.cache_file_path, "r") as json_file:
-            try:
+        try:
+            with open(self.cache_file_path, "r") as json_file:
                 return json.load(json_file)
-            except json.JSONDecodeError:
-                return {}
+        except json.JSONDecodeError:
+            print(colored("Failed to load cache file: Invalid JSON format", "red"))
+            print("Creating a new cache file...")
+            return {}
+        except Exception as e:
+            print(colored(f"Unexpected error loading cache: {e}", "red"))
+            return {}
 
     def _get_cached_completion(self, model_key: str, temperature: str, chat: Chat, images: List[str]) -> Optional[str]:
         """
@@ -200,12 +198,6 @@ class LlmRouter:
     def _update_cache(self, model_key: str, temperature: str, chat: Chat, images: List[str], completion: str) -> None:
         """
         Update the cache with a new completion.
-        Args:
-        model_key (str): Model identifier.
-        temperature (str): Temperature setting for the model.
-        chat (Chat): The chat prompt.
-        images (List[str]): List of image encodings.
-        completion (str): The generated completion string.
         """
         # Generate cache key
         cache_key = self._generate_hash(model_key, temperature, chat.to_json(), images)
@@ -222,13 +214,19 @@ class LlmRouter:
                 existing_cache = {}
             
             # Update the existing cache with the new entry
-            existing_cache.update(self.cache)
+            existing_cache.update({cache_key: completion})
             
             # Write the updated cache back to the file
             with open(self.cache_file_path, "w") as json_file:
-                json.dump(existing_cache, json_file, indent=4)
+                json.dump(existing_cache, json_file, indent=4, ensure_ascii=False)
+        except json.JSONDecodeError as je:
+            print(colored(f"Failed to parse existing cache: {je}", "red"))
+            print("Creating a new cache file...")
+            with open(self.cache_file_path, "w") as json_file:
+                json.dump({cache_key: completion}, json_file, indent=4, ensure_ascii=False)
         except Exception as e:
-            logger.error(f"Failed to update cache: {e}")
+            print(colored(f"Failed to update cache: {e}", "red"))
+            print("Continuing without updating cache file...")
 
     @classmethod
     def get_models(cls, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
@@ -265,7 +263,8 @@ class LlmRouter:
 
         return available_models
 
-    def get_model(self, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), exclude_model_keys: List[str] = [], force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
+    @classmethod
+    def get_model(cls, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), exclude_model_keys: List[str] = [], force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
@@ -280,14 +279,16 @@ class LlmRouter:
         Returns:
             Optional[Llm]: The next available Llm instance if available, otherwise None.
         """
+        instance = cls()
+        
         # Debug print for large token counts
         if (chat.count_tokens() > 4000 and not force_free and not force_local):
             print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
         
         # Search for preferred model key match first
         for model_key in preferred_models:
-            if (model_key not in self.failed_models or force_preferred_model) and model_key and not any(excluded_key in model_key for excluded_key in exclude_model_keys):
-                model = next((model for model in self.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
+            if (model_key not in instance.failed_models or force_preferred_model) and model_key and not any(excluded_key in model_key for excluded_key in exclude_model_keys):
+                model = next((model for model in instance.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
                 if model:
                     return model
 
@@ -300,31 +301,31 @@ class LlmRouter:
         
         # Search online models by capability next
         if not force_local:
-            for model in self.retry_models:
-                if model.model_key not in self.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                    if self.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
+            for model in instance.retry_models:
+                if model.model_key not in instance.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                    if instance.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
                         return model
             # ignore strength if no online model is found first
-            for model in self.retry_models:
-                if model.model_key not in self.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                    if self.model_capable_check(model, chat, None, local=False, force_free=force_free, has_vision=has_vision):
+            for model in instance.retry_models:
+                if model.model_key not in instance.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                    if instance.model_capable_check(model, chat, None, local=False, force_free=force_free, has_vision=has_vision):
                         return model
 
         # search local models last
         # first by capability
-        for model in self.retry_models:
-            if model.model_key not in self.failed_models and model.local  and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                if self.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision):
+        for model in instance.retry_models:
+            if model.model_key not in instance.failed_models and model.local  and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision):
                     return model
         # ignore strength if no model is found
-        for model in self.retry_models:
-            if model.model_key not in self.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                if self.model_capable_check(model, chat, None, local=True, force_free=force_free, has_vision=has_vision):
+        for model in instance.retry_models:
+            if model.model_key not in instance.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                if instance.model_capable_check(model, chat, None, local=True, force_free=force_free, has_vision=has_vision):
                     return model
         # ignore context_length and strength if no model is found
-        for model in self.retry_models:
-            if model.model_key not in self.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                if self.model_capable_check(model, Chat(), None, local=True, force_free=force_free, has_vision=has_vision):
+        for model in instance.retry_models:
+            if model.model_key not in instance.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                if instance.model_capable_check(model, Chat(), None, local=True, force_free=force_free, has_vision=has_vision):
                     return model
 
         return None
@@ -451,7 +452,7 @@ class LlmRouter:
         
         while True:
             try:
-                if not preferred_models or isinstance(preferred_models[0], str):
+                if not preferred_models or (preferred_models and isinstance(preferred_models[0], str)):
                     # Get an appropriate model
                     model = instance.get_model(strength=strength, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
                 else:

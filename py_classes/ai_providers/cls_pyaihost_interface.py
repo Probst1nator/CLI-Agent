@@ -1,78 +1,110 @@
 import os
 import re
 import time
+from dotenv import load_dotenv
 from gtts import gTTS
 import pygame
 import whisper
 from typing import Dict, Tuple, Optional
 import pyttsx3
+from py_classes.globals import g
 
 class PyAiHost:
     """
     A class to interface with the Whisper model for speech recognition tasks.
 
     Attributes:
-        model (Optional): The Whisper model instance used for transcription.
-        timeout (int): The maximum allowed transcription duration in seconds.
+        whisper_model (Optional[whisper.Whisper]): The Whisper model instance used for transcription.
 
     Methods:
-        initialize(model_name: str = 'base', timeout: int = 60) -> None:
-            Initializes the PyAIHost class with a specified Whisper model and timeout value.
+        initialize_whisper_model(whisper_model_key: str = 'medium') -> None:
+            Initializes the Whisper model with a specified model key.
         
-        transcribe_audio(audio_path: str) -> Tuple[str, str, bool]:
-            Transcribes the audio file at the given path and returns the transcribed text, 
-            detected language, and a timeout flag.
+        transcribe_audio(audio_path: str, whisper_model_key: str = 'medium') -> Tuple[str, str]:
+            Transcribes the audio file at the given path and returns the transcribed text and detected language.
+        
+        local_text_to_speech(text: str, lang_key: str = "en") -> None:
+            Converts text to speech using pyttsx3 and plays it locally.
+        
+        online_text_to_speech(text: str, lang_key: str = "en") -> None:
+            Converts text to speech using gTTS and plays it.
     """
     
-    whisper_model: whisper.Whisper|None = None  # Class variable to hold the model instance
+    whisper_model: Optional[whisper.Whisper] = None  # Class variable to hold the model instance
 
     @classmethod
-    def initialize(cls, whisper_model_name: str = 'medium') -> None:
+    def _initialize_whisper_model(cls, whisper_model_key: str = 'medium'):
         """
-        Initializes the PyAIHost class with a specified Whisper model and timeout value.
-        Available Whisper models: tiny, base, small, medium, large
+        Initialize the Whisper model if it hasn't been initialized yet.
 
         Args:
-            whisper_model_name (str): Name of the Whisper model to load. Default is 'medium'.
-            timeout (int): Maximum allowed duration for transcription in seconds. Default is 60 seconds.
+            whisper_model_key (str): The key of the Whisper model to use.
         """
-        cls.whisper_model = whisper.load_model(whisper_model_name)
+        if cls.whisper_model is None:
+            cls.whisper_model = whisper.load_model(whisper_model_key)
 
-    @staticmethod
-    def transcribe_audio(audio_path: str) -> Tuple[str, str]:
+    @classmethod
+    def transcribe_audio(cls, audio_path: str, whisper_model_key: str = 'small') -> Tuple[str, str]:
         """
         Transcribes the audio file located at the specified path.
 
         Args:
             audio_path (str): Path to the audio file to be transcribed.
+            whisper_model_key (str): The key of the Whisper model to use.
+            
+            Available Whisper model-keys: tiny, base, small, medium, large
 
         Returns:
             Tuple[str, str]: A tuple containing the transcribed text and the detected language.
         """
-        if PyAiHost.whisper_model is None:
-            raise ValueError("Model not initialized. Call PyAIHost.initialize() first.")
+        # Initialize the model if it hasn't been initialized yet
+        if cls.whisper_model is None:
+            cls._initialize_whisper_model(whisper_model_key)
 
+        
+        # Load the .env file
+        load_dotenv(g.PROJ_ENV_FILE_PATH)
+        
+        # Get the initial_prompt from the .env file, defaulting to an empty string if not found
+        voice_activation_whisper_prompt = os.getenv('VOICE_ACTIVATION_WHISPER_PROMPT', '')
+        
         try:
-            
-            # initial_prompt_en = "This text refers to FAU's STEM study offerings. It may mention the degree programs in Computational Mathematics, Data Science, Computer Science, and AI, as well as their contents and career prospects."
-            # initial_prompt_de = "Die folgende Aufnahme enthält Informationen über Studiengänge an der Friedrich-Alexander-Universität (FAU) Erlangen-Nürnberg. Besonderer Fokus liegt auf Technomathematik, Data Science, Lehramt, Informatik, Künstliche Intelligenz (KI) und Materialtechnologie."
-            initial_prompt_multilingual = "Pepper, Roboter, Friedrich-Alexander-Universität, FAU, University, Erlangen, Technomathematik, Data Science, Lehramt, Artificial Intelligence"
             # Perform transcription using the Whisper model
-            result: Dict[str, any] = PyAiHost.whisper_model.transcribe(audio_path, initial_prompt=initial_prompt_multilingual)
-            # Extract the transcribed text if available, else default to an empty string
+            if voice_activation_whisper_prompt:
+                result: Dict[str, any] = cls.whisper_model.transcribe(audio_path, initial_prompt=voice_activation_whisper_prompt)
+            else:
+                result: Dict[str, any] = cls.whisper_model.transcribe(audio_path, initial_prompt=voice_activation_whisper_prompt)
+                
+            
+            # Extract the transcribed text and detected language
             transcribed_text: str = result.get('text', '')
-            # Extract the detected language if available, else default to an empty string
             detected_language: str = result.get('language', '')
 
-            # Check if the transcription exceeded the specified timeout
             return transcribed_text, detected_language
 
         except Exception as e:
-            # Handle any exception that occurs and print the error message
             print(f"An error occurred during transcription: {e}")
-            # On error, return empty values and indicate a timeout occurred
             return "", ""
-    
+        
+    @staticmethod
+    def text_to_speech(text:str, lang_key: str = "en", force_local: bool = True):
+        """
+        Convert the assistant's response to speech and play it using either pyttsx3 or gTTS.
+
+        Args:
+            text (str): The text to convert to speech.
+            lang_key (str, optional): The language of the text. Defaults to 'en'.
+            force_local (bool, optional): Whether to force the use of pyttsx3 for speech synthesis. Defaults to True.
+
+        Returns:
+            None
+        """
+        if force_local:
+            PyAiHost.local_text_to_speech(text, lang_key)
+        else:
+            PyAiHost.online_text_to_speech(text, lang_key)
+
+    @staticmethod
     def local_text_to_speech(text: str, lang_key: str = "en"):
         """
         Convert the assistant's response to speech and play it locally using pyttsx3.
@@ -99,26 +131,18 @@ class PyAiHost:
         # Initialize the TTS engine
         engine = pyttsx3.init()
         
-        # Optional: Adjust the speech rate (default is 200)
-        # engine.setProperty('rate', 150)
-        
-        # Optional: Set the voice (uncomment and modify if needed)
-        # voices = engine.getProperty('voices')
-        # engine.setProperty('voice', voices[1].id)  # 0 for male, 1 for female voice
-        
         # Speak the text
         engine.say(cleaned_text)
         engine.runAndWait()
 
-    # Convert assistant response to speech and play it
-    def local_text_to_speech(text: str, lang_key: str = "en"):
+    @staticmethod
+    def online_text_to_speech(text: str, lang_key: str = "en"):
         """
-        THIS IS RUNNING ONLINE AND NOT LOCALLY, pls fix
-        Convert the assistant's response to speech and play it.
+        Convert the assistant's response to speech and play it using gTTS.
 
         Args:
             text (str): The text to convert to speech.
-            language (str, optional): The language of the text. Defaults to 'english'.
+            lang_key (str, optional): The language of the text. Defaults to 'en'.
 
         Returns:
             None
@@ -156,4 +180,3 @@ class PyAiHost:
         while pygame.mixer.music.get_busy():
             continue
         os.remove(tts_file)
-

@@ -358,3 +358,146 @@ class Chat:
             
         self.base64_images.extend(chat.base64_images)
         return self
+
+
+
+# import kotlinx.serialization.*
+# import kotlinx.serialization.json.*
+# import java.io.File
+
+# @Serializable
+# enum class Role {
+    # SYSTEM, USER, IPYTHON, ASSISTANT
+# }
+
+# @Serializable
+# data class Message(val role: Role, val content: String)
+
+# @Serializable
+# data class Chat(
+    # val messages: MutableList<Message> = mutableListOf(),
+    # val base64Images: MutableList<String> = mutableListOf()
+# ) {
+    # fun addMessage(role: Role, content: String): Chat {
+        # if (content.isNotBlank()) {
+            # if (messages.lastOrNull()?.role == role) {
+                # messages.last().let { lastMessage ->
+                    # messages[messages.lastIndex] = Message(role, "${lastMessage.content}\n$content")
+                # }
+            # } else {
+                # messages.add(Message(role, content))
+            # }
+        # }
+        # return this
+    # }
+
+    # fun getMessagesAsString(startIndex: Int, endIndex: Int? = null): String {
+        # val normalizedStart = startIndex.coerceIn(0, messages.size)
+        # val normalizedEnd = endIndex?.coerceIn(normalizedStart, messages.size) ?: messages.size
+        # return messages.subList(normalizedStart, normalizedEnd)
+            # .joinToString("\n") { "${it.role.name}: ${it.content}" }
+    # }
+
+    # fun printChat() {
+        # messages.forEach { (role, content) ->
+            # println("${role.name}:\n$content\n")
+        # }
+    # }
+
+    # fun length(): Int = messages.sumOf { it.content.length }
+
+    # fun joinedMessages(): String = messages.joinToString("\n") { it.content }
+
+    # fun countTokens(encodingName: String = "cl100k_base"): Int {
+        # // Simplified token counting, replace with actual implementation if needed
+        # return (joinedMessages().length / 4).toInt()
+    # }
+
+    # fun toOllama(): List<Map<String, Any>> {
+        # return messages.map { message ->
+            # mutableMapOf<String, Any>(
+                # "role" to message.role.name.lowercase(),
+                # "content" to message.content
+            # ).apply {
+                # if (base64Images.isNotEmpty() && message == messages.last()) {
+                    # this["images"] = base64Images
+                # }
+            # }
+        # }.also {
+            # base64Images.clear()
+        # }
+    # }
+
+    # fun toOpenAI(): List<Map<String, String>> {
+        # return messages.mapIndexed { index, message ->
+            # if (message.role == Role.IPYTHON && index > 0) {
+                # messages[index - 1].let { prevMessage ->
+                    # mapOf("role" to prevMessage.role.name.lowercase(),
+                        #   "content" to "${prevMessage.content}\n\n${message.content}")
+                # }
+            # } else {
+                # mapOf("role" to message.role.name.lowercase(), "content" to message.content)
+            # }
+        # }
+    # }
+
+    # fun toGroq(): List<Map<String, String>> = toOpenAI()
+
+    # fun deepCopy(): Chat = copy(messages = messages.toMutableList(), base64Images = base64Images.toMutableList())
+
+    # fun join(other: Chat): Chat {
+        # val messagesToAdd = if (other.messages.firstOrNull()?.role == Role.SYSTEM) {
+            # other.messages.drop(1)
+        # } else {
+            # other.messages
+        # }
+        # messagesToAdd.forEach { addMessage(it.role, it.content) }
+        # base64Images.addAll(other.base64Images)
+        # return this
+    # }
+
+    # companion object {
+        # private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
+
+        # fun createWithInstruction(instructionMessage: String = ""): Chat {
+            # return Chat().apply {
+                # if (instructionMessage.isNotBlank()) {
+                    # addMessage(Role.SYSTEM, instructionMessage)
+                # }
+            # }
+        # }
+
+        # fun loadFromJson(fileName: String = "recent_chat.json"): Chat {
+            # return File(fileName).readText().let { fromJson(it) }
+        # }
+
+        # fun fromJson(jsonStr: String): Chat = json.decodeFromString(jsonStr)
+
+        # fun saveToJsonl(chats: List<Chat>, filePath: String = "saved_chat.jsonl") {
+            # File(filePath).bufferedWriter().use { writer ->
+                # chats.forEach { chat ->
+                    # writer.write(json.encodeToString(chat))
+                    # writer.newLine()
+                # }
+            # }
+        # }
+
+        # fun loadFromJsonl(filePath: String): List<Chat> {
+            # return File(filePath).useLines { lines ->
+                # lines.map { json.decodeFromString<Chat>(it) }.toList()
+            # }
+        # }
+    # }
+
+    # fun saveToJson(fileName: String = "recent_chat.json", append: Boolean = false) {
+        # val file = File(fileName)
+        # val chatToSave = if (append) {
+            # loadFromJson(fileName).join(this)
+        # } else {
+            # this
+        # }
+        # file.writeText(json.encodeToString(chatToSave))
+    # }
+
+    # fun toJson(): String = json.encodeToString(this)
+# }

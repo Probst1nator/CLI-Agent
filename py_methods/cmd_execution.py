@@ -156,6 +156,9 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     formatted_results: List[str] = []
     for cmd in selected_commands:
         if cmd in commands:
+            # Save to recent actions
+            g.remember_recent_action(cmd)
+            
             result, output = run_command(cmd, verbose)
             results.append(result)
             

@@ -16,6 +16,8 @@ import time
 import sys
 import re
 import warnings
+from pocketsphinx import LiveSpeech, get_model_path
+
 
 from py_agents.make_agent import MakeErrorCollectorAgent
 from py_classes.cls_html_server import HtmlServer
@@ -61,7 +63,7 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-i", "--intelligent", action="store_true",
                         help="Use the current most intelligent model for the agent.")
-    parser.add_argument("-a", "--auto", nargs='?', const=10, type=int,
+    parser.add_argument("-a", "--auto", nargs='?', const=5, type=int,
                         help="""Skip user confirmation for command execution.""", metavar="DELAY")
     parser.add_argument("-e", "--edit", nargs='?', const="", type=str, metavar="FILEPATH",
                         help="Edit either the file at the specified path or the contents of the clipboard.")
@@ -123,7 +125,7 @@ def main() -> None:
         print(colored("Generating atuin-command-history embeddings...", "green"))
         update_cmd_collection()
         print(colored("Generating pdf embeddings for cli-agent directory...", "green"))
-        pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=False, preferred_models=["phi3.5:3.8b"])
+        pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=args.local)
         print(colored("Preloading complete.", "green"))
         exit(0)
     
@@ -155,6 +157,7 @@ def main() -> None:
     if args.daily:
         client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
         collection = client.get_or_create_collection(name="long-term-memories")
+        args.voice = True
     else:
         client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
         collection = client.get_or_create_collection(name="commands")
@@ -167,7 +170,7 @@ def main() -> None:
     
     if args.intelligent:
         args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
-        print(colored(f"Using the current most intelligent model: {args.llm}", "green"))
+        print(colored(f"Enabling the current most intelligent model: {args.llm}", "green"))
     
     if args.exp:
         while True:
@@ -206,24 +209,17 @@ def main() -> None:
     
     if args.c:
         context_chat = Chat.load_from_json()
+        print(colored("# # # Recent executed actions # # #", "green"))
+        print(colored("\n".join(g.get_recent_actions()), "yellow"))
     else:
         context_chat = Chat()
     
-    
-    if args.voice:
-        # setup microphone
-        pyaudio_instance = pyaudio.PyAudio()
-        default_microphone_info = pyaudio_instance.get_default_input_device_info()
-        microphone_device_index = default_microphone_info['index']
-        r = sr.Recognizer()
-        source = sr.Microphone(device_index=microphone_device_index)
-        if context_chat:
-            if len(context_chat.messages) > 0:
-                # tts last response
-                last_response = context_chat.messages[-1][1]
-                text_to_speech(last_response)
-                print(colored(last_response, 'magenta'))
-    
+    if args.voice and context_chat and len(context_chat.messages) > 0:
+        # tts last response (when continuing)
+        last_response = context_chat.messages[-1][1]
+        text_to_speech(last_response)
+        print(colored(last_response, 'magenta'))
+
     if args.edit != None: # code edit mode
         pre_chosen_option = ""
         if (args.auto):
@@ -320,7 +316,54 @@ def main() -> None:
             args.message = None
         # use microphone
         elif args.voice:
+            import pyaudio
+            import numpy as np
+            from openwakeword import Model
+            if args.daily:
+                def listen_for_keyword(keywords=['hey_lucy', 'ok_lucy']):
+                    # Initialize OpenWakeWord model
+                    model = Model()
+
+                    # Initialize PyAudio
+                    pa = pyaudio.PyAudio()
+                    audio_stream = pa.open(
+                        rate=16000,
+                        channels=1,
+                        format=pyaudio.paInt16,
+                        input=True,
+                        frames_per_buffer=1024
+                    )
+
+                    print(f"Listening for keywords: {', '.join(keywords)}...")
+                    try:
+                        while True:
+                            audio_data = audio_stream.read(1024, exception_on_overflow=False)
+                            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+
+                            # Get prediction from openWakeWord model
+                            prediction = model.predict(audio_array)
+
+                            # Check if any wake word was detected
+                            for wake_word in keywords:
+                                print(prediction)
+                                if wake_word in prediction and prediction[wake_word] > 0.5:  # You can adjust this threshold
+                                    print(f"Detected wake word: {wake_word}")
+                                    return True
+
+                    except KeyboardInterrupt:
+                        print('Stopping ...')
+                    finally:
+                        audio_stream.stop_stream()
+                        audio_stream.close()
+                        pa.terminate()
+
+                    return False
+
+                while True:
+                    if not listen_for_keyword():
+                        break
             next_prompt = listen_microphone()[0]
+            
         # default user input
         else:
             next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
@@ -435,7 +478,6 @@ def main() -> None:
 """, "yellow"))
             continue
         
-            
         
         if args.web_search:
             if context_chat and len(context_chat.messages) > 0:
@@ -495,19 +537,30 @@ def main() -> None:
             context_chat, majority_response = majority_response_assistant(context_chat, args.local, allow_costly_models=args.intelligent)
             continue
         
-        # 
+        # Retrieval Augmented Generation (RAG) behavior
         if args.rag:
             next_prompt = RagTooling.retrieve_augment(next_prompt, collection, 3)
         
-        # Default behavior (terminal assistant)
-        if context_chat and len(context_chat.messages) > 1:
-            # Continuation
-            context_chat.add_message(Role.USER, next_prompt)
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-            context_chat.add_message(Role.ASSISTANT, llm_response)
+        # Daily behavior
+        if args.daily:
+            if context_chat and len(context_chat.messages) > 1:
+                # Continuation
+                context_chat.add_message(Role.USER, next_prompt)
+                llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                context_chat.add_message(Role.ASSISTANT, llm_response)
+            else:
+                # Initialization
+                llm_response, context_chat = FewShotProvider.few_shot_DailyAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
         else:
-            # Initalization
-            llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+            # Default behavior (terminal assistant)
+            if context_chat and len(context_chat.messages) > 1:
+                # Continuation
+                context_chat.add_message(Role.USER, next_prompt)
+                llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                context_chat.add_message(Role.ASSISTANT, llm_response)
+            else:
+                # Initalization
+                llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
         
         if (args.voice):
             spoken_response = remove_blocks(llm_response, ["md"])
