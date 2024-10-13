@@ -446,7 +446,6 @@ def listen_microphone(
         # Clean up the temporary file
         if "temp_audio_file_path" in locals():
             os.remove(temp_audio_file_path)
-        return "", ""
 
 
 def remove_blocks(text: str, except_types: Optional[List[str]] = None) -> str:
