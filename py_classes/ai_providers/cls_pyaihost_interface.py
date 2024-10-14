@@ -85,29 +85,12 @@ class PyAiHost:
         except Exception as e:
             print(f"An error occurred during transcription: {e}")
             return "", ""
-        
-    @staticmethod
-    def text_to_speech(text:str, lang_key: str = "en", force_local: bool = True):
-        """
-        Convert the assistant's response to speech and play it using either pyttsx3 or gTTS.
 
-        Args:
-            text (str): The text to convert to speech.
-            lang_key (str, optional): The language of the text. Defaults to 'en'.
-            force_local (bool, optional): Whether to force the use of pyttsx3 for speech synthesis. Defaults to True.
-
-        Returns:
-            None
-        """
-        if force_local:
-            PyAiHost.local_text_to_speech(text, lang_key)
-        else:
-            PyAiHost.online_text_to_speech(text, lang_key)
 
     @staticmethod
-    def local_text_to_speech(text: str, lang_key: str = "en"):
+    def text_to_speech(text: str, lang_key: str = "en"):
         """
-        Convert the assistant's response to speech and play it locally using pyttsx3.
+        Convert the assistant's response to speech locally and play it using pyttsx3.
         
         Args:
         text (str): The text to convert to speech.
@@ -134,49 +117,4 @@ class PyAiHost:
         # Speak the text
         engine.say(cleaned_text)
         engine.runAndWait()
-
-    @staticmethod
-    def online_text_to_speech(text: str, lang_key: str = "en"):
-        """
-        Convert the assistant's response to speech and play it using gTTS.
-
-        Args:
-            text (str): The text to convert to speech.
-            lang_key (str, optional): The language of the text. Defaults to 'en'.
-
-        Returns:
-            None
-        """
-        def remove_single_asterisk(text: str):
-            result = ""
-            i = 0
-            inside_single = False
-            inside_double = False
-            
-            while i < len(text):
-                if text[i:i+2] == "**":
-                    result += "**"
-                    inside_double = not inside_double
-                    i += 2
-                elif text[i] == "*" and not inside_double:
-                    inside_single = not inside_single
-                    i += 1
-                elif not inside_single:
-                    result += text[i]
-                    i += 1
-                else:
-                    i += 1
-            
-            return result
-        text = remove_single_asterisk(text)
-
-        tts_file: str = "tts_response.mp3"
-
-        tts = gTTS(text=text, lang=lang_key)
-        tts.save(tts_file)
-        pygame.mixer.init()
-        pygame.mixer.music.load(tts_file)
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            continue
-        os.remove(tts_file)
+        

@@ -289,7 +289,7 @@ def on_press(key):
     if key == keyboard.Key.esc:
         pygame.mixer.music.stop()
 
-def text_to_speech(text: str, lang_key: str = 'en', enable_keyboard_interrupt: bool = True, speed: float = 1.3, pitch_shift: float = 0.2):
+def text_to_speech(text: str, lang_key: str = 'en', enable_keyboard_interrupt: bool = True, speed: float = 1.3, pitch_shift: float = 0.2, force_local: bool = True) -> None:
     """
     Convert the assistant's response to speech, adjust speed and pitch, then play it.
     Args:
@@ -304,70 +304,73 @@ def text_to_speech(text: str, lang_key: str = 'en', enable_keyboard_interrupt: b
     if text == "":
         print(colored("No text to convert to speech.", "red"))
         return
-
-    tts_file = 'tts_response.mp3'
-    modified_tts_file = 'modified_tts_response.mp3'
-
-    # Convert text to speech and save to a file
-    tts = gTTS(text=text, lang=lang_key)
-    tts.save(tts_file)
-
-    # Load the audio file
-    sound = AudioSegment.from_mp3(tts_file)
-
-    # Change speed
-    faster_sound = sound.speedup(playback_speed=speed)
-
-    # Change pitch
-    if pitch_shift != 0:
-        # Extract raw audio data as an array of samples
-        samples = np.array(faster_sound.get_array_of_samples())
-        
-        # Resample the audio to change pitch
-        pitch_factor = 2 ** (pitch_shift / 12)  # Convert semitones to a multiplication factor
-        new_sample_rate = int(faster_sound.frame_rate * pitch_factor)
-        pitched_samples = samples.astype(np.float64)
-        pitched_samples = np.interp(
-            np.linspace(0, len(pitched_samples), int(len(pitched_samples) / pitch_factor)),
-            np.arange(len(pitched_samples)),
-            pitched_samples
-        ).astype(np.int16)
-        
-        # Create a new AudioSegment with the pitched samples
-        pitched_sound = AudioSegment(
-            pitched_samples.tobytes(),
-            frame_rate=new_sample_rate,
-            sample_width=faster_sound.sample_width,
-            channels=faster_sound.channels
-        )
-        
-        # Export the pitched sound
-        pitched_sound.export(modified_tts_file, format="mp3")
+    if force_local:
+        PyAiHost.text_to_speech(text, lang_key)
     else:
-        # If no pitch change, just export the speed-adjusted sound
-        faster_sound.export(modified_tts_file, format="mp3")
 
-    # Initialize pygame mixer and play the modified file
-    pygame.mixer.init()
-    pygame.mixer.music.load(modified_tts_file)
-    pygame.mixer.music.play()
+        tts_file = os.path.join(g.PROJ_VSCODE_DIR_PATH, 'tts_response.mp3')
+        modified_tts_file = os.path.join(g.PROJ_VSCODE_DIR_PATH, 'modified_tts_response.mp3')
 
-    if enable_keyboard_interrupt:
-        print(colored("Press 'Esc' to interrupt the speech.", "yellow"))
-        # Create a new thread to listen for keyboard events
-        listener = keyboard.Listener(on_press=on_press)
-        listener.start()
+        # Convert text to speech and save to a file
+        tts = gTTS(text=text, lang=lang_key)
+        tts.save(tts_file)
 
-    while pygame.mixer.music.get_busy():
-        pygame.time.Clock().tick(10)
+        # Load the audio file
+        sound = AudioSegment.from_mp3(tts_file)
 
-    if enable_keyboard_interrupt:
-        # Stop the keyboard listener
-        listener.stop()
+        # Change speed
+        faster_sound = sound.speedup(playback_speed=speed)
 
-    # Clean up the files
-    os.remove(tts_file)
-    os.remove(modified_tts_file)
+        # Change pitch
+        if pitch_shift != 0:
+            # Extract raw audio data as an array of samples
+            samples = np.array(faster_sound.get_array_of_samples())
+            
+            # Resample the audio to change pitch
+            pitch_factor = 2 ** (pitch_shift / 12)  # Convert semitones to a multiplication factor
+            new_sample_rate = int(faster_sound.frame_rate * pitch_factor)
+            pitched_samples = samples.astype(np.float64)
+            pitched_samples = np.interp(
+                np.linspace(0, len(pitched_samples), int(len(pitched_samples) / pitch_factor)),
+                np.arange(len(pitched_samples)),
+                pitched_samples
+            ).astype(np.int16)
+            
+            # Create a new AudioSegment with the pitched samples
+            pitched_sound = AudioSegment(
+                pitched_samples.tobytes(),
+                frame_rate=new_sample_rate,
+                sample_width=faster_sound.sample_width,
+                channels=faster_sound.channels
+            )
+            
+            # Export the pitched sound
+            pitched_sound.export(modified_tts_file, format="mp3")
+        else:
+            # If no pitch change, just export the speed-adjusted sound
+            faster_sound.export(modified_tts_file, format="mp3")
+
+        # Initialize pygame mixer and play the modified file
+        pygame.mixer.init()
+        pygame.mixer.music.load(modified_tts_file)
+        pygame.mixer.music.play()
+
+        if enable_keyboard_interrupt:
+            print(colored("Press 'Esc' to interrupt the speech.", "yellow"))
+            # Create a new thread to listen for keyboard events
+            listener = keyboard.Listener(on_press=on_press)
+            listener.start()
+
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+
+        if enable_keyboard_interrupt:
+            # Stop the keyboard listener
+            listener.stop()
+
+        # Clean up the files
+        os.remove(tts_file)
+        os.remove(modified_tts_file)
 
 
 r: Recognizer = None
