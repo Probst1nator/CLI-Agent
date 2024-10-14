@@ -3,7 +3,7 @@
 import json
 import os
 import select
-import shutil
+import time
 from typing import List
 import chromadb
 from pyfiglet import figlet_format
@@ -11,12 +11,10 @@ import speech_recognition as sr
 from dotenv import load_dotenv
 from termcolor import colored
 import argparse
-import pyaudio
-import time
 import sys
+import socket
 import re
 import warnings
-from pocketsphinx import LiveSpeech, get_model_path
 
 
 from py_agents.make_agent import MakeErrorCollectorAgent
@@ -37,6 +35,18 @@ from py_classes.cls_chat import Chat, Role
 from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
 from py_classes.globals import g
 
+
+def get_local_ip():
+    try:
+        # Create a socket object and connect to an external server
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -113,12 +123,17 @@ def parse_cli_args() -> argparse.Namespace:
     return args
 
 
+
 def main() -> None:
     print("Environment path: ", g.PROJ_ENV_FILE_PATH)
     load_dotenv(g.PROJ_ENV_FILE_PATH)
     
     args = parse_cli_args()
     print(args)
+    
+    if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip():
+        args.local = True
+        args.llm = "mistral-nemo:12b"
     
     if args.preload:
         print(colored("Preloading resources...", "green"))
@@ -204,7 +219,7 @@ def main() -> None:
         exit(0)
     
     
-    next_prompt: str = ""
+    user_input: str = ""
     context_chat: Chat
     
     if args.c:
@@ -247,6 +262,8 @@ def main() -> None:
     if len(context_chat.messages) == 0:
         context_chat = None
     
+    auto_iterate_count: int = 0
+    
     # Main loop
     while True:
         # remove temporary context augmentation from the last user message
@@ -270,9 +287,9 @@ def main() -> None:
             if context_chat and len(context_chat.messages) > 1:
                 if context_chat.messages[-1][0] == Role.USER:
                     context_chat.messages.pop()
-                    next_prompt = context_chat.messages.pop()[1]
+                    user_input = context_chat.messages.pop()[1]
                     print(colored(f"# cli-agent: Regenerating last response.", "green"))
-                    print(colored(next_prompt, "blue"))
+                    print(colored(user_input, "blue"))
         
         # screen capture
         if args.image:
@@ -308,11 +325,11 @@ def main() -> None:
                 if waiting_counter % 1000 == 0:
                     print(colored(f"Waiting for user input from the html server at: {server.host_route}", "green"))
                     waiting_counter = 0
-            next_prompt = server.remote_user_input
+            user_input = server.remote_user_input
             server.remote_user_input = ""
         # cli args message
         elif args.message:
-            next_prompt = args.message
+            user_input = args.message
             args.message = None
         # use microphone
         elif args.voice:
@@ -362,74 +379,75 @@ def main() -> None:
                 while True:
                     if not listen_for_keyword():
                         break
-            next_prompt = listen_microphone()[0]
-            
+            user_input = listen_microphone()[0]
+            auto_iterate_count = 0
         # default user input
         else:
-            next_prompt = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            auto_iterate_count = 0
         
-        if next_prompt.endswith('--q'):
+        if user_input.endswith('--q'):
             print(colored("Exiting...", "red"))
             break
         
-        if next_prompt.endswith("--r") and context_chat:
+        if user_input.endswith("--r") and context_chat:
             if len(context_chat.messages) < 2:
                 print(colored(f"# cli-agent: No chat history found, cannot regenerate last response.", "red"))
                 continue
             context_chat.messages.pop()
-            next_prompt = context_chat.messages.pop()[1]
+            user_input = context_chat.messages.pop()[1]
             print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
             
         
-        if next_prompt.endswith("--l"):
-            next_prompt = next_prompt[:-3]
+        if user_input.endswith("--l"):
+            user_input = user_input[:-3]
             args.local = not args.local
             print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, type (--h) for info", "green"))
             continue
         
-        if next_prompt.endswith("--a"):
-            next_prompt = next_prompt[:-3]
+        if user_input.endswith("--a"):
+            user_input = user_input[:-3]
             args.auto = not args.auto
             print(colored(f"# cli-agent: KeyBinding detected: Autonomous command execution toggled {args.auto}, type (--h) for info", "green"))
             continue
         
-        if next_prompt.endswith("--w"):
+        if user_input.endswith("--w"):
             args.web_search = True
             print(colored(f"# cli-agent: KeyBinding detected: Websearch enabled, type (--h) for info", "green"))
             continue
         
-        if next_prompt.endswith("--img"):
-            next_prompt = next_prompt[:-3]
+        if user_input.endswith("--img"):
+            user_input = user_input[:-3]
             print(colored(f"# cli-agent: KeyBinding detected: Starting ScreenCapture, type (--h) for info", "green"))
             args.image = True
             continue
         
-        if next_prompt.startswith("--llm"):
+        if user_input.startswith("--llm"):
             user_input = input(colored("Enter the llm to use (phi3.5:3.8b, claude3.5, gpt-4o), or leave empty for automatic: ", 'blue'))
             if user_input:
                 args.llm = user_input
             else:
                 args.llm = None
-            next_prompt = ""
+            user_input = ""
             print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
             continue
         
-        if next_prompt.endswith("--maj"):
+        if user_input.endswith("--maj"):
             args.majority = True    
             print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
             continue
         
-        if next_prompt.endswith("--rea"):
+        if user_input.endswith("--rea"):
             use_reasoning = not use_reasoning
             print(colored(f"# cli-agent: KeyBinding detected: Reasoning toggled to {use_reasoning}, type (--h) for info", "green"))
             continue
         
-        if next_prompt.endswith("--rag"):
+        if user_input.endswith("--rag"):
             args.rag = not args.rag
             print(colored(f"# cli-agent: KeyBinding detected: RAG toggled to {args.rag}, type (--h) for info", "green"))
             continue
         
-        if next_prompt.endswith("--i"):
+        if user_input.endswith("--i"):
             previous_model_key = args.llm
             args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
             if previous_model_key:
@@ -439,14 +457,14 @@ def main() -> None:
             else:    
                 print(colored(f"# cli-agent: KeyBinding detected: Enabled the current most intelligent model: {args.llm}, type (--h) for info", "green"))
         
-        if next_prompt.endswith("--vis"):
+        if user_input.endswith("--vis"):
             print(colored(f"# cli-agent: KeyBinding detected: Visualize, this will generate a html site and display it, type (--h) for info", "green"))
             if not server:
                 server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
             server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
             continue
         
-        if next_prompt.endswith("--m"):
+        if user_input.endswith("--m"):
             print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
             lines = []
             while True:
@@ -454,10 +472,10 @@ def main() -> None:
                 if line == "--f":
                     break
                 lines.append(line)
-            next_prompt = "\n".join(lines)
+            user_input = "\n".join(lines)
         
-        if next_prompt.endswith("--h"):
-            next_prompt = next_prompt[:-3]
+        if user_input.endswith("--h"):
+            user_input = user_input[:-3]
             print(figlet_format("cli-agent", font="slant"))
             print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
 # cli-agent: KeyBindings:
@@ -483,7 +501,7 @@ def main() -> None:
             if context_chat and len(context_chat.messages) > 0:
                 recent_context_str = context_chat.get_messages_as_string(-3)
             else:
-                recent_context_str = next_prompt
+                recent_context_str = user_input
             
             # recent_context_str = next_prompt
             query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
@@ -492,16 +510,16 @@ def main() -> None:
             args.web_search = False
         
         
-        if "https://github.com/" in next_prompt and next_prompt.count("/") >= 4:
-            match = re.search(r"(?P<url>https?://[^\s]+)", next_prompt)
+        if "https://github.com/" in user_input and user_input.count("/") >= 4:
+            match = re.search(r"(?P<url>https?://[^\s]+)", user_input)
             if match:
                 github_repo_url = match.group("url")
                 github_readme = WebTools.get_github_readme(github_repo_url)
                 prompt_context_augmentation += f"\n\nHere's the readme from the github repo:\n```md\n{github_readme}\n```"
 
         
-        next_prompt = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + next_prompt # add any context augmentation to the prompt
-        next_prompt = next_prompt.strip()
+        user_input = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + user_input # add any context augmentation to the prompt
+        user_input = user_input.strip()
         
         # Document assistant behavior
         if args.documents2 != None or args.documents != None:
@@ -522,45 +540,43 @@ def main() -> None:
             
             if (context_chat):
                 # Continuation
-                context_chat.add_message(Role.USER, next_prompt)
+                context_chat.add_message(Role.USER, user_input)
                 response, context_chat = documents_assistant(context_chat, file_or_folder_path, needle_in_haystack)
             else:
                 # Initialization
-                response, context_chat = documents_assistant(next_prompt, file_or_folder_path, needle_in_haystack)
+                response, context_chat = documents_assistant(user_input, file_or_folder_path, needle_in_haystack)
             continue
         
         # Majority voting behavior
         if args.majority:
             if not context_chat:
                 context_chat = Chat()
-            context_chat.add_message(Role.USER, next_prompt)
+            context_chat.add_message(Role.USER, user_input)
             context_chat, majority_response = majority_response_assistant(context_chat, args.local, allow_costly_models=args.intelligent)
             continue
         
         # Retrieval Augmented Generation (RAG) behavior
         if args.rag:
-            next_prompt = RagTooling.retrieve_augment(next_prompt, collection, 3)
+            user_input = RagTooling.retrieve_augment(user_input, collection, 3)
         
-        # Daily behavior
-        if args.daily:
-            if context_chat and len(context_chat.messages) > 1:
-                # Continuation
-                context_chat.add_message(Role.USER, next_prompt)
-                llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-                context_chat.add_message(Role.ASSISTANT, llm_response)
-            else:
-                # Initialization
-                llm_response, context_chat = FewShotProvider.few_shot_DailyAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+        # Default behavior (terminal assistant)
+        if context_chat and len(context_chat.messages) > 1:
+            # Continuation
+            context_chat.add_message(Role.USER, user_input)
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+            context_chat.add_message(Role.ASSISTANT, llm_response)
         else:
-            # Default behavior (terminal assistant)
-            if context_chat and len(context_chat.messages) > 1:
-                # Continuation
-                context_chat.add_message(Role.USER, next_prompt)
-                llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-                context_chat.add_message(Role.ASSISTANT, llm_response)
+            # Initalization
+            if args.daily:
+                # Daily behavior
+                llm_response, context_chat = FewShotProvider.few_shot_VoiceAssistant(user_input, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                # llm_response, context_chat = FewShotProvider.few_shot_DailyAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+            elif args.voice:
+                # Voice behavior
+                llm_response, context_chat = FewShotProvider.few_shot_VoiceAssistant(user_input, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
             else:
-                # Initalization
-                llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                # Default behavior
+                llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(user_input, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
         
         if (args.voice):
             spoken_response = remove_blocks(llm_response, ["md"])
@@ -570,10 +586,36 @@ def main() -> None:
         
         bash_blocks = [block[1] for block in reponse_blocks if block[0] == "bash"]
         if not bash_blocks:
-            continue  # or other logic to handle non-command responses
+            continue  # or other logic to handle non-bash responses
         
-        if args.auto is None:
-            # text_to_speech("Do you want me to execute these steps?")
+        command_guard_prompt = "If a command causes permanent system modification it is unsafe. If a command contains placeholders in its parameters it is unsafe. If a command does not write any persistent data it is safe.\n\n"
+        # if 'install' is in any of the bash blocks, we will not execute them automatically
+        execute_actions_automatically = not any("install" in bash_block for bash_block in bash_blocks)
+        if execute_actions_automatically:
+            execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard3:1b"], force_local=True, use_reasoning=use_reasoning, silent_reasoning=False, silent=False)
+            execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
+            if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
+                execute_actions_automatically = True
+        
+            if not execute_actions_automatically:
+                safe_bash_blocks: List[str] = []
+                for bash_block in bash_blocks:
+                    print(colored(bash_block, 'magenta'))
+                    
+                    execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard3:1b"], force_local=True, use_reasoning=use_reasoning, silent_reasoning=False, silent=False)
+                    execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
+                    if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
+                        execute_actions_automatically = True
+                    if execute_actions_automatically:
+                        safe_bash_blocks.append(bash_block)
+                    else:
+                        pass
+        
+                if len(safe_bash_blocks) > 0 and len(safe_bash_blocks) != len(bash_blocks):
+                    bash_blocks = safe_bash_blocks
+                    execute_actions_automatically = True
+        
+        if args.auto is None and not execute_actions_automatically:
             if args.voice:
                 confirmation_response = "Do you want me to execute these steps? (Yes/no)"
                 print(colored(confirmation_response, 'yellow'))
@@ -582,27 +624,41 @@ def main() -> None:
             else:
                 user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
             if not (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
-                continue
+                bash_blocks = safe_bash_blocks
         else:
-            if args.auto is None:
-                args.auto = 10
-            print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
-            try:
-                for remaining in range(args.auto, 0, -1):
-                    sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
-                    sys.stdout.flush()
-                    time.sleep(1)
-                sys.stdout.write("\n")  # Ensure we move to a new line after countdown
-            except KeyboardInterrupt:
-                print(colored("\nExecution aborted by the user.", 'red'))
-                continue  # Skip the execution of commands and start over
+            if not execute_actions_automatically:
+                print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
+                try:
+                    for remaining in range(args.auto, 0, -1):
+                        sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
+                        sys.stdout.flush()
+                        time.sleep(1)
+                    sys.stdout.write("\n")  # Ensure we move to a new line after countdown
+                except KeyboardInterrupt:
+                    print(colored("\nExecution aborted by the user.", 'red'))
+                    continue  # Skip the execution of commands and start over
         
         # save context once before executing
         if context_chat:
             context_chat.save_to_json()
         
-        temporary_prompt_context_augmentation, execution_summarization = select_and_execute_commands(bash_blocks, args.auto is not None) 
+        temporary_prompt_context_augmentation, execution_summarization = select_and_execute_commands(bash_blocks, args.auto is not None or execute_actions_automatically) 
         print(recolor(execution_summarization, "\t#", "successfully", "green"))
+        
+        if execute_actions_automatically or True: # ! The True here is highly experimental, it allows the ai auto-iterate control after manual confirmations
+            auto_iterate_count += 1
+            user_input: bool = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + "If an error ocurred, try to think of another Command. Do you require to execute another command for your task or do you wish to reply to the user? Please reply either with the word 'Command' or 'Respond'." # add any context augmentation to the prompt
+            user_input = user_input.strip()
+            context_chat_clone = context_chat.deep_copy()
+            context_chat_clone.add_message(Role.USER, user_input)
+            auto_iterate_response = LlmRouter.generate_completion(context_chat_clone, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+            if "respond" in auto_iterate_response.lower() or auto_iterate_count > 3:
+                args.message = "Please concisely summarize the results of the executed command(s)."
+            elif "command" in auto_iterate_response.lower():
+                args.message = "Please infer the next command(s) to execute now."
+                last_msg = context_chat.messages[-1][1].lower()
+                if "api" in last_msg and "key" in last_msg:
+                    args.message += "\nPlease try to find a command execution strategy which does not require an API key."
         
 if __name__ == "__main__":
     main()

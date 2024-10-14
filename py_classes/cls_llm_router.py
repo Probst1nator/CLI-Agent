@@ -112,6 +112,9 @@ class Llm:
             Llm(OllamaClient(), "wizardlm2:7b", None, False, True, False, 4096, None, AIStrengths.FAST),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "dolphin-llama3", None, False, True, False, 4096, None, AIStrengths.FAST),
+            
+            Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, None, AIStrengths.FAST),
+            
 
             # Llm(OllamaClient(), "minicpm-v", None, False, True, True, 4096, None, AIStrengths.FAST),
         ]

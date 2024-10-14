@@ -1,7 +1,9 @@
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from dotenv import load_dotenv
 from termcolor import colored
 
 from py_classes.cls_chat import Chat, Role
@@ -17,6 +19,10 @@ class FewShotProvider:
 
     def __init__(self) -> None:
         """A static class that should not be instantiated."""
+
+        # Load the .env file
+        load_dotenv(g.PROJ_ENV_FILE_PATH)
+        
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
@@ -149,7 +155,7 @@ class FewShotProvider:
             Tuple[str, Chat]: The response and the full chat.
         """
         chat: Chat = Chat(
-            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by crafting optimized, non-interactive shell commands that execute independently. It progresses systematically, preemptively suggesting command to gather required datapoints to ensure the creation of perfectly structured and easily executable instructions. The system utilises shell scripts only if a request cannot be fullfilled non-interactively otherwise.", preferred_models, force_local, silent=True, use_reasoning=False)
+            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by intelligently crafting optimized, non-interactive shell commands that execute independently. It progresses strategically, suggesting only the commands that can be crafted given the current context and waiting for the returned data before suggesting further commands. The assistant is limited by only using bash commands which never include any placeholders and never rely on any API keys, instead it intelligently finds solutions within these limitations through the use of preemptive multi step strategizing.", preferred_models, force_local, silent=True, use_reasoning=False)
         )
 
         chat.add_message(
@@ -294,25 +300,138 @@ This command will search for any running processes that match the pattern "cli-a
             response,
         )
         return response, chat
-    
 
     @classmethod
-    def hiddenThoughtSolver(self, userRequest: str) -> str:
+    def few_shot_VoiceAssistant(cls, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False, use_reasoning: bool = False, silent_reasoning: bool = False) -> Tuple[str,Chat]:
         """
-        Solves a problem by silently creating a chain of reasoning and returning a final solution.
+        Voice assistant for Ubuntu that provides concise responses and is aware of its use as a voice interface.
 
         Args:
-            userRequest (str): The user's request.
+            userRequest (str): The user's voice request.
+            preferred_models (List[str]): List of preferred models to use.
+            force_local (bool, optional): If True, force the use of a local model.
+            silent (bool, optional): If True, suppress output during processing.
+            use_reasoning (bool, optional): If True, use reasoning in the response generation.
+            silent_reasoning (bool, optional): If True, suppress reasoning output.
 
         Returns:
-            str: The solution extracted from the reasoning.
+            Tuple[str, Chat]: The response and the full chat.
         """
-        chat = Chat("Start your message with <reasoning> and provide a chain of reasoning reflecting on the possible optimizations for the given problem(s) and objective(s), work step by step. End your thoughts with </reasoning>, and then provide your solution using <solution> ... </solution>")
-        chat.add_message(Role.USER, userRequest)
-        response = LlmRouter.generate_completion(chat, ["llama3-groq-70b-8192-tool-use-preview"])
-        response = response.split("<solution>")[1].split("</solution>")[0]
-        return response
-    
+        chat: Chat = Chat(
+            FewShotProvider.few_shot_rephrase("In this interaction a voice enabled ai agent provides helpful and concise responses to its user. It sparingly executes Ubuntu commands if necessary to enhance its capabilties to provide helpful responses during the interaction. When actions are needed, it suggests simple shell commands. Be aware of the limitations of voice interaction and adapt accordingly.", preferred_models, force_local, silent=True, use_reasoning=False)
+        )
+        
+        # Get the initial_prompt from the .env file, defaulting to an empty string if not found
+        voice_activation_whisper_prompt = os.getenv('VOICE_ACTIVATION_WHISPER_PROMPT', '')
+        
+        chat.add_message(
+            Role.USER,
+            voice_activation_whisper_prompt
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "Hello! How can I help you today?"
+        )
+
+        chat.add_message(
+            Role.USER,
+            "What's the current time?"
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            """To get the current time, let's use the 'date' command:
+    ```bash
+    date +"%I:%M %p"
+    ```"""
+        )
+
+        chat.add_message(
+            Role.USER,
+            select_and_execute_commands(["date +\"%I:%M %p\""], True, False)[0]
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "The current time is " + select_and_execute_commands(["date +\"%I:%M %p\""], True, False)[0].strip() + "."
+        )
+
+        chat.add_message(
+            Role.USER,
+            "What's our current working directory?"
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            """To find our current working directory, let's use the 'pwd' command:
+    ```bash
+    pwd
+    ```"""
+        )
+
+        chat.add_message(
+            Role.USER,
+            select_and_execute_commands(["pwd"], True, False)[0]
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "You're in " + select_and_execute_commands(["pwd"], True, False)[0].strip() + "."
+        )
+        
+        chat.add_message(
+            Role.USER,
+            "List the files in this directory."
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            """To list the files, we'll use the 'ls' command:
+    ```bash
+    ls -1
+    ```"""
+        )
+        
+        chat.add_message(
+            Role.USER,
+            select_and_execute_commands(["ls -1"], True, False)[0]
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "The directory contains: " + ", ".join(select_and_execute_commands(["ls -1"], True, False)[0].split())
+        )
+        
+        chat.add_message(
+            Role.USER,
+            "Can you hear me?"
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            "Yes, I can hear you. Is there anything I may assist you with?"
+        )
+        
+        chat.add_message(
+            Role.USER,
+            userRequest
+        )
+
+        response: str = LlmRouter.generate_completion(
+            chat,
+            preferred_models,
+            force_local=force_local,
+            silent=silent,
+            use_reasoning=use_reasoning,
+            silent_reasoning=silent_reasoning
+        )
+        
+        chat.add_message(
+            Role.ASSISTANT,
+            response,
+        )
+        return response, chat
     
     @classmethod
     def addActionsToText(cls, text: str, available_actions: List[str] = ["sound"], force_local: bool = False,) -> Dict[str, Any]:
@@ -330,7 +449,7 @@ This command will search for any running processes that match the pattern "cli-a
         prompt = f"""
 Add actions to the following text using this notation: {{action_type:action_value}}
 Available actions: {', '.join(available_actions)}
-Actions should be placed sparingly but optimally to evoke a most coherent and natural flow.
+Actions should be integrated carefully to fit seamlessly into the conversation.
 Example: "The bell made a ding {{sound:ding}} sound."
 Here's the text to process:
 {text}
