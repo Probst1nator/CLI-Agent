@@ -133,7 +133,10 @@ def main() -> None:
     
     if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip():
         args.local = True
+        # args.llm = "SuperNova-Medius-Q4_K_M"
         args.llm = "mistral-nemo:12b"
+        # args.llm = "phi3.5:3.8b"
+        
     
     if args.preload:
         print(colored("Preloading resources...", "green"))
@@ -520,6 +523,7 @@ def main() -> None:
         
         user_input = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + user_input # add any context augmentation to the prompt
         user_input = user_input.strip()
+        prompt_context_augmentation = ""
         
         # Document assistant behavior
         if args.documents2 != None or args.documents != None:
@@ -588,32 +592,28 @@ def main() -> None:
         if not bash_blocks:
             continue  # or other logic to handle non-bash responses
         
-        command_guard_prompt = "If a command causes permanent system modification it is unsafe. If a command contains placeholders in its parameters it is unsafe. If a command does not write any persistent data it is safe.\n\n"
+        command_guard_prompt = "If a command causes permanent system modifications it is unsafe. If a command contains placeholders in its parameters it is unsafe. If a command does not write any persistent data it is safe. Please respond \n\n"
         # if 'install' is in any of the bash blocks, we will not execute them automatically
-        execute_actions_automatically = not any("install" in bash_block for bash_block in bash_blocks)
-        if execute_actions_automatically:
-            execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard3:1b"], force_local=True, use_reasoning=use_reasoning, silent_reasoning=False, silent=False)
-            execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
-            if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
-                execute_actions_automatically = True
-        
-            if not execute_actions_automatically:
-                safe_bash_blocks: List[str] = []
-                for bash_block in bash_blocks:
-                    print(colored(bash_block, 'magenta'))
-                    
-                    execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard3:1b"], force_local=True, use_reasoning=use_reasoning, silent_reasoning=False, silent=False)
-                    execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
-                    if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
-                        execute_actions_automatically = True
-                    if execute_actions_automatically:
-                        safe_bash_blocks.append(bash_block)
-                    else:
-                        pass
-        
-                if len(safe_bash_blocks) > 0 and len(safe_bash_blocks) != len(bash_blocks):
-                    bash_blocks = safe_bash_blocks
+        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard3:8b"], force_local=True, use_reasoning=use_reasoning, silent_reasoning=False, silent_reason=False)
+        execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
+        if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
+            execute_actions_automatically = True
+        if not execute_actions_automatically:
+            safe_bash_blocks: List[str] = []
+            for bash_block in bash_blocks:
+                print(colored(bash_block, 'magenta'))
+                
+                execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard3:8b"], force_local=True, use_reasoning=use_reasoning, silent_reasoning=False, silent_reason=False)
+                execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
+                if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
                     execute_actions_automatically = True
+                if execute_actions_automatically:
+                    safe_bash_blocks.append(bash_block)
+                else:
+                    pass
+            if len(safe_bash_blocks) > 0 and len(safe_bash_blocks) != len(bash_blocks):
+                bash_blocks = safe_bash_blocks
+                execute_actions_automatically = True
         
         if args.auto is None and not execute_actions_automatically:
             if args.voice:
@@ -643,22 +643,24 @@ def main() -> None:
             context_chat.save_to_json()
         
         temporary_prompt_context_augmentation, execution_summarization = select_and_execute_commands(bash_blocks, args.auto is not None or execute_actions_automatically) 
+        
         print(recolor(execution_summarization, "\t#", "successfully", "green"))
         
-        if execute_actions_automatically or True: # ! The True here is highly experimental, it allows the ai auto-iterate control after manual confirmations
-            auto_iterate_count += 1
-            user_input: bool = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + "If an error ocurred, try to think of another Command. Do you require to execute another command for your task or do you wish to reply to the user? Please reply either with the word 'Command' or 'Respond'." # add any context augmentation to the prompt
-            user_input = user_input.strip()
-            context_chat_clone = context_chat.deep_copy()
-            context_chat_clone.add_message(Role.USER, user_input)
-            auto_iterate_response = LlmRouter.generate_completion(context_chat_clone, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-            if "respond" in auto_iterate_response.lower() or auto_iterate_count > 3:
-                args.message = "Please concisely summarize the results of the executed command(s)."
-            elif "command" in auto_iterate_response.lower():
-                args.message = "Please infer the next command(s) to execute now."
-                last_msg = context_chat.messages[-1][1].lower()
-                if "api" in last_msg and "key" in last_msg:
-                    args.message += "\nPlease try to find a command execution strategy which does not require an API key."
+        auto_iterate_count += 1
+        user_input: bool = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + "Do you require to execute another command to fullfill your task or are you ready to reply to the user? Please respond either with the word 'Command' or 'Reply'."
+        user_input = user_input.strip()
+        context_chat_clone = context_chat.deep_copy()
+        context_chat_clone.add_message(Role.USER, user_input)
+        auto_iterate_response = LlmRouter.generate_completion(context_chat_clone, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+        if "reply" in auto_iterate_response.lower() or auto_iterate_count > 3:
+            if auto_iterate_count > 3:
+                print(colored("DEBUG: Auto-iterate limit reached, interrupting agent.", "yellow"))
+            args.message = "Please concisely summarize the results of the executed command(s)."
+        elif "command" in auto_iterate_response.lower():
+            args.message = "Please infer the next command(s) to execute now."
+            last_msg = context_chat.messages[-1][1].lower()
+            if "api" in last_msg and "key" in last_msg:
+                args.message += "\nPlease try to find a command execution strategy which does not require an API key."
         
 if __name__ == "__main__":
     main()

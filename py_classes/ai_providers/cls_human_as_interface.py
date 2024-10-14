@@ -16,7 +16,7 @@ class HumanAPI(ChatClientInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, base64_images: List[str] = [], tools: Optional[List[Dict[str,Any]]] = None, model: str = "human", temperature=0.0, silent: bool = False ) -> Optional[str]:
+    def generate_response(chat: Chat, base64_images: List[str] = [], tools: Optional[List[Dict[str,Any]]] = None, model: str = "human", temperature=0.0, silent_reason: str = False ) -> Optional[str]:
         """
         Generates a response by prompting the human in front of the terminal .
 

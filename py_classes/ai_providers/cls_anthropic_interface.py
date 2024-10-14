@@ -13,7 +13,7 @@ class AnthropicAPI(ChatClientInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str = "claude-3-5-sonnet-20240620", temperature: float = 0.7, silent: bool = False) -> Optional[str]:
+    def generate_response(chat: Chat, model: str = "claude-3-5-sonnet-20240620", temperature: float = 0.7, silent_reason: str = False) -> Optional[str]:
         """
         Generates a response using the Anthropic API.
 
@@ -32,7 +32,7 @@ class AnthropicAPI(ChatClientInterface):
             if "claude-3-5-sonnet" in model or not model:
                 model = "claude-3-5-sonnet-20240620"
             
-            if silent:
+            if silent_reason:
                 print(f"Anthropic-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
             else:
                 print(f"Anthropic-Api: <{colored(model, 'green')}> is generating response...")
@@ -55,10 +55,10 @@ class AnthropicAPI(ChatClientInterface):
                 full_response = ""
                 token_keeper = CustomColoring()
                 for token in stream.text_stream:
-                    if not silent:
+                    if not silent_reason:
                         print(token_keeper.apply_color(token), end="")
                     full_response += token
-                if not silent:
+                if not silent_reason:
                     print()
                 return full_response
         except Exception as e:
