@@ -398,7 +398,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
     user_input_embedding = OllamaClient.generate_embedding(user_input)
     
     # Prepare the instruction for the AI assistant using few-shot learning
-    instruction = FewShotProvider.few_shot_rephrase(f"This is a chat between a user and his private artificial intelligence assistant. The assistant uses the documents to answer the users questions factually, detailed and reliably. The assistant indicates if the answer cannot be found in the documents.", preferred_models=[args.llm], force_local=args.local, silent=True)
+    instruction = FewShotProvider.few_shot_rephrase(f"This is a chat between a user and his private artificial intelligence assistant. The assistant uses the documents to answer the users questions factually, detailed and reliably. The assistant indicates if the answer cannot be found in the documents.", preferred_models=[args.llm], force_local=args.local, silent_reason="No given reason")
     chat = Chat(instruction)
 
     while True:

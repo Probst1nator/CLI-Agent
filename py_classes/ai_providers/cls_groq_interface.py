@@ -12,7 +12,7 @@ class GroqAPI(ChatClientInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str, temperature: float = 0.7, silent: bool = False) -> Optional[str]:
+    def generate_response(chat: Chat, model: str, temperature: float = 0.7, silent_reason: str = False) -> Optional[str]:
         """
         Generates a response using the Groq API.
         Args:
@@ -25,7 +25,7 @@ class GroqAPI(ChatClientInterface):
         """
         try:
             client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=2)
-            if silent:
+            if silent_reason:
                 print(f"Groq-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
             else:
                 print(f"Groq-Api: <{colored(model, 'green')}> is generating response...")
@@ -38,9 +38,9 @@ class GroqAPI(ChatClientInterface):
                 token = chunk.choices[0].delta.content
                 if token:
                     full_response += token
-                    if not silent:
+                    if not silent_reason:
                         print(token_keeper.apply_color(token), end="")
-            if not silent:
+            if not silent_reason:
                 print()
             return full_response
         except Exception as e:
@@ -48,7 +48,7 @@ class GroqAPI(ChatClientInterface):
 
 
     @staticmethod
-    def transcribe_audio(filepath: str, model: str = "whisper-large-v3", language: str = "auto", silent: bool = False) -> Optional[Tuple[str, str]]:
+    def transcribe_audio(filepath: str, model: str = "whisper-large-v3", language: str = "auto", silent_reason: str = False) -> Optional[Tuple[str, str]]:
         """
         Transcribes an audio file using Groq's Whisper implementation.
         Args:
@@ -61,7 +61,7 @@ class GroqAPI(ChatClientInterface):
         """
         try:
             client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=30.0, max_retries=2)
-            if not silent:
+            if not silent_reason:
                 print(f"Groq-Api: Transcribing audio using <{colored(model, 'green')}>...")
             
             with open(filepath, "rb") as file:
@@ -72,7 +72,7 @@ class GroqAPI(ChatClientInterface):
                     language=language
                 )
             
-            if not silent:
+            if not silent_reason:
                 print(colored("Transcription complete.", 'green'))
             
             return transcription.text, transcription.language

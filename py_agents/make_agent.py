@@ -90,7 +90,7 @@ class MakeErrorCollectorAgent(BaseAssistantAgent):
             error_example5 = {"file_path": "/home/prob/repos/aidev/src/robotSimulation.cpp", "line_number": "18", "error_message": "'btQuaternion' is not a member of 'btQuaternion'; did you mean 'btQuaternion::btQuaternion'?"}
             error_example6 = {"file_path": "/home/prob/repos/aidev/src/robotSimulation.cpp", "line_number": "25", "error_message": "no declaration matches 'void RobotCommandAdaptor::handleRobotResponse(const QList<robot::StatusPayload>&)'"}
             error_example7 = {"file_path": "/home/prob/repos/aidev/src/theoreticalPhysics.cpp", "line_number": "42", "error_message": "invalid operands of types 'double' and 'const char [6]' to binary 'operator/'"}
-            returned_object = FewShotProvider.few_shot_objectFromTemplate([error_example1, error_example2, error_example3, error_example4, error_example5, error_example6, error_example7], f"```\n{error_output}\n```\n\nPlease extract all the errors which include their source file path from the output and provide them as a list of objects as specified in the template. Only include errors that stem from the project, ignore non-trivial system errors and errors which stem from the build directory. Ensure your provided object matches the structure of example object precisely, if you forget or misname a key you will have failed your objective. If you can't find any return an empty array.", silent=False, force_local=force_local)
+            returned_object = FewShotProvider.few_shot_objectFromTemplate([error_example1, error_example2, error_example3, error_example4, error_example5, error_example6, error_example7], f"```\n{error_output}\n```\n\nPlease extract all the errors which include their source file path from the output and provide them as a list of objects as specified in the template. Only include errors that stem from the project, ignore non-trivial system errors and errors which stem from the build directory. Ensure your provided object matches the structure of example object precisely, if you forget or misname a key you will have failed your objective. If you can't find any return an empty array.", silent_reason="", force_local=force_local)
             returned_object_list: List[Dict[str, str]] = self.normalize_few_shot_object(returned_object)
             
             # filter objects
@@ -209,7 +209,7 @@ class MakeErrorCollectorAgent(BaseAssistantAgent):
         diff_chat: Chat = Chat("You are a highly experienced enthusiastic software developer.")
         for diff_str in diff_strings:
             diff_chat.add_message(Role.USER, f"{diff_str}\n\nINSTRUCTION:\nPlease highlight what has changed and how. Afterwards make educated guesses what issues this is going to cause in dependent/related files and how to fix them accordingly.")
-            response: str = LlmRouter.generate_completion(diff_chat, ["qwen2.5-coder:7b-instruct", "gpt-4o-mini"], use_reasoning=False, silent=True, force_local=force_local)
+            response: str = LlmRouter.generate_completion(diff_chat, ["qwen2.5-coder:7b-instruct", "gpt-4o-mini"], use_reasoning=False, silent_reason=True, force_local=force_local)
             diff_chat.add_message(Role.ASSISTANT, response)
         
         reimplementation_originals_pair: List[Dict[str, str]] = []
@@ -233,9 +233,9 @@ class MakeErrorCollectorAgent(BaseAssistantAgent):
             
             # Guards
             contains_placeholders, is_drop_in_replacement = False, False
-            contains_placeholders, _ = FewShotProvider.few_shot_YesNo(response + "\n\nQUESTION: \nDoes the response provide a incomplete implementation, eg. does it contain ANY placeholders like these: '// Further handling logic here...', '// Rest of the code remains unchanged' or '// Replace with actual method'", silent=False, force_local=force_local)
+            contains_placeholders, _ = FewShotProvider.few_shot_YesNo(response + "\n\nQUESTION: \nDoes the response provide a incomplete implementation, eg. does it contain ANY placeholders like these: '// Further handling logic here...', '// Rest of the code remains unchanged' or '// Replace with actual method'", silent_reason="", force_local=force_local)
             if not contains_placeholders:
-                is_drop_in_replacement, _ = FewShotProvider.few_shot_YesNo(response + "\n\nQUESTION: \nIs the response a valid drop-in replacement for the original code block?", silent=False, force_local=force_local)
+                is_drop_in_replacement, _ = FewShotProvider.few_shot_YesNo(response + "\n\nQUESTION: \nIs the response a valid drop-in replacement for the original code block?", silent_reason="", force_local=force_local)
             
             if contains_placeholders or (not is_drop_in_replacement):
                 chat.add_message(Role.USER, "Your response was rejected by my automated system, please validate that your code does not contain any placeholders and starts + finishes exactly like the code block I provided does. It should only contain imports or includes if the original block also contained them. It must be an exact drop in replacement for the original block. Please provide a corrected version in full.")

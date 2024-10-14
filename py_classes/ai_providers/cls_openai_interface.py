@@ -16,7 +16,7 @@ class OpenAIAPI(ChatClientInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str = "gpt-4o", temperature: float = 0.7, silent: bool = False, base64_images: List[str] = []) -> Optional[str]:
+    def generate_response(chat: Chat, model: str = "gpt-4o", temperature: float = 0.7, silent_reason: str = False, base64_images: List[str] = []) -> Optional[str]:
         """
         Generates a response using the OpenAI API.
 
@@ -32,7 +32,7 @@ class OpenAIAPI(ChatClientInterface):
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
             
-            if silent:
+            if silent_reason:
                 print(f"OpenAI-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
             else:
                 print(f"OpenAI-Api: <{colored(model, 'green')}> is generating response...")
@@ -49,10 +49,10 @@ class OpenAIAPI(ChatClientInterface):
             for chunk in stream:
                 token = chunk.choices[0].delta.content
                 if token:
-                    if not silent:
+                    if not silent_reason:
                         print(token_keeper.apply_color(token), end="")
                     full_response += token
-            if not silent:
+            if not silent_reason:
                 print()
             return full_response
 

@@ -262,7 +262,7 @@ class OllamaClient(ChatClientInterface):
         chat: Chat,
         model_key: str = "phi3.5:3.8b",
         temperature: Optional[float] = 0.75,
-        silent: bool = False,
+        silent_reason: str = "",
         tools: Optional[List[FunctionTool]] = None
     ) -> Optional[Union[str, List[ToolCall]]]:
         """
@@ -304,8 +304,8 @@ class OllamaClient(ChatClientInterface):
         host: str = client._client.base_url.host
 
         try:
-            if silent:
-                print(f"Ollama-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response using <{colored(host, 'green')}>...")
+            if silent_reason:
+                print(f"Ollama-Api: <{colored(model_key, 'green')}> is generating response using <{colored(host, 'green')}>; Action: <{colored(silent_reason, 'green')}>...")
             else:
                 print(f"Ollama-Api: <{colored(model_key, 'green')}> is generating response using <{colored(host, 'green')}>...")
             
@@ -329,9 +329,9 @@ class OllamaClient(ChatClientInterface):
                 for line in response_stream:
                     next_string = line["message"]["content"]
                     full_response += next_string
-                    if not silent:
+                    if not silent_reason:
                         print(tooling.apply_color(next_string), end="")
-                if not silent:
+                if not silent_reason:
                     print()
                 logger.debug(json.dumps({"full_response": full_response}, indent=2))
                 if "instruction" in full_response.lower():

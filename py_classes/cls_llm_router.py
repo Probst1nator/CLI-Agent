@@ -90,6 +90,7 @@ class Llm:
             # Llm(GroqAPI(), "llava-v1.5-7b-4096-preview", None, False, False, True, 4096, 4096, AIStrengths.FAST), # currently only supports a single message instead of a context
             
             # Catch requests using strong local llms
+            Llm(OllamaClient(), "SuperNova-Medius-Q4_K_M", None, False, True, True, 128000, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "mistral-small:22b", None, False, True, True, 128000, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, None, AIStrengths.FAST),
             
@@ -113,6 +114,8 @@ class Llm:
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "dolphin-llama3", None, False, True, False, 4096, None, AIStrengths.FAST),
             
+            
+            Llm(OllamaClient(), "llama-guard3:8b", None, False, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, None, AIStrengths.FAST),
             
 
@@ -368,7 +371,7 @@ class LlmRouter:
         preferred_models: List[str] | List[Llm] = [],
         strength: AIStrengths = AIStrengths.STRONG,
         start_response_with: str = "",
-        instruction: str = "You are a helpful assistant.",
+        instruction: str = "",
         temperature: float = 0.7,
         base64_images: List[str] = [],
         include_start_response_str: bool = True,
@@ -376,7 +379,7 @@ class LlmRouter:
         force_local: bool = False,
         force_free: bool = True,
         force_preferred_model: bool = False,
-        silent: bool = False,
+        silent_reason: str = "",
         re_print_prompt: bool = False,
         exclude_model_keys: List[str] = ["llama-3.1-"],
         use_reasoning: bool = True,
@@ -476,7 +479,7 @@ class LlmRouter:
                 if use_cache:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                     if cached_completion:
-                        if not silent:
+                        if not silent_reason:
                             print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}> <{colored(model.model_key, 'green')}>","blue"))
                             for char in cached_completion:
                                 print(tooling.apply_color(char), end="")
@@ -484,7 +487,7 @@ class LlmRouter:
                             print()
                         return cached_completion
 
-                response = model.provider.generate_response(chat, model.model_key, temperature, silent)
+                response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
                 instance.last_used_model = model.model_key
                 instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
                 return start_response_with + response if include_start_response_str else response
@@ -511,7 +514,7 @@ class LlmRouter:
         base64_images: List[str] = [],
         include_start_response_str: bool = True,
         use_cache: bool = True,
-        silent: bool = False
+        silent_reason: str = False
     ) -> Optional[str]:
         """
         Generate a completion response using the specified LLM.
@@ -550,7 +553,7 @@ class LlmRouter:
             if use_cache:
                 cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                 if cached_completion:
-                    if not silent:
+                    if not silent_reason:
                         print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
                         for char in cached_completion:
                             print(tooling.apply_color(char), end="")

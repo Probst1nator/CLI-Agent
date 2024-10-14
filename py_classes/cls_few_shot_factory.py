@@ -74,7 +74,7 @@ class FewShotProvider:
     #     return (response, chat)
         
     @classmethod 
-    def few_shot_YesNo(self, userRequest: str | Chat, preferred_models: List[str]=[], force_local: bool = False, silent: bool = False, force_free: bool = False, force_preferred_model: bool = False) -> Tuple[bool,Chat]:
+    def few_shot_YesNo(self, userRequest: str | Chat, preferred_models: List[str]=[], force_local: bool = False, silent_reason: str = False, force_free: bool = False, force_preferred_model: bool = False) -> Tuple[bool,Chat]:
         """
         Determines whether the answer to the user's question is 'yes' or 'no'.
 
@@ -109,7 +109,7 @@ class FewShotProvider:
             force_preferred_model=force_preferred_model,
             force_local=force_local,
             force_free=force_free,
-            silent=silent,
+            silent_reason=silent_reason,
         )
         chat.add_message(Role.ASSISTANT, response)
         return "yes" in response.lower(), chat
@@ -141,7 +141,7 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False, use_reasoning: bool = False, silent_reasoning: bool = False) -> Tuple[str,Chat]:
+    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent_reason: str = False, use_reasoning: bool = False, silent_reasoning: bool = False) -> Tuple[str,Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
@@ -155,7 +155,7 @@ class FewShotProvider:
             Tuple[str, Chat]: The response and the full chat.
         """
         chat: Chat = Chat(
-            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by intelligently crafting optimized, non-interactive shell commands that execute independently. It progresses strategically, suggesting only the commands that can be crafted given the current context and waiting for the returned data before suggesting further commands. The assistant is limited by only using bash commands which never include any placeholders and never rely on any API keys, instead it intelligently finds solutions within these limitations through the use of preemptive multi step strategizing.", preferred_models, force_local, silent=True, use_reasoning=False)
+            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by expertly crafting non-interactive shell commands. The assistant progresses according to a first constructed plan, suggesting only the commands that can be crafted given the current environment and waiting for the returned data before suggesting reliant commands. The assistant is limited by only using bash commands which never include any placeholders and avoiding the use of any API-Keys whatsoever, instead it intelligently finds solutions within these limitations.", preferred_models, force_local, silent_reason="No given reason", use_reasoning=False)
         )
 
         chat.add_message(
@@ -237,6 +237,7 @@ ls -1hFt | head -n 20
             Role.USER,
             "please find the running cli-agent process"
         )
+        
         chat.add_message(
             Role.ASSISTANT,
         """To identify and locate the running cli-agent process, we can use the `pgrep` command. I'll ignore casing for simplicity:
@@ -252,12 +253,12 @@ This command will search for any running processes that match the pattern "cli-a
         
         chat.add_message(
             Role.ASSISTANT,
-            "I've been found! The output shows the process IDs and command lines for the Python processes that are running the CLI-Agent code. That's meta! 🤖"
+            "Wow thats me! The output shows the process IDs and command lines for the Python processes that are running my CLI-Agent code. That's meta! 🤖"
         )
         
 
         # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
-        #     userRequest = self.few_shot_rephrase(userRequest, preferred_models, force_local, silent=True)
+        #     userRequest = self.few_shot_rephrase(userRequest, preferred_models, force_local, silent_reason="No given reason")
         
         chat.add_message(
             Role.USER,
@@ -268,7 +269,7 @@ This command will search for any running processes that match the pattern "cli-a
             chat,
             preferred_models,
             force_local=force_local,
-            silent=silent,
+            silent_reason=silent_reason,
             use_reasoning=use_reasoning,
             silent_reasoning=silent_reasoning
         )
@@ -302,7 +303,7 @@ This command will search for any running processes that match the pattern "cli-a
         return response, chat
 
     @classmethod
-    def few_shot_VoiceAssistant(cls, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent: bool = False, use_reasoning: bool = False, silent_reasoning: bool = False) -> Tuple[str,Chat]:
+    def few_shot_VoiceAssistant(cls, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent_reason: str = False, use_reasoning: bool = False, silent_reasoning: bool = False) -> Tuple[str,Chat]:
         """
         Voice assistant for Ubuntu that provides concise responses and is aware of its use as a voice interface.
 
@@ -318,7 +319,7 @@ This command will search for any running processes that match the pattern "cli-a
             Tuple[str, Chat]: The response and the full chat.
         """
         chat: Chat = Chat(
-            FewShotProvider.few_shot_rephrase("In this interaction a voice enabled ai agent provides helpful and concise responses to its user. It sparingly executes Ubuntu commands if necessary to enhance its capabilties to provide helpful responses during the interaction. When actions are needed, it suggests simple shell commands. Be aware of the limitations of voice interaction and adapt accordingly.", preferred_models, force_local, silent=True, use_reasoning=False)
+            FewShotProvider.few_shot_rephrase("In this interaction a voice enabled ai agent provides helpful and concise responses to its user. It sparingly executes Ubuntu commands if necessary to enhance its capabilties to provide helpful responses during the interaction. When actions are needed, it suggests simple shell commands. Be aware of the limitations of voice interaction and adapt accordingly.", preferred_models, force_local, silent_reason="No given reason", use_reasoning=False)
         )
         
         # Get the initial_prompt from the .env file, defaulting to an empty string if not found
@@ -422,7 +423,7 @@ This command will search for any running processes that match the pattern "cli-a
             chat,
             preferred_models,
             force_local=force_local,
-            silent=silent,
+            silent_reason=silent_reason,
             use_reasoning=use_reasoning,
             silent_reasoning=silent_reasoning
         )
@@ -500,7 +501,7 @@ Here's the text to process:
     
     
     @classmethod
-    def few_shot_rephrase(self, userRequest: str, preferred_models: List[str] = [""], force_local: bool = False, silent: bool = True, force_free = False, use_reasoning: bool = False) -> str:
+    def few_shot_rephrase(self, userRequest: str, preferred_models: List[str] = [""], force_local: bool = False, silent_reason: str = True, force_free = False, use_reasoning: bool = False) -> str:
         """
         Rephrases the given request to enhance clarity while preserving the intended meaning.
 
@@ -539,7 +540,7 @@ Here's the text to process:
                 preferred_models,
                 force_local=force_local,
                 force_free=force_free,
-                silent=silent,
+                silent_reason=silent_reason,
                 temperature=0.4,
                 use_reasoning=use_reasoning
             )
@@ -554,7 +555,7 @@ Here's the text to process:
             
             return response
         except Exception as e:
-            if not silent:
+            if not silent_reason:
                 print(colored(f"DEBUG: few_shot_rephrase failed with response: {response}", "yellow"))
             return userRequest
     
@@ -586,7 +587,7 @@ Here's the text to process:
         ]
         presentation_1 = PptxPresentation("ER-Force Strategy Optimization", "Strategy meeting 2024", slides_1)
         
-        instruction = FewShotProvider.few_shot_rephrase("You are a presentation creator. Given a topic or text, generate a concise, informative presentation", silent=True, preferred_models=preferred_models, force_local=force_local)
+        instruction = FewShotProvider.few_shot_rephrase("You are a presentation creator. Given a topic or text, generate a concise, informative presentation", silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local)
         chat = Chat(instruction)
         
         user_input = """My robotics team ER-Force is discussing the optimization of our robot strategy tomorrow. The following points will be discussed:
@@ -596,17 +597,17 @@ Real-time adaptability through online learning.
 Use of transfer learning to improve initial performance.
 Implementation of opponent modeling for strategic advantages.
 A hierarchical learning approach to separate strategy and execution."""
-        rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, silent=True, preferred_models=preferred_models, force_local=force_local)
-        decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", silent=True, preferred_models=preferred_models, force_local=force_local)
-        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, silent=True, preferred_models=preferred_models, force_local=force_local)
+        rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local)
+        decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local)
+        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, silent_reason=True, preferred_models=preferred_models, force_local=force_local)
         chat.add_message(Role.USER, presentation_details)
         
-        create_presentation_response = FewShotProvider.few_shot_rephrase("I will create a presentation titled 'ER-Force Strategy Optimization' that covers the main points of your discussion.", silent=True, preferred_models=preferred_models, force_local=force_local).strip(".")
+        create_presentation_response = FewShotProvider.few_shot_rephrase("I will create a presentation titled 'ER-Force Strategy Optimization' that covers the main points of your discussion.", silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local).strip(".")
         chat.add_message(Role.ASSISTANT, f"""{create_presentation_response}
         ```
         {presentation_1.to_json()}```""")
         
-        thanks_prompt = FewShotProvider.few_shot_rephrase("Thank you! You have generated exactly the right JSON data. Keep this exact format.\nNow create such a presentation for this", silent=True, preferred_models=preferred_models, force_local=force_local).strip(".")
+        thanks_prompt = FewShotProvider.few_shot_rephrase("Thank you! You have generated exactly the right JSON data. Keep this exact format.\nNow create such a presentation for this", silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local).strip(".")
         chat.add_message(Role.USER, f"{thanks_prompt}: {text}")
         
         response: str = LlmRouter.generate_completion(
@@ -622,7 +623,7 @@ A hierarchical learning approach to separate strategy and execution."""
         return chat, response
 
     @classmethod
-    def few_shot_objectFromTemplate(cls, example_objects: List[Any], target_description: str, preferred_models: List[str] = [], force_local: bool = False, use_reasoning: bool = False, silent: bool = False) -> Any:
+    def few_shot_objectFromTemplate(cls, example_objects: List[Any], target_description: str, preferred_models: List[str] = [], force_local: bool = False, use_reasoning: bool = False, silent_reason: str = False) -> Any:
         """
         Returns an object based on a list of example objects and a target description.
 
@@ -751,7 +752,7 @@ Create such object(s) based on this description: {target_description}""")
                     preferred_models=preferred_models,
                     force_local=force_local,
                     use_reasoning=use_reasoning,
-                    silent=silent,
+                    silent_reason=silent_reason,
                     temperature=temperature
                 )
                 returned_obj = response_to_obj(response)
@@ -780,7 +781,7 @@ Create such object(s) based on this description: {target_description}""")
                         preferred_models=preferred_models,
                         force_local=force_local,
                         use_reasoning=use_reasoning,
-                        silent=silent,
+                        silent_reason=silent_reason,
                         temperature=temperature
                     )
                     returned_obj = response_to_obj(response)
@@ -992,7 +993,7 @@ Explanation: This file contains database-related tests. It should be updated to 
         return result
     
     @classmethod
-    def few_shot_textToPropositions(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> List[str]:
+    def few_shot_textToPropositions(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent_reason: str = False) -> List[str]:
         """
         Extracts explicit, reliable factual propositions from the given text, supporting multiple languages.
 
@@ -1069,7 +1070,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent=silent
+            silent_reason=silent
         )
 
         # Remove the first default line
@@ -1081,7 +1082,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         return propositions
 
     @classmethod
-    def few_shot_toInteger(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False, force_free:bool = False) -> int:
+    def few_shot_toInteger(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent_reason: str = False, force_free:bool = False) -> int:
         """
         Converts a given text representation of a number into an integer using few-shot learning.
 
@@ -1140,7 +1141,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=force_free,
-            silent=silent
+            silent_reason=silent
         )
 
         try:
@@ -1150,7 +1151,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             return None
 
     @classmethod
-    def few_shot_textToQuestions(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> List[str]:
+    def few_shot_textToQuestions(cls, text: str, preferred_models: List[str] = [], force_local: bool = False, silent_reason: str = False) -> List[str]:
         """
         Generates an extensive list of questions that can be answered using the contents of the given text.
 
@@ -1234,7 +1235,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent=silent
+            silent_reason=silent
         )
 
         # Remove the first default line
@@ -1244,7 +1245,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
         return questions
 
     @classmethod
-    def few_shot_toPythonRequirements(cls, implementationDescription: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
+    def few_shot_toPythonRequirements(cls, implementationDescription: str, preferred_models: List[str] = [], force_local: bool = False, silent_reason: str = False) -> str:
         """
         Generates the contents for a requirements.txt file based on the given implementation description.
 
@@ -1302,7 +1303,7 @@ pytest
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent=silent
+            silent_reason=silent
         )
     
         # Extract content between ```txt and ```
@@ -1319,7 +1320,7 @@ pytest
         preferred_models: List[str] = ["gpt-4o-mini"],
         force_preferred_model: bool = False,
         force_local: bool = False,
-        silent: bool = False,
+        silent_reason: str = False,
         force_free: bool = True
     ) -> Tuple[str|None, Chat]:
         """
@@ -1467,7 +1468,7 @@ I hope this helps! Let me know if you have any further questions."""
             force_preferred_model=force_preferred_model,
             force_local=force_local,
             force_free=force_free,
-            silent=silent
+            silent_reason=silent
         )
 
         chat.add_message(Role.ASSISTANT, response)
@@ -1482,7 +1483,7 @@ I hope this helps! Let me know if you have any further questions."""
         return html_content, chat
     
     @classmethod
-    def few_shot_ToImageGenPrompt(cls, description: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
+    def few_shot_ToImageGenPrompt(cls, description: str, preferred_models: List[str] = [], force_local: bool = False, silent_reason: str = False) -> str:
         """
         Generates an optimized image generation prompt based on the given description.
 
@@ -1526,13 +1527,13 @@ I hope this helps! Let me know if you have any further questions."""
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent=silent
+            silent_reason=silent
         )
 
         return response.strip()
     
     @classmethod
-    def few_shot_toFilePath(cls, text: str, instruction: str, preferred_models: List[str] = [], force_local: bool = False, silent: bool = False) -> str:
+    def few_shot_toFilePath(cls, text: str, instruction: str, preferred_models: List[str] = [], force_local: bool = False, silent_reason: str = False) -> str:
         """
         Extracts a file path from a given error message based on the provided instruction.
 
@@ -1579,7 +1580,7 @@ I hope this helps! Let me know if you have any further questions."""
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent=silent
+            silent_reason=silent
         )
 
         return response.strip()
