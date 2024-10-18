@@ -225,7 +225,7 @@ ls -1hFt | head -n 20
         
             chat.add_message(
                 Role.USER,
-                select_and_execute_commands(["ls -1hFt | head -n 20"], True, False)[0]
+                select_and_execute_commands([f"ls -1hFt | head -n 20"], True, False)[0]
             )
             chat.add_message(
                 Role.ASSISTANT,
@@ -1070,7 +1070,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent_reason=silent
+            silent_reason=silent_reason
         )
 
         # Remove the first default line
@@ -1141,7 +1141,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=force_free,
-            silent_reason=silent
+            silent_reason=silent_reason
         )
 
         try:
@@ -1235,7 +1235,7 @@ The Mona Lisa, painted by Leonardo da Vinci, is one of the most famous paintings
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent_reason=silent
+            silent_reason=silent_reason
         )
 
         # Remove the first default line
@@ -1303,7 +1303,7 @@ pytest
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent_reason=silent
+            silent_reason=silent_reason
         )
     
         # Extract content between ```txt and ```
@@ -1468,7 +1468,7 @@ I hope this helps! Let me know if you have any further questions."""
             force_preferred_model=force_preferred_model,
             force_local=force_local,
             force_free=force_free,
-            silent_reason=silent
+            silent_reason=silent_reason
         )
 
         chat.add_message(Role.ASSISTANT, response)
@@ -1527,7 +1527,7 @@ I hope this helps! Let me know if you have any further questions."""
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent_reason=silent
+            silent_reason=silent_reason
         )
 
         return response.strip()
@@ -1580,7 +1580,7 @@ I hope this helps! Let me know if you have any further questions."""
             preferred_models=preferred_models,
             force_local=force_local,
             force_free=True,
-            silent_reason=silent
+            silent_reason=silent_reason
         )
 
         return response.strip()
