@@ -57,32 +57,34 @@ def parse_cli_args() -> argparse.Namespace:
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
     
-    parser.add_argument("-d", "--daily", action="store_true",
-                        help="Run the daily routine.")
-    parser.add_argument("-m", "--message", type=str,
-                        help="Enter your first message instantly.")
-    parser.add_argument("-l", "--local", action="store_true",
-                        help="Use the local Ollama backend for language processing.")
-    parser.add_argument("-v", "--voice", action="store_true",
-                        help="Enable microphone input and speech-to-text output.")
-    parser.add_argument("-c", action="store_true",
-                        help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-r", "--regenerate", action="store_true",
-                        help="Regenerate the last response.")
-    parser.add_argument("-w", "--web_search", action="store_true",
-                        help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-i", "--intelligent", action="store_true",
-                        help="Use the current most intelligent model for the agent.")
     parser.add_argument("-a", "--auto", nargs='?', const=5, type=int,
                         help="""Skip user confirmation for command execution.""", metavar="DELAY")
+    parser.add_argument("-c", action="store_true",
+                        help="Continue the last conversation, retaining its context.")
+    parser.add_argument("-d", "--daily", action="store_true",
+                        help="Run the daily routine.")
     parser.add_argument("-e", "--edit", nargs='?', const="", type=str, metavar="FILEPATH",
                         help="Edit either the file at the specified path or the contents of the clipboard.")
-    parser.add_argument("-p", "--presentation", nargs='?', const="", type=str, metavar="TOPIC",
-                        help="Interactively create a presentation.")    
     parser.add_argument("-h", "--help", action="store_true",
                         help="Display this help")
+    parser.add_argument("-i", "--intelligent", action="store_true",
+                        help="Use the current most intelligent model for the agent.")
+    parser.add_argument("-l", "--local", action="store_true",
+                        help="Use the local Ollama backend for processing.")
+    parser.add_argument("-o", "--online", action="store_true",
+                        help="Use online backends for processing.")
+    parser.add_argument("-m", "--message", type=str,
+                        help="Enter your first message instantly.")
+    parser.add_argument("-p", "--presentation", nargs='?', const="", type=str, metavar="TOPIC",
+                        help="Interactively create a presentation.")    
     parser.add_argument("-q", "--quick", action="store_true",
                         help="Disable reasoning for the agent.")
+    parser.add_argument("-r", "--regenerate", action="store_true",
+                        help="Regenerate the last response.")
+    parser.add_argument("-v", "--voice", action="store_true",
+                        help="Enable microphone input and speech-to-text output.")
+    parser.add_argument("-w", "--web_search", action="store_true",
+                        help="Continue the last conversation, retaining its context.")
     parser.add_argument("-img", "--image", action="store_true",
                         help="Take a screenshot and generate a response based on the contents of the image.")
     parser.add_argument("-maj", "--majority", action="store_true",
@@ -103,8 +105,8 @@ def parse_cli_args() -> argparse.Namespace:
                             "CHANGED_FILE_PATH: The path of the file that was changed before the error occurred.")
     parser.add_argument("--exp", action="store_true",
                         help='Experimental agentic hierarchical optimization state machine.')
-    parser.add_argument("--llm", nargs='?', const='phi3.5:3.8b', type=str, default="",
-                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. Examples: ["phi3.5:3.8b", "llama3.1:8b", "claude3.5", "gpt-4o"]')
+    parser.add_argument("--llm", nargs='?', type=str, default="",
+                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. \nDefault: "llama3.2:3b", Examples: ["llama3.2:3b", "llama3.1:8b", "claude3.5", "gpt-4o"]')
     parser.add_argument("--preload", action="store_true",
                         help="Preload systems like embeddings and other resources.")
     parser.add_argument("--git_message_generator", nargs='?', const="", type=str, metavar="TOPIC",
@@ -114,6 +116,9 @@ def parse_cli_args() -> argparse.Namespace:
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
     
+    if args.local and not args.llm:
+        args.llm = "llama3.2:3b"
+
     if unknown_args or args.help:
         if not args.help:
             print(colored(f"Warning: Unrecognized arguments {' '.join(unknown_args)}.", "red"))
@@ -131,12 +136,11 @@ def main() -> None:
     args = parse_cli_args()
     print(args)
     
-    if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip():
+    if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online:
         args.local = True
-        # args.llm = "SuperNova-Medius-Q4_K_M"
-        args.llm = "mistral-nemo:12b"
-        # args.llm = "phi3.5:3.8b"
-        
+        if not args.llm:
+            args.llm = "mistral-nemo:12b"
+    
     
     if args.preload:
         print(colored("Preloading resources...", "green"))
@@ -155,7 +159,7 @@ def main() -> None:
             context_file_paths = json.loads(args.fmake[1])
         else:
             context_file_paths = [args.fmake[1]]
-            
+        
         makeAgent = MakeErrorCollectorAgent()
         while True: # TODO: automate checking if number of errors are reduced instead of increased 
             retry_count += 1
@@ -265,7 +269,7 @@ def main() -> None:
     if len(context_chat.messages) == 0:
         context_chat = None
     
-    auto_iterate_count: int = 0
+    continue_workflow_count: int = 0
     
     # Main loop
     while True:
@@ -319,17 +323,17 @@ def main() -> None:
                 image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
                 prompt_context_augmentation += f'\n\n```vision_{i}\n{image_response_str}\n```'
         
-        # get controlled from the html server
-        if server:
-            waiting_counter = 900
-            while not server.remote_user_input:
-                time.sleep(0.01)
-                waiting_counter += 1
-                if waiting_counter % 1000 == 0:
-                    print(colored(f"Waiting for user input from the html server at: {server.host_route}", "green"))
-                    waiting_counter = 0
-            user_input = server.remote_user_input
-            server.remote_user_input = ""
+        # # get controlled from the html server
+        # if server:
+        #     waiting_counter = 900
+        #     while not server.remote_user_input:
+        #         time.sleep(0.01)
+        #         waiting_counter += 1
+        #         if waiting_counter % 1000 == 0:
+        #             print(colored(f"Waiting for user input from the html server at: {server.host_route}", "green"))
+        #             waiting_counter = 0
+        #     user_input = server.remote_user_input
+        #     server.remote_user_input = ""
         # cli args message
         elif args.message:
             user_input = args.message
@@ -383,11 +387,11 @@ def main() -> None:
                     if not listen_for_keyword():
                         break
             user_input = listen_microphone()[0]
-            auto_iterate_count = 0
+            continue_workflow_count = 0
         # default user input
         else:
             user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
-            auto_iterate_count = 0
+            continue_workflow_count = 0
         
         if user_input.endswith('--q'):
             print(colored("Exiting...", "red"))
@@ -594,7 +598,7 @@ def main() -> None:
         
         command_guard_prompt = "If a command causes permanent system modifications it is unsafe. If a command contains placeholders in its parameters it is unsafe. If a command does not write any persistent data it is safe. Please respond \n\n"
         # if 'install' is in any of the bash blocks, we will not execute them automatically
-        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard3:8b"], force_local=True, use_reasoning=use_reasoning, silent_reasoning=False, silent_reason=False)
+        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False, silent_reason=False)
         execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
         if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
             execute_actions_automatically = True
@@ -603,7 +607,7 @@ def main() -> None:
             for bash_block in bash_blocks:
                 print(colored(bash_block, 'magenta'))
                 
-                execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard3:8b"], force_local=True, use_reasoning=use_reasoning, silent_reasoning=False, silent_reason=False)
+                execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False, silent_reason=False)
                 execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
                 if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
                     execute_actions_automatically = True
@@ -643,24 +647,35 @@ def main() -> None:
             context_chat.save_to_json()
         
         temporary_prompt_context_augmentation, execution_summarization = select_and_execute_commands(bash_blocks, args.auto is not None or execute_actions_automatically) 
-        
         print(recolor(execution_summarization, "\t#", "successfully", "green"))
         
-        auto_iterate_count += 1
-        user_input: bool = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + "Do you require to execute another command to fullfill your task or are you ready to reply to the user? Please respond either with the word 'Command' or 'Reply'."
+        # handover back to user if last agent response is a summarization
+        if "summarize" in continue_workflow.lower():
+            continue
+        
+        continue_workflow_count += 1
+        user_input: bool = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + "Please select the next action to take. [BashCommand, WebSearch, Summarize]"
         user_input = user_input.strip()
         context_chat_clone = context_chat.deep_copy()
         context_chat_clone.add_message(Role.USER, user_input)
-        auto_iterate_response = LlmRouter.generate_completion(context_chat_clone, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-        if "reply" in auto_iterate_response.lower() or auto_iterate_count > 3:
-            if auto_iterate_count > 3:
+        continue_workflow = LlmRouter.generate_completion(context_chat_clone, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+        if "summarize" in continue_workflow.lower() or continue_workflow_count > 3:
+            if continue_workflow_count > 3:
                 print(colored("DEBUG: Auto-iterate limit reached, interrupting agent.", "yellow"))
-            args.message = "Please concisely summarize the results of the executed command(s)."
-        elif "command" in auto_iterate_response.lower():
-            args.message = "Please infer the next command(s) to execute now."
+            summarization_prompt = "Please concisely summarize the results of the executed command(s)."
+            if not summarization_prompt in user_input:
+                args.message = None
+            else:
+                args.message = summarization_prompt
+        elif "command" in continue_workflow.lower():
+            args.message = "Please infer the next helpful hash command(s) and provide it/them for automated execution. Provide no command which is not ready for execution."
+            # Command must not use API key check
             last_msg = context_chat.messages[-1][1].lower()
             if "api" in last_msg and "key" in last_msg:
-                args.message += "\nPlease try to find a command execution strategy which does not require an API key."
+                args.message += "\nPlease use a command execution strategy which does not require an API key."
+        elif "websearch" in continue_workflow.lower():
+            args.web_search = True
+            
         
 if __name__ == "__main__":
     main()

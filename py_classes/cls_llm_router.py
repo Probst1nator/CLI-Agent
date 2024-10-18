@@ -90,7 +90,7 @@ class Llm:
             # Llm(GroqAPI(), "llava-v1.5-7b-4096-preview", None, False, False, True, 4096, 4096, AIStrengths.FAST), # currently only supports a single message instead of a context
             
             # Catch requests using strong local llms
-            Llm(OllamaClient(), "SuperNova-Medius-Q4_K_M", None, False, True, True, 128000, None, AIStrengths.STRONG),
+            # Llm(OllamaClient(), "SuperNova-Medius-Q4_K_M", None, False, True, True, 128000, None, AIStrengths.STRONG), # bad end token
             Llm(OllamaClient(), "mistral-small:22b", None, False, True, True, 128000, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, None, AIStrengths.FAST),
             
@@ -114,12 +114,11 @@ class Llm:
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "dolphin-llama3", None, False, True, False, 4096, None, AIStrengths.FAST),
             
+            # Specialised models below
+            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, 4096, AIStrengths.STRONG),
             
             Llm(OllamaClient(), "llama-guard3:8b", None, False, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, None, AIStrengths.FAST),
-            
-
-            # Llm(OllamaClient(), "minicpm-v", None, False, True, True, 4096, None, AIStrengths.FAST),
         ]
 
 
@@ -561,7 +560,7 @@ class LlmRouter:
                         print()
                     return cached_completion
 
-            response = model.provider.generate_response(chat, model.model_key, temperature, silent)
+            response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
             instance.last_used_model = model.model_key
             instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
             return start_response_with + response if include_start_response_str else response

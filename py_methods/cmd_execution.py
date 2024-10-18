@@ -31,8 +31,10 @@ def run_command(command: str, verbose: bool = True) -> Dict[str, str]:
         if verbose:
             print(colored(command, 'light_green'))
         
-        process = subprocess.Popen(command, shell=True, text=True, 
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Execute the command in the user's current working directory
+        process = subprocess.Popen(command, shell=True, text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                cwd=os.getcwd())
         stdout, stderr = process.communicate()
         
         output = stdout if stdout else stderr
@@ -66,7 +68,7 @@ def format_command_result(result: Dict[str, str]) -> str:
         str: Formatted result string.
     """
     status = "✅ Success" if result["exit_code"] == 0 else "❌ Failed"
-    truncation_note = "\n\nNote: Output was truncated. Ask for full output if needed." if result["truncated"] else ""
+    truncation_note = "\n\nNote: Output was truncated." if result["truncated"] else ""
     
     formatted_result = f"{status} (Exit code: {result['exit_code']})\n\n"
     formatted_result += f"```\n$ {result['command']}\n{result['output']}\n```"

@@ -191,7 +191,7 @@ class OllamaClient(ChatClientInterface):
         """
         try:
             hostname, port = host.split(':') if ':' in host else (host, 11434)
-            print(colored(f"Checking host {host}...", "yellow"))
+            print(colored(f"Checking host {host}...", "green"))
             with socket.create_connection((hostname, int(port)), timeout=3):
                 return True
         except (socket.timeout, socket.error):
@@ -305,9 +305,9 @@ class OllamaClient(ChatClientInterface):
 
         try:
             if silent_reason:
-                print(f"Ollama-Api: <{colored(model_key, 'green')}> is generating response using <{colored(host, 'green')}>; Action: <{colored(silent_reason, 'green')}>...")
+                print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to perform the action: <{colored(silent_reason, "yellow")}>")
             else:
-                print(f"Ollama-Api: <{colored(model_key, 'green')}> is generating response using <{colored(host, 'green')}>...")
+                print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to generate a response...")
             
             if tools:
                 response = client.chat(
