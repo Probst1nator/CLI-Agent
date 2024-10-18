@@ -25,45 +25,40 @@ from py_classes.globals import g
 
 
 # # # helper methods
-def extract_single_snippet(response: str, allow_no_end: bool = False) -> str:
+def extract_first_snippet(response: str, allow_no_end: bool = False) -> str:
     """
-    Extracts a single code snippet from a given response string.
-
-    This function searches for code blocks enclosed in triple backticks (```) 
-    and returns the content within the first found block. If no end marker is found
-    and allow_no_end is True, it returns the content from the start marker to the end.
+    Extracts the first code snippet from a given response string.
+    This function searches for code blocks enclosed in triple backticks (```)
+    and returns the content within the first found block.
 
     Args:
-        response (str): The input string containing potential code snippets.
-        allow_no_end (bool, optional): If True, allows extraction even if no end 
-                                        marker is found. Defaults to False.
+    response (str): The input string containing potential code snippets.
+    allow_no_end (bool, optional): If True, allows extraction even if no end
+                                   marker is found. Defaults to False.
 
     Returns:
-        str: The extracted code snippet, or an empty string if no valid snippet is found.
+    str: The extracted first code snippet, or an empty string if no valid snippet is found.
 
     Example:
-        >>> response = "Here's some code:\n```python\nprint('Hello')\n```\nEnd."
-        >>> extract_single_snippet(response)
-        "print('Hello')"
+    >>> response = "Here's some code:\n```python\nprint('Hello')\n```\nAnother snippet:\n```\nprint('World')\n```"
+    >>> extract_first_snippet(response)
+    "print('Hello')"
     """
     # Find the index of the first triple backtick
     start_index = response.find("```")
     if start_index != -1:
         # Find the end of the line containing the start marker
         start_line_end = response.find("\n", start_index)
-        # Find the index of the last triple backtick
-        end_index = response.rfind("```")
-        
-        if end_index != -1 and end_index > start_index:
-            # Find the start of the line containing the end marker
-            end_line_start = response.rfind("\n", start_index, end_index)
-            if start_line_end != -1 and end_line_start != -1:
+        if start_line_end != -1:
+            # Find the next triple backtick after the start marker
+            end_index = response.find("```", start_line_end)
+            if end_index != -1:
                 # Extract and return the content between start and end markers
-                return response[start_line_end + 1:end_line_start]
-        elif allow_no_end:
-            # If no end marker is found and allow_no_end is True,
-            # return everything after the start marker
-            return response[start_line_end + 1:]
+                return response[start_line_end + 1:end_index].strip()
+            elif allow_no_end:
+                # If no end marker is found and allow_no_end is True,
+                # return everything after the start marker
+                return response[start_line_end + 1:].strip()
     
     # Return an empty string if no valid snippet is found
     return ""
@@ -238,9 +233,8 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                     next_prompt_i = next_prompt + f"Please provide your modified snippet without any additional code such that it can be a drop in replacement for the below snippet:\n\n{snippet}"
                 # Add the prompt to the chat context
                 context_chat.add_message(Role.USER, next_prompt_i)
-                # Generate a response using the LlmRouter
                 response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models + [LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
-                extracted_snippet = extract_single_snippet(response, allow_no_end=True)
+                extracted_snippet = extract_first_snippet(response, allow_no_end=True)
                 # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
                 if (extracted_snippet):
                     generated_snippets.append(extracted_snippet)
@@ -250,7 +244,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             # Only use prompt + context without adding snippets
             context_chat.add_message(Role.USER, next_prompt)
             response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
-            extracted_snippet = extract_single_snippet(response, allow_no_end=True)
+            extracted_snippet = extract_first_snippet(response, allow_no_end=True)
             # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
             if (extracted_snippet):
                 generated_snippets.append(extracted_snippet)
@@ -278,6 +272,9 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             if (len(snippets_to_process) > 1):
                 context_chat.add_message(Role.USER, "Please summarize your reasoning step by step and provide a short discussion.")
                 response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+        # Save chat
+        if context_chat:
+            context_chat.save_to_json()
 
 
 def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_input: str = ""):
@@ -599,7 +596,7 @@ def python_error_agent(context_chat: Chat, script_path: str):
             context_chat.add_message(Role.USER, "Seems reasonable. Now, please provide the fixed script in full.")
             script_fix = LlmRouter.generate_completion(context_chat, preferred_models=["llama-3.1-70b-versatile", "gpt-4o", "claude-3-5-sonnet"])
             context_chat.add_message(Role.ASSISTANT, script_fix)
-            fixed_script = extract_single_snippet(script_fix)
+            fixed_script = extract_first_snippet(script_fix)
             
             # Write fixed script to a new file
             script_path = script_path.replace(".py", f"_patchV{fix_iteration}.py")

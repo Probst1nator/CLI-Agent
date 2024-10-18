@@ -270,6 +270,7 @@ def main() -> None:
         context_chat = None
     
     continue_workflow_count: int = 0
+    continue_workflow_response: str = ""
     
     # Main loop
     while True:
@@ -650,7 +651,7 @@ def main() -> None:
         print(recolor(execution_summarization, "\t#", "successfully", "green"))
         
         # handover back to user if last agent response is a summarization
-        if "summarize" in continue_workflow.lower():
+        if "summarize" in continue_workflow_response.lower():
             continue
         
         continue_workflow_count += 1
@@ -658,22 +659,18 @@ def main() -> None:
         user_input = user_input.strip()
         context_chat_clone = context_chat.deep_copy()
         context_chat_clone.add_message(Role.USER, user_input)
-        continue_workflow = LlmRouter.generate_completion(context_chat_clone, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-        if "summarize" in continue_workflow.lower() or continue_workflow_count > 3:
+        continue_workflow_response = LlmRouter.generate_completion(context_chat_clone, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+        if "summarize" in continue_workflow_response.lower() or continue_workflow_count > 3:
             if continue_workflow_count > 3:
                 print(colored("DEBUG: Auto-iterate limit reached, interrupting agent.", "yellow"))
-            summarization_prompt = "Please concisely summarize the results of the executed command(s)."
-            if not summarization_prompt in user_input:
-                args.message = None
-            else:
-                args.message = summarization_prompt
-        elif "command" in continue_workflow.lower():
+            args.message = "Please concisely summarize the results of the executed command(s)."
+        elif "command" in continue_workflow_response.lower():
             args.message = "Please infer the next helpful hash command(s) and provide it/them for automated execution. Provide no command which is not ready for execution."
             # Command must not use API key check
             last_msg = context_chat.messages[-1][1].lower()
             if "api" in last_msg and "key" in last_msg:
                 args.message += "\nPlease use a command execution strategy which does not require an API key."
-        elif "websearch" in continue_workflow.lower():
+        elif "websearch" in continue_workflow_response.lower():
             args.web_search = True
             
         
