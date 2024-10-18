@@ -12,7 +12,7 @@ import venv
 from termcolor import colored
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient, ToolCall, ollama_convert_method_to_tool
 from py_classes.cls_chat import Chat, Role
-from py_classes.cls_few_shot_factory import FewShotProvider
+from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.globals import g
 

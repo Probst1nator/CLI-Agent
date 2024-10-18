@@ -141,131 +141,68 @@ class FewShotProvider:
         return response, chat
 
     @classmethod
-    def few_shot_TerminalAssistant(self, userRequest: str, preferred_models: List[str] = [], force_local:bool = False, silent_reason: str = False, use_reasoning: bool = False, silent_reasoning: bool = False) -> Tuple[str,Chat]:
+    def few_shot_TerminalAssistant(cls, userRequest: str, preferred_models: List[str] = [], force_local: bool = False, silent_reason: str = False, use_reasoning: bool = False, silent_reasoning: bool = False) -> Tuple[str, Chat]:
         """
         Command agent for Ubuntu that provides shell commands based on user input.
 
         Args:
             userRequest (str): The user's request.
-            model (str): Model to use for generating the response.
-            force_local (bool, optional): If True, force the use of a local model.
-            optimize (bool, optional): If True, optimize the chat.
+            preferred_models (List[str]): List of preferred models to use.
+            force_local (bool): If True, force the use of a local model.
+            silent_reason (str): If provided, suppress the reason for model selection.
+            use_reasoning (bool): If True, use reasoning in the response generation.
+            silent_reasoning (bool): If True, suppress reasoning output.
 
         Returns:
             Tuple[str, Chat]: The response and the full chat.
         """
-        chat: Chat = Chat(
-            FewShotProvider.few_shot_rephrase("Designed for autonomy, this Ubuntu CLI-Assistant autonomously addresses user queries by expertly crafting non-interactive shell commands. The assistant progresses according to a first constructed plan, suggesting only the commands that can be crafted given the current environment and waiting for the returned data before suggesting reliant commands. The assistant is limited by only using bash commands which never include any placeholders and avoiding the use of any API-Keys whatsoever, instead it intelligently finds solutions within these limitations.", preferred_models, force_local, silent_reason="No given reason", use_reasoning=False)
-        )
+        concise_prompt = """
+# Ubuntu CLI Assistant
 
-        chat.add_message(
-            Role.USER,
-            "show me a puppy"
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            """I can show you a picture of a puppy by opening firefox with a corresponding image search url already entered:
-```bash
-firefox https://www.google.com/search?q=puppies&source=lnms&tbm=isch
-```"""
-        )
-        
-        chat.add_message(
-            Role.USER,
-            "Thanks. Whats our current working directory?"
-        )
+You are an Ubuntu CLI assistant. Generate bash commands based on user requests, prioritizing efficiency and system safety. Use standard Ubuntu commands and provide complete, executable commands with brief explanations.
 
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            """Let's execute the following command to find our working directory:
-```bash
-pwd
-```"""  ),
-        
+Guidelines:
+1. Prefer non-interactive commands when possible.
+2. Use sudo when necessary for system-level operations.
+3. Provide clear, concise explanations for each command.
 
-        chat.add_message(
-            Role.USER,
-            select_and_execute_commands(["pwd"], True, False)[0] + "\n\nGreat thanks!"
-        )
-        
-        if (len(select_and_execute_commands(["tree -d -L 3 ."], True, False)[0])/4<2000): # extensive directory overview, the magic number serves as cutoff for too big directories
-            chat.add_message(
-                Role.USER,
-                "Great! Can you show me a tree for all files and folders in current directory up to 3 levels deep?"
-            )
-            chat.add_message(
-                Role.ASSISTANT,
-                """To create a tree view of the current directory up to 3 levels deep, we can use the `tree` command:
+## Command Format:
 ```bash
-tree -d -L 3 .
-```"""
-            )
-            chat.add_message(
-                Role.USER,
-                select_and_execute_commands(["tree -d -L 3 ."], True, False)[0]
-            )
-            chat.add_message(
-                Role.ASSISTANT,
-                "Great! The tree view was successfully generated. Is there anything else I can help you with? 🌳"
-            )
-        else: # more minimal directory overview
-            chat.add_message(
-                Role.USER,
-                "Great! Now list the 20 most recently modified files and folders in the current directory, include hidden files and directories"
-            )
-            chat.add_message(
-                Role.ASSISTANT,
-                """Sure. we can achieve this by using the `ls` command with the `-1hFt` options:
-```bash
-ls -1hFt | head -n 20
-```"""
-            )
-        
-            chat.add_message(
-                Role.USER,
-                select_and_execute_commands([f"ls -1hFt | head -n 20"], True, False)[0]
-            )
-            chat.add_message(
-                Role.ASSISTANT,
-                "The 20 most recently modified files and folders were successfully listed. Is there anything else I can help you with? 📂"
-            )
-        
-        
-        chat.add_message(
-            Role.USER,
-            "please find the running cli-agent process"
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-        """To identify and locate the running cli-agent process, we can use the `pgrep` command. I'll ignore casing for simplicity:
-```bash
-pgrep -aif "cli-agent"
+<command here>
 ```
-This command will search for any running processes that match the pattern "cli-agent" and display their process IDs and corresponding command lines.""")
-        
-        chat.add_message(
-            Role.USER,
-            select_and_execute_commands(['pgrep -aif "cli-agent"'], True, False)[0] + "\n\nlook its you!"
-        )
-        
-        chat.add_message(
-            Role.ASSISTANT,
-            "Wow thats me! The output shows the process IDs and command lines for the Python processes that are running my CLI-Agent code. That's meta! 🤖"
-        )
-        
+Explanation: Brief description of what the command does and why it's useful.
 
-        # if len(userRequest)<400 and not "if (" in userRequest and not "{" in userRequest: # ensure userRequest contains no code snippet
-        #     userRequest = self.few_shot_rephrase(userRequest, preferred_models, force_local, silent_reason="No given reason")
-        
-        chat.add_message(
-            Role.USER,
-            userRequest
-        )
+## Incorrect Examples (DO NOT EMULATE):
 
-        response: str = LlmRouter.generate_completion(
+1. User: "Show system uptime"
+   Incorrect Response:
+   ```bash
+   sudo uptime
+   ```
+   Explanation: Using sudo is unnecessary for this user-level command.
+
+2. User: "Install the latest version of nginx"
+   Incorrect Response:
+   ```bash
+   apt install nginx
+   ```
+   Explanation: This command lacks sudo for a system-wide installation and doesn't include the -y flag for non-interactive installation.
+
+3. User: "Find all .txt files in the home directory"
+   Incorrect Response:
+   ```bash
+   find / -name "*.txt"
+   ```
+   Explanation: This searches the entire filesystem instead of just the home directory, which is inefficient and may require unnecessary permissions.
+
+Always prioritize efficient, appropriate commands for the given task.
+"""
+
+        chat = Chat(concise_prompt)
+        
+        chat.add_message(Role.USER, userRequest)
+
+        response = LlmRouter.generate_completion(
             chat,
             preferred_models,
             force_local=force_local,
@@ -274,21 +211,25 @@ This command will search for any running processes that match the pattern "cli-a
             silent_reasoning=silent_reasoning
         )
         
+        # Apply hardcoded fixes
         applied_hardcoded_fixes = False
-        if "```" in response and not "```bash" in response:
+        
+        # Fix bash code block formatting
+        if "\n\n" in response and not "\n\nbash" in response:
             applied_hardcoded_fixes = True
-            parts = response.split("```")
+            parts = response.split("\n\n")
             for i in range(len(parts)):
                 if i % 2 == 1:  # Odd-indexed parts
                     parts[i] = "bash\n" + parts[i]
-            response = "```".join(parts)
+            response = "\n\n".join(parts)
         
-        if ("apt" in response and "install" in response and not " -y " in response):
+        # Add -y flag to apt install/purge commands
+        if ("apt" in response and "install" in response and " -y " not in response):
             applied_hardcoded_fixes = True
             response = response.replace("apt install", "apt install -y")
             response = response.replace("apt-get install", "apt-get install -y")
         
-        if ("apt" in response and "purge" in response and not " -y " in response):
+        if ("apt" in response and "purge" in response and " -y " not in response):
             applied_hardcoded_fixes = True
             response = response.replace("apt purge", "apt purge -y")
             response = response.replace("apt-get purge", "apt-get purge -y")
@@ -296,10 +237,8 @@ This command will search for any running processes that match the pattern "cli-a
         if applied_hardcoded_fixes:
             print(colored("DEBUG: Applied hardcoded fix(es) to the response.", "yellow"))
         
-        chat.add_message(
-            Role.ASSISTANT,
-            response,
-        )
+        chat.add_message(Role.ASSISTANT, response)
+        
         return response, chat
 
     @classmethod

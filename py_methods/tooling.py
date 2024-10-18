@@ -21,7 +21,7 @@ import pyaudio
 
 from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
 from py_classes.cls_chat import Chat, Role
-from py_classes.cls_few_shot_factory import FewShotProvider
+from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_llm_router import LlmRouter
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame

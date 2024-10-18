@@ -30,7 +30,7 @@ from py_agents.assistants import python_error_agent, code_assistant, git_message
 from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, take_screenshot, text_to_speech, update_cmd_collection
 from py_classes.cls_web_scraper import WebTools
 from py_classes.cls_llm_router import LlmRouter
-from py_classes.cls_few_shot_factory import FewShotProvider
+from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_chat import Chat, Role
 from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
 from py_classes.globals import g

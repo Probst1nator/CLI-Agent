@@ -4,7 +4,7 @@ import re
 from typing import Optional, List
 import requests
 from bs4 import BeautifulSoup
-from py_classes.cls_few_shot_factory import FewShotProvider
+from py_classes.cls_few_shot_provider import FewShotProvider
 from brave import Brave
 
 class WebTools:

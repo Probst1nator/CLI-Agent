@@ -11,7 +11,7 @@ import socket
 
 from py_classes.cls_chat import Chat
 from py_classes.globals import g
-from py_classes.cls_few_shot_factory import FewShotProvider
+from py_classes.cls_few_shot_provider import FewShotProvider
 
 class HtmlServer:
     def __init__(self, proj_vscode_dir_path):
