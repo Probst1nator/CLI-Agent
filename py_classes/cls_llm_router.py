@@ -6,6 +6,7 @@ import time
 from typing import Dict, List, Optional, Set
 from termcolor import colored
 from py_classes.ai_providers.cls_human_as_interface import HumanAPI
+from py_classes.ai_providers.cls_nvidia_interface import NvidiaAPI
 from py_classes.cls_custom_coloring import CustomColoring
 from py_classes.cls_chat import Chat, Role
 from enum import Enum
@@ -115,8 +116,12 @@ class Llm:
             Llm(OllamaClient(), "dolphin-llama3", None, False, True, False, 4096, None, AIStrengths.FAST),
             
             # Specialised models below
-            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, 4096, AIStrengths.STRONG),
             
+            # RAG models
+            Llm(NvidiaAPI(), "nvidia/llama-3.1-nemotron-70b-instruct", None, False, False, False, 8192, 1024, AIStrengths.STRONG),
+            
+            # Guard models
+            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "llama-guard3:8b", None, False, True, False, 4096, None, AIStrengths.STRONG),
             Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, None, AIStrengths.FAST),
         ]
