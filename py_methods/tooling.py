@@ -688,61 +688,26 @@ def extract_blocks(text: str) -> List[Tuple[str, str]]:
     - Incomplete code blocks
     - Code blocks with or without language specifiers
     - Whitespace and newline variations
+    - JSON blocks and other language-specific blocks
+
     Args:
-        text (str): The input text containing code blocks.
+    text (str): The input text containing code blocks.
+
     Returns:
-        List[Tuple[str, str]]: A list of tuples containing the block type (language) and the block content. If no language is specified, the type will be an empty string.
+    List[Tuple[str, str]]: A list of tuples containing the block type (language) and the block content.
+    If no language is specified, the type will be an empty string.
     """
-    
-    def find_matching_end(start: int) -> Optional[int]:
-        """Find the matching end of a code block, handling nested blocks."""
-        stack = 1
-        for i in range(start + 3, len(text)):
-            if text[i:i+3] == '```':
-                if i == 0 or text[i-1] in ['\n', '\r']:
-                    stack -= 1
-                    if stack == 0:
-                        return i
-            elif text[i:i+3] == '```' and (i+3 == len(text) or text[i+3] in ['\n', '\r']):
-                stack += 1
-        return None
-
     blocks: List[Tuple[str, str]] = []
-    start = 0
-
-    while True:
-        start = text.find('```', start)
-        if start == -1:
-            break
-
-        # Check if it's the start of a line
-        if start > 0 and text[start-1] not in ['\n', '\r']:
-            start += 3
-            continue
-
-        end = find_matching_end(start)
-        if end is None:
-            # Unclosed block, treat the rest of the text as a block
-            end = len(text)
-
-        # Extract the block content
-        block_content = text[start+3:end].strip()
-
-        # Determine the language (if specified)
-        first_newline = block_content.find('\n')
-        if first_newline != -1:
-            language = block_content[:first_newline].strip()
-            content = block_content[first_newline+1:].strip()
-        else:
-            # Single line block or no language specified
-            language = ''
-            content = block_content
-
+    pattern = r'```(\w*)\n([\s\S]*?)```'
+    
+    matches = re.finditer(pattern, text, re.MULTILINE)
+    
+    for match in matches:
+        language = match.group(1).strip()
+        content = match.group(2).strip()
         blocks.append((language, content))
-        start = end + 3
-
+    
     return blocks
-
 
 ColorType = Literal['black', 'grey', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 
                     'light_grey', 'dark_grey', 'light_red', 'light_green', 'light_yellow', 
