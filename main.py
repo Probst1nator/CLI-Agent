@@ -4,7 +4,7 @@ import json
 import os
 import select
 import time
-from typing import List
+from typing import List, Tuple
 import chromadb
 from pyfiglet import figlet_format
 import speech_recognition as sr
@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 
-from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
+from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant
 from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, take_screenshot, text_to_speech, update_cmd_collection
 from py_classes.cls_web_scraper import WebTools
 from py_classes.cls_llm_router import LlmRouter
@@ -83,8 +83,6 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Regenerate the last response.")
     parser.add_argument("-v", "--voice", action="store_true",
                         help="Enable microphone input and speech-to-text output.")
-    parser.add_argument("-w", "--web_search", action="store_true",
-                        help="Continue the last conversation, retaining its context.")
     parser.add_argument("-img", "--image", action="store_true",
                         help="Take a screenshot and generate a response based on the contents of the image.")
     parser.add_argument("-maj", "--majority", action="store_true",
@@ -95,8 +93,6 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Execute the Python file at the specified path and iterate if an error occurs.")
     parser.add_argument("-doc", "--documents", nargs='?', const="", type=str, metavar="PATH",
                         help="Uses a pdf or folder of pdfs to generate a response. Uses retrieval-based approach.")
-    parser.add_argument("-doc2", "--documents2", nargs='?', const="", type=str, metavar="PATH",
-                        help="Uses a pdf or folder of pdfs to generate a response. Uses needle in a haystack approach.")
     parser.add_argument("-vis", "--visualize", action="store_true",
                         help="Visualize the chat on a html page.")
     parser.add_argument("--fmake", nargs=2, type=str, metavar=('MAKE_PATH', 'CHANGED_FILE_PATH'),
@@ -261,7 +257,7 @@ def main() -> None:
         git_message_generator(args.git_message_generator, user_input)
     
     prompt_context_augmentation: str = ""
-    temporary_prompt_context_augmentation: str = ""
+    prompt_context_augmentation: str = ""
     previous_model_key: str | None = None
     server: HtmlServer | None = None
     
@@ -269,16 +265,13 @@ def main() -> None:
     if len(context_chat.messages) == 0:
         context_chat = None
     
-    continue_workflow_count: int = 0
-    continue_workflow_response: str = ""
-    
     # Main loop
     while True:
         # remove temporary context augmentation from the last user message
         if context_chat:
             if len(context_chat.messages) > 0:
                 if context_chat.messages[-1][0] == Role.USER:
-                    context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(temporary_prompt_context_augmentation, "").strip())
+                    context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(prompt_context_augmentation, "").strip())
         
         # save the context_chat to a json file
         if context_chat:
@@ -394,6 +387,7 @@ def main() -> None:
             user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
             continue_workflow_count = 0
         
+        # USER INPUT HANDLING - BEGIN
         if user_input.endswith('--q'):
             print(colored("Exiting...", "red"))
             break
@@ -417,11 +411,6 @@ def main() -> None:
             user_input = user_input[:-3]
             args.auto = not args.auto
             print(colored(f"# cli-agent: KeyBinding detected: Autonomous command execution toggled {args.auto}, type (--h) for info", "green"))
-            continue
-        
-        if user_input.endswith("--w"):
-            args.web_search = True
-            print(colored(f"# cli-agent: KeyBinding detected: Websearch enabled, type (--h) for info", "green"))
             continue
         
         if user_input.endswith("--img"):
@@ -472,6 +461,10 @@ def main() -> None:
             server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
             continue
         
+        if "--debug" in user_input:
+            print(colored(f"# cli-agent: KeyBinding detected: Debug information:", "green"))
+            context_chat.print_chat()
+        
         if user_input.endswith("--m"):
             print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
             lines = []
@@ -482,7 +475,7 @@ def main() -> None:
                 lines.append(line)
             user_input = "\n".join(lines)
         
-        if user_input.endswith("--h"):
+        if "--h" in user_input:
             user_input = user_input[:-3]
             print(figlet_format("cli-agent", font="slant"))
             print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
@@ -491,9 +484,9 @@ def main() -> None:
 # cli-agent: --r: Regenerates the last response.
 # cli-agent: --l: Toggles local llm host mode.
 # cli-agent: --a: Toggles autonomous command execution.
-# cli-agent: --w: Perform a websearch before answering.
 # cli-agent: --m: Multiline input mode.
 # cli-agent: --i: Toggles to the current most intelligent model.
+# cli-agent: --debug: Display debug information.
 # cli-agent: --img: Take a screenshot.
 # cli-agent: --rag: Toggles retrieval augmented generation (RAG).
 # cli-agent: --rea: Toggles reasoning.
@@ -503,176 +496,143 @@ def main() -> None:
 # cli-agent: Type 'quit' to exit the program.
 """, "yellow"))
             continue
+        # USER INPUT HANDLING - END
         
+        # AGENT INITIALIZEATION - BEGIN
+        if not context_chat:
+            # llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(user_input, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+            context_chat = Chat("You are a delightfully helpful ai assistant.")
+        # AGENT INITIALIZEATION - END
         
-        if args.web_search:
-            if context_chat and len(context_chat.messages) > 0:
-                recent_context_str = context_chat.get_messages_as_string(-3)
-            else:
-                recent_context_str = user_input
-            
-            # recent_context_str = next_prompt
-            query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
-            results = WebTools().search_brave(query, 2)
-            temporary_prompt_context_augmentation += f"\n\n```web_search_results\n{''.join(results)}\n```"
-            args.web_search = False
+        # AGENT TOOL USE - BEGIN
         
-        
-        if "https://github.com/" in user_input and user_input.count("/") >= 4:
-            match = re.search(r"(?P<url>https?://[^\s]+)", user_input)
-            if match:
-                github_repo_url = match.group("url")
-                github_readme = WebTools.get_github_readme(github_repo_url)
-                prompt_context_augmentation += f"\n\nHere's the readme from the github repo:\n```md\n{github_readme}\n```"
+        # 3. "majority": For solving very complex problems that require consulting high-value and high-cost expert language models.
+        # {{"tool": "majority", "reasoning": "This problem is highly complex and would benefit from consulting multiple expert models for a more comprehensive solution."}}
+        # AGENT TOOL USE - END
 
-        
-        user_input = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + user_input # add any context augmentation to the prompt
-        user_input = user_input.strip()
-        prompt_context_augmentation = ""
-        
-        # Document assistant behavior
-        if args.documents2 != None or args.documents != None:
-            if args.documents != None:
-                needle_in_haystack: bool = False
-                if args.documents:
-                    file_or_folder_path = args.documents
-                else:
-                    file_or_folder_path = g.CURRENT_WORKING_DIR_PATH
-            if args.documents2 != None:
-                needle_in_haystack: bool = True
-                if args.documents2:
-                    file_or_folder_path = args.documents2
-                else:
-                    file_or_folder_path = g.CURRENT_WORKING_DIR_PATH
-                print(colored(f"Using needle in a haystack approach", "green"))
-            print(colored(f"Document assistant running for: {file_or_folder_path}", "green"))
-            
-            if (context_chat):
-                # Continuation
-                context_chat.add_message(Role.USER, user_input)
-                response, context_chat = documents_assistant(context_chat, file_or_folder_path, needle_in_haystack)
-            else:
-                # Initialization
-                response, context_chat = documents_assistant(user_input, file_or_folder_path, needle_in_haystack)
-            continue
-        
-        # Majority voting behavior
-        if args.majority:
-            if not context_chat:
-                context_chat = Chat()
-            context_chat.add_message(Role.USER, user_input)
-            context_chat, majority_response = majority_response_assistant(context_chat, args.local, allow_costly_models=args.intelligent)
-            continue
-        
-        # Retrieval Augmented Generation (RAG) behavior
-        if args.rag:
-            user_input = RagTooling.retrieve_augment(user_input, collection, 3)
-        
-        # Default behavior (terminal assistant)
-        if context_chat and len(context_chat.messages) > 1:
-            # Continuation
-            context_chat.add_message(Role.USER, user_input)
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-            context_chat.add_message(Role.ASSISTANT, llm_response)
-        else:
-            # Initalization
-            if args.daily:
-                # Daily behavior
-                llm_response, context_chat = FewShotProvider.few_shot_VoiceAssistant(user_input, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-                # llm_response, context_chat = FewShotProvider.few_shot_DailyAssistant(next_prompt, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-            elif args.voice:
-                # Voice behavior
-                llm_response, context_chat = FewShotProvider.few_shot_VoiceAssistant(user_input, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-            else:
-                # Default behavior
-                llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(user_input, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+
+        # AGENTIC IN-TURN LOOP - BEGIN
+        while True:
+            try:
+                def pick_tools(context_chat: Chat) -> List[str]:
+                    tool_use_context_chat = context_chat.deep_copy()
+                    tool_use_context_chat.add_message(Role.USER, f"""Analyze the following user input and context to determine the most appropriate tool to use. Respond with a single JSON object containing the selected tool, any additional required information, and a reasoning explanation. Available tools are:
+                    1. "web_search": For queries requiring up-to-date information or external data. Include a "web_query" string for the search.
+                    2. "bash": For executing shell commands.
+                    3. "reply": The goal has been reached, no further action is required, we can reply to the user.
+
+                    Example responses:
+                    {{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
+                    {{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
+                    {{"reasoning": "The agent has successfully completed the task or wants to talk to the user.", "tool": "reply"}}
+
+                    Analyze the input and context, then provide your recommendation:\n{user_input}""")
+                    return tool_use_context_chat
+                tool_use_context_chat = pick_tools(context_chat)
+                tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
+                tool_use_reponse_blocks = extract_blocks(tool_use_response)
+                
+                tool_call_json_list = [block[1] for block in tool_use_reponse_blocks if block[0] == "json"]
+                if not tool_call_json_list:
+                    break
+                
+                selected_tools = [json.loads(tool_call_json) for tool_call_json in tool_call_json_list]
+                
+                # Modify this part to handle multiple tools
+                print(colored(f"Selected tools: {[tool.get('tool', '') for tool in selected_tools]}", "green"))
+                
+                for tool in selected_tools:
+                    selected_tool = tool.get('tool', '')
+                    web_query = tool.get('web_query', '')
+                    bash_command = tool.get('command', '')
+                    reasoning = tool.get('reasoning', 'No specific reasoning provided.')
+                    
+                    print(colored(f"Using tool: {selected_tool}", "green"))
+                    print(colored(f"Reasoning: {reasoning}", "cyan"))
+
+                    if selected_tool == 'bash':
+                        cmd_context_augmentation, execution_summarization = run_bash_cmds([bash_command], args)
+                        context_chat.add_message(Role.USER, cmd_context_augmentation)
+                        print(recolor(execution_summarization, "\t#", "successfully", "green"))
+                    elif selected_tool == 'web_search':
+                        query = web_query if web_query else FewShotProvider.few_shot_TextToQuery(user_input)
+                        results = WebTools().search_brave(query, 3)
+                        context_chat.add_message(Role.USER, f"\n\n```web_search_results\n{''.join(results)}\n```")
+                    # elif selected_tool == 'majority':
+                    #     context_chat.add_message(Role.USER, user_input)
+                    #     context_chat, majority_response = majority_response_assistant(context_chat, args.local, allow_costly_models=args.intelligent)
+                    #     break # Catching all tool use issues while giving control back to the user
+                    # elif selected_tool == 'rag':
+                    #     user_input = RagTooling.retrieve_augment(user_input, collection, 3)
+                    else:
+                        break # Catching all tool use issues while giving control back to the user
+            except json.JSONDecodeError:
+                print(colored("Error parsing tool selection response.", "red"))
+            except Exception as e:
+                print(colored(f"An error occurred during tool selection: {str(e)}.", "red"))
+        # AGENT TOOL USE - END
+
+        # Final summarization
+        context_chat.add_message(Role.USER, "\n\nPlease concisely summarize the results of the executed actions.")
+        context_chat.add_message(Role.USER, user_input)
+        llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+        context_chat.add_message(Role.ASSISTANT, llm_response)
         
         if (args.voice):
             spoken_response = remove_blocks(llm_response, ["md"])
             text_to_speech(spoken_response)
-        
-        reponse_blocks = extract_blocks(llm_response)
-        
-        bash_blocks = [block[1] for block in reponse_blocks if block[0] == "bash"]
-        if not bash_blocks:
-            continue  # or other logic to handle non-bash responses
-        
-        command_guard_prompt = "If a command causes permanent system modifications it is unsafe. If a command contains placeholders in its parameters it is unsafe. If a command does not write any persistent data it is safe. Please respond \n\n"
-        # if 'install' is in any of the bash blocks, we will not execute them automatically
-        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False, silent_reason=False)
-        execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
-        if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
-            execute_actions_automatically = True
-        if not execute_actions_automatically:
-            safe_bash_blocks: List[str] = []
-            for bash_block in bash_blocks:
-                print(colored(bash_block, 'magenta'))
-                
-                execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False, silent_reason=False)
-                execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
-                if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
-                    execute_actions_automatically = True
-                if execute_actions_automatically:
-                    safe_bash_blocks.append(bash_block)
-                else:
-                    pass
-            if len(safe_bash_blocks) > 0 and len(safe_bash_blocks) != len(bash_blocks):
-                bash_blocks = safe_bash_blocks
-                execute_actions_automatically = True
-        
-        if args.auto is None and not execute_actions_automatically:
-            if args.voice:
-                confirmation_response = "Do you want me to execute these steps? (Yes/no)"
-                print(colored(confirmation_response, 'yellow'))
-                text_to_speech(confirmation_response)
-                user_input = listen_microphone(10)[0]
-            else:
-                user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
-            if not (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
-                bash_blocks = safe_bash_blocks
-        else:
-            if not execute_actions_automatically:
-                print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
-                try:
-                    for remaining in range(args.auto, 0, -1):
-                        sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
-                        sys.stdout.flush()
-                        time.sleep(1)
-                    sys.stdout.write("\n")  # Ensure we move to a new line after countdown
-                except KeyboardInterrupt:
-                    print(colored("\nExecution aborted by the user.", 'red'))
-                    continue  # Skip the execution of commands and start over
-        
+
         # save context once before executing
         if context_chat:
             context_chat.save_to_json()
-        
-        temporary_prompt_context_augmentation, execution_summarization = select_and_execute_commands(bash_blocks, args.auto is not None or execute_actions_automatically) 
-        print(recolor(execution_summarization, "\t#", "successfully", "green"))
-        
-        # handover back to user if last agent response is a summarization
-        if "summarize" in continue_workflow_response.lower():
-            continue
-        
-        continue_workflow_count += 1
-        user_input: bool = temporary_prompt_context_augmentation + "\n" + prompt_context_augmentation + "\n\n" + "Please select the next action to take. [BashCommand, WebSearch, Summarize]"
-        user_input = user_input.strip()
-        context_chat_clone = context_chat.deep_copy()
-        context_chat_clone.add_message(Role.USER, user_input)
-        continue_workflow_response = LlmRouter.generate_completion(context_chat_clone, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-        if "summarize" in continue_workflow_response.lower() or continue_workflow_count > 3:
-            if continue_workflow_count > 3:
-                print(colored("DEBUG: Auto-iterate limit reached, interrupting agent.", "yellow"))
-            args.message = "Please concisely summarize the results of the executed command(s)."
-        elif "command" in continue_workflow_response.lower():
-            args.message = "Please infer the next helpful hash command(s) and provide it/them for automated execution. Provide no command which is not ready for execution."
-            # Command must not use API key check
-            last_msg = context_chat.messages[-1][1].lower()
-            if "api" in last_msg and "key" in last_msg:
-                args.message += "\nPlease use a command execution strategy which does not require an API key."
-        elif "websearch" in continue_workflow_response.lower():
-            args.web_search = True
+
+
+def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
+    command_guard_prompt = "If a command causes permanent system modifications it is unsafe. If a command contains placeholders in its parameters it is unsafe. If a command does not write any persistent data it is safe. Please respond \n\n"
+    # if 'install' is in any of the bash blocks, we will not execute them automatically
+    execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, use_reasoning=False, silent_reasoning=False, silent_reason=False)
+    execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
+    if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
+        execute_actions_automatically = True
+    if not execute_actions_automatically:
+        safe_bash_blocks: List[str] = []
+        for bash_block in bash_blocks:
+            print(colored(bash_block, 'magenta'))
             
-        
+            execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, use_reasoning=False, silent_reasoning=False, silent_reason=False)
+            execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
+            if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
+                execute_actions_automatically = True
+            if execute_actions_automatically:
+                safe_bash_blocks.append(bash_block)
+            else:
+                pass
+        if len(safe_bash_blocks) > 0 and len(safe_bash_blocks) != len(bash_blocks):
+            bash_blocks = safe_bash_blocks
+            execute_actions_automatically = True
+    
+    if args.auto is None and not execute_actions_automatically:
+        if args.voice:
+            confirmation_response = "Do you want me to execute these steps? (Yes/no)"
+            print(colored(confirmation_response, 'yellow'))
+            text_to_speech(confirmation_response)
+            user_input = listen_microphone(10)[0]
+        else:
+            user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
+        if not (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
+            bash_blocks = safe_bash_blocks
+    else:
+        if not execute_actions_automatically:
+            print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
+            try:
+                for remaining in range(args.auto, 0, -1):
+                    sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
+                    sys.stdout.flush()
+                    time.sleep(1)
+                sys.stdout.write("\n")  # Ensure we move to a new line after countdown
+            except KeyboardInterrupt:
+                print(colored("\nExecution aborted by the user.", 'red'))
+    return select_and_execute_commands(bash_blocks, args.auto is not None or execute_actions_automatically) 
+
 if __name__ == "__main__":
     main()

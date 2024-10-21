@@ -340,3 +340,19 @@ class RagTooling:
         reranked_results: List[Tuple[str, Dict[str, str]]] = cls.rerank_results(text_and_metas, user_query, top_k)
         rag_prompt: str = cls.create_rag_prompt(reranked_results, user_query)
         return rag_prompt
+    
+    @classmethod 
+    def retrieve_augment_from_path(cls, user_query: str, path: str) -> str:
+        """
+        Retrieve and Augment from either a file or a folder path.
+
+        Args:
+        user_query (str): The user's query.
+        path (str): The path to the file or folder.
+        
+        Returns:
+        str: The generated RAG prompt.
+        """
+        collection = chromadb.Collection()
+        collection = cls.pdf_or_folder_to_database(path, collection)
+        return cls.retrieve_augment(user_query, collection)
