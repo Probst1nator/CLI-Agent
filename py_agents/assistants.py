@@ -164,7 +164,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                     query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
                 web_search_result = WebTools.search_brave(query, 2)
                 context_chat.add_message(Role.USER, f"I found something on the web, please relate it to the code we're working on:\n```web_search\n{web_search_result}```")
-                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG, use_reasoning=False)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG, use_reasoning=False)
                 context_chat.add_message(Role.ASSISTANT, response)
                 continue
             elif user_input == "5":
@@ -233,7 +233,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                     next_prompt_i = next_prompt + f"Please provide your modified snippet without any additional code such that it can be a drop in replacement for the below snippet:\n\n{snippet}"
                 # Add the prompt to the chat context
                 context_chat.add_message(Role.USER, next_prompt_i)
-                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models + [LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models + [LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG)
                 extracted_snippet = extract_first_snippet(response, allow_no_end=True)
                 # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
                 if (extracted_snippet):
@@ -243,7 +243,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
         else:
             # Only use prompt + context without adding snippets
             context_chat.add_message(Role.USER, next_prompt)
-            response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+            response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG)
             extracted_snippet = extract_first_snippet(response, allow_no_end=True)
             # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
             if (extracted_snippet):
@@ -271,7 +271,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             print(colored("INFO: Snippets were not reimplemented by the assistant.", 'yellow'))
             if (len(snippets_to_process) > 1):
                 context_chat.add_message(Role.USER, "Please summarize your reasoning step by step and provide a short discussion.")
-                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG)
         # Save chat
         if context_chat:
             context_chat.save_to_json()
@@ -476,7 +476,7 @@ def majority_response_assistant(context_chat: Chat, force_local: bool = False, p
                 models = strong_models
         else:
             if allow_costly_models:
-                models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.STRONG)] + LlmRouter.get_models(["claude-3-5-sonnet", "gpt-4o"])
+                models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.STRONG)] + LlmRouter.get_models(["claude-3-5-sonnet-latest", "gpt-4o"])
                 final_response_models: List[str] = ["gpt-4o"]
             else:
                 models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.STRONG)] + LlmRouter.get_models(["gemma2-9b-it", "claude-3-haiku", "gpt-4o-mini"])
@@ -564,7 +564,7 @@ def python_error_agent(context_chat: Chat, script_path: str):
 
             # Request fixed script
             context_chat.add_message(Role.USER, "Seems reasonable. Now, please provide the fixed script in full.")
-            script_fix = LlmRouter.generate_completion(context_chat, preferred_models=["llama-3.1-70b-versatile", "gpt-4o", "claude-3-5-sonnet"])
+            script_fix = LlmRouter.generate_completion(context_chat, preferred_models=["llama-3.1-70b-versatile", "gpt-4o", "claude-3-5-sonnet-latest"])
             context_chat.add_message(Role.ASSISTANT, script_fix)
             fixed_script = extract_first_snippet(script_fix)
             

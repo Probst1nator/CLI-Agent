@@ -22,7 +22,7 @@ def implement_new_method(method_title: str, method_requirements: str) -> str:
     context_chat = Chat("You are an expert Python programmer. Your task is to create a new Python method based on given requirements.")
     context_chat.add_message(Role.USER, f"Please create a Python method named '{method_title}' that meets the following requirements:\n{method_requirements}\n\nProvide the full method implementation, including a detailed docstring. Do not add an example usage, only provide the imports and the single method. Classes are not allowed. Usage of APIs requiring API keys is not allowed.")
     
-    response = LlmRouter.generate_completion(context_chat, preferred_models=["llama-3.1-405b-reasoning", "claude-3-5-sonnet", "gpt-4o"], strength=AIStrengths.STRONG)
+    response = LlmRouter.generate_completion(context_chat, preferred_models=["llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG)
     
     new_method = extract_single_snippet(response, allow_no_end=True)
     
