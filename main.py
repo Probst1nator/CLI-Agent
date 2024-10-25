@@ -524,7 +524,9 @@ def main() -> None:
                     Example responses:
                     {{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
                     {{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
-                    {{"reasoning": "The agent has successfully completed the task or wants to talk to the user.", "tool": "reply"}}
+                    {{"reasoning": "The user is asking for the time.", "tool": "bash", "command": "date"}}
+                    {{"reasoning": "The agent has successfully completed the task and needs to talk to the user.", "tool": "reply"}}
+                    {{"reasoning": "The user says he likes emojis, I should use emojis from now on! 😊", "tool": "reply"}}
 
                     Analyze the input and context, then provide your recommendation:\n{user_input}""")
                     return tool_use_context_chat
@@ -553,7 +555,7 @@ def main() -> None:
                     if selected_tool == 'bash':
                         cmd_context_augmentation, execution_summarization = run_bash_cmds([bash_command], args)
                         context_chat.add_message(Role.USER, cmd_context_augmentation)
-                        print(recolor(execution_summarization, "\t#", "successfully", "green"))
+                        print(execution_summarization)
                     elif selected_tool == 'web_search':
                         query = web_query if web_query else FewShotProvider.few_shot_TextToQuery(user_input)
                         results = WebTools().search_brave(query, 3)
