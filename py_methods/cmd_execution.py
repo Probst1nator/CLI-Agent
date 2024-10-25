@@ -76,7 +76,7 @@ def format_command_result(result: Dict[str, str]) -> str:
     
     return formatted_result
 
-def select_and_execute_commands(commands: List[str], skip_user_confirmation: bool = False, verbose: bool = True) -> Tuple[str, str]:
+def select_and_execute_commands(commands: List[str], auto_execute: bool = False, verbose: bool = True) -> Tuple[str, str]:
     """
     Allow the user to select and execute a list of commands.
 
@@ -88,7 +88,7 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     Returns:
         Tuple[str, str]: Formatted result and execution summarization.
     """
-    if not skip_user_confirmation:
+    if not auto_execute:
         checkbox_list = CheckboxList(
             values=[(cmd, cmd) for i, cmd in enumerate(commands)],
             default_values=[cmd for cmd in commands]
@@ -131,14 +131,15 @@ def select_and_execute_commands(commands: List[str], skip_user_confirmation: boo
     summary = []
     
     for cmd in selected_commands:
-        # execute_actions_guard_response = LlmRouter.generate_completion(
-        #     f"The following command must not require any user interaction at all after execution, it must exit fully automatically, if any of these don't apply respond with: 'Unsafe'\n\n{cmd}",
-        #     ["llama-guard3:1b"], force_local=True, silent_reasoning=True, silent_reason="command guard"
-        # )
-        # if "unsafe" in execute_actions_guard_response.lower():
-        #     results.append(f"Skipped unsafe command: {cmd}")
-        #     summary.append(f"Command '{cmd}' was skipped because it potentially requires user interaction. If needed, execute it again but in a way that doesn't require user interaction.")
-        #     continue
+        if auto_execute:
+            execute_actions_guard_response = LlmRouter.generate_completion(
+                f"The following command must follow these guidelines:\n1. It must not require any user interaction at all (other than sudo).\n2. After execution it must exit fully automatically.\n1. It must not modify the operating system in major ways, although it is allowed to install trusted apt packages and updated software.\nRespond only with 'Safe' or 'Unsafe'\n\nCommand: {cmd}",
+                ["llama-guard3:1b"], force_local=True, silent_reasoning=True, silent_reason="command guard"
+            )
+            if "unsafe" in execute_actions_guard_response.lower():
+                results.append(f"Skipped unsafe command: {cmd}")
+                summary.append(f"Command '{cmd}' was skipped because it potentially requires user interaction. If needed, execute it again but in a way that doesn't require user interaction.")
+                continue
         
         g.remember_recent_action(cmd)
         
