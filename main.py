@@ -517,18 +517,19 @@ def main() -> None:
                 def pick_tools(context_chat: Chat) -> List[str]:
                     tool_use_context_chat = context_chat.deep_copy()
                     tool_use_context_chat.add_message(Role.USER, f"""Analyze the following user input and context to determine the most appropriate tool to use. Respond with a single JSON object containing the selected tool, any additional required information, and a reasoning explanation. Available tools are:
-                    1. "web_search": For queries requiring up-to-date information or external data. Include a "web_query" string for the search.
-                    2. "bash": For executing shell commands.
-                    3. "reply": The goal has been reached, no further action is required, we can reply to the user.
+1. "web_search": For queries requiring up-to-date information or external data. Include a "web_query" string for the search.
+2. "bash": For executing shell commands.
+3. "reply": The goal has been reached, no further action is required, we can reply to the user.
 
-                    Example responses:
-                    {{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
-                    {{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
-                    {{"reasoning": "The user is asking for the time.", "tool": "bash", "command": "date"}}
-                    {{"reasoning": "The agent has successfully completed the task and needs to talk to the user.", "tool": "reply"}}
-                    {{"reasoning": "The user says he likes emojis, I should use emojis from now on! 😊", "tool": "reply"}}
+Example responses:
+{{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
+{{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
+{{"reasoning": "The user is asking for the time.", "tool": "bash", "command": "date"}}
+{{"reasoning": "The agent has successfully completed the task and needs to talk to the user.", "tool": "reply"}}
+{{"reasoning": "The user is asking a general question and greeting, indicating they want to start a conversation. No specific action or external data retrieval is required.", "tool": "reply"}}
+{{"reasoning": "The user says he likes emojis, I should use emojis from now on! 😊", "tool": "reply"}}
 
-                    Analyze the input and context, then provide your recommendation:\n{user_input}""")
+Analyze the input and context, then provide your recommendation:\n{user_input}""")
                     return tool_use_context_chat
                 tool_use_context_chat = pick_tools(context_chat)
                 tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
@@ -543,6 +544,8 @@ def main() -> None:
                 # Modify this part to handle multiple tools
                 print(colored(f"Selected tools: {[tool.get('tool', '') for tool in selected_tools]}", "green"))
                 
+                should_continue = False  # Flag to track if we should continue the loop
+                
                 for tool in selected_tools:
                     selected_tool = tool.get('tool', '')
                     web_query = tool.get('web_query', '')
@@ -553,25 +556,35 @@ def main() -> None:
                     print(colored(f"Reasoning: {reasoning}", "cyan"))
 
                     if selected_tool == 'bash':
+                        args_auto_before = args.auto
+                        
+                        args.auto = True
                         cmd_context_augmentation, execution_summarization = run_bash_cmds([bash_command], args)
+                        args.auto = args_auto_before
+                        
                         context_chat.add_message(Role.USER, cmd_context_augmentation)
                         print(execution_summarization)
+                        should_continue = True
                     elif selected_tool == 'web_search':
                         query = web_query if web_query else FewShotProvider.few_shot_TextToQuery(user_input)
                         results = WebTools().search_brave(query, 3)
                         context_chat.add_message(Role.USER, f"\n\n```web_search_results\n{''.join(results)}\n```")
-                    # elif selected_tool == 'majority':
-                    #     context_chat.add_message(Role.USER, user_input)
-                    #     context_chat, majority_response = majority_response_assistant(context_chat, args.local, allow_costly_models=args.intelligent)
-                    #     break # Catching all tool use issues while giving control back to the user
-                    # elif selected_tool == 'rag':
-                    #     user_input = RagTooling.retrieve_augment(user_input, collection, 3)
+                        should_continue = True
+                    elif selected_tool == 'reply':
+                        should_continue = False
+                        break  # Exit the tool loop when we get a reply action
                     else:
-                        break # Catching all tool use issues while giving control back to the user
+                        should_continue = False  # Don't continue for unknown tools
+                
+                if not should_continue:
+                    break  # Exit the main loop if we shouldn't continue
+                    
             except json.JSONDecodeError:
                 print(colored("Error parsing tool selection response.", "red"))
+                break  # Exit the loop on JSON parsing errors
             except Exception as e:
                 print(colored(f"An error occurred during tool selection: {str(e)}.", "red"))
+                break  # Exit the loop on any other errors
         # AGENT TOOL USE - END
 
         # Final summarization

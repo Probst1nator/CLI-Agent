@@ -113,6 +113,7 @@ class Llm:
             Llm(OllamaClient(), "wizardlm2:7b", None, False, True, False, 4096, AIStrengths.FAST),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "dolphin-llama3", None, False, True, False, 4096, AIStrengths.FAST),
+            Llm(OllamaClient(), "aya-expanse:8b", None, False, True, False, 4096, AIStrengths.STRONG),
             
             # Specialised models below
             
