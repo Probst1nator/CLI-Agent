@@ -13,7 +13,7 @@ class AnthropicAPI(ChatClientInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str = "claude-3-5-sonnet-20240620", temperature: float = 0.7, silent_reason: str = False) -> Optional[str]:
+    def generate_response(chat: Chat, model: str = "claude-3-5-sonnet-latest", temperature: float = 0.7, silent_reason: str = False) -> Optional[str]:
         """
         Generates a response using the Anthropic API.
 
@@ -29,8 +29,6 @@ class AnthropicAPI(ChatClientInterface):
         try:
             client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=3.0, max_retries=2)
             
-            if "claude-3-5-sonnet" in model or not model:
-                model = "claude-3-5-sonnet-20240620"
             
             if silent_reason:
                 print(f"Anthropic-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
@@ -65,7 +63,7 @@ class AnthropicAPI(ChatClientInterface):
             raise Exception(f"Anthropic API error: {e}")
 
     # @staticmethod
-    # def count_tokens(text: str, model: str = "claude-3-5-sonnet-20240620") -> int:
+    # def count_tokens(text: str, model: str = "claude-3-5-sonnet-latest-20240620") -> int:
     #     """
     #     Counts the number of tokens in the given text for the specified model.
 

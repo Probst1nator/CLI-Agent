@@ -94,7 +94,7 @@ class Llm:
             Llm(OllamaClient(), "mistral-small:22b", None, False, True, True, 128000, AIStrengths.STRONG),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, AIStrengths.FAST),
             
-            Llm(AnthropicAPI(), "claude-3-5-sonnet", 9, False, False, False, 200000, AIStrengths.STRONG),
+            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, False, 200000, AIStrengths.STRONG),
             Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, AIStrengths.FAST),
             Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, AIStrengths.STRONG),
             Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, AIStrengths.FAST),
