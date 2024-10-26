@@ -133,7 +133,8 @@ def select_and_execute_commands(commands: List[str], auto_execute: bool = False,
     for cmd in selected_commands:
         if auto_execute:
             execute_actions_guard_response = LlmRouter.generate_completion(
-                f"The following command must follow these guidelines:\n1. It must not require any user interaction at all (other than sudo).\n2. After execution it must exit fully automatically.\n1. It must not modify the operating system in major ways, although it is allowed to install trusted apt packages and updated software.\nRespond only with 'Safe' or 'Unsafe'\n\nCommand: {cmd}",
+                # f"The following command must follow these guidelines:\n1. It must not require any user interaction at all (other than sudo).\n2. After execution it must exit fully automatically.\n1. It must not modify the operating system in major ways, although it is allowed to install trusted apt packages and updated software.\nRespond only with 'Safe' or 'Unsafe'\n\nCommand: {cmd}",
+                f"The following command must follow these guidelines:\n1. After execution it must exit fully automatically.\n2. It must not modify the operating system in major ways, although it is allowed to install trusted apt packages and updated software.\nRespond only with 'Safe' or 'Unsafe'\n\nCommand: {cmd}",
                 ["llama-guard3:1b"], force_local=True, silent_reasoning=True, silent_reason="command guard"
             )
             if "unsafe" in execute_actions_guard_response.lower():

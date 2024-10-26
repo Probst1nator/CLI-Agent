@@ -506,7 +506,7 @@ def main() -> None:
         # AGENT INITIALIZEATION - END
         
         # AGENT TOOL USE - BEGIN
-        
+        context_chat.add_message(Role.USER, user_input)
         # 3. "majority": For solving very complex problems that require consulting high-value and high-cost expert language models.
         # {{"tool": "majority", "reasoning": "This problem is highly complex and would benefit from consulting multiple expert models for a more comprehensive solution."}}
         # AGENT TOOL USE - END
@@ -514,20 +514,26 @@ def main() -> None:
 
         def make_tools_chat(context_chat: Chat) -> Chat:
             tool_use_context_chat = context_chat.deep_copy()
-            tool_use_context_chat.add_message(Role.USER, f"""Analyze the following user input and context to determine the most appropriate tool to use. Respond with a single JSON object containing the selected tool, any additional required information, and a reasoning explanation. Available tools are:
-        1. "web_search": For queries requiring up-to-date information or external data. Include a "web_query" string for the search.
-        2. "bash": For executing shell commands.
-        3. "reply": The goal has been reached, no further action is required, we can reply to the user.
+            if tool_use_context_chat.messages[-1][0] == Role.USER:
+                tool_use_context_chat.messages[-1] = (Role.USER, f"USER INPUT:\n{tool_use_context_chat.messages[-1]}\n\nTOOL USE INSTRUCTIONS:\n")
+            tool_use_context_chat.add_message(Role.USER, f"""Analyze the context to determine the most appropriate tool to use. Provide your reasoning with your tool choice in the below format. Respond with a single JSON object containing your reasoning, your selected tool, and any additional required parameters as shown below. Available tools are:
+1. "web_search": When requiring up-to-date information or precise data a web search should be used. When used, include a "web_query" string for the search.
+2. "bash": Bash commands can be used to execute commands on the users operating system. Use this for tasks like updating, file handling and information gathering.
+3. "reply": Pick this tool to reply to the user. 'Reply' should be chosen when the user can be provided with a helpful response or the given task cannot be achieved safely without further guidance.
 
-        Example responses:
-        {{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
-        {{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
-        {{"reasoning": "The user is asking for the time.", "tool": "bash", "command": "date"}}
-        {{"reasoning": "The agent has successfully completed the task and needs to talk to the user.", "tool": "reply"}}
-        {{"reasoning": "The user is asking a general question and greeting, indicating they want to start a conversation. No specific action or external data retrieval is required.", "tool": "reply"}}
-        {{"reasoning": "The user says he likes emojis, I should use emojis from now on! 😊", "tool": "reply"}}
+Example responses:
+{{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
+{{"reasoning": "The websearch tool has already been executed successfully, and the results contain the required information. I can now inform the user.", "tool": "reply"}}
+{{"reasoning": "The websearch tool has been executed successfully, but the information required is not included. I should try another websearch with a more specific query.", "tool": "web_search", "web_query": ""classical electrodynamics" fundamental "Maxwell equations" text:pdf before:2024 -quantum inurl:edu"}}
 
-        Analyze the input and context, then provide your recommendation:\n{user_input}""")
+{{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
+{{"reasoning": "The task requires real-time hardware information that can only be obtained through direct system queries.", "tool": "bash", "command": "lscpu"}}
+{{"reasoning": "The user is asking for the time.", "tool": "bash", "command": "date"}}
+
+{{"reasoning": "The bash tool has been executed succesfully and has returned the current time. I can now reply to the user.", "tool": "reply"}}
+{{"reasoning": "The user is asking a general question and greeting, indicating they want to start a conversation. No specific action or external data retrieval is required.", "tool": "reply"}}
+{{"reasoning": "The user says he likes emojis, I should respond expressively to this while using emojis more often from now on. 😊", "tool": "reply"}}""")
+# Reminder: Your task is to work towards a helpful response, respond when you're ready. This is the original user input:\n{user_input}""")
             return tool_use_context_chat
 
         # AGENTIC IN-TURN LOOP - BEGIN
@@ -549,8 +555,7 @@ def main() -> None:
                 
                 tool_use_context_chat = make_tools_chat(context_chat)
                 tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
-                print(colored("Debug - Raw LLM Response:", "yellow"))
-                print(colored(tool_use_response, "yellow"))
+                tool_use_context_chat.print_chat()
                 
                 # Use the framework's extract_blocks function
                 tool_use_reponse_blocks = extract_blocks(tool_use_response)
@@ -564,13 +569,11 @@ def main() -> None:
                         # Try to parse it as JSON
                         json.loads(cleaned_response)  # Test if it's valid JSON
                         tool_call_json_list = [cleaned_response]
-                        print(colored("Found JSON in direct response", "green"))
                     except json.JSONDecodeError:
-                        print(colored("No valid JSON found in response", "red"))
+                        print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG BEGIN", "red"))
+                        tool_use_context_chat.print_chat()
+                        print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG END", "red"))
                         break
-                
-                print(colored("Debug - JSON to process:", "yellow"))
-                print(colored(str(tool_call_json_list), "yellow"))
                 
                 if not tool_call_json_list:
                     break
@@ -585,6 +588,8 @@ def main() -> None:
                     web_query = tool.get('web_query', '')
                     bash_command = tool.get('command', '')
                     reasoning = tool.get('reasoning', 'No specific reasoning provided.')
+                    if selected_tool and selected_tool != "reply":
+                        context_chat.add_message(Role.ASSISTANT, reasoning)
                     
                     print(colored(f"Using tool: {selected_tool}", "green"))
                     print(colored(f"Reasoning: {reasoning}", "cyan"))
@@ -594,16 +599,19 @@ def main() -> None:
                         args.auto = True
                         print(colored(f"Executing bash command: {bash_command}", "yellow"))
                         cmd_context_augmentation, execution_summarization = run_bash_cmds([bash_command], args)
-                        args.auto = args_auto_before
-                        
-                        context_chat.add_message(Role.USER, cmd_context_augmentation)
                         print(execution_summarization)
+                        args.auto = args_auto_before
+                        context_chat.add_message(Role.USER, cmd_context_augmentation)
+                        context_chat.add_message(Role.ASSISTANT, "The bash tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the command: '{bash_command}'.")
                         should_continue = True
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'web_search':
-                        query = web_query if web_query else FewShotProvider.few_shot_TextToQuery(user_input)
-                        results = WebTools().search_brave(query, 3)
-                        context_chat.add_message(Role.USER, f"\n\n```web_search_results\n{''.join(results)}\n```")
+                        results = WebTools().search_brave(web_query, 3)
+                        web_search_context_chat = context_chat.deep_copy()
+                        web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{'\n'.join(results)}\n```")
+                        web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                        context_chat.add_message(Role.USER, f"You just performed a websearch for '{web_query}', this is the returned result:\n```txt\n{web_search_summary}\n```")
+                        context_chat.add_message(Role.ASSISTANT, "The websearch tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the query: '{web_query}'.")
                         should_continue = True
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'reply':
@@ -627,6 +635,8 @@ def main() -> None:
                 traceback.print_exc()
                 break
         # AGENT TOOL USE - END
+        
+        # REPLY - BEGIN
         # Final summarization
         print(colored("# # # RESPONSE # # #", "green"))
         llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
@@ -690,3 +700,6 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
 
 if __name__ == "__main__":
     main()
+
+
+
