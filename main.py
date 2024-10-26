@@ -515,8 +515,8 @@ def main() -> None:
         def make_tools_chat(context_chat: Chat) -> Chat:
             tool_use_context_chat = context_chat.deep_copy()
             if tool_use_context_chat.messages[-1][0] == Role.USER:
-                tool_use_context_chat.messages[-1] = (Role.USER, f"USER INPUT:\n{tool_use_context_chat.messages[-1]}\n\nTOOL USE INSTRUCTIONS:\n")
-            tool_use_context_chat.add_message(Role.USER, f"""Analyze the context to determine the most appropriate tool to use. Provide your reasoning with your tool choice in the below format. Respond with a single JSON object containing your reasoning, your selected tool, and any additional required parameters as shown below. Available tools are:
+                tool_use_context_chat.messages[-1] = (Role.USER, f"# # # USER INPUT # # #\n{tool_use_context_chat.messages[-1][1]}\n")
+            tool_use_context_chat.add_message(Role.USER, f"""# # # TOOL USE INSTRUCTIONS # # #\nAnalyze the context to determine the most appropriate tool to use. Provide your reasoning with your tool choice in the below format. Respond with a single JSON object containing your reasoning, your selected tool, and any additional required parameters as shown below. Available tools are:
 1. "web_search": When requiring up-to-date information or precise data a web search should be used. When used, include a "web_query" string for the search.
 2. "bash": Bash commands can be used to execute commands on the users operating system. Use this for tasks like updating, file handling and information gathering.
 3. "reply": Pick this tool to reply to the user. 'Reply' should be chosen when the user can be provided with a helpful response or the given task cannot be achieved safely without further guidance.
@@ -528,7 +528,7 @@ Example responses:
 
 {{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
 {{"reasoning": "The task requires real-time hardware information that can only be obtained through direct system queries.", "tool": "bash", "command": "lscpu"}}
-{{"reasoning": "The user is asking for the time.", "tool": "bash", "command": "date"}}
+{{"reasoning": "The user is asking for the time. I can obtain the current time using the 'date' command.", "tool": "bash", "command": "date"}}
 
 {{"reasoning": "The bash tool has been executed succesfully and has returned the current time. I can now reply to the user.", "tool": "reply"}}
 {{"reasoning": "The user is asking a general question and greeting, indicating they want to start a conversation. No specific action or external data retrieval is required.", "tool": "reply"}}
@@ -639,7 +639,7 @@ Example responses:
         # REPLY - BEGIN
         # Final summarization
         print(colored("# # # RESPONSE # # #", "green"))
-        llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+        llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
         context_chat.add_message(Role.ASSISTANT, llm_response)
         
         if (args.voice):
@@ -652,28 +652,24 @@ Example responses:
 
 
 def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
-    command_guard_prompt = "If a command causes permanent system modifications it is unsafe. If a command contains placeholders in its parameters it is unsafe. If a command does not write any persistent data it is safe. Please respond \n\n"
-    # if 'install' is in any of the bash blocks, we will not execute them automatically
-    execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, use_reasoning=False, silent_reasoning=False, silent_reason=False)
-    execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
-    if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
-        execute_actions_automatically = True
-    if not execute_actions_automatically:
-        safe_bash_blocks: List[str] = []
-        for bash_block in bash_blocks:
-            print(colored(bash_block, 'magenta'))
-            
-            execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, use_reasoning=False, silent_reasoning=False, silent_reason=False)
-            execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
-            if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
-                execute_actions_automatically = True
-            if execute_actions_automatically:
-                safe_bash_blocks.append(bash_block)
-            else:
-                pass
-        if len(safe_bash_blocks) > 0 and len(safe_bash_blocks) != len(bash_blocks):
-            bash_blocks = safe_bash_blocks
+    command_guard_prompt = f"The following command must follow these guidelines:\n1. After execution it must exit fully automatically.\n2. It must not modify the operating system in major ways, although it is allowed to install trusted apt packages and updated software.\nRespond only with 'Safe' or 'Unsafe'\n\nCommand: ",
+    safe_bash_blocks: List[str] = []
+    for bash_block in bash_blocks:
+        print(colored(bash_block, 'magenta'))
+        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, silent_reason="command guard")
+        
+        execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
+        if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
             execute_actions_automatically = True
+            
+        if execute_actions_automatically:
+            safe_bash_blocks.append(bash_block)
+        else:
+            pass
+    
+    if len(safe_bash_blocks) > 0 and len(safe_bash_blocks) != len(bash_blocks):
+        bash_blocks = safe_bash_blocks
+        execute_actions_automatically = True
     
     if args.auto is None and not execute_actions_automatically:
         if args.voice:
@@ -700,6 +696,3 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
 
 if __name__ == "__main__":
     main()
-
-
-
