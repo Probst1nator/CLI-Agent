@@ -20,6 +20,7 @@ from py_classes.globals import g
 
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
+    GUARD = 3
     STRONG = 2
     FAST = 1
 
@@ -119,9 +120,9 @@ class Llm:
             Llm(NvidiaAPI(), "nvidia/llama-3.1-nemotron-70b-instruct", None, False, False, False, 128000, AIStrengths.STRONG),
             
             # Guard models
-            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, AIStrengths.STRONG),
-            Llm(OllamaClient(), "llama-guard3:8b", None, False, True, False, 4096, AIStrengths.STRONG),
-            Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, AIStrengths.FAST),
+            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, AIStrengths.GUARD),
+            Llm(OllamaClient(), "llama-guard3:8b", None, False, True, False, 4096, AIStrengths.GUARD),
+            Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, AIStrengths.GUARD),
         ]
 
 
