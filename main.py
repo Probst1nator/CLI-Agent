@@ -549,8 +549,7 @@ Example responses:
                     if (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
                         MAX_ACTIONS += 3  # Increase the maximum number of consecutive actions
                     else:
-                        print(colored(f"Warning: Agent has performed {MAX_ACTIONS} consecutive actions without replying. Forcing a reply.", "yellow"))
-                        context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying. Please summarize what you've done and provide a response to the user.")
+                        context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress a respond intelligently to the user.")
                         break
                 
                 tool_use_context_chat = make_tools_chat(context_chat)
