@@ -4,6 +4,7 @@ import re
 from typing import Optional, List
 import requests
 from bs4 import BeautifulSoup
+from termcolor import colored
 from py_classes.cls_few_shot_provider import FewShotProvider
 from brave import Brave
 
@@ -48,8 +49,9 @@ class WebTools:
         :param num_results: The number of results to return
         :return: A list of scraped text contents from the found sites
         """
+        print(colored(f"BRAVE: Searching {num_results} websites for: {query}", "green"))
         brave = Brave(self.brave_api_key)
-        search_results = brave.search(q=query, count=num_results)
+        search_results = brave.search(q=query, count=num_results, safesearch="off")
         scraped_texts = []
         for web_result in search_results.web_results:
             # print(web_result.title)
