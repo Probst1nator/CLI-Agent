@@ -101,18 +101,16 @@ class Llm:
             # Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, AIStrengths.STRONG),
 
 
-            Llm(OllamaClient(), "phi3.5:3.8b", None, False, True, False, 4096, AIStrengths.FAST),
+            Llm(OllamaClient(), "gemma2:2b", None, False, True, False, 4096, AIStrengths.FAST),
+            Llm(OllamaClient(), "llama3.2:3b", None, False, True, False, 4096, AIStrengths.FAST),
+            Llm(OllamaClient(), "llama3.2:1b", None, False, True, False, 4096, AIStrengths.FAST),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 4096, AIStrengths.STRONG),
             
             Llm(OllamaClient(), "minicpm-v:8b", None, False, True, True, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-llama3:8b", None, False, True, True, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-phi3:3.8b", None, False, True, True, 4096, AIStrengths.FAST),
-            Llm(OllamaClient(), "smollm:1.7b", None, False, True, False, 4096, AIStrengths.FAST),
-            # Llm(OllamaClient(), "aya:8b", None, False, True, False, 4096, AIStrengths.FAST),
-            Llm(OllamaClient(), "wizardlm2:7b", None, False, True, False, 4096, AIStrengths.FAST),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, AIStrengths.STRONG),
-            Llm(OllamaClient(), "dolphin-llama3", None, False, True, False, 4096, AIStrengths.FAST),
             Llm(OllamaClient(), "aya-expanse:8b", None, False, True, False, 4096, AIStrengths.STRONG),
             
             # Specialised models below
