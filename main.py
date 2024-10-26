@@ -4,6 +4,7 @@ import json
 import os
 import select
 import time
+import traceback
 from typing import List, Tuple
 import chromadb
 from pyfiglet import figlet_format
@@ -511,43 +512,76 @@ def main() -> None:
         # AGENT TOOL USE - END
 
 
+        def make_tools_chat(context_chat: Chat) -> Chat:
+            tool_use_context_chat = context_chat.deep_copy()
+            tool_use_context_chat.add_message(Role.USER, f"""Analyze the following user input and context to determine the most appropriate tool to use. Respond with a single JSON object containing the selected tool, any additional required information, and a reasoning explanation. Available tools are:
+        1. "web_search": For queries requiring up-to-date information or external data. Include a "web_query" string for the search.
+        2. "bash": For executing shell commands.
+        3. "reply": The goal has been reached, no further action is required, we can reply to the user.
+
+        Example responses:
+        {{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
+        {{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
+        {{"reasoning": "The user is asking for the time.", "tool": "bash", "command": "date"}}
+        {{"reasoning": "The agent has successfully completed the task and needs to talk to the user.", "tool": "reply"}}
+        {{"reasoning": "The user is asking a general question and greeting, indicating they want to start a conversation. No specific action or external data retrieval is required.", "tool": "reply"}}
+        {{"reasoning": "The user says he likes emojis, I should use emojis from now on! 😊", "tool": "reply"}}
+
+        Analyze the input and context, then provide your recommendation:\n{user_input}""")
+            return tool_use_context_chat
+
         # AGENTIC IN-TURN LOOP - BEGIN
+        action_counter = 0  # Initialize counter for consecutive actions
+        MAX_ACTIONS = 10    # Maximum number of consecutive actions before forcing a reply
+
         while True:
             try:
-                def pick_tools(context_chat: Chat) -> List[str]:
-                    tool_use_context_chat = context_chat.deep_copy()
-                    tool_use_context_chat.add_message(Role.USER, f"""Analyze the following user input and context to determine the most appropriate tool to use. Respond with a single JSON object containing the selected tool, any additional required information, and a reasoning explanation. Available tools are:
-1. "web_search": For queries requiring up-to-date information or external data. Include a "web_query" string for the search.
-2. "bash": For executing shell commands.
-3. "reply": The goal has been reached, no further action is required, we can reply to the user.
-
-Example responses:
-{{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
-{{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
-{{"reasoning": "The user is asking for the time.", "tool": "bash", "command": "date"}}
-{{"reasoning": "The agent has successfully completed the task and needs to talk to the user.", "tool": "reply"}}
-{{"reasoning": "The user is asking a general question and greeting, indicating they want to start a conversation. No specific action or external data retrieval is required.", "tool": "reply"}}
-{{"reasoning": "The user says he likes emojis, I should use emojis from now on! 😊", "tool": "reply"}}
-
-Analyze the input and context, then provide your recommendation:\n{user_input}""")
-                    return tool_use_context_chat
-                tool_use_context_chat = pick_tools(context_chat)
-                tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
-                tool_use_reponse_blocks = extract_blocks(tool_use_response)
+                # Check if we've hit the maximum number of consecutive actions
+                if action_counter >= MAX_ACTIONS:
+                    # Ask use if to continue or not
+                    user_input = input(colored(f"Warning: Agent has performed {MAX_ACTIONS} consecutive actions without replying. Do you want to continue? (Y/n) ", "yellow")).lower()
+                    if (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
+                        MAX_ACTIONS += 3  # Increase the maximum number of consecutive actions
+                    else:
+                        print(colored(f"Warning: Agent has performed {MAX_ACTIONS} consecutive actions without replying. Forcing a reply.", "yellow"))
+                        context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying. Please summarize what you've done and provide a response to the user.")
+                        break
                 
+                tool_use_context_chat = make_tools_chat(context_chat)
+                tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
+                print(colored("Debug - Raw LLM Response:", "yellow"))
+                print(colored(tool_use_response, "yellow"))
+                
+                # Use the framework's extract_blocks function
+                tool_use_reponse_blocks = extract_blocks(tool_use_response)
                 tool_call_json_list = [block[1] for block in tool_use_reponse_blocks if block[0] == "json"]
+                
+                # If no JSON blocks found in extract_blocks result, try direct JSON parsing
+                if not tool_call_json_list:
+                    try:
+                        # Clean the response of any leading/trailing whitespace and quotes
+                        cleaned_response = tool_use_response.strip().strip('"\'')
+                        # Try to parse it as JSON
+                        json.loads(cleaned_response)  # Test if it's valid JSON
+                        tool_call_json_list = [cleaned_response]
+                        print(colored("Found JSON in direct response", "green"))
+                    except json.JSONDecodeError:
+                        print(colored("No valid JSON found in response", "red"))
+                        break
+                
+                print(colored("Debug - JSON to process:", "yellow"))
+                print(colored(str(tool_call_json_list), "yellow"))
+                
                 if not tool_call_json_list:
                     break
                 
                 selected_tools = [json.loads(tool_call_json) for tool_call_json in tool_call_json_list]
-                
-                # Modify this part to handle multiple tools
                 print(colored(f"Selected tools: {[tool.get('tool', '') for tool in selected_tools]}", "green"))
                 
-                should_continue = False  # Flag to track if we should continue the loop
+                should_continue = False
                 
                 for tool in selected_tools:
-                    selected_tool = tool.get('tool', '')
+                    selected_tool = tool.get('tool', '').strip()
                     web_query = tool.get('web_query', '')
                     bash_command = tool.get('command', '')
                     reasoning = tool.get('reasoning', 'No specific reasoning provided.')
@@ -557,39 +591,44 @@ Analyze the input and context, then provide your recommendation:\n{user_input}""
 
                     if selected_tool == 'bash':
                         args_auto_before = args.auto
-                        
                         args.auto = True
+                        print(colored(f"Executing bash command: {bash_command}", "yellow"))
                         cmd_context_augmentation, execution_summarization = run_bash_cmds([bash_command], args)
                         args.auto = args_auto_before
                         
                         context_chat.add_message(Role.USER, cmd_context_augmentation)
                         print(execution_summarization)
                         should_continue = True
+                        action_counter += 1  # Increment action counter
                     elif selected_tool == 'web_search':
                         query = web_query if web_query else FewShotProvider.few_shot_TextToQuery(user_input)
                         results = WebTools().search_brave(query, 3)
                         context_chat.add_message(Role.USER, f"\n\n```web_search_results\n{''.join(results)}\n```")
                         should_continue = True
+                        action_counter += 1  # Increment action counter
                     elif selected_tool == 'reply':
                         should_continue = False
-                        break  # Exit the tool loop when we get a reply action
+                        action_counter = 0  # Reset action counter on reply
+                        break
                     else:
-                        should_continue = False  # Don't continue for unknown tools
+                        should_continue = False
+                        action_counter = 0  # Reset action counter on unknown tool
                 
                 if not should_continue:
-                    break  # Exit the main loop if we shouldn't continue
+                    break
                     
-            except json.JSONDecodeError:
-                print(colored("Error parsing tool selection response.", "red"))
-                break  # Exit the loop on JSON parsing errors
+            except json.JSONDecodeError as e:
+                print(colored(f"Error parsing tool selection response: {str(e)}", "red"))
+                print(colored("Raw response causing error:", "red"))
+                print(colored(tool_use_response, "red"))
+                break
             except Exception as e:
-                print(colored(f"An error occurred during tool selection: {str(e)}.", "red"))
-                break  # Exit the loop on any other errors
+                print(colored(f"An error occurred during tool selection: {str(e)}", "red"))
+                traceback.print_exc()
+                break
         # AGENT TOOL USE - END
-
         # Final summarization
-        context_chat.add_message(Role.USER, "\n\nPlease concisely summarize the results of the executed actions.")
-        context_chat.add_message(Role.USER, user_input)
+        print(colored("# # # RESPONSE # # #", "green"))
         llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
         context_chat.add_message(Role.ASSISTANT, llm_response)
         
