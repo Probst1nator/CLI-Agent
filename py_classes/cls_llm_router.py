@@ -88,7 +88,6 @@ class Llm:
             Llm(GroqAPI(), "gemma-7b-it", None, False, False, False, 8192, AIStrengths.FAST),
             Llm(GroqAPI(), "llama-3.2-3b-preview", None, False, False, False, 8192, AIStrengths.FAST),
             Llm(GroqAPI(), "llama-3.2-1b-preview", None, False, False, False, 8192, AIStrengths.FAST),
-            # Llm(GroqAPI(), "llava-v1.5-7b-4096-preview", None, False, False, True, 4096, 4096, AIStrengths.FAST), # currently only supports a single message instead of a context
             
             # Catch requests using strong local llms
             # Llm(OllamaClient(), "SuperNova-Medius-Q4_K_M", None, False, True, True, 128000, None, AIStrengths.STRONG), # bad end token

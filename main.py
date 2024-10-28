@@ -20,6 +20,7 @@ import warnings
 
 from py_agents.make_agent import MakeErrorCollectorAgent
 from py_classes.cls_html_server import HtmlServer
+from py_classes.cls_python_tooling import handle_python_tool
 from py_classes.cls_rag_tooling import RagTooling
 from py_classes.cls_youtube import YouTube
 from py_methods.cmd_execution import select_and_execute_commands
@@ -520,6 +521,7 @@ def main() -> None:
 1. "web_search": When requiring up-to-date information or precise data a web search should be used. When used, include a "web_query" string for the search.
 2. "bash": Bash commands can be used to execute commands on the users operating system. Use this for tasks like updating, file handling and information gathering.
 3. "reply": Pick this tool to reply to the user. 'Reply' should be chosen when the user can be provided with a helpful response or the given task cannot be achieved safely without further guidance.
+4. "python": Use Python scripts for calculations, coding, and other tasks that benefit from a symbolic solver approach. Include a "title" string for the script name.
 
 Example responses:
 {{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
@@ -528,11 +530,16 @@ Example responses:
 
 {{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
 {{"reasoning": "The task requires real-time hardware information that can only be obtained through direct system queries.", "tool": "bash", "command": "lscpu"}}
-{{"reasoning": "The user is asking for the time. I can obtain the current time using the 'date' command.", "tool": "bash", "command": "date"}}
+{{"reasoning": "To fix the issue in the python script, I need to read from the main.py file.", "tool": "bash", "command": "cat ~/main.py"}}
 
 {{"reasoning": "The bash tool has been executed succesfully and has returned the current time. I can now reply to the user.", "tool": "reply"}}
-{{"reasoning": "The user is asking a general question and greeting, indicating they want to start a conversation. No specific action or external data retrieval is required.", "tool": "reply"}}
-{{"reasoning": "The user says he likes emojis, I should respond expressively to this while using emojis more often from now on. 😊", "tool": "reply"}}""")
+{{"reasoning": "The user is confused about my recent actions, I should reason through my recent actions and explain them to the user.", "tool": "reply"}}
+{{"reasoning": "The python tool has been executed succesfully, it seems the user has closed the pygame window. I should ask the user if the game was fun.", "tool": "reply"}}
+
+{{"reasoning": "The use wants to see an interactable mandelbrot set, this is too complex for a simple bash command, instead I will implement a python script to generate the mandelbrot set. The user will be able to interact with the set and zoom in and out.", "tool": "python", "title": "mandelbrot.py"}}
+{{"reasoning": "The user is asking for the result of the calculation (3*(4+3). I will use python to ensure the correct result is returned.", "tool": "python", "title": "calculation.py"}}
+{{"reasoning": "The user is asking for a simple python script that prints 'Hello World!'. I will provide a simple python script that prints 'Hello World!'.", "tool": "python", "title": "hello_world.py"}}
+
 # Reminder: Your task is to work towards a helpful response, respond when you're ready. This is the original user input:\n{user_input}""")
             return tool_use_context_chat
 
@@ -583,9 +590,10 @@ Example responses:
                 should_continue = False
                 
                 for tool in selected_tools:
+                    
                     selected_tool = tool.get('tool', '').strip()
-                    web_query = tool.get('web_query', '')
                     bash_command = tool.get('command', '')
+                    
                     reasoning = tool.get('reasoning', 'No specific reasoning provided.')
                     if selected_tool and selected_tool != "reply":
                         context_chat.add_message(Role.ASSISTANT, reasoning)
@@ -601,25 +609,28 @@ Example responses:
                         print(execution_summarization)
                         args.auto = args_auto_before
                         context_chat.add_message(Role.USER, cmd_context_augmentation)
-                        context_chat.add_message(Role.ASSISTANT, "The bash tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the command: '{bash_command}'.")
+                        context_chat.add_message(Role.ASSISTANT, f"The bash tool has been executed for the command: '{bash_command}'.")
                         should_continue = True
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'web_search':
+                        web_query = tool.get('web_query', '')
                         results = WebTools().search_brave(web_query, 3)
                         web_search_context_chat = context_chat.deep_copy()
-                        web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{'\n'.join(results)}\n```")
+                        results_joined = '\n'.join(results)
+                        web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{results_joined}\n```")
                         web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
                         context_chat.add_message(Role.USER, f"You just performed a websearch for '{web_query}', this is the returned result:\n```txt\n{web_search_summary}\n```")
                         context_chat.add_message(Role.ASSISTANT, "The websearch tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the query: '{web_query}'.")
                         should_continue = True
                         action_counter += 1  # Increment action counter
+                    elif selected_tool == 'python': # Implement and execute python script
+                        handle_python_tool(tool, context_chat, args)
+                        should_continue = False
                     elif selected_tool == 'reply':
                         should_continue = False
-                        action_counter = 0  # Reset action counter on reply
                         break
                     else:
                         should_continue = False
-                        action_counter = 0  # Reset action counter on unknown tool
                 
                 if not should_continue:
                     break
@@ -638,8 +649,11 @@ Example responses:
         # REPLY - BEGIN
         # Final summarization
         print(colored("# # # RESPONSE # # #", "green"))
-        llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
-        context_chat.add_message(Role.ASSISTANT, llm_response)
+        if context_chat.messages[-1][0] == Role.USER:
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
+            context_chat.add_message(Role.ASSISTANT, llm_response)
+        else:
+            print(colored(context_chat.messages[-1][1], "magenta"))
         
         if (args.voice):
             spoken_response = remove_blocks(llm_response, ["md"])
