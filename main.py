@@ -520,7 +520,7 @@ def main() -> None:
             tool_use_context_chat.add_message(Role.USER, f"""# # # TOOL USE INSTRUCTIONS # # #\nAnalyze the context to determine the most appropriate tool to use. Provide your reasoning with your tool choice in the below format. Respond with a single JSON object containing your reasoning, your selected tool, and any additional required parameters as shown below. Available tools are:
 1. "web_search": When requiring up-to-date information or precise data a web search should be used. When used, include a "web_query" string for the search.
 2. "bash": Bash commands can be used to execute commands on the users operating system. Use this for tasks like updating, file handling and information gathering.
-3. "reply": Pick this tool to reply to the user. 'Reply' should be chosen when the user can be provided with a helpful response or the given task cannot be achieved safely without further guidance.
+3. "reply": Pick this tool to reply to the user. 'Reply' should be chosen when the user can be provided with a helpful response that does not include any code or if the given task cannot be achieved safely without further guidance.
 4. "python": Use Python scripts for calculations, coding, and other tasks that benefit from a symbolic solver approach. Include a "title" string for the script name.
 
 Example responses:
