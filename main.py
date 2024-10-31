@@ -602,12 +602,9 @@ Example responses:
                     print(colored(f"Reasoning: {reasoning}", "cyan"))
 
                     if selected_tool == 'bash':
-                        args_auto_before = args.auto
-                        args.auto = True
                         print(colored(f"Executing bash command: {bash_command}", "yellow"))
                         cmd_context_augmentation, execution_summarization = run_bash_cmds([bash_command], args)
                         print(execution_summarization)
-                        args.auto = args_auto_before
                         context_chat.add_message(Role.USER, cmd_context_augmentation)
                         context_chat.add_message(Role.ASSISTANT, f"The bash tool has been executed for the command: '{bash_command}'.")
                         should_continue = True
@@ -648,12 +645,13 @@ Example responses:
         
         # REPLY - BEGIN
         # Final summarization
+        if context_chat.messages[-1][0] == Role.ASSISTANT:
+            context_chat.add_message(Role.USER, "Please summarize a response to the user.")
+
         print(colored("# # # RESPONSE # # #", "green"))
-        if context_chat.messages[-1][0] == Role.USER:
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
-            context_chat.add_message(Role.ASSISTANT, llm_response)
-        else:
-            print(colored(context_chat.messages[-1][1], "magenta"))
+        llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
+
+        context_chat.add_message(Role.ASSISTANT, llm_response)
         
         if (args.voice):
             spoken_response = remove_blocks(llm_response, ["md"])
