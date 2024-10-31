@@ -50,7 +50,9 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
                 adjust_script_obj = json.loads(adjust_script_json)
                 adjust_script_reasoning = adjust_script_obj.get("reasoning", "")
                 adjust_script_answer = adjust_script_obj.get("answer", 'overwrite')
-                
+        else:
+            adjust_script_answer = 'overwrite'
+
         if adjust_script_answer == 'overwrite' or adjust_script_answer == 'rewrite':
             if adjust_script_answer == 'overwrite':
                 implement_script_chat = context_chat.deep_copy()
