@@ -682,13 +682,14 @@ def get_atuin_history(limit: int = 10) -> List[str]:
 
 def extract_blocks(text: str) -> List[Tuple[str, str]]:
     """
-    Extract code blocks encased by ``` from a text.
+    Extract code blocks encased by ``` from a text and the first curly brace block.
     This function handles various edge cases, including:
     - Nested code blocks
     - Incomplete code blocks
     - Code blocks with or without language specifiers
     - Whitespace and newline variations
     - JSON blocks and other language-specific blocks
+    - Special 'first{}' case that extracts first curly brace block
 
     Args:
     text (str): The input text containing code blocks.
@@ -696,13 +697,23 @@ def extract_blocks(text: str) -> List[Tuple[str, str]]:
     Returns:
     List[Tuple[str, str]]: A list of tuples containing the block type (language) and the block content.
     If no language is specified, the type will be an empty string.
+    'first{}' type contains the first curly brace block found.
     """
     blocks: List[Tuple[str, str]] = []
-    pattern = r'```(\w*)\n([\s\S]*?)```'
     
-    matches = re.finditer(pattern, text, re.MULTILINE)
+    # Extract first {} block
+    first_brace_pattern = r'\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}'
+    first_brace_match = re.search(first_brace_pattern, text)
+    if first_brace_match:
+        # Include the braces in the content
+        brace_content = '{' + first_brace_match.group(1) + '}'
+        blocks.append(('first{}', brace_content))
     
-    for match in matches:
+    # Extract code blocks
+    code_pattern = r'```(\w*)\n([\s\S]*?)```'
+    code_matches = re.finditer(code_pattern, text, re.MULTILINE)
+    
+    for match in code_matches:
         language = match.group(1).strip()
         content = match.group(2).strip()
         blocks.append((language, content))

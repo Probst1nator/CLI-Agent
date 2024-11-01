@@ -34,6 +34,7 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
         implement_script_chat = context_chat.deep_copy()
 
         if os.path.exists(script_path):
+            print(colored(f"Existing script found at '{script_path}'.", "yellow"))
             with open(script_path, "r") as f:
                 file_content = f.read()
                 implement_script_chat.add_message(
@@ -52,10 +53,11 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
                 adjust_script_answer = adjust_script_obj.get("answer", 'overwrite')
         else:
             adjust_script_answer = 'overwrite'
-
+        
         if adjust_script_answer == 'overwrite' or adjust_script_answer == 'rewrite':
-            if adjust_script_answer == 'overwrite':
-                implement_script_chat = context_chat.deep_copy()
+            # Illusion of choice
+            # if adjust_script_answer == 'overwrite': 
+            #     implement_script_chat = context_chat.deep_copy()
             implement_script_chat.add_message(
                 Role.USER,
                 "Can you implement the python script in a single block while using typing?"
@@ -80,7 +82,7 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
             f.write(final_script)
 
         # execute the script
-        cmd_context_augmentation, execution_summarization = select_and_execute_commands([f"python3 {script_path}"], auto_execute=True)
+        cmd_context_augmentation, execution_summarization = select_and_execute_commands([f"python3 {script_path}"], auto_execute=True, detached=True)
 
         context_chat.add_message(Role.USER, cmd_context_augmentation)
         context_chat.add_message(Role.ASSISTANT, f"The python tool has been executed for the script '{script_title}'.")
