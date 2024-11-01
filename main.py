@@ -2,7 +2,9 @@
 
 import json
 import os
+import random
 import select
+import string
 import time
 import traceback
 from typing import List, Tuple
@@ -565,7 +567,7 @@ Example responses:
                 
                 # Use the framework's extract_blocks function
                 tool_use_reponse_blocks = extract_blocks(tool_use_response)
-                tool_call_json_list = [block[1] for block in tool_use_reponse_blocks if block[0] == "json"]
+                tool_call_json_list = [block[1] for block in tool_use_reponse_blocks if block[0] == r"first{}"]
                 
                 # If no JSON blocks found in extract_blocks result, try direct JSON parsing
                 if not tool_call_json_list:
@@ -621,6 +623,10 @@ Example responses:
                         should_continue = True
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'python': # Implement and execute python script
+                        title = tool.get('title', None)
+                        if not title:
+                            title = FewShotProvider.few_shot_TextToQuery(reasoning, force_local=args.local)
+                        print(colored(f"Implementing and executing python script: {title}", "yellow"))
                         handle_python_tool(tool, context_chat, args)
                         should_continue = False
                     elif selected_tool == 'reply':

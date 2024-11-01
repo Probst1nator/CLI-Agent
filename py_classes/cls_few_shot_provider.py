@@ -26,7 +26,7 @@ class FewShotProvider:
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
-    def few_shot_TextToQuery(self, text: str) -> str:
+    def few_shot_TextToQuery(self, text: str, force_local: bool = False, silent_reason: str = "TextToQuery") -> str:
         """
         Generates a search query based on the given text.
         
@@ -59,7 +59,7 @@ class FewShotProvider:
         chat.add_message(Role.ASSISTANT, "derivatives vs integrals differences calculus")
         
         chat.add_message(Role.USER, consistency_prefix + text)
-        response: str = LlmRouter.generate_completion(chat, strength=AIStrengths.FAST)
+        response: str = LlmRouter.generate_completion(chat, strength=AIStrengths.FAST, force_local=force_local, silent_reason=silent_reason)
         return response
     
     

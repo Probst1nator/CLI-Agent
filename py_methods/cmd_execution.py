@@ -15,47 +15,6 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pyperclip
 from termcolor import colored
 
-def run_command(command: str, verbose: bool = True) -> Dict[str, str]:
-    """
-    Run a shell command and capture its output, optimized for chatbot interaction.
-    
-    Args:
-        command (str): The shell command to execute.
-        verbose (bool): Whether to print the command and its output.
-        max_output_length (int): Maximum length of the output to return.
-        
-    Returns:
-        Dict[str, str]: A dictionary containing the command execution results.
-    """
-    try:
-        if verbose:
-            print(colored(command, 'light_green'))
-        
-        # Execute the command in the user's current working directory
-        process = subprocess.Popen(command, shell=True, text=True,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                cwd=os.getcwd())
-        stdout, stderr = process.communicate()
-        
-        output = stdout if stdout else stderr
-        truncated = False
-        
-        if verbose:
-            print(output)
-        
-        return {
-            "command": command,
-            "output": output.strip(),
-            "exit_code": process.returncode,
-            "truncated": truncated
-        }
-    except Exception as e:
-        return {
-            "command": command,
-            "output": f"Error executing command: {str(e)}",
-            "exit_code": -1,
-            "truncated": False
-        }
 
 def format_command_result(result: Dict[str, str]) -> str:
     """
@@ -76,14 +35,86 @@ def format_command_result(result: Dict[str, str]) -> str:
     
     return formatted_result
 
-def select_and_execute_commands(commands: List[str], auto_execute: bool = False, verbose: bool = True) -> Tuple[str, str]:
+def run_command(command: str, verbose: bool = True, detached: bool = False) -> Dict[str, str]:
+    """
+    Run a shell command and capture its output, optimized for chatbot interaction.
+    
+    Args:
+        command (str): The shell command to execute.
+        verbose (bool): Whether to print the command and its output.
+        detached (bool): Whether to run the command in detached mode.
+        
+    Returns:
+        Dict[str, str]: A dictionary containing the command execution results.
+    """
+    try:
+        if verbose:
+            print(colored(command, 'light_green'))
+        
+        if detached:
+            # For detached processes, use nohup to ensure they keep running
+            if not command.endswith('&'):
+                command = f"nohup {command} > /dev/null 2>&1 &"
+            
+            # For detached processes, we only care about starting them
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                cwd=os.getcwd(),
+                start_new_session=True  # This ensures the process is fully detached
+            )
+            
+            # Return immediately for detached processes
+            return {
+                "command": command,
+                "output": "Process started in background",
+                "exit_code": 0,  # We assume success since we're not waiting
+                "truncated": False
+            }
+        else:
+            # Execute the command in the user's current working directory
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=os.getcwd()
+            )
+            stdout, stderr = process.communicate()
+            
+            output = stdout if stdout else stderr
+            truncated = False
+            
+            if verbose:
+                print(output)
+            
+            return {
+                "command": command,
+                "output": output.strip(),
+                "exit_code": process.returncode,
+                "truncated": truncated
+            }
+    except Exception as e:
+        return {
+            "command": command,
+            "output": f"Error executing command: {str(e)}",
+            "exit_code": -1,
+            "truncated": False
+        }
+
+def select_and_execute_commands(commands: List[str], auto_execute: bool = False, verbose: bool = True, detached: bool = False) -> Tuple[str, str]:
     """
     Allow the user to select and execute a list of commands.
 
     Args:
         commands (List[str]): The list of commands to choose from.
-        skip_user_confirmation (bool): If True, execute all commands without user confirmation.
+        auto_execute (bool): If True, execute all commands without user selection.
         verbose (bool): Whether to print command outputs.
+        detached (bool): If True, run commands in detached mode.
 
     Returns:
         Tuple[str, str]: Formatted result and execution summarization.
@@ -133,7 +164,7 @@ def select_and_execute_commands(commands: List[str], auto_execute: bool = False,
     for cmd in selected_commands:
         g.remember_recent_action(cmd)
         
-        result = run_command(cmd, verbose)
+        result = run_command(cmd, verbose, detached)
         formatted_result = format_command_result(result)
         results.append(formatted_result)
         
