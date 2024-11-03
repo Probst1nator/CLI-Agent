@@ -61,8 +61,10 @@ def parse_cli_args() -> argparse.Namespace:
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
     
-    parser.add_argument("-a", "--auto", nargs='?', const=5, type=int,
-                        help="""Skip user confirmation for command execution.""", metavar="DELAY")
+    parser.add_argument("-u", "--unsafe", nargs='?', const=5, type=int,
+                        help="""Allow automatic command execution even when classified unsafe.""", metavar="DELAY")
+    parser.add_argument("-s", "--safe", action="store_true",
+                        help="""Safe command execution mode, will always prompt for confirmation before executing.""")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-d", "--daily", action="store_true",
@@ -244,7 +246,7 @@ def main() -> None:
 
     if args.edit != None: # code edit mode
         pre_chosen_option = ""
-        if (args.auto):
+        if (args.unsafe):
             pre_chosen_option = "1"
         code_assistant(context_chat, args.edit, pre_chosen_option)    
     
@@ -411,10 +413,16 @@ def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, type (--h) for info", "green"))
             continue
         
-        if user_input.endswith("--a"):
+        if user_input.endswith("--u"):
             user_input = user_input[:-3]
-            args.auto = not args.auto
-            print(colored(f"# cli-agent: KeyBinding detected: Autonomous command execution toggled {args.auto}, type (--h) for info", "green"))
+            args.unsafe = not args.unsafe
+            print(colored(f"# cli-agent: KeyBinding detected: Allow unsafe command execution toggled {args.unsafe}, type (--h) for info", "green"))
+            continue
+        
+        if user_input.endswith("--s"):
+            user_input = user_input[:-3]
+            args.unsafe = not args.unsafe
+            print(colored(f"# cli-agent: KeyBinding detected: Safe command execution toggled {args.safe}, type (--h) for info", "green"))
             continue
         
         if user_input.endswith("--img"):
@@ -487,7 +495,8 @@ def main() -> None:
 # cli-agent: --h: Shows this help message.
 # cli-agent: --r: Regenerates the last response.
 # cli-agent: --l: Toggles local llm host mode.
-# cli-agent: --a: Toggles autonomous command execution.
+# cli-agent: --u: Toggles unsafe command execution.
+# cli-agent: --s: Toggles safe command execution.
 # cli-agent: --m: Multiline input mode.
 # cli-agent: --i: Toggles to the current most intelligent model.
 # cli-agent: --debug: Display debug information.
@@ -563,7 +572,7 @@ Example responses:
                 
                 tool_use_context_chat = make_tools_chat(context_chat)
                 tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
-                tool_use_context_chat.print_chat()
+                # tool_use_context_chat.print_chat()
                 
                 # Use the framework's extract_blocks function
                 tool_use_reponse_blocks = extract_blocks(tool_use_response)
@@ -688,7 +697,7 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
         bash_blocks = safe_bash_blocks
         execute_actions_automatically = True
     
-    if args.auto is None and not execute_actions_automatically:
+    if (args.unsafe is None and not execute_actions_automatically) or args.safe:
         if args.voice:
             confirmation_response = "Do you want me to execute these steps? (Yes/no)"
             print(colored(confirmation_response, 'yellow'))
@@ -700,16 +709,16 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
             bash_blocks = safe_bash_blocks
     else:
         if not execute_actions_automatically:
-            print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
+            print(colored(f"Command will be executed in {args.unsafe} seconds, press Ctrl+C to abort.", 'yellow'))
             try:
-                for remaining in range(args.auto, 0, -1):
+                for remaining in range(args.unsafe, 0, -1):
                     sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
                     sys.stdout.flush()
                     time.sleep(1)
                 sys.stdout.write("\n")  # Ensure we move to a new line after countdown
             except KeyboardInterrupt:
                 print(colored("\nExecution aborted by the user.", 'red'))
-    return select_and_execute_commands(bash_blocks, args.auto is not None or execute_actions_automatically) 
+    return select_and_execute_commands(bash_blocks, args.unsafe is not None or execute_actions_automatically) 
 
 if __name__ == "__main__":
     main()
