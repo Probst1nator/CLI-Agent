@@ -74,7 +74,7 @@ class FewShotProvider:
     #     return (response, chat)
         
     @classmethod 
-    def few_shot_YesNo(self, userRequest: str | Chat, preferred_models: List[str]=[], force_local: bool = False, silent_reason: str = False, force_free: bool = False, force_preferred_model: bool = False) -> Tuple[bool,Chat]:
+    def few_shot_YesNo(self, userRequest: str | Chat, preferred_models: List[str]=[], force_local: bool = False, silent_reason: str = "YesNo", force_free: bool = False, force_preferred_model: bool = False) -> Tuple[bool,Chat]:
         """
         Determines whether the answer to the user's question is 'yes' or 'no'.
 

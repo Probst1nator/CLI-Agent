@@ -5,6 +5,7 @@ import os
 from termcolor import colored
 
 from py_classes.cls_chat import Chat, Role
+from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_llm_router import LlmRouter
 from py_methods.cmd_execution import select_and_execute_commands
 from py_classes.globals import g
@@ -40,7 +41,7 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
                 implement_script_chat.add_message(
                     Role.USER,
                     # f"I have found a existing script with the title '{script_title}'.\nPlease check if this code needs to be modified or our requirements as is. ßn```python\n{file_content}\n```"
-                    f"```python\n{file_content}\n```\n\nI have found a existing script with the title '{script_title}'.\nPlease check if this code fulfills our requirements as is. Plyease respond in a json object with a 'reasoning' key-value first and a 'answer' key with one of the following as values: ('rewrite', 'overwrite' or 'accept')"
+                    f"```python\n{file_content}\n```\n\nI have found a existing script with the title '{script_title}'.\nPlease check if this implementation already fulfills our requirements as is. Please respond in a json object with a 'reasoning' key-value first and a 'answer' key with one of the following as values: ('rewrite', 'overwrite' or 'accept')"
                 )
                 implement_script_chat.add_message(
                     Role.ASSISTANT,
@@ -82,9 +83,16 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
             f.write(final_script)
 
         # execute the script
-        cmd_context_augmentation, execution_summarization = select_and_execute_commands([f"python3 {script_path}"], auto_execute=True, detached=True)
+        execution_details, execution_summarization = select_and_execute_commands([f"python3 {script_path}"], auto_execute=True, detached=True)
+        
+        if FewShotProvider.few_shot_YesNo(f"Did the executed python encounter an error?\n{execution_details}", force_local=args.local)[0]:
+            
+            context_chat.add_message(Role.USER, "The python script has encountered an error.")
+            context_chat.add_message(Role.ASSISTANT, f"The python tool has been executed for the script '{script_title}'.")
+            handle_python_tool(tool, context_chat, args)
+            return
 
-        context_chat.add_message(Role.USER, cmd_context_augmentation)
+        context_chat.add_message(Role.USER, execution_details)
         context_chat.add_message(Role.ASSISTANT, f"The python tool has been executed for the script '{script_title}'.")
     except Exception as e:
         error_msg = f"Error in Python tool execution: {str(e)}"
