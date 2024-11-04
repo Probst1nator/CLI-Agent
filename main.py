@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import logging
 import os
 import random
 import select
@@ -38,6 +39,12 @@ from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_chat import Chat, Role
 from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
 from py_classes.globals import g
+
+# Suppress TensorFlow logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
+logging.getLogger('tensorflow').setLevel(logging.FATAL)
+# Disable CUDA warnings
+os.environ['CUDA_VISIBLE_DEVICES'] = ''  # This will force CPU usage
 
 
 def get_local_ip():
@@ -88,7 +95,9 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-r", "--regenerate", action="store_true",
                         help="Regenerate the last response.")
     parser.add_argument("-v", "--voice", action="store_true",
-                        help="Enable microphone input and speech-to-text output.")
+                        help="Enable microphone input and text-to-speech output.")
+    parser.add_argument("-spe", "--speak", action="store_true",
+                        help="Text-to-speech output.")
     parser.add_argument("-img", "--image", action="store_true",
                         help="Take a screenshot and generate a response based on the contents of the image.")
     parser.add_argument("-maj", "--majority", action="store_true",
@@ -238,7 +247,7 @@ def main() -> None:
     else:
         context_chat = Chat()
     
-    if args.voice and context_chat and len(context_chat.messages) > 0:
+    if (args.voice or args.speak) and context_chat and len(context_chat.messages) > 0:
         # tts last response (when continuing)
         last_response = context_chat.messages[-1][1]
         text_to_speech(last_response)
@@ -547,9 +556,9 @@ Example responses:
 {{"reasoning": "The user is confused about my recent actions, I should reason through my recent actions and explain them to the user.", "tool": "reply"}}
 {{"reasoning": "The python tool has been executed succesfully, it seems the user has closed the pygame window. I should ask the user if the game was fun.", "tool": "reply"}}
 
-{{"reasoning": "The use wants to see an interactable mandelbrot set, this is too complex for a simple bash command, instead I will implement a python script to generate the mandelbrot set. The user will be able to interact with the set and zoom in and out.", "tool": "python", "title": "mandelbrot.py"}}
+{{"reasoning": "The user wants to see an interactable mandelbrot set, this is too complex for a simple bash command, instead I will implement a python script to generate the mandelbrot set. The user will be able to interact with the set and zoom in and out.", "tool": "python", "title": "mandelbrot.py"}}
 {{"reasoning": "The user is asking for the result of the calculation (3*(4+3). I will use python to ensure the correct result is returned.", "tool": "python", "title": "calculation.py"}}
-{{"reasoning": "The user is asking for a simple python script that prints 'Hello World!'. I will provide a simple python script that prints 'Hello World!'.", "tool": "python", "title": "hello_world.py"}}
+{{"reasoning": "The user wants to reverse the mandelbrot generation. I will extend our previously implemented script to include buttons to control the flow of time.", "tool": "python", "title": "mandelbrot.py"}}
 
 # Reminder: Your task is to work towards a helpful response, respond when you're ready. This is the original user input:\n{user_input}""")
             return tool_use_context_chat
@@ -622,7 +631,7 @@ Example responses:
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'web_search':
                         web_query = tool.get('web_query', '')
-                        results = WebTools().search_brave(web_query, 3)
+                        results = WebTools().search_brave(web_query, 3, args.llm if args.llm else "")
                         web_search_context_chat = context_chat.deep_copy()
                         results_joined = '\n'.join(results)
                         web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{results_joined}\n```")
@@ -637,7 +646,7 @@ Example responses:
                             title = FewShotProvider.few_shot_TextToQuery(reasoning, force_local=args.local)
                         print(colored(f"Implementing and executing python script: {title}", "yellow"))
                         handle_python_tool(tool, context_chat, args)
-                        should_continue = False
+                        should_continue = "ModuleNotFoundError" in context_chat.messages[-2][1]
                     elif selected_tool == 'reply':
                         should_continue = False
                         break
@@ -661,14 +670,17 @@ Example responses:
         # REPLY - BEGIN
         # Final summarization
         if context_chat.messages[-1][0] == Role.ASSISTANT:
-            context_chat.add_message(Role.USER, "Please summarize a response to the user.")
+            if "python" in selected_tools:
+                context_chat.add_message(Role.USER, "Please summarize a response to the user. Do not include any python code.")
+            else:
+                context_chat.add_message(Role.USER, "Please summarize a response to the user.")
 
         print(colored("# # # RESPONSE # # #", "green"))
         llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
 
         context_chat.add_message(Role.ASSISTANT, llm_response)
         
-        if (args.voice):
+        if (args.voice or args.speak):
             spoken_response = remove_blocks(llm_response, ["md"])
             text_to_speech(spoken_response)
 
@@ -698,7 +710,7 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
         execute_actions_automatically = True
     
     if (args.unsafe is None and not execute_actions_automatically) or args.safe:
-        if args.voice:
+        if args.voice or args.speak:
             confirmation_response = "Do you want me to execute these steps? (Yes/no)"
             print(colored(confirmation_response, 'yellow'))
             text_to_speech(confirmation_response)

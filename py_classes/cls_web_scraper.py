@@ -42,7 +42,7 @@ class WebTools:
             print(f"Error scraping {url}: {str(e)}")
             return ""
 
-    def search_brave(self, query: str, num_results: int = 2, summarization_llm: str = "") -> List[str]:
+    def search_brave(self, query: str, num_results: int = 2, summarization_llm: str | None = None, force_local_llm: bool = False) -> List[str]:
         """
         Search the web using the Brave browser and return the scraped readable texts from each result.
         :param query: The search query
@@ -54,15 +54,11 @@ class WebTools:
         search_results = brave.search(q=query, count=num_results, safesearch="off")
         scraped_texts = []
         for web_result in search_results.web_results:
-            # print(web_result.title)
-            # print(web_result.url)
-            # print(web_result.description)
-            # print(web_result.age)
             scraped_content = self.scrape_text_from_url(web_result['url'])
             scraped_texts.append(scraped_content)
         
-        if summarization_llm:
-            summarized_content = FewShotProvider.few_shot_distilText(query, scraped_texts, [summarization_llm])
+        if summarization_llm != None:
+            summarized_content = FewShotProvider.few_shot_distilText(query, scraped_texts, [summarization_llm], force_local = force_local_llm)
             return [summarized_content]
         return scraped_texts
 

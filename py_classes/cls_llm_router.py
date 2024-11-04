@@ -84,7 +84,7 @@ class Llm:
             # Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.STRONG),
             # Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.FAST),
             Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, AIStrengths.FAST),
-            Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 8192, AIStrengths.FAST),
+            Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 8192, AIStrengths.STRONG),
             Llm(GroqAPI(), "gemma-7b-it", None, False, False, False, 8192, AIStrengths.FAST),
             Llm(GroqAPI(), "llama-3.2-3b-preview", None, False, False, False, 8192, AIStrengths.FAST),
             Llm(GroqAPI(), "llama-3.2-1b-preview", None, False, False, False, 8192, AIStrengths.FAST),
