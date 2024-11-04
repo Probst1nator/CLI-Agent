@@ -83,12 +83,12 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
             f.write(final_script)
 
         # execute the script
-        execution_details, execution_summarization = select_and_execute_commands([f"python3 {script_path}"], auto_execute=True, detached=True)
+        execution_details, execution_summarization = select_and_execute_commands([f"python3 {script_path}"], auto_execute=True, detached=False)
         
-        if FewShotProvider.few_shot_YesNo(f"Did the executed python encounter an error?\n{execution_details}", force_local=args.local)[0]:
+        if "ModuleNotFoundError" not in execution_details and FewShotProvider.few_shot_YesNo(f"Did the executed python encounter an error?\n{execution_details}", force_local=args.local)[0]:
             
-            context_chat.add_message(Role.USER, "The python script has encountered an error.")
-            context_chat.add_message(Role.ASSISTANT, f"The python tool has been executed for the script '{script_title}'.")
+            context_chat.add_message(Role.USER, execution_details)
+            context_chat.add_message(Role.ASSISTANT, f"The python tool has encountered an error while executing the script '{script_title}'.")
             handle_python_tool(tool, context_chat, args)
             return
 

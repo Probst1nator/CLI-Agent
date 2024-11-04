@@ -753,7 +753,7 @@ Create such object(s) based on this description: {target_description}""")
         return obj
     
     @classmethod
-    def few_shot_distilText(cls, query: str, scraped_contents: List[str], summarization_llms: List[str], force_free: bool = True) -> str:
+    def few_shot_distilText(cls, query: str, scraped_contents: List[str], summarization_llms: List[str] = [], force_free: bool = True, force_local: bool = False) -> str:
         """
         Summarizes the scraped content using a distillation model.
 
@@ -767,28 +767,31 @@ Create such object(s) based on this description: {target_description}""")
         """
         summarizations = []
         for scraped_content in scraped_contents:
-            while len(scraped_content)/4 > 4096:
+            if not len(scraped_content)/4 > 2048:
+                summarizations.append(scraped_content)
+                continue
+            while len(scraped_content)/4 > 2048:
                 digestible_text = scraped_content[:8192]
                 scraped_content = scraped_content[8192:]
-                chat = Chat("You are a text summarizer. Given a query and scraped content, you summarize the text to provide a concise and factual overview.")
-                chat.add_message(Role.USER, f"""Please interpret the below website-content, can you extract information relevant to the query?
+                chat = Chat("You are a text summarizer. Given a query and scraped content, you summarize the text to provide a relevant and intelligent overview.")
+                chat.add_message(Role.USER, f"""Please read the below website and extract any information related to the query.
 QUERY:
 {query}
-CONTENT:
+WEBSITE:
 {digestible_text}""")
-                summary = LlmRouter.generate_completion(chat, summarization_llms, force_free=force_free)
+                summary = LlmRouter.generate_completion(chat, summarization_llms, force_free=force_free, force_local=force_local, silent_reason="DistillingText")
                 summarizations.append(summary)
         while len(summarizations) > 1:
-            chat = Chat("You are a expert data scientist. Please combine the provided summaries to create a concise, but as detailed as needed, overview.")
-            chat.add_message(Role.USER, f"""Please summarize the below summaries, the topic is '{query}':
+            chat = Chat("You are a nuanced interdisciplinary data scientist. Please integrate both provided summaries into a relevant and concise overview.")
+            chat.add_message(Role.USER, f"""Please combine the below summaries, for the topic of '{query}':
 ```summary_1
 {summarizations.pop(0)}
 ```
 ```summary_2
-{summarizations.pop(1)}
+{summarizations.pop(0)}
 ```
 """)
-            summary = LlmRouter.generate_completion(chat, summarization_llms, force_free=force_free)
+            summary = LlmRouter.generate_completion(chat, summarization_llms, force_free=force_free, force_local=force_local, silent_reason="DistillingDistilledText")
             summarizations.append(summary)
         return summarizations[0]
 
