@@ -284,7 +284,7 @@ class MakeErrorCollectorAgent(BaseAssistantAgent):
             print("\n" + "# " * 50)
             print(f"{colored('Original:', 'cyan')}")
             print(f"{colored(reimplementation['original'], 'red')}\n")
-            print(f"{colored(f'Reimplementation {index}/{total_reimplementations}', 'cyan')} for {colored(reimplementation["file_path"], 'yellow')}:")
+            print(f"{colored(f'Reimplementation {index}/{total_reimplementations}', 'cyan')} for {colored(reimplementation['file_path'], 'yellow')}:")
             print(f"{colored(reimplementation['reimplementation'], 'green')}\n")
             print(f"{colored('Implementation confidence:', 'cyan')} {reimplementation['confidence']}")
             user_input: str = input(f"{colored(f'ACCEPT OR DECLINE ({total_reimplementations - index} left) (Y/n):', 'white', 'on_blue')} ")
@@ -300,7 +300,7 @@ class MakeErrorCollectorAgent(BaseAssistantAgent):
             original_file_content: str = open(reimplementation["file_path"], 'r').read()
             new_file_content: str = original_file_content.replace(reimplementation['original'], reimplementation['reimplementation'])
             open(reimplementation["file_path"], 'w').write(new_file_content)
-            print(colored(f"Reimplementation applied to {reimplementation["file_path"]}", "green"))
+            print(colored(f"Reimplementation applied to {reimplementation['file_path']}", "green"))
             if reimplementation["file_path"] not in accepted_file_paths:
                 accepted_file_paths.append(reimplementation["file_path"])
         return accepted_file_paths
