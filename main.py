@@ -557,10 +557,12 @@ Example responses:
 {{"reasoning": "The python tool has been executed succesfully, it seems the user has closed the pygame window. I should ask the user if the game was fun.", "tool": "reply"}}
 
 {{"reasoning": "The user wants to see an interactable mandelbrot set, this is too complex for a simple bash command, instead I will implement a python script to generate the mandelbrot set. The user will be able to interact with the set and zoom in and out.", "tool": "python", "title": "mandelbrot.py"}}
-{{"reasoning": "The user is asking for the result of the calculation (3*(4+3). I will use python to ensure the correct result is returned.", "tool": "python", "title": "calculation.py"}}
+{{"reasoning": "The user is asking for the result of the calculation (3*(4+3). To ensure a valid calculation result I will use python to perform the calculation.", "tool": "python", "title": "calculation.py"}}
 {{"reasoning": "The user wants to reverse the mandelbrot generation. I will extend our previously implemented script to include buttons to control the flow of time.", "tool": "python", "title": "mandelbrot.py"}}
 
-# Reminder: Your task is to work towards a helpful response, respond when you're ready. This is the original user input:\n{user_input}""")
+# Reminder: 
+Your task is to achieve a helpful response, potentially using multiple of your available tools sequentially to then respond when you're ready. 
+This is the original user input:\n{user_input}""")
             return tool_use_context_chat
 
         # AGENTIC IN-TURN LOOP - BEGIN

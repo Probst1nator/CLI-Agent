@@ -36,7 +36,3 @@ openai-whisper
 yt-dlp
 sentence_transformers
 pyautogui
-libasound-dev
-portaudio19-dev
-libportaudio2
-libportaudiocpp0
