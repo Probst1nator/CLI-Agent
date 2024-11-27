@@ -12,6 +12,7 @@ __pycache__/
 *.json
 *.pptx
 *.pdf
+*.wav
 .vscode
 .venv/**
 
