@@ -36,3 +36,4 @@ openai-whisper
 yt-dlp
 sentence_transformers
 pyautogui
+outetts

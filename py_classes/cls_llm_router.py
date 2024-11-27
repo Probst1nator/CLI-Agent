@@ -75,22 +75,22 @@ class Llm:
             # Llm(GroqChat(), "llama-3.1-405b-reasoning", None, False, False, 131072, None, AIStrengths.STRONG),
             # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, AIStrengths.STRONG), # For testing
             # Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, False, 8192, 4096, AIStrengths.STRONG),
-            Llm(GroqAPI(), "llama-3.1-70b-versatile", None, False, False, False, 131072, AIStrengths.STRONG),
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 131072, AIStrengths.FAST),
-            Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, False, 8192, AIStrengths.STRONG),
-            Llm(GroqAPI(), "llama-3.2-11b-vision-preview", None, False, False, False, 8192, AIStrengths.FAST),
+            # Llm(GroqAPI(), "llama-3.1-70b-specdec", None, False, False, False, 8192, AIStrengths.STRONG),
+            Llm(GroqAPI(), "llama-3.1-70b-versatile", None, False, False, False, 32768, AIStrengths.STRONG),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 8192, AIStrengths.FAST),
+            Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, True, 8192, AIStrengths.STRONG),
+            Llm(GroqAPI(), "llama-3.2-11b-vision-preview", None, False, False, True, 8192, AIStrengths.FAST),
             Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 30000, AIStrengths.STRONG),
             Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 30000, AIStrengths.FAST),
             # Llm(GroqChat(), "llama3-groq-70b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.STRONG),
             # Llm(GroqChat(), "llama3-groq-8b-8192-tool-use-preview", None, False, False, False, 8192, 30000, AIStrengths.FAST),
             Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, AIStrengths.FAST),
-            Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 8192, AIStrengths.STRONG),
+            Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 32768, AIStrengths.STRONG),
             Llm(GroqAPI(), "gemma-7b-it", None, False, False, False, 8192, AIStrengths.FAST),
             Llm(GroqAPI(), "llama-3.2-3b-preview", None, False, False, False, 8192, AIStrengths.FAST),
             Llm(GroqAPI(), "llama-3.2-1b-preview", None, False, False, False, 8192, AIStrengths.FAST),
             
             # Catch requests using strong local llms
-            # Llm(OllamaClient(), "SuperNova-Medius-Q4_K_M", None, False, True, True, 128000, None, AIStrengths.STRONG), # bad end token
             Llm(OllamaClient(), "mistral-small:22b", None, False, True, True, 128000, AIStrengths.STRONG),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, AIStrengths.FAST),
             
@@ -98,19 +98,18 @@ class Llm:
             Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, AIStrengths.FAST),
             Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, AIStrengths.STRONG),
             Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, AIStrengths.FAST),
-            # Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, AIStrengths.STRONG),
+            # Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, AIStrengths.STRONG), # Expensive as heck
 
 
             Llm(OllamaClient(), "gemma2:2b", None, False, True, False, 4096, AIStrengths.FAST),
+            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 8192, AIStrengths.STRONG),
             Llm(OllamaClient(), "llama3.2:3b", None, False, True, False, 4096, AIStrengths.FAST),
             Llm(OllamaClient(), "llama3.2:1b", None, False, True, False, 4096, AIStrengths.FAST),
-            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, AIStrengths.STRONG),
-            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 4096, AIStrengths.STRONG),
+            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 131072, AIStrengths.STRONG),
             
             Llm(OllamaClient(), "minicpm-v:8b", None, False, True, True, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-llama3:8b", None, False, True, True, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-phi3:3.8b", None, False, True, True, 4096, AIStrengths.FAST),
-            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "aya-expanse:8b", None, False, True, False, 4096, AIStrengths.STRONG),
             
             # Specialised models below
