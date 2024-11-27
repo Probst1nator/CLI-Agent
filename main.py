@@ -684,7 +684,7 @@ This is the original user input:\n{user_input}""")
         
         if (args.voice or args.speak):
             spoken_response = remove_blocks(llm_response, ["md"])
-            text_to_speech(spoken_response)
+            text_to_speech(spoken_response, force_local=args.local)
 
         # save context once before executing
         if context_chat:
