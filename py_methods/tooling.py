@@ -417,6 +417,8 @@ def listen_microphone(
 
     try:
         # Listen for speech until it seems to stop or reaches the maximum duration
+        PyAiHost.wait_for_wake_word()
+        PyAiHost.play_notification()
         with source:
             audio = r.listen(
                 source, timeout=max_listening_duration, phrase_time_limit=max_listening_duration/2

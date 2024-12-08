@@ -1,9 +1,11 @@
 import logging
 import os
 import re
+import sys
 import tempfile
 import time
 from dotenv import load_dotenv
+from termcolor import colored
 import whisper
 from typing import Dict, Tuple, Optional, List
 import torch
@@ -11,6 +13,11 @@ import soundfile as sf
 import sounddevice as sd
 import numpy as np
 import outetts
+from vosk import Model, KaldiRecognizer
+import json
+import queue
+import sounddevice as sd
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,19 +27,71 @@ class GlobalConfig:
 g = GlobalConfig()
 
 class PyAiHost:
-    """
-    A class to interface with the Whisper model for speech recognition and OuteTTS for speech synthesis.
-    """
-    
     whisper_model: Optional[whisper.Whisper] = None
     tts_interface: Optional[outetts.InterfaceHF] = None
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    vosk_model: Optional[Model] = None
+    
+    @classmethod
+    def initialize_wake_word(cls):
+        """Initialize wake word detector if not already initialized."""
+        if not cls.vosk_model:
+            cls.vosk_model = Model(lang="en-us")  # Downloads small model automatically
+            
+    @classmethod
+    def wait_for_wake_word(cls) -> bool:
+        """Listen for wake word before starting main recording."""
+        if not cls.vosk_model:
+            cls.initialize_wake_word()
+            
+        q = queue.Queue()
+        
+        def callback(indata, frames, time, status):
+            """This is called (from a separate thread) for each audio block."""
+            if status:
+                print(status, file=sys.stderr)
+            q.put(bytes(indata))
+            
+        try:
+            device_info = sd.query_devices(None, 'input')
+            samplerate = int(device_info['default_samplerate'])
+            
+            rec = KaldiRecognizer(cls.vosk_model, samplerate)
+            rec.SetWords(True)
+            
+            print(f"Local: <{colored('Vosk', 'green')}> is listening for wake word...")
+            
+            with sd.RawInputStream(samplerate=samplerate, blocksize=8000, device=None,
+                                 dtype='int16', channels=1, callback=callback):
+                
+                while True:
+                    data = q.get()
+                    if rec.AcceptWaveform(data):
+                        json_result = json.loads(rec.Result())
+                        result_str = json_result.get("text", "").lower()
+                        print(f"Local: <{colored('Vosk', 'green')}> detected: {result_str}")
+                        if json_result:
+                            result_str = json_result["text"].lower()
+                            # Check for wake word in the recognized text
+                            wake_words: List[str] = ["hey computer", "hey nova", "hey assistant", "hey ai", "nova", "a computer", "a assistant", "a nova"]
+                            if any(wake_word in result_str for wake_word in wake_words):
+                                return True
+                                
+        except Exception as e:
+            print(f"Error in wake word detection: {e}")
+            return False
 
+    
     @classmethod
     def _initialize_whisper_model(cls, whisper_model_key: str = 'medium'):
         if cls.whisper_model is None:
-            cls.whisper_model = whisper.load_model(whisper_model_key)
-
+            # Force CPU device if CUDA is not available
+            device = "cpu"  # Override device selection to ensure CPU usage
+            cls.whisper_model = whisper.load_model(
+                whisper_model_key,
+                device=device
+            )
+            
     @classmethod
     def play_notification(cls):
         """Play a gentle, pleasant notification sound to indicate when to start speaking.
@@ -88,9 +147,9 @@ class PyAiHost:
     @classmethod
     def record_audio(cls, sample_rate: int = 44100, threshold: float = 0.05,
                     silence_duration: float = 2.0, min_duration: float = 1.0, 
-                    max_duration: float = 30.0) -> Tuple[np.ndarray, int]:
+                    max_duration: float = 30.0, use_wake_word: bool = True) -> Tuple[np.ndarray, int]:
         """
-        Record audio with automatic speech detection.
+        Record audio with automatic speech detection and optional wake word detection.
         
         Args:
             sample_rate (int): Sample rate for recording
@@ -98,10 +157,16 @@ class PyAiHost:
             silence_duration (float): Duration of silence to stop recording (seconds)
             min_duration (float): Minimum recording duration (seconds)
             max_duration (float): Maximum recording duration (seconds)
-            
+            use_wake_word (bool): Whether to wait for wake word before recording
+                
         Returns:
             Tuple[np.ndarray, int]: Recorded audio array and sample rate
         """
+        # Check for wake word if enabled
+        if use_wake_word and cls.porcupine_instance:
+            if not cls.wait_for_wake_word():
+                return np.array([]), sample_rate
+            
         chunk_duration = 0.1  # Process audio in 100ms chunks
         chunk_samples = int(chunk_duration * sample_rate)
         
@@ -117,6 +182,9 @@ class PyAiHost:
         recorded_chunks = 0
         
         print("\nListening... (speak now, recording will stop after silence)")
+        
+        # Play notification sound after wake word detection
+        cls.play_notification()
         
         stream = sd.InputStream(
             samplerate=sample_rate,
@@ -194,6 +262,7 @@ class PyAiHost:
         voice_activation_whisper_prompt = os.getenv('VOICE_ACTIVATION_WHISPER_PROMPT', '')
         
         try:
+            print(f"Local: <{colored('Whisper', 'green')}> is transcribing...")
             if voice_activation_whisper_prompt:
                 result: Dict[str, any] = cls.whisper_model.transcribe(audio_path, initial_prompt=voice_activation_whisper_prompt)
             else:
@@ -210,16 +279,13 @@ class PyAiHost:
     
     @classmethod
     def _initialize_tts_model(cls, language: str = "en", use_flash_attention: bool = False):
-        """Initialize the OuteTTS model if it hasn't been initialized yet."""
         if cls.tts_interface is None:
-            # Basic model configuration without flash attention
             model_config = outetts.HFModelConfig_v1(
                 model_path="OuteAI/OuteTTS-0.2-500M",
                 language=language,
-                dtype=torch.float32,  # Use regular float32 instead of bfloat16
+                dtype=torch.float32,
+                device=cls.device  # Add explicit device specification
             )
-            cls.tts_interface = outetts.InterfaceHF(model_version="0.2", cfg=model_config)
-
 
     @classmethod
     def text_to_speech(
@@ -283,6 +349,8 @@ class PyAiHost:
 
             if not speaker:
                 speaker = cls.tts_interface.load_default_speaker(name="female_2")
+
+            print(f"Local: <{colored('OuteTTS', 'green')}> is synthesizing speech...")
 
             # Only proceed if we either have no speaker or a valid speaker
             output = cls.tts_interface.generate(
