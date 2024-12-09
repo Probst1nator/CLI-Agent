@@ -311,7 +311,6 @@ class PyAiHost:
                 language=language,
                 dtype=torch.float32,
                 device=cls.device,  # Add explicit device specification
-                dtype=torch.float32,
             )
 
     @classmethod
