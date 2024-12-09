@@ -349,10 +349,10 @@ def main() -> None:
             args.message = None
         # use microphone
         elif args.voice:
-            import pyaudio
-            import numpy as np
-            from openwakeword import Model
             if args.daily:
+                import pyaudio
+                import numpy as np
+                from openwakeword import Model
                 def listen_for_keyword(keywords=['hey_lucy', 'ok_lucy']):
                     # Initialize OpenWakeWord model
                     model = Model()
@@ -395,8 +395,12 @@ def main() -> None:
                 while True:
                     if not listen_for_keyword():
                         break
+            
+            
+            # Default voice handling
             user_input = listen_microphone()[0]
             continue_workflow_count = 0
+        
         # default user input
         else:
             user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
@@ -542,6 +546,7 @@ def main() -> None:
 2. "bash": Bash commands can be used to execute commands on the users operating system. Use this for tasks like updating, file handling and information gathering.
 3. "reply": Pick this tool to reply to the user. 'Reply' should be chosen when the user can be provided with a helpful response that does not include any code or if the given task cannot be achieved safely without further guidance.
 4. "python": Use Python scripts for calculations, coding, and other tasks that benefit from a symbolic solver approach. Include a "title" string for the script name.
+5. "end_conversation": 
 
 Example responses:
 {{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
