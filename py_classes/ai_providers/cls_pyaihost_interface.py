@@ -162,7 +162,6 @@ class PyAiHost:
     def record_audio(cls, sample_rate: int = 44100, threshold: float = 0.05,
                     silence_duration: float = 2.0, min_duration: float = 1.0, 
                     max_duration: float = 30.0, use_wake_word: bool = True) -> Tuple[np.ndarray, int]:
-                    max_duration: float = 30.0, use_wake_word: bool = True) -> Tuple[np.ndarray, int]:
         """
         Record audio with automatic speech detection and optional wake word detection.
         Record audio with automatic speech detection and optional wake word detection.
@@ -311,9 +310,8 @@ class PyAiHost:
                 model_path="OuteAI/OuteTTS-0.2-500M",
                 language=language,
                 dtype=torch.float32,
-                device=cls.device  # Add explicit device specification
+                device=cls.device,  # Add explicit device specification
                 dtype=torch.float32,
-                device=cls.device  # Add explicit device specification
             )
 
     @classmethod
