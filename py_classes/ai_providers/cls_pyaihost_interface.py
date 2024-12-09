@@ -2,9 +2,11 @@ import logging
 import os
 import re
 import sys
+import sys
 import tempfile
 import time
 from dotenv import load_dotenv
+from termcolor import colored
 from termcolor import colored
 import whisper
 from typing import Dict, Tuple, Optional, List
@@ -13,6 +15,11 @@ import soundfile as sf
 import sounddevice as sd
 import numpy as np
 import outetts
+from vosk import Model, KaldiRecognizer
+import json
+import queue
+import sounddevice as sd
+
 from vosk import Model, KaldiRecognizer
 import json
 import queue
@@ -92,6 +99,13 @@ class PyAiHost:
                 device=device
             )
             
+            # Force CPU device if CUDA is not available
+            device = "cpu"  # Override device selection to ensure CPU usage
+            cls.whisper_model = whisper.load_model(
+                whisper_model_key,
+                device=device
+            )
+            
     @classmethod
     def play_notification(cls):
         """Play a gentle, pleasant notification sound to indicate when to start speaking.
@@ -148,7 +162,9 @@ class PyAiHost:
     def record_audio(cls, sample_rate: int = 44100, threshold: float = 0.05,
                     silence_duration: float = 2.0, min_duration: float = 1.0, 
                     max_duration: float = 30.0, use_wake_word: bool = True) -> Tuple[np.ndarray, int]:
+                    max_duration: float = 30.0, use_wake_word: bool = True) -> Tuple[np.ndarray, int]:
         """
+        Record audio with automatic speech detection and optional wake word detection.
         Record audio with automatic speech detection and optional wake word detection.
         
         Args:
@@ -159,9 +175,16 @@ class PyAiHost:
             max_duration (float): Maximum recording duration (seconds)
             use_wake_word (bool): Whether to wait for wake word before recording
                 
+            use_wake_word (bool): Whether to wait for wake word before recording
+                
         Returns:
             Tuple[np.ndarray, int]: Recorded audio array and sample rate
         """
+        # Check for wake word if enabled
+        if use_wake_word and cls.porcupine_instance:
+            if not cls.wait_for_wake_word():
+                return np.array([]), sample_rate
+            
         # Check for wake word if enabled
         if use_wake_word and cls.porcupine_instance:
             if not cls.wait_for_wake_word():
@@ -182,6 +205,9 @@ class PyAiHost:
         recorded_chunks = 0
         
         print("\nListening... (speak now, recording will stop after silence)")
+        
+        # Play notification sound after wake word detection
+        cls.play_notification()
         
         # Play notification sound after wake word detection
         cls.play_notification()
@@ -263,6 +289,7 @@ class PyAiHost:
         
         try:
             print(f"Local: <{colored('Whisper', 'green')}> is transcribing...")
+            print(f"Local: <{colored('Whisper', 'green')}> is transcribing...")
             if voice_activation_whisper_prompt:
                 result: Dict[str, any] = cls.whisper_model.transcribe(audio_path, initial_prompt=voice_activation_whisper_prompt)
             else:
@@ -283,6 +310,8 @@ class PyAiHost:
             model_config = outetts.HFModelConfig_v1(
                 model_path="OuteAI/OuteTTS-0.2-500M",
                 language=language,
+                dtype=torch.float32,
+                device=cls.device  # Add explicit device specification
                 dtype=torch.float32,
                 device=cls.device  # Add explicit device specification
             )
@@ -349,6 +378,8 @@ class PyAiHost:
 
             if not speaker:
                 speaker = cls.tts_interface.load_default_speaker(name="female_2")
+
+            print(f"Local: <{colored('OuteTTS', 'green')}> is synthesizing speech...")
 
             print(f"Local: <{colored('OuteTTS', 'green')}> is synthesizing speech...")
 
