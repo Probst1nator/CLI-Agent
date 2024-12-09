@@ -56,7 +56,7 @@ def get_local_ip():
         s.close()
         return local_ip
     except Exception as e:
-        print(f"Error: {e}")
+        logging.warning(f"Could not determine local IP: {e}")
         return None
 
 
@@ -353,6 +353,10 @@ def main() -> None:
                 import pyaudio
                 import numpy as np
                 from openwakeword import Model
+            if args.daily:
+                import pyaudio
+                import numpy as np
+                from openwakeword import Model
                 def listen_for_keyword(keywords=['hey_lucy', 'ok_lucy']):
                     # Initialize OpenWakeWord model
                     model = Model()
@@ -395,6 +399,9 @@ def main() -> None:
                 while True:
                     if not listen_for_keyword():
                         break
+            
+            
+            # Default voice handling
             
             
             # Default voice handling
@@ -537,42 +544,42 @@ def main() -> None:
         # AGENT TOOL USE - END
 
 
-        def make_tools_chat(context_chat: Chat) -> Chat:
+        def make_tools_chat(context_chat: Chat, reinclude_user_msg: bool) -> Chat:
             tool_use_context_chat = context_chat.deep_copy()
             if tool_use_context_chat.messages[-1][0] == Role.USER:
                 tool_use_context_chat.messages[-1] = (Role.USER, f"# # # USER INPUT # # #\n{tool_use_context_chat.messages[-1][1]}\n")
-            tool_use_context_chat.add_message(Role.USER, f"""# # # TOOL USE INSTRUCTIONS # # #\nAnalyze the context to determine the most appropriate tool to use. Provide your reasoning with your tool choice in the below format. Respond with a single JSON object containing your reasoning, your selected tool, and any additional required parameters as shown below. Available tools are:
+            tool_use_context_chat.add_message(Role.USER, """# # # TOOL USE INSTRUCTIONS # # #\nAnalyze the context to determine the most appropriate tool to use. Provide your reasoning with your tool choice in the below format. Respond with a single JSON object containing your reasoning, your selected tool, and any additional required parameters as shown below. Available tools are:
 1. "web_search": When requiring up-to-date information or precise data a web search should be used. When used, include a "web_query" string for the search.
 2. "bash": Bash commands can be used to execute commands on the users operating system. Use this for tasks like updating, file handling and information gathering.
 3. "reply": Pick this tool to reply to the user. 'Reply' should be chosen when the user can be provided with a helpful response that does not include any code or if the given task cannot be achieved safely without further guidance.
 4. "python": Use Python scripts for calculations, coding, and other tasks that benefit from a symbolic solver approach. Include a "title" string for the script name.
-5. "end_conversation": 
+5. "goodbye": The conversation has come to a clean end and the agent will only reply one last time with a farewell message.
 
 Example responses:
-{{"reasoning": "The query requires up-to-date information on AI, which is best obtained through a web search.", "tool": "web_search", "web_query": "latest news on artificial intelligence"}}
-{{"reasoning": "The websearch tool has already been executed successfully, and the results contain the required information. I can now inform the user.", "tool": "reply"}}
-{{"reasoning": "The websearch tool has been executed successfully, but the information required is not included. I should try another websearch with a more specific query.", "tool": "web_search", "web_query": ""classical electrodynamics" fundamental "Maxwell equations" text:pdf before:2024 -quantum inurl:edu"}}
+{"reasoning": "The user wants to analyze system logs, first we need to collect them", "tool": "bash", "command": "journalctl -n 1000 > recent_logs.txt"}
 
-{{"reasoning": "The user requested me to update the Ubuntu system I am running on.", "tool": "bash", "command": "sudo apt-get update && sudo apt-get upgrade -y"}}
-{{"reasoning": "The task requires real-time hardware information that can only be obtained through direct system queries.", "tool": "bash", "command": "lscpu"}}
-{{"reasoning": "To fix the issue in the python script, I need to read from the main.py file.", "tool": "bash", "command": "cat ~/main.py"}}
+{"reasoning": "Now that we have the logs file, we can analyze patterns", "tool": "python", "title": "log_analyzer.py"}
 
-{{"reasoning": "The bash tool has been executed succesfully and has returned the current time. I can now reply to the user.", "tool": "reply"}}
-{{"reasoning": "The user is confused about my recent actions, I should reason through my recent actions and explain them to the user.", "tool": "reply"}}
-{{"reasoning": "The python tool has been executed succesfully, it seems the user has closed the pygame window. I should ask the user if the game was fun.", "tool": "reply"}}
+{"reasoning": "The previous Python execution failed due to missing dependencies. I should check the environment first", "tool": "bash", "command": "pip list"}
 
-{{"reasoning": "The user wants to see an interactable mandelbrot set, this is too complex for a simple bash command, instead I will implement a python script to generate the mandelbrot set. The user will be able to interact with the set and zoom in and out.", "tool": "python", "title": "mandelbrot.py"}}
-{{"reasoning": "The user is asking for the result of the calculation (3*(4+3). To ensure a valid calculation result I will use python to perform the calculation.", "tool": "python", "title": "calculation.py"}}
-{{"reasoning": "The user wants to reverse the mandelbrot generation. I will extend our previously implemented script to include buttons to control the flow of time.", "tool": "python", "title": "mandelbrot.py"}}
+{"reasoning": "The user is confused about my recent actions, I should reason through my recent actions and explain them to the user.", "tool": "reply"}
+
+{"reasoning": "The user wants to see an interactable mandelbrot set, this requires a Python implementation with pygame for user interaction", "tool": "python", "title": "mandelbrot.py"}
+
+{"reasoning": "The python script executed successfully but encountered an error. I should explain the issue to the user", "tool": "reply"}
+
+{"reasoning": "The user has completed their tasks and expressed they are finished", "tool": "goodbye"}
 
 # Reminder: 
-Your task is to achieve a helpful response, potentially using multiple of your available tools sequentially to then respond when you're ready. 
-This is the original user input:\n{user_input}""")
+Your task is to achieve a helpful response, potentially using multiple of your available tools sequentially to then respond when you're ready.""")
+            if reinclude_user_msg:
+                tool_use_context_chat.add_message(Role.USER, f"\nThis is the latest user input in full:\n{user_input}")
             return tool_use_context_chat
 
         # AGENTIC IN-TURN LOOP - BEGIN
         action_counter = 0  # Initialize counter for consecutive actions
         MAX_ACTIONS = 10    # Maximum number of consecutive actions before forcing a reply
+        perform_exit: bool = False
 
         while True:
             try:
@@ -586,7 +593,8 @@ This is the original user input:\n{user_input}""")
                         context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress a respond intelligently to the user.")
                         break
                 
-                tool_use_context_chat = make_tools_chat(context_chat)
+                reinclude_user_msg: bool = action_counter % 2 == 0
+                tool_use_context_chat = make_tools_chat(context_chat, reinclude_user_msg)
                 tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
                 # tool_use_context_chat.print_chat()
                 
@@ -614,7 +622,7 @@ This is the original user input:\n{user_input}""")
                 selected_tools = [json.loads(tool_call_json) for tool_call_json in tool_call_json_list]
                 print(colored(f"Selected tools: {[tool.get('tool', '') for tool in selected_tools]}", "green"))
                 
-                should_continue = False
+                should_continue: bool = False
                 
                 for tool in selected_tools:
                     
@@ -655,7 +663,18 @@ This is the original user input:\n{user_input}""")
                         handle_python_tool(tool, context_chat, args)
                         should_continue = "ModuleNotFoundError" in context_chat.messages[-2][1]
                     elif selected_tool == 'reply':
+                        if context_chat.messages[-1][0] == Role.ASSISTANT:
+                            if "python" in selected_tools:
+                                context_chat.add_message(Role.USER, "Please summarize a response to the user. Do not include any python code.")
+                            else:
+                                context_chat.add_message(Role.USER, "Please summarize a response to the user.")
+                        should_continue = args.voice
+                        break
+                    elif selected_tool == 'goodbye':
+                        if context_chat.messages[-1][0] == Role.ASSISTANT:
+                            context_chat.add_message(Role.USER, "Wave a short goodbye to the user with charm and a wink.")
                         should_continue = False
+                        perform_exit = True
                         break
                     else:
                         should_continue = False
@@ -673,14 +692,6 @@ This is the original user input:\n{user_input}""")
                 traceback.print_exc()
                 break
         # AGENT TOOL USE - END
-        
-        # REPLY - BEGIN
-        # Final summarization
-        if context_chat.messages[-1][0] == Role.ASSISTANT:
-            if "python" in selected_tools:
-                context_chat.add_message(Role.USER, "Please summarize a response to the user. Do not include any python code.")
-            else:
-                context_chat.add_message(Role.USER, "Please summarize a response to the user.")
 
         print(colored("# # # RESPONSE # # #", "green"))
         llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
@@ -691,7 +702,10 @@ This is the original user input:\n{user_input}""")
             spoken_response = remove_blocks(llm_response, ["md"])
             text_to_speech(spoken_response, force_local=args.local)
 
-        # save context once before executing
+        if perform_exit:
+            exit(0)
+        
+        # save context once per turn
         if context_chat:
             context_chat.save_to_json()
 
