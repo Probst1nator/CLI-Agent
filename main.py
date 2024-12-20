@@ -646,7 +646,7 @@ Your task is to achieve a helpful response, potentially using multiple of your a
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'web_search':
                         web_query = tool.get('web_query', '')
-                        results = WebTools().search_brave(web_query, 3, args.llm if args.llm else "")
+                        results = WebTools().search_brave(web_query, 3, args.llm if args.llm else "llama-3.1-8b-instant")
                         web_search_context_chat = context_chat.deep_copy()
                         results_joined = '\n'.join(results)
                         web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{results_joined}\n```")
