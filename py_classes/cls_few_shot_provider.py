@@ -796,8 +796,6 @@ WEBSITE:
         return summarizations[0]
 
 
-
-
     @classmethod
     def few_shot_projectModificationPlanning(cls, structure_description: Dict[str, List[str]], modification_request: str, preferred_models: List[str], force_local: bool = False) -> Tuple[List[Tuple[str, str]], Chat]:
         """
