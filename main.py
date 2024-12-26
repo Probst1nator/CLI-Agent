@@ -74,8 +74,6 @@ def parse_cli_args() -> argparse.Namespace:
                         help="""Safe command execution mode, will always prompt for confirmation before executing.""")
     parser.add_argument("-c", action="store_true",
                         help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-d", "--daily", action="store_true",
-                        help="Run the daily routine.")
     parser.add_argument("-e", "--edit", nargs='?', const="", type=str, metavar="FILEPATH",
                         help="Edit either the file at the specified path or the contents of the clipboard.")
     parser.add_argument("-h", "--help", action="store_true",
@@ -180,20 +178,10 @@ def main() -> None:
                 init_sandbox = True
                 print(colored("First attempt failed, trying again with sandbox initialization...", "yellow"))
                 continue
-            # if success:
-            #     exit(0)    
                 
             do_continue = input(colored("Do you want to iterate once more? (Y/n): ", "yellow"))
             if "n" in do_continue.lower():
                 exit(0)
-    
-    if args.daily:
-        client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-        collection = client.get_or_create_collection(name="long-term-memories")
-        args.voice = True
-    else:
-        client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-        collection = client.get_or_create_collection(name="commands")
     
     if args.quick:
         use_reasoning = False
@@ -349,63 +337,8 @@ def main() -> None:
             args.message = None
         # use microphone
         elif args.voice:
-            if args.daily:
-                import pyaudio
-                import numpy as np
-                from openwakeword import Model
-            if args.daily:
-                import pyaudio
-                import numpy as np
-                from openwakeword import Model
-                def listen_for_keyword(keywords=['hey_lucy', 'ok_lucy']):
-                    # Initialize OpenWakeWord model
-                    model = Model()
-
-                    # Initialize PyAudio
-                    pa = pyaudio.PyAudio()
-                    audio_stream = pa.open(
-                        rate=16000,
-                        channels=1,
-                        format=pyaudio.paInt16,
-                        input=True,
-                        frames_per_buffer=1024
-                    )
-
-                    print(f"Listening for keywords: {', '.join(keywords)}...")
-                    try:
-                        while True:
-                            audio_data = audio_stream.read(1024, exception_on_overflow=False)
-                            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-
-                            # Get prediction from openWakeWord model
-                            prediction = model.predict(audio_array)
-
-                            # Check if any wake word was detected
-                            for wake_word in keywords:
-                                print(prediction)
-                                if wake_word in prediction and prediction[wake_word] > 0.5:  # You can adjust this threshold
-                                    print(f"Detected wake word: {wake_word}")
-                                    return True
-
-                    except KeyboardInterrupt:
-                        print('Stopping ...')
-                    finally:
-                        audio_stream.stop_stream()
-                        audio_stream.close()
-                        pa.terminate()
-
-                    return False
-
-                while True:
-                    if not listen_for_keyword():
-                        break
-            
-            
             # Default voice handling
-            
-            
-            # Default voice handling
-            user_input = listen_microphone()[0]
+            user_input, _, wake_word_used = listen_microphone()
             continue_workflow_count = 0
         
         # default user input
@@ -585,47 +518,60 @@ Your task is to achieve a helpful response, potentially using multiple of your a
             try:
                 # Check if we've hit the maximum number of consecutive actions
                 if action_counter >= MAX_ACTIONS:
-                    # Ask use if to continue or not
+                    # Ask user if to continue or not
                     user_input = input(colored(f"Warning: Agent has performed {MAX_ACTIONS} consecutive actions without replying. Do you want to continue? (Y/n) ", "yellow")).lower()
                     if (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
                         MAX_ACTIONS += 3  # Increase the maximum number of consecutive actions
                     else:
-                        context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress a respond intelligently to the user.")
+                        context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress and respond intelligently to the user.")
                         break
-                
+
                 reinclude_user_msg: bool = action_counter % 2 == 0
                 tool_use_context_chat = make_tools_chat(context_chat, reinclude_user_msg)
-                tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
-                # tool_use_context_chat.print_chat()
+                tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
                 
                 # Use the framework's extract_blocks function
                 tool_use_reponse_blocks = extract_blocks(tool_use_response)
-                tool_call_json_list = [block[1] for block in tool_use_reponse_blocks if block[0] == r"first{}"]
+                # First try to find JSON blocks in code blocks
+                tool_call_json_list = [block[1] for block in tool_use_reponse_blocks if block[0] in ["json", "first{}"]]
                 
-                # If no JSON blocks found in extract_blocks result, try direct JSON parsing
+                # If no JSON blocks found in code blocks, try direct JSON parsing
                 if not tool_call_json_list:
                     try:
                         # Clean the response of any leading/trailing whitespace and quotes
                         cleaned_response = tool_use_response.strip().strip('"\'')
                         # Try to parse it as JSON
-                        json.loads(cleaned_response)  # Test if it's valid JSON
+                        parsed_json = json.loads(cleaned_response)  # Test if it's valid JSON
                         tool_call_json_list = [cleaned_response]
                     except json.JSONDecodeError:
-                        print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG BEGIN", "red"))
-                        tool_use_context_chat.print_chat()
-                        print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG END", "red"))
-                        break
+                        # Try to find a JSON-like structure in the response using regex
+                        import re
+                        json_pattern = r'\{[^{}]*\}'
+                        potential_json = re.search(json_pattern, tool_use_response)
+                        if potential_json:
+                            try:
+                                parsed_json = json.loads(potential_json.group())
+                                tool_call_json_list = [potential_json.group()]
+                            except json.JSONDecodeError:
+                                print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG BEGIN", "red"))
+                                tool_use_context_chat.print_chat()
+                                print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG END", "red"))
+                                break
+                        else:
+                            print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG BEGIN", "red"))
+                            tool_use_context_chat.print_chat()
+                            print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG END", "red"))
+                            break
                 
                 if not tool_call_json_list:
                     break
                 
-                selected_tools = [json.loads(tool_call_json) for tool_call_json in tool_call_json_list]
-                print(colored(f"Selected tools: {[tool.get('tool', '') for tool in selected_tools]}", "green"))
+                selected_tool_history = [json.loads(tool_call_json) for tool_call_json in tool_call_json_list]
+                print(colored(f"Selected tools: {[tool.get('tool', '') for tool in selected_tool_history]}", "green"))
                 
                 should_continue: bool = False
                 
-                for tool in selected_tools:
-                    
+                for tool in selected_tool_history:
                     selected_tool = tool.get('tool', '').strip()
                     bash_command = tool.get('command', '')
                     
@@ -655,7 +601,7 @@ Your task is to achieve a helpful response, potentially using multiple of your a
                         context_chat.add_message(Role.ASSISTANT, "The websearch tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the query: '{web_query}'.")
                         should_continue = True
                         action_counter += 1  # Increment action counter
-                    elif selected_tool == 'python': # Implement and execute python script
+                    elif selected_tool == 'python':  # Implement and execute python script
                         title = tool.get('title', None)
                         if not title:
                             title = FewShotProvider.few_shot_TextToQuery(reasoning, force_local=args.local)
@@ -663,13 +609,17 @@ Your task is to achieve a helpful response, potentially using multiple of your a
                         handle_python_tool(tool, context_chat, args)
                         should_continue = "ModuleNotFoundError" in context_chat.messages[-2][1]
                     elif selected_tool == 'reply':
+                        # Check manually for previous memory
                         if context_chat.messages[-1][0] == Role.ASSISTANT:
-                            if "python" in selected_tools:
+                            if "python" in selected_tool_history:
                                 context_chat.add_message(Role.USER, "Please summarize a response to the user. Do not include any python code.")
                             else:
                                 context_chat.add_message(Role.USER, "Please summarize a response to the user.")
-                        should_continue = args.voice
-                        break
+                        elif wake_word_used:
+                            context_chat.add_message(Role.USER, f"Ok {wake_word_used}, ")
+                        # For voice mode, allow continuation but break from tool selection
+                        # should_continue = args.voice
+                        # break
                     elif selected_tool == 'goodbye':
                         if context_chat.messages[-1][0] == Role.ASSISTANT:
                             context_chat.add_message(Role.USER, "Wave a short goodbye to the user with charm and a wink.")
@@ -681,7 +631,7 @@ Your task is to achieve a helpful response, potentially using multiple of your a
                 
                 if not should_continue:
                     break
-                    
+                        
             except json.JSONDecodeError as e:
                 print(colored(f"Error parsing tool selection response: {str(e)}", "red"))
                 print(colored("Raw response causing error:", "red"))
@@ -691,7 +641,7 @@ Your task is to achieve a helpful response, potentially using multiple of your a
                 print(colored(f"An error occurred during tool selection: {str(e)}", "red"))
                 traceback.print_exc()
                 break
-        # AGENT TOOL USE - END
+        # AGENTIC TOOL USE - END
 
         print(colored("# # # RESPONSE # # #", "green"))
         llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
@@ -701,6 +651,7 @@ Your task is to achieve a helpful response, potentially using multiple of your a
         if (args.voice or args.speak):
             spoken_response = remove_blocks(llm_response, ["md"])
             text_to_speech(spoken_response, force_local=args.local)
+                        
 
         if perform_exit:
             exit(0)
