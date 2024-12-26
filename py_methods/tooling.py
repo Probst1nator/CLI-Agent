@@ -400,14 +400,14 @@ def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
 
 def listen_microphone(
     max_listening_duration: Optional[int] = 60, force_local: bool = True
-) -> Tuple[str, str, bool]:
+) -> Tuple[str, str, bool|str]:
     """
     Listen to the microphone, save to a temporary file, and return transcription.
     Args:
     max_duration (Optional[int], optional): The maximum duration to listen. Defaults to 15.
     language (str): The language of the audio (optional).
     Returns:
-    Tuple[str, str]: (transcribed text from the audio, language)
+    Tuple[str, str, bool]: (transcribed text from the audio, language, used wake word)
     """
     global r, source
     if not r:
@@ -417,7 +417,7 @@ def listen_microphone(
 
     try:
         # Listen for speech until it seems to stop or reaches the maximum duration
-        PyAiHost.wait_for_wake_word()
+        used_wake_word = PyAiHost.wait_for_wake_word()
         PyAiHost.play_notification()
         with source:
             audio = r.listen(
@@ -439,9 +439,9 @@ def listen_microphone(
             else:
                 transcription, detected_language = OpenAIAPI.transcribe_audio(temp_audio_file_path)
 
-            print("Microphone transcription: " + colored(transcription, "green"))
+            print("Whisper transcription: " + colored(transcription, "green"))
 
-        return transcription, detected_language
+        return transcription, detected_language, used_wake_word
 
     except WaitTimeoutError:
         print(colored("Listening timed out. No speech detected.", "red"))

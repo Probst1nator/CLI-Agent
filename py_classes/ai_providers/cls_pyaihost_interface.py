@@ -5,6 +5,7 @@ import sys
 import sys
 import tempfile
 import time
+import warnings
 from dotenv import load_dotenv
 from termcolor import colored
 from termcolor import colored
@@ -46,14 +47,14 @@ class PyAiHost:
             cls.vosk_model = Model(lang="en-us")  # Downloads small model automatically
             
     @classmethod
-    def wait_for_wake_word(cls) -> bool:
-        """Listen for wake word before starting main recording."""
+    def wait_for_wake_word(cls) -> Optional[str]:
+        """Listen for wake word and return either the detected wake word or None if failed."""
         if not cls.vosk_model:
             cls.initialize_wake_word()
             
-        q = queue.Queue()
+        q: queue.Queue = queue.Queue()
         
-        def callback(indata, frames, time, status):
+        def callback(indata: np.ndarray, frames: int, time: object, status: object) -> None:
             """This is called (from a separate thread) for each audio block."""
             if status:
                 print(status, file=sys.stderr)
@@ -77,16 +78,25 @@ class PyAiHost:
                         json_result = json.loads(rec.Result())
                         result_str = json_result.get("text", "").lower()
                         print(f"Local: <{colored('Vosk', 'green')}> detected: {result_str}")
-                        if json_result:
-                            result_str = json_result["text"].lower()
-                            # Check for wake word in the recognized text
-                            wake_words: List[str] = ["hey computer", "hey nova", "hey assistant", "hey ai", " nova"]
-                            if any(wake_word in result_str for wake_word in wake_words):
-                                return True
+                        
+                        wake_words: List[str] = [
+                            # Single words
+                            "ada", "ai", "assistant", "computer", "nova",
+                            # Full phrases 
+                            "a ai", "a assistant", "a computer", "a nova",
+                            "hey ada", "hey ai", "hey assistant", "hey computer", "hey nova",
+                            "ok ada", "ok ai", "ok assistant", "ok computer", "ok nova",
+                            "Okay SmartHome", "Okay Zuhause",
+                            "SmartHome", "Zuhause"
+                        ]
+                        
+                        for wake_word in wake_words:
+                            if wake_word in result_str:
+                                return wake_word
                                 
         except Exception as e:
             print(f"Error in wake word detection: {e}")
-            return False
+            return None
 
     
     @classmethod
@@ -94,18 +104,13 @@ class PyAiHost:
         if cls.whisper_model is None:
             # Force CPU device if CUDA is not available
             device = "cpu"  # Override device selection to ensure CPU usage
-            cls.whisper_model = whisper.load_model(
-                whisper_model_key,
-                device=device
-            )
-            
-            # Force CPU device if CUDA is not available
-            device = "cpu"  # Override device selection to ensure CPU usage
-            cls.whisper_model = whisper.load_model(
-                whisper_model_key,
-                device=device
-            )
-            
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", FutureWarning)
+                cls.whisper_model = whisper.load_model(
+                    whisper_model_key,
+                    device=device
+                )
+
     @classmethod
     def play_notification(cls):
         """Play a gentle, pleasant notification sound to indicate when to start speaking.
@@ -288,11 +293,13 @@ class PyAiHost:
         
         try:
             print(f"Local: <{colored('Whisper', 'green')}> is transcribing...")
-            print(f"Local: <{colored('Whisper', 'green')}> is transcribing...")
-            if voice_activation_whisper_prompt:
-                result: Dict[str, any] = cls.whisper_model.transcribe(audio_path, initial_prompt=voice_activation_whisper_prompt)
-            else:
-                result: Dict[str, any] = cls.whisper_model.transcribe(audio_path)
+            # Use CUDA if available but suppress warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                if voice_activation_whisper_prompt:
+                    result: Dict[str, any] = cls.whisper_model.transcribe(audio_path, initial_prompt=voice_activation_whisper_prompt)
+                else:
+                    result: Dict[str, any] = cls.whisper_model.transcribe(audio_path)
             
             transcribed_text: str = result.get('text', '')
             detected_language: str = result.get('language', '')
