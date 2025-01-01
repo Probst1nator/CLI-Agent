@@ -50,8 +50,8 @@ import re
 import warnings
 
 from py_classes.cls_html_server import HtmlServer
-from py_classes.cls_rag_tooling import RagTooling
-from py_classes.cls_youtube import YouTube
+from py_classes.cls_tooling_rag import RagTooling
+from py_classes.cls_tooling_youtube import YouTube
 from py_methods.cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -59,7 +59,7 @@ warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:
 
 from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant, documents_assistant
 from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, text_to_speech, update_cmd_collection
-from py_classes.cls_web_scraper import WebTools
+from py_classes.cls_tooling_web import WebTools
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_chat import Chat, Role
