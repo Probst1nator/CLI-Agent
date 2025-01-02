@@ -34,7 +34,7 @@ warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:
 from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant
 from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, take_screenshot, text_to_speech, update_cmd_collection
 from py_classes.cls_tooling_web import WebTools
-from py_classes.cls_llm_router import LlmRouter
+from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_chat import Chat, Role
 from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
@@ -294,6 +294,8 @@ def main() -> None:
                     user_input = context_chat.messages.pop()[1]
                     print(colored(f"# cli-agent: Regenerating last response.", "green"))
                     print(colored(user_input, "blue"))
+        
+        wake_word_used = False
         
         # screen capture
         if args.image:
@@ -592,15 +594,40 @@ Your task is to achieve a helpful response, potentially using multiple of your a
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'web_search':
                         web_query = tool.get('web_query', '')
-                        list_docs_meta = WebTools().search_brave(web_query, 3, args.llm if args.llm else "llama-3.1-8b-instant")
+                        # Check if we should split the web_query into multiple queries
+                        # Initial search
+                        list_docs_meta = WebTools().search_brave(web_query, 3)
                         results = [doc for doc, _ in list_docs_meta]
                         web_search_context_chat = context_chat.deep_copy()
                         results_joined = '\n'.join(results)
-                        web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{results_joined}\n```")
-                        web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-                        context_chat.add_message(Role.USER, f"You just performed a websearch for '{web_query}', this is the returned result:\n```txt\n{web_search_summary}\n```")
+                        # Check if we should continue searching based on the results
+                        continue_context_chat = Chat().deep_copy()
+                        continue_context_chat.add_message(Role.USER, f"Based on the web search results for '{web_query}', should we continue searching or is the information sufficient to provide a good response? Consider if the results directly answer the query or if more searching would be valuable. Include 'yes' to continue searching or 'no' to continue with an action, include only after careful consideration.")
+                        should_continue_response = FewShotProvider.few_shot_YesNo(continue_context_chat, force_local=args.local)
+                        should_continue = should_continue_response[0]
+                        
+                        
+                        # Deep search
+                        if True:
+                            continue_context_chat.add_message(Role.ASSISTANT, f"Please use your increased knowledge to formulate a new question to search for more information.")
+                            web_query = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                            split_queries = FewShotProvider.few_shot_SplitToQueries(web_query, force_local=args.local)
+                            for split_query in split_queries:
+                                list_docs_meta = WebTools().search_brave(split_query, 3)
+                                results = [doc for doc, _ in list_docs_meta]
+                                web_search_context_chat = context_chat.deep_copy()
+                                results_joined = '\n'.join(results)
+                                web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{results_joined}\n```")
+                                web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                                context_chat.add_message(Role.USER, f"You just performed a websearch for '{split_query}', this is the returned result:\n```txt\n{web_search_summary}\n```")
+                        # Web search end
                         context_chat.add_message(Role.ASSISTANT, "The websearch tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the query: '{web_query}'.")
-                        should_continue = True
+                        # Check if we should continue searching based on the results
+                        continue_context_chat = Chat().deep_copy()
+                        continue_context_chat.add_message(Role.USER, f"Based on the web search results for '{web_query}', should we continue searching or is the information sufficient to provide a good response? Consider if the results directly answer the query or if more searching would be valuable. Include 'yes' to continue searching or 'no' to continue with an action, include only after careful consideration.")
+                        should_continue_response = FewShotProvider.few_shot_YesNo(continue_context_chat, force_local=args.local)
+                        should_continue = should_continue_response[0]
+                        
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'python':  # Implement and execute python script
                         title = tool.get('title', None)

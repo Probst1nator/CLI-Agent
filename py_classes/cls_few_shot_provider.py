@@ -26,6 +26,38 @@ class FewShotProvider:
         raise RuntimeError("StaticClass cannot be instantiated.")
     
     @classmethod
+    def few_shot_SplitToQueries(self, text: str, force_local: bool = False, silent_reason: str = "SplitToQueries") -> List[str]:
+        """
+        Splits the given text intoueries. By prompting the llm to use json format.
+        """
+        chat: Chat = Chat("You are a query splitter. Split the given text into queries.")
+        chat.add_message(Role.USER, "Andy Warhole lived somewhere at some point in time.")
+        chat.add_message(Role.ASSISTANT, json.dumps({"queries": ["Andy Warhole lived somewhere at some point in time.", "Andy Warhole lived somewhere at some point in time."]}))
+        chat.add_message(Role.USER, "Quantum mechanics is a branch of physics that studies the behavior of matter and energy at the atomic and subatomic level.")
+        chat.add_message(Role.ASSISTANT, json.dumps({"queries": [
+            "Quantum mechanics is a branch of physics that studies the behavior of matter and energy at the atomic and subatomic level.",
+            "What are the key principles and concepts of quantum mechanics?",
+            "How does quantum mechanics differ from classical physics?",
+            "What are practical applications of quantum mechanics?"
+        ]}))
+        chat.add_message(Role.USER, "The future of AI as multi-agent systems.")
+        chat.add_message(Role.ASSISTANT, json.dumps({"queries": [
+            "multi-agent systems",
+            "AI as multi-agent systems",
+            "The future of AI as multi-agent systems"
+        ]}))
+        chat.add_message(Role.USER, text)
+        response: str = LlmRouter.generate_completion(chat, strength=AIStrengths.FAST, force_local=force_local, silent_reason=silent_reason)
+        
+        try:
+            queries = json.loads(response)["queries"]
+        except:
+            chat.add_message(Role.ASSISTANT, f"The response was not in the expected json format. Please try again, responding only with the queries in json format.")
+            response = LlmRouter.generate_completion(chat, strength=AIStrengths.FAST, force_local=force_local, silent_reason=silent_reason)
+            queries = json.loads(response)["queries"]
+        return queries
+
+    @classmethod
     def few_shot_TextToQuery(self, text: str, force_local: bool = False, silent_reason: str = "TextToQuery") -> str:
         """
         Generates a search query based on the given text.
