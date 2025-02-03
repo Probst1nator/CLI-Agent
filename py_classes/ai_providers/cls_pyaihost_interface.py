@@ -1,16 +1,12 @@
 import logging
 import os
-import re
 import sys
-import sys
-import tempfile
 import time
 import warnings
 from dotenv import load_dotenv
 from termcolor import colored
-from termcolor import colored
 import whisper
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Union
 import torch
 import soundfile as sf
 import sounddevice as sd
@@ -20,23 +16,15 @@ from vosk import Model, KaldiRecognizer
 import json
 import queue
 import sounddevice as sd
-
-from vosk import Model, KaldiRecognizer
-import json
-import queue
-import sounddevice as sd
-
+from kokoro import KPipeline
+from py_classes.globals import g
 
 logger = logging.getLogger(__name__)
-
-class GlobalConfig:
-    PROJ_ENV_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
-
-g = GlobalConfig()
 
 class PyAiHost:
     whisper_model: Optional[whisper.Whisper] = None
     tts_interface: Optional[outetts.InterfaceHF] = None
+    kokoro_pipeline: Optional[KPipeline] = None
     device = "cuda" if torch.cuda.is_available() else "cpu"
     vosk_model: Optional[Model] = None
     
@@ -44,7 +32,18 @@ class PyAiHost:
     def initialize_wake_word(cls):
         """Initialize wake word detector if not already initialized."""
         if not cls.vosk_model:
-            cls.vosk_model = Model(lang="en-us")  # Downloads small model automatically
+            if not g.DEBUG_LOGGING:
+                # Temporarily redirect stderr to suppress Vosk initialization logs
+                stderr = sys.stderr
+                with open(os.devnull, 'w') as devnull:
+                    sys.stderr = devnull
+                    try:
+                        cls.vosk_model = Model(lang="en-us")  # Downloads small model automatically
+                    finally:
+                        sys.stderr = stderr
+            else:
+                # In debug mode, show all logs
+                cls.vosk_model = Model(lang="en-us")  # Downloads small model automatically
             
     @classmethod
     def wait_for_wake_word(cls) -> Optional[str]:
@@ -319,115 +318,91 @@ class PyAiHost:
                 dtype=torch.float32,
                 device=cls.device,  # Add explicit device specification
             )
+    
 
     @classmethod
     def text_to_speech(
         cls,
         text: str,
-        language: str = "en",
-        speaker_path: Optional[str] = None,
-        speaker_transcript: Optional[str] = None,
-        output_path: Optional[str] = "tts_output.wav",
+        voice: str = 'af_heart',
+        speed: float = 1.0,
+        output_path: Optional[str] = None,
         play: bool = True,
-        temperature: float = 0.1
-    ) -> Optional[str]:
-        """Convert text to speech using OuteTTS.
+        split_pattern: str = r'\n+'
+    ) -> Union[List[str], None]:
+        """Convert text to speech using Kokoro TTS model.
 
         Args:
             text (str): The text to convert to speech
-            language (str, optional): Language code. Defaults to "en"
-            speaker_path (Optional[str], optional): Path to speaker profile. Defaults to None
-            output_path (Optional[str], optional): Output file path. Defaults to "tts_output.wav"
-            play (bool, optional): Whether to play the audio. Defaults to True
-            temperature (float, optional): Generation temperature. Defaults to 0.1
+            language_code (str, optional): Language code. Defaults to 'a'.
+                'a' or 'en' or 'en-us' => American English
+                'b' or 'en-gb' => British English
+                'e' or 'es' => Spanish
+                'f' or 'fr' or 'fr-fr' => French
+                'h' or 'hi' => Hindi
+                'i' or 'it' => Italian
+                'p' or 'pt' or 'pt-br' => Brazilian Portuguese
+                'j' or 'ja' => Japanese (requires: pip install misaki[ja])
+                'z' or 'zh' => Mandarin Chinese (requires: pip install misaki[zh])
+            voice (str, optional): Voice ID to use. Defaults to 'af_heart'.
+            speed (float, optional): Speech speed multiplier. Defaults to 1.0.
+            output_path (Optional[str], optional): Base path for output files. Will append index if multiple segments.
+            play (bool, optional): Whether to play the audio. Defaults to True.
+            split_pattern (str, optional): Regex pattern for splitting text into segments. Defaults to r'\n+'.
 
         Returns:
-            Optional[str]: Path to the output file if successful, None if failed
+            Union[List[str], None]: List of generated audio file paths if output_path is provided, None otherwise
 
         Raises:
-            ValueError: If temperature is not between 0 and 1
+            ImportError: If kokoro package is not installed
+            ValueError: If invalid parameters are provided
+            Exception: For other errors during synthesis
         """
-        if not 0 <= temperature <= 1:
-            raise ValueError("Temperature must be between 0 and 1")
-
         try:
-            # Always reinitialize for a new language
-            if cls.tts_interface is None or language != cls._current_language:
-                cls.tts_interface = None
-                cls._initialize_tts_model(language)
-                cls._current_language = language
 
-            speaker = None
-            if speaker_path:
-                try:
-                    # For WAV files, create a speaker profile first
-                    if speaker_path.lower().endswith('.wav'):
-                        # Load and validate audio file
-                        audio_data, sample_rate = sf.read(speaker_path)
-                        if len(audio_data) > 0:
-                            # Create a simple sample transcript
-                            speaker = cls.tts_interface.create_speaker(
-                                audio_path=speaker_path,
-                                transcript=speaker_transcript
-                            )
-                        else:
-                            raise ValueError("Empty audio file")
-                    # For JSON files, load the existing speaker profile
-                    else:
-                        speaker = cls.tts_interface.load_speaker(speaker_path)
-                except Exception as e:
-                    logger.warning(f"Could not load speaker profile: {e}")
-                    logger.info("Continuing with default voice...")
-                    speaker = None
+            if cls.kokoro_pipeline is None:
+                print(f"Local: <{colored('Kokoro', 'green')}> initializing pipeline...")
+                cls.kokoro_pipeline = KPipeline(lang_code="b")
 
-            if not speaker:
-                speaker = cls.tts_interface.load_default_speaker(name="female_2")
+            if not 0.1 <= speed <= 3.0:
+                raise ValueError("Speed must be between 0.1 and 3.0")
 
-            print(f"Local: <{colored('OuteTTS', 'green')}> is synthesizing speech...")
-
-            print(f"Local: <{colored('OuteTTS', 'green')}> is synthesizing speech...")
-
-            # Only proceed if we either have no speaker or a valid speaker
-            output = cls.tts_interface.generate(
-                text=text,
-                temperature=temperature,
-                repetition_penalty=1.1,
-                max_length=4096,
-                speaker=speaker
+            print(f"Local: <{colored('Kokoro', 'green')}> is synthesizing speech...")
+            
+            output_files = []
+            generator = cls.kokoro_pipeline(
+                text,
+                voice=voice,
+                speed=speed,
+                split_pattern=split_pattern
             )
 
-            delete_output = False
-            temp_file = None
-
-            try:
-                if not output_path:
-                    delete_output = True
-                    temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                    output_path = temp_file.name
-
-                output.save(output_path)
-
+            for i, (graphemes, phonemes, audio) in enumerate(generator):
+                if output_path:
+                    # Handle both with and without extension
+                    base, ext = os.path.splitext(output_path)
+                    if not ext:
+                        ext = '.wav'
+                    current_output = f"{base}_{i}{ext}" if i > 0 else f"{base}{ext}"
+                    # Convert tensor to numpy array if needed
+                    audio_np = audio.cpu().numpy() if torch.is_tensor(audio) else audio
+                    sf.write(current_output, audio_np, 24000)
+                    output_files.append(current_output)
+                
                 if play:
-                    data, sample_rate = sf.read(output_path)
-                    cls.play_audio(data, sample_rate)
+                    # Convert tensor to numpy array if needed
+                    audio_np = audio.cpu().numpy() if torch.is_tensor(audio) else audio
+                    cls.play_audio(audio_np, 24000)
 
-                return output_path
+            return output_files if output_path else None
 
-            finally:
-                if delete_output and temp_file is not None:
-                    try:
-                        temp_file.close()
-                        os.remove(output_path)
-                    except OSError as e:
-                        logger.warning(f"Could not delete temporary file: {e}")
-
+        except ImportError:
+            print("Kokoro is not installed. Please install it with: pip install kokoro>=0.3.4")
+            print("For Japanese support: pip install misaki[ja]")
+            print("For Chinese support: pip install misaki[zh]")
+            return None
         except Exception as e:
-            logger.error(f"An error occurred during text-to-speech conversion: {e}")
-            if "FlashAttention" in str(e):
-                logger.info("Retrying without flash attention...")
-                cls.tts_interface = None
-                cls._initialize_tts_model(language, use_flash_attention=False)
-                return cls.text_to_speech(text, language, speaker_path, output_path, play, temperature)
+            print(f"An error occurred during Kokoro text-to-speech conversion: {e}")
             return None
 
 

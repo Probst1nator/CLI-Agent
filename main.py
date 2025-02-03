@@ -3,15 +3,11 @@
 import json
 import logging
 import os
-import random
 import select
-import string
 import time
 import traceback
 from typing import List, Tuple
-import chromadb
 from pyfiglet import figlet_format
-import speech_recognition as sr
 from dotenv import load_dotenv
 from termcolor import colored
 import argparse
@@ -21,18 +17,15 @@ import re
 import warnings
 
 
-from py_agents.make_agent import MakeErrorCollectorAgent
 from py_classes.cls_html_server import HtmlServer
 from py_classes.cls_tooling_python import handle_python_tool
-from py_classes.cls_tooling_rag import RagTooling
 from py_classes.cls_tooling_youtube import YouTube
 from py_methods.cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 
-from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, majority_response_assistant, presentation_assistant
-from py_methods.tooling import extract_blocks, pdf_or_folder_to_database,recolor, listen_microphone, remove_blocks, take_screenshot, text_to_speech, update_cmd_collection
+from py_methods.tooling import extract_blocks, pdf_or_folder_to_database, listen_microphone, remove_blocks, take_screenshot, text_to_speech, update_cmd_collection
 from py_classes.cls_tooling_web import WebTools
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_few_shot_provider import FewShotProvider
@@ -121,6 +114,8 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("--git_message_generator", nargs='?', const="", type=str, metavar="TOPIC",
                         help="Will rework all messages done by the user on the current branch. Enter the projects theme for better results.")
     parser.add_argument("--yt_slides", type=str, metavar="URL", help="Convert a youtube url to a slideshow")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable debug logging for all components")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -145,6 +140,11 @@ def main() -> None:
     args = parse_cli_args()
     print(args)
     
+    # Set debug logging flag
+    g.DEBUG_LOGGING = args.debug
+    if args.debug:
+        print(colored("Debug logging enabled", "yellow"))
+    
     if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online:
         args.local = True
         if not args.llm:
@@ -161,6 +161,7 @@ def main() -> None:
         exit(0)
     
     if args.fmake:
+        from py_agents.make_agent import MakeErrorCollectorAgent
         retry_count: int = 0
         init_sandbox = False
         context_file_paths: List[str] = []
@@ -241,23 +242,25 @@ def main() -> None:
         text_to_speech(last_response)
         print(colored(last_response, 'magenta'))
 
-    if args.edit != None: # code edit mode
-        pre_chosen_option = ""
-        if (args.unsafe):
-            pre_chosen_option = "1"
-        code_assistant(context_chat, args.edit, pre_chosen_option)    
-    
-    if args.fixpy != None:
-        python_error_agent(context_chat, args.fixpy)
+    if args.edit and args.fixpy and args.presentation and args.git_message_generator:
+        from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, presentation_assistant
+        if args.edit != None: # code edit mode
+            pre_chosen_option = ""
+            if (args.unsafe):
+                pre_chosen_option = "1"
+            code_assistant(context_chat, args.edit, pre_chosen_option)    
+        
+        if args.fixpy != None:
+            python_error_agent(context_chat, args.fixpy)
 
-    if args.presentation != None:
-        presentation_assistant(args, context_chat, args.presentation)
-    
-    if args.git_message_generator:
-        user_input = ""
-        if args.message:
-            user_input = args.message
-        git_message_generator(args.git_message_generator, user_input)
+        if args.presentation != None:
+            presentation_assistant(args, context_chat, args.presentation)
+        
+        if args.git_message_generator:
+            user_input = ""
+            if args.message:
+                user_input = args.message
+            git_message_generator(args.git_message_generator, user_input)
     
     prompt_context_augmentation: str = ""
     prompt_context_augmentation: str = ""
@@ -483,30 +486,145 @@ def main() -> None:
             tool_use_context_chat = context_chat.deep_copy()
             if tool_use_context_chat.messages[-1][0] == Role.USER:
                 tool_use_context_chat.messages[-1] = (Role.USER, f"# # # USER INPUT # # #\n{tool_use_context_chat.messages[-1][1]}\n")
-            tool_use_context_chat.add_message(Role.USER, """# # # TOOL USE INSTRUCTIONS # # #\nAnalyze the context to determine the most appropriate tool to use. Provide your reasoning with your tool choice in the below format. Respond with a single JSON object containing your reasoning, your selected tool, and any additional required parameters as shown below. Available tools are:
-1. "web_search": When requiring up-to-date information or precise data a web search should be used. When used, include a "web_query" string for the search.
-2. "bash": Bash commands can be used to execute commands on the users operating system. Use this for tasks like updating, file handling and information gathering.
-3. "reply": Pick this tool to reply to the user. 'Reply' should be chosen when the user can be provided with a helpful response that does not include any code or if the given task cannot be achieved safely without further guidance.
-4. "python": Use Python scripts for calculations, coding, and other tasks that benefit from a symbolic solver approach. Include a "title" string for the script name.
-5. "goodbye": The conversation has come to a clean end and the agent will only reply one last time with a farewell message.
+            
+            tool_use_context_chat.add_message(Role.USER, """You are an AI assistant with access to several tools. Your primary role is to provide direct, helpful responses while using tools only when strictly necessary. Follow this decision process for every response.
 
-Example responses:
-{"reasoning": "The user wants to analyze system logs, first we need to collect them", "tool": "bash", "command": "journalctl -n 1000 > recent_logs.txt"}
+    INITIAL RESPONSE ASSESSMENT:
+    1. For new conversations:
+    - Can this be handled with a simple reply?
+    - Is this a general query or greeting?
+    - Are tools explicitly requested?
+    2. For ongoing conversations:
+    - Check if previous context contains relevant information
+    - Verify if new tools are actually needed
+    - Consider if previous tool results are sufficient
 
-{"reasoning": "Now that we have the logs file, we can analyze patterns", "tool": "python", "title": "log_analyzer.py"}
+    AVAILABLE TOOLS AND USAGE RULES:
+    1. "reply" (DEFAULT TOOL) - Use this unless other tools are explicitly needed
+    - Demonstrations and examples
+    - Explanations and descriptions
+    - General conversation
+    Format: {
+        "tool": "reply",
+        "reasoning": "Explanation of why a direct response is sufficient"
+    }
 
-{"reasoning": "The previous Python execution failed due to missing dependencies. I should check the environment first", "tool": "bash", "command": "pip list"}
+    2. "python" - RESTRICTED to:
+    - Explicit code implementation requests
+    - Required computational tasks
+    - Data processing needs
+    Format: {
+        "tool": "python",
+        "title": "descriptive_name.py",
+        "reasoning": "Explicit justification for code implementation"
+    }
 
-{"reasoning": "The user is confused about my recent actions, I should reason through my recent actions and explain them to the user.", "tool": "reply"}
+    3. "web_search" - RESTRICTED to:
+    - Required fact verification
+    - Time-sensitive information
+    - Knowledge gaps
+    Format: {
+        "tool": "web_search",
+        "web_query": "specific search query",
+        "reasoning": "Why current knowledge is insufficient"
+    }
 
-{"reasoning": "The user wants to see an interactable mandelbrot set, this requires a Python implementation with pygame for user interaction", "tool": "python", "title": "mandelbrot.py"}
+    4. "bash" - RESTRICTED to:
+    - Required system operations
+    - File manipulation needs
+    - Command-line tool requests
+    Format: {
+        "tool": "bash",
+        "command": "specific_command",
+        "reasoning": "Why system operation is necessary"
+    }
 
-{"reasoning": "The python script executed successfully but encountered an error. I should explain the issue to the user", "tool": "reply"}
+    5. "goodbye" - Use for:
+    - Explicit conversation endings
+    - Task completion
+    Format: {
+        "tool": "goodbye",
+        "reasoning": "Why conversation is ending"
+    }
 
-{"reasoning": "The user has completed their tasks and expressed they are finished", "tool": "goodbye"}
+    MANDATORY DECISION TREE:
+    1. Can I provide a complete response using just "reply"?
+    YES → Use "reply"
+    NO → Continue to 2
 
-# Reminder: 
-Your task is to achieve a helpful response, potentially using multiple of your available tools sequentially to then respond when you're ready.""")
+    2. Is a tool explicitly requested or absolutely necessary?
+    NO → Use "reply" and explain why
+    YES → Continue to 3
+
+    3. Which SINGLE tool best solves the core need?
+    - Select most direct solution
+    - Avoid tool chains unless absolutely necessary
+    - Prefer simpler tools over complex ones
+
+    CONTEXT-AWARE BEHAVIOR:
+    1. Voice Mode Requirements:
+    - Prioritize "reply" tool
+    - Keep responses concise
+    - Use conversational tone
+    - Verbalize actions before execution
+
+    2. Text Mode Allowances:
+    - Can use more technical responses
+    - Can include detailed explanations
+    - Can use more complex tools when justified
+
+    ERROR PREVENTION:
+    1. Before tool selection:
+    - Validate necessity
+    - Check for simpler solutions
+    - Verify user intent
+
+    2. Before tool execution:
+    - Verify safety of operations
+    - Check resource requirements
+    - Prepare fallback options
+
+    ANTI-PATTERNS (STRICTLY AVOID):
+    1. DO NOT use tools for:
+    - Simple demonstrations
+    - Basic examples
+    - Text formatting
+    - General explanations
+
+    2. DO NOT chain tools unless:
+    - Explicitly required
+    - No simpler solution exists
+    - Each step is necessary
+
+    3. DO NOT use "python" for:
+    - Text generation
+    - Simple calculations
+    - Demonstrations
+
+    4. DO NOT use "web_search" for:
+    - Known information
+    - General knowledge
+    - Conceptual explanations
+
+    RESPONSE FORMAT:
+    1. Always use valid JSON
+    2. Include clear reasoning
+    3. Keep tool-specific fields
+    4. Example:
+    {
+        "tool": "reply",
+        "reasoning": "This question can be answered directly without tools because..."
+    }
+
+    FINAL VALIDATION CHECKLIST:
+    1. Is this the simplest possible solution?
+    2. Have I justified any tool usage beyond "reply"?
+    3. Am I implementing something or just demonstrating?
+    4. Would the user expect code/implementation or just information?
+    5. Have I considered voice/text mode requirements?
+
+    Remember: You are a helpful assistant first, and a tool user second. Always default to direct assistance unless tools are specifically needed.""")
+
             if reinclude_user_msg:
                 tool_use_context_chat.add_message(Role.USER, f"\nThis is the latest user input in full:\n{user_input}")
             return tool_use_context_chat
@@ -603,13 +721,13 @@ Your task is to achieve a helpful response, potentially using multiple of your a
                         # Check if we should continue searching based on the results
                         continue_context_chat = Chat().deep_copy()
                         continue_context_chat.add_message(Role.USER, f"Based on the web search results for '{web_query}', should we continue searching or is the information sufficient to provide a good response? Consider if the results directly answer the query or if more searching would be valuable. Include 'yes' to continue searching or 'no' to continue with an action, include only after careful consideration.")
-                        should_continue_response = FewShotProvider.few_shot_YesNo(continue_context_chat, force_local=args.local)
-                        should_continue = should_continue_response[0]
-                        
+                        should_deepen_research_response = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                        continue_context_chat.add_message(Role.ASSISTANT, should_deepen_research_response)
+                        should_deepen_research = "yes" in should_deepen_research_response.lower()
                         
                         # Deep search
-                        if True:
-                            continue_context_chat.add_message(Role.ASSISTANT, f"Please use your increased knowledge to formulate a new question to search for more information.")
+                        if should_deepen_research:
+                            continue_context_chat.add_message(Role.USER, f"Please respond with a concise thesis statement that summarizes where further research is needed.")
                             web_query = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
                             split_queries = FewShotProvider.few_shot_SplitToQueries(web_query, force_local=args.local)
                             for split_query in split_queries:
@@ -618,16 +736,13 @@ Your task is to achieve a helpful response, potentially using multiple of your a
                                 web_search_context_chat = context_chat.deep_copy()
                                 results_joined = '\n'.join(results)
                                 web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{results_joined}\n```")
-                                web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
-                                context_chat.add_message(Role.USER, f"You just performed a websearch for '{split_query}', this is the returned result:\n```txt\n{web_search_summary}\n```")
+                                web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, silent_reason="summarizing web search", use_reasoning=use_reasoning, silent_reasoning=False)
+                                context_chat.add_message(Role.USER, f"You just performed a websearch for '{split_query}', these are the returned results:\n```txt\n{web_search_summary}\n```")
                         # Web search end
                         context_chat.add_message(Role.ASSISTANT, "The websearch tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the query: '{web_query}'.")
                         # Check if we should continue searching based on the results
                         continue_context_chat = Chat().deep_copy()
-                        continue_context_chat.add_message(Role.USER, f"Based on the web search results for '{web_query}', should we continue searching or is the information sufficient to provide a good response? Consider if the results directly answer the query or if more searching would be valuable. Include 'yes' to continue searching or 'no' to continue with an action, include only after careful consideration.")
-                        should_continue_response = FewShotProvider.few_shot_YesNo(continue_context_chat, force_local=args.local)
-                        should_continue = should_continue_response[0]
-                        
+                        should_continue = True
                         action_counter += 1  # Increment action counter
                     elif selected_tool == 'python':  # Implement and execute python script
                         title = tool.get('title', None)
@@ -678,7 +793,7 @@ Your task is to achieve a helpful response, potentially using multiple of your a
         
         if (args.voice or args.speak):
             spoken_response = remove_blocks(llm_response, ["md"])
-            text_to_speech(spoken_response, force_local=args.local)
+            text_to_speech(spoken_response)
                         
 
         if perform_exit:

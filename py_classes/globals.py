@@ -12,6 +12,7 @@ class Globals:
     PROJ_AGENTIC_SANDBOX_BACKUP_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox_backup')
     CURRENT_WORKING_DIR_PATH = os.getcwd()
     CURRENT_MOST_INTELLIGENT_MODEL_KEY: str = "gpt4-o"
+    DEBUG_LOGGING: bool = False  # Global debug logging flag
     
     RECENT_ACTIONS: List[str] = []
 
