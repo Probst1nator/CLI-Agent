@@ -299,7 +299,7 @@ def text_to_speech(text: str, enable_keyboard_interrupt: bool = True, speed: flo
     if text == "":
         print(colored("No text to convert to speech.", "red"))
         return
-    PyAiHost.text_to_speech(text)
+    PyAiHost.text_to_speech(text, split_pattern=r'')
     return
 
 r: Recognizer = None
@@ -342,45 +342,46 @@ def listen_microphone(
     global r, source
     if not r:
         calibrate_microphone()
+    transcription: str = ""
     
-    print(colored("Listening to microphone...", "yellow"))
+    while not transcription:
+        print(colored("Listening to microphone...", "yellow"))
 
-    try:
-        # Listen for speech until it seems to stop or reaches the maximum duration
-        used_wake_word = PyAiHost.wait_for_wake_word()
-        PyAiHost.play_notification()
-        with source:
-            audio = r.listen(
-                source, timeout=max_listening_duration, phrase_time_limit=max_listening_duration/2
-            )
+        try:
+            # Listen for speech until it seems to stop or reaches the maximum duration
+            used_wake_word = PyAiHost.wait_for_wake_word()
+            PyAiHost.play_notification()
+            with source:
+                audio = r.listen(
+                    source, timeout=max_listening_duration, phrase_time_limit=max_listening_duration/2
+                )
 
-        print(colored("Not listening anymore...", "yellow"))
+            print(colored("Not listening anymore...", "yellow"))
 
-        # Create a temporary file to store the audio data
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".wav"
-        ) as temp_audio_file:
-            temp_audio_file.write(audio.get_wav_data())
-            temp_audio_file_path = temp_audio_file.name
+            # Create a temporary file to store the audio data
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=".wav"
+            ) as temp_audio_file:
+                temp_audio_file.write(audio.get_wav_data())
+                temp_audio_file_path = temp_audio_file.name
 
-            # Transcribe the audio from the temporary file
-            if force_local:
-                transcription, detected_language = PyAiHost.transcribe_audio(temp_audio_file_path)
-            else:
-                transcription, detected_language = OpenAIAPI.transcribe_audio(temp_audio_file_path)
+                # Transcribe the audio from the temporary file
+                if force_local:
+                    transcription, detected_language = PyAiHost.transcribe_audio(temp_audio_file_path)
+                else:
+                    transcription, detected_language = OpenAIAPI.transcribe_audio(temp_audio_file_path)
 
-            print("Whisper transcription: " + colored(transcription, "green"))
+                print("Whisper transcription: " + colored(transcription, "green"))
 
-        return transcription, detected_language, used_wake_word
-
-    except WaitTimeoutError:
-        print(colored("Listening timed out. No speech detected.", "red"))
-    except Exception as e:
-        print(colored(f"An error occurred: {str(e)}", "red"))
-    finally:
-        # Clean up the temporary file
-        if "temp_audio_file_path" in locals():
-            os.remove(temp_audio_file_path)
+        except WaitTimeoutError:
+            print(colored("Listening timed out. No speech detected.", "red"))
+        except Exception as e:
+            print(colored(f"An error occurred: {str(e)}", "red"))
+        finally:
+            # Clean up the temporary file
+            if "temp_audio_file_path" in locals():
+                os.remove(temp_audio_file_path)
+    return transcription, detected_language, used_wake_word
 
 
 def remove_blocks(text: str, except_types: Optional[List[str]] = None) -> str:
