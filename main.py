@@ -322,7 +322,7 @@ def main() -> None:
                 continue
             for i, base64_image in enumerate(base64_images):
                 print(colored(f"# cli-agent: Converting Image ({i}/{len(base64_images)}) into words...", "green"))
-                image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image], force_local=args.local, silent_reasoning=False)
                 prompt_context_augmentation += f'\n\n```vision_{i}\n{image_response_str}\n```'
         
         # # get controlled from the html server
@@ -471,7 +471,7 @@ def main() -> None:
         
         # AGENT INITIALIZEATION - BEGIN
         if not context_chat:
-            # llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(user_input, [args.llm], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+            # llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(user_input, [args.llm], force_local=args.local, silent_reasoning=False)
             context_chat = Chat("You are a delightfully helpful ai assistant.")
         # AGENT INITIALIZEATION - END
         
@@ -487,143 +487,128 @@ def main() -> None:
             if tool_use_context_chat.messages[-1][0] == Role.USER:
                 tool_use_context_chat.messages[-1] = (Role.USER, f"# # # USER INPUT # # #\n{tool_use_context_chat.messages[-1][1]}\n")
             
-            tool_use_context_chat.add_message(Role.USER, """You are an AI assistant with access to several tools. Your primary role is to provide direct, helpful responses while using tools only when strictly necessary. Follow this decision process for every response.
+            tool_use_context_chat.add_message(Role.USER, f"""You are an AI assistant with access to several tools. Your primary role is to provide direct, helpful responses while using tools only when strictly necessary. Follow this decision process for every response.
 
-    INITIAL RESPONSE ASSESSMENT:
-    1. For new conversations:
-    - Can this be handled with a simple reply?
-    - Is this a general query or greeting?
-    - Are tools explicitly requested?
-    2. For ongoing conversations:
-    - Check if previous context contains relevant information
-    - Verify if new tools are actually needed
-    - Consider if previous tool results are sufficient
+INITIAL RESPONSE ASSESSMENT:
+1. For new conversations:
+- Can this be handled with a simple reply?
+- Is this a general query or greeting?
+- Are tools explicitly requested?
+2. For ongoing conversations:
+- Check if previous context contains relevant information
+- Verify if new tools are actually needed
+- Consider if previous tool results are sufficient
 
-    AVAILABLE TOOLS AND USAGE RULES:
-    1. "reply" (DEFAULT TOOL) - Use this unless other tools are explicitly needed
-    - Demonstrations and examples
-    - Explanations and descriptions
-    - General conversation
-    Format: {
-        "tool": "reply",
-        "reasoning": "Explanation of why a direct response is sufficient"
-    }
+AVAILABLE TOOLS AND USAGE RULES:
+1. "reply" (DEFAULT TOOL) - Use this unless other tools are explicitly needed
+- Explanations and descriptions
+- General conversation
+Format: {{
+    "reasoning": "Explanation of why a direct response is sufficient",
+    "tool": "reply",
+    "reply": "direct response"
+}}
 
-    2. "python" - RESTRICTED to:
-    - Explicit code implementation requests
-    - Required computational tasks
-    - Data processing needs
-    Format: {
-        "tool": "python",
-        "title": "descriptive_name.py",
-        "reasoning": "Explicit justification for code implementation"
-    }
+2. "python" - RESTRICTED to:
+- Visualization requests
+- Computational tasks
+- Mathematical calculations
+Format: {{
+    "reasoning": "Explicit justification for code implementation",
+    "tool": "python",
+    "title": "descriptive_name.py"
+}}
 
-    3. "web_search" - RESTRICTED to:
-    - Required fact verification
-    - Time-sensitive information
-    - Knowledge gaps
-    Format: {
-        "tool": "web_search",
-        "web_query": "specific search query",
-        "reasoning": "Why current knowledge is insufficient"
-    }
+3. "web_search" - RESTRICTED to:
+- Required fact verification
+- Time-sensitive information
+- Knowledge gaps
+Format: {{
+    "reasoning": "Why current knowledge is insufficient",
+    "tool": "web_search",
+    "web_query": "specific search query"
+}}
 
-    4. "bash" - RESTRICTED to:
-    - Required system operations
-    - File manipulation needs
-    - Command-line tool requests
-    Format: {
-        "tool": "bash",
-        "command": "specific_command",
-        "reasoning": "Why system operation is necessary"
-    }
+4. "bash" - RESTRICTED to:
+- Required system operations
+- File manipulation needs
+- Command-line tool requests
+Format: {{
+    "reasoning": "Why system operation is necessary",
+    "tool": "bash",
+    "command": "specific_command"
+}}
 
-    5. "goodbye" - Use for:
-    - Explicit conversation endings
-    - Task completion
-    Format: {
-        "tool": "goodbye",
-        "reasoning": "Why conversation is ending"
-    }
+5. "goodbye" - Use for:
+- Explicit conversation endings
+- Task completion
+Format: {{
+    "reasoning": "Why conversation is ending",
+    "tool": "goodbye",
+    "reply": "short goodbye message"
+}}
 
-    MANDATORY DECISION TREE:
-    1. Can I provide a complete response using just "reply"?
-    YES → Use "reply"
-    NO → Continue to 2
+MANDATORY DECISION TREE:
+1. Can I provide a complete response using just "reply"?
+YES → Use "reply"
+NO → Continue to 2
 
-    2. Is a tool explicitly requested or absolutely necessary?
-    NO → Use "reply" and explain why
-    YES → Continue to 3
+2. Is a tool explicitly requested or absolutely necessary?
+NO → Use "reply" and explain why
+YES → Continue to 3
 
-    3. Which SINGLE tool best solves the core need?
-    - Select most direct solution
-    - Avoid tool chains unless absolutely necessary
-    - Prefer simpler tools over complex ones
+3. Which SINGLE tool best solves the core need?
+- Select most direct solution
+- Avoid tool chains unless absolutely necessary
+- Prefer simpler tools over complex ones
+{f'''
+CONTEXT-AWARE BEHAVIOR:
+1. You are currently in voice mode
+- You are a voice assistant
+- Your name is Nova
+- Keep responses concise
+- Use conversational tone
+''' if args.voice else ""}
+ERROR PREVENTION:
+1. Before tool selection:
+- Validate necessity
+- Check for simpler solutions
+- Verify user intent
 
-    CONTEXT-AWARE BEHAVIOR:
-    1. Voice Mode Requirements:
-    - Prioritize "reply" tool
-    - Keep responses concise
-    - Use conversational tone
-    - Verbalize actions before execution
+ANTI-PATTERNS (STRICTLY AVOID):
+1. DO NOT use tools for:
+- Basic examples
+- Text formatting
+- General explanations
 
-    2. Text Mode Allowances:
-    - Can use more technical responses
-    - Can include detailed explanations
-    - Can use more complex tools when justified
+2. DO NOT chain tools unless:
+- Explicitly required
+- No simpler solution exists
+- Each step is necessary
 
-    ERROR PREVENTION:
-    1. Before tool selection:
-    - Validate necessity
-    - Check for simpler solutions
-    - Verify user intent
+3. DO NOT use "web_search" for:
+- Known information
+- General knowledge
+- Conceptual explanations
 
-    2. Before tool execution:
-    - Verify safety of operations
-    - Check resource requirements
-    - Prepare fallback options
+RESPONSE FORMAT:
+1. Always use valid JSON
+2. Include clear reasoning
+3. Keep tool-specific fields
+4. Example:
+{{
+    "reasoning": "This question can be answered directly without tools because...",
+    "tool": "reply",
+    "reply": "direct response"
+}}
 
-    ANTI-PATTERNS (STRICTLY AVOID):
-    1. DO NOT use tools for:
-    - Simple demonstrations
-    - Basic examples
-    - Text formatting
-    - General explanations
+FINAL VALIDATION CHECKLIST:
+1. Is this the simplest possible solution?
+2. Have I justified any tool usage beyond "reply"?
+3. Am I implementing something or just demonstrating?
+4. Would the user expect code/implementation or just information?
 
-    2. DO NOT chain tools unless:
-    - Explicitly required
-    - No simpler solution exists
-    - Each step is necessary
-
-    3. DO NOT use "python" for:
-    - Text generation
-    - Simple calculations
-    - Demonstrations
-
-    4. DO NOT use "web_search" for:
-    - Known information
-    - General knowledge
-    - Conceptual explanations
-
-    RESPONSE FORMAT:
-    1. Always use valid JSON
-    2. Include clear reasoning
-    3. Keep tool-specific fields
-    4. Example:
-    {
-        "tool": "reply",
-        "reasoning": "This question can be answered directly without tools because..."
-    }
-
-    FINAL VALIDATION CHECKLIST:
-    1. Is this the simplest possible solution?
-    2. Have I justified any tool usage beyond "reply"?
-    3. Am I implementing something or just demonstrating?
-    4. Would the user expect code/implementation or just information?
-    5. Have I considered voice/text mode requirements?
-
-    Remember: You are a helpful assistant first, and a tool user second. Always default to direct assistance unless tools are specifically needed.""")
+Remember: You are a helpful assistant first, and a tool user second. Always default to direct assistance unless tools are specifically needed.""")
 
             if reinclude_user_msg:
                 tool_use_context_chat.add_message(Role.USER, f"\nThis is the latest user input in full:\n{user_input}")
@@ -648,7 +633,7 @@ def main() -> None:
 
                 reinclude_user_msg: bool = action_counter % 2 == 0
                 tool_use_context_chat = make_tools_chat(context_chat, reinclude_user_msg)
-                tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=True)
+                tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, silent_reasoning=True)
                 
                 # Use the framework's extract_blocks function
                 tool_use_reponse_blocks = extract_blocks(tool_use_response)
@@ -694,8 +679,9 @@ def main() -> None:
                 for tool in selected_tool_history:
                     selected_tool = tool.get('tool', '').strip()
                     bash_command = tool.get('command', '')
-                    
                     reasoning = tool.get('reasoning', 'No specific reasoning provided.')
+                    reply_content = tool.get('reply', '')
+
                     if selected_tool and selected_tool != "reply":
                         context_chat.add_message(Role.ASSISTANT, reasoning)
                     
@@ -721,14 +707,14 @@ def main() -> None:
                         # Check if we should continue searching based on the results
                         continue_context_chat = Chat().deep_copy()
                         continue_context_chat.add_message(Role.USER, f"Based on the web search results for '{web_query}', should we continue searching or is the information sufficient to provide a good response? Consider if the results directly answer the query or if more searching would be valuable. Include 'yes' to continue searching or 'no' to continue with an action, include only after careful consideration.")
-                        should_deepen_research_response = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                        should_deepen_research_response = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, silent_reasoning=False)
                         continue_context_chat.add_message(Role.ASSISTANT, should_deepen_research_response)
                         should_deepen_research = "yes" in should_deepen_research_response.lower()
                         
                         # Deep search
                         if should_deepen_research:
                             continue_context_chat.add_message(Role.USER, f"Please respond with a concise thesis statement that summarizes where further research is needed.")
-                            web_query = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, use_reasoning=use_reasoning, silent_reasoning=False)
+                            web_query = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, silent_reasoning=False)
                             split_queries = FewShotProvider.few_shot_SplitToQueries(web_query, force_local=args.local)
                             for split_query in split_queries:
                                 list_docs_meta = WebTools().search_brave(split_query, 3)
@@ -736,7 +722,7 @@ def main() -> None:
                                 web_search_context_chat = context_chat.deep_copy()
                                 results_joined = '\n'.join(results)
                                 web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{results_joined}\n```")
-                                web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, silent_reason="summarizing web search", use_reasoning=use_reasoning, silent_reasoning=False)
+                                web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, silent_reason="summarizing web search", silent_reasoning=False)
                                 context_chat.add_message(Role.USER, f"You just performed a websearch for '{split_query}', these are the returned results:\n```txt\n{web_search_summary}\n```")
                         # Web search end
                         context_chat.add_message(Role.ASSISTANT, "The websearch tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the query: '{web_query}'.")
@@ -749,23 +735,26 @@ def main() -> None:
                         if not title:
                             title = FewShotProvider.few_shot_TextToQuery(reasoning, force_local=args.local)
                         print(colored(f"Implementing and executing python script: {title}", "yellow"))
+                        
+                        # Use reasoning as reply content for voice feedback
+                        tool['reply'] = reasoning
+                        if args.voice or args.speak:
+                            text_to_speech(remove_blocks(reasoning, ["md"]))
+                            
                         handle_python_tool(tool, context_chat, args)
                         should_continue = "ModuleNotFoundError" in context_chat.messages[-2][1]
                     elif selected_tool == 'reply':
-                        # Check manually for previous memory
-                        if context_chat.messages[-1][0] == Role.ASSISTANT:
-                            if "python" in selected_tool_history:
-                                context_chat.add_message(Role.USER, "Please summarize a response to the user. Do not include any python code.")
-                            else:
-                                context_chat.add_message(Role.USER, "Please summarize a response to the user.")
-                        elif wake_word_used:
-                            context_chat.add_message(Role.USER, f"Ok {wake_word_used}, ")
-                        # For voice mode, allow continuation but break from tool selection
-                        # should_continue = args.voice
-                        # break
+                        if reply_content:
+                            context_chat.add_message(Role.ASSISTANT, reply_content)
+                            if args.voice or args.speak:
+                                text_to_speech(remove_blocks(reply_content, ["md"]))
+                        should_continue = False
+                        break
                     elif selected_tool == 'goodbye':
-                        if context_chat.messages[-1][0] == Role.ASSISTANT:
-                            context_chat.add_message(Role.USER, "Wave a short goodbye to the user with charm and a wink.")
+                        if reply_content:
+                            context_chat.add_message(Role.ASSISTANT, reply_content)
+                            if args.voice or args.speak:
+                                text_to_speech(remove_blocks(reply_content, ["md"]))
                         should_continue = False
                         perform_exit = True
                         break
@@ -786,14 +775,15 @@ def main() -> None:
                 break
         # AGENTIC TOOL USE - END
 
-        print(colored("# # # RESPONSE # # #", "green"))
-        llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
-
-        context_chat.add_message(Role.ASSISTANT, llm_response)
-        
-        if (args.voice or args.speak):
-            spoken_response = remove_blocks(llm_response, ["md"])
-            text_to_speech(spoken_response)
+        # Only generate final response if no reply was given through tools
+        if not any(extract_reply_content(tool) for tool in selected_tool_history):
+            print(colored("# # # RESPONSE # # #", "green"))
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
+            context_chat.add_message(Role.ASSISTANT, llm_response)
+            
+            if (args.voice or args.speak):
+                spoken_response = remove_blocks(llm_response, ["md"])
+                text_to_speech(spoken_response)
                         
 
         if perform_exit:
@@ -846,6 +836,12 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
             except KeyboardInterrupt:
                 print(colored("\nExecution aborted by the user.", 'red'))
     return select_and_execute_commands(bash_blocks, args.unsafe is not None or execute_actions_automatically) 
+
+def extract_reply_content(tool_response: dict) -> str:
+    """Extract reply content from a tool response."""
+    if tool_response.get('tool') == 'reply' or tool_response.get('tool') == 'python':
+        return tool_response.get('reply', '')
+    return ''
 
 if __name__ == "__main__":
     main()
