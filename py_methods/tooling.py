@@ -1,25 +1,20 @@
 from collections import defaultdict
-import copy
 from datetime import datetime
 import hashlib
-import json
 import os
 import pickle
 import re
 import subprocess
 import tempfile
-import time
 from typing import Any, List, Literal, Optional, Tuple
 import sqlite3
 import os
 from typing import List, Tuple
-import webbrowser
 import chromadb
 from gtts import gTTS
 import numpy as np
 import pyaudio
 
-from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_llm_router import LlmRouter
@@ -28,7 +23,6 @@ import pygame
 from termcolor import colored
 from pynput import keyboard
 from speech_recognition import Microphone, Recognizer, WaitTimeoutError
-from pydub import AudioSegment
 from io import StringIO
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
 from pdfminer.converter import TextConverter
@@ -289,7 +283,7 @@ def on_press(key):
     if key == keyboard.Key.esc:
         pygame.mixer.music.stop()
 
-def text_to_speech(text: str, lang_key: str = 'en', enable_keyboard_interrupt: bool = True, speed: float = 1.3, pitch_shift: float = 0.2, force_local: bool = True) -> None:
+def text_to_speech(text: str, enable_keyboard_interrupt: bool = True, speed: float = 1.3) -> None:
     """
     Convert the assistant's response to speech, adjust speed and pitch, then play it.
     Args:
@@ -301,77 +295,12 @@ def text_to_speech(text: str, lang_key: str = 'en', enable_keyboard_interrupt: b
     Returns:
     None
     """
+    from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
     if text == "":
         print(colored("No text to convert to speech.", "red"))
         return
-    if force_local:
-        PyAiHost.text_to_speech(text, lang_key)
-    else:
-
-        tts_file = os.path.join(g.PROJ_VSCODE_DIR_PATH, 'tts_response.mp3')
-        modified_tts_file = os.path.join(g.PROJ_VSCODE_DIR_PATH, 'modified_tts_response.mp3')
-
-        # Convert text to speech and save to a file
-        tts = gTTS(text=text, lang=lang_key)
-        tts.save(tts_file)
-
-        # Load the audio file
-        sound = AudioSegment.from_mp3(tts_file)
-
-        # Change speed
-        faster_sound = sound.speedup(playback_speed=speed)
-
-        # Change pitch
-        if pitch_shift != 0:
-            # Extract raw audio data as an array of samples
-            samples = np.array(faster_sound.get_array_of_samples())
-            
-            # Resample the audio to change pitch
-            pitch_factor = 2 ** (pitch_shift / 12)  # Convert semitones to a multiplication factor
-            new_sample_rate = int(faster_sound.frame_rate * pitch_factor)
-            pitched_samples = samples.astype(np.float64)
-            pitched_samples = np.interp(
-                np.linspace(0, len(pitched_samples), int(len(pitched_samples) / pitch_factor)),
-                np.arange(len(pitched_samples)),
-                pitched_samples
-            ).astype(np.int16)
-            
-            # Create a new AudioSegment with the pitched samples
-            pitched_sound = AudioSegment(
-                pitched_samples.tobytes(),
-                frame_rate=new_sample_rate,
-                sample_width=faster_sound.sample_width,
-                channels=faster_sound.channels
-            )
-            
-            # Export the pitched sound
-            pitched_sound.export(modified_tts_file, format="mp3")
-        else:
-            # If no pitch change, just export the speed-adjusted sound
-            faster_sound.export(modified_tts_file, format="mp3")
-
-        # Initialize pygame mixer and play the modified file
-        pygame.mixer.init()
-        pygame.mixer.music.load(modified_tts_file)
-        pygame.mixer.music.play()
-
-        if enable_keyboard_interrupt:
-            print(colored("Press 'Esc' to interrupt the speech.", "yellow"))
-            # Create a new thread to listen for keyboard events
-            listener = keyboard.Listener(on_press=on_press)
-            listener.start()
-
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-
-        if enable_keyboard_interrupt:
-            # Stop the keyboard listener
-            listener.stop()
-
-        # Clean up the files
-        os.remove(tts_file)
-        os.remove(modified_tts_file)
-
+    PyAiHost.text_to_speech(text)
+    return
 
 r: Recognizer = None
 def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
@@ -409,6 +338,7 @@ def listen_microphone(
     Returns:
     Tuple[str, str, bool]: (transcribed text from the audio, language, used wake word)
     """
+    from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
     global r, source
     if not r:
         calibrate_microphone()
