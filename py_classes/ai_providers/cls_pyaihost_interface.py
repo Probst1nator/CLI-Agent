@@ -68,6 +68,15 @@ class PyAiHost:
             
             print(f"Local: <{colored('Vosk', 'green')}> is listening for wake word...")
             
+            wake_words: List[str] = [
+                # Single words
+                "ai", "assistant", "computer", "nova",
+                # Full phrases 
+                "a ai", "a assistant", "a computer", "a nova",
+                "hey ai", "hey assistant", "hey computer", "hey nova",
+                "ok ai", "ok assistant", "ok computer", "ok nova"
+            ]
+            
             with sd.RawInputStream(samplerate=samplerate, blocksize=8000, device=None,
                                  dtype='int16', channels=1, callback=callback):
                 
@@ -78,16 +87,6 @@ class PyAiHost:
                         result_str = json_result.get("text", "").lower()
                         print(f"Local: <{colored('Vosk', 'green')}> detected: {result_str}")
                         
-                        wake_words: List[str] = [
-                            # Single words
-                            "ada", "ai", "assistant", "computer", "nova",
-                            # Full phrases 
-                            "a ai", "a assistant", "a computer", "a nova",
-                            "hey ada", "hey ai", "hey assistant", "hey computer", "hey nova",
-                            "ok ada", "ok ai", "ok assistant", "ok computer", "ok nova",
-                            "Okay SmartHome", "Okay Zuhause",
-                            "SmartHome", "Zuhause"
-                        ]
                         
                         for wake_word in wake_words:
                             if wake_word in result_str:
