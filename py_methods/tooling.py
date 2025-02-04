@@ -344,11 +344,12 @@ def listen_microphone(
         calibrate_microphone()
     transcription: str = ""
     
-    while not transcription:
+    while not transcription or transcription.strip().lower() == "you":
         print(colored("Listening to microphone...", "yellow"))
 
         try:
             # Listen for speech until it seems to stop or reaches the maximum duration
+            PyAiHost.play_notification()
             used_wake_word = PyAiHost.wait_for_wake_word()
             PyAiHost.play_notification()
             with source:

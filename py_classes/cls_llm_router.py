@@ -279,55 +279,57 @@ class LlmRouter:
         Returns:
             Optional[Llm]: The next available Llm instance if available, otherwise None.
         """
-        instance = cls()
-        
-        # Debug print for large token counts
-        if (chat.count_tokens() > 4000 and not force_free and not force_local):
-            print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
-        
-        # Search for preferred model key match first
-        for model_key in preferred_models:
-            if (model_key not in instance.failed_models) and model_key and not any(excluded_key in model_key for excluded_key in exclude_model_keys):
-                model = next((model for model in instance.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
-                if model:
-                    return model
-
-        if force_preferred_model:
-            if force_local:
-                # return a dummy model to force Ollama to download it
-                return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
-            print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
-            return None
-        
-        # Search online models by capability next
-        if not force_local:
-            for model in instance.retry_models:
-                if model.model_key not in instance.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                    if instance.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
-                        return model
-            # ignore strength if no online model is found first
-            for model in instance.retry_models:
-                if model.model_key not in instance.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                    if instance.model_capable_check(model, chat, None, local=False, force_free=force_free, has_vision=has_vision):
+        try:
+            instance = cls()
+            
+            # Debug print for large token counts
+            if (chat.count_tokens() > 4000 and not force_free and not force_local):
+                print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
+            
+            # Search for preferred model key match first
+            for model_key in preferred_models:
+                if (model_key not in instance.failed_models) and model_key and not any(excluded_key in model_key for excluded_key in exclude_model_keys):
+                    model = next((model for model in instance.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
+                    if model:
                         return model
 
-        # search local models last
-        # first by capability
-        for model in instance.retry_models:
-            if model.model_key not in instance.failed_models and model.local  and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision):
-                    return model
-        # ignore strength if no model is found
-        for model in instance.retry_models:
-            if model.model_key not in instance.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                if instance.model_capable_check(model, chat, None, local=True, force_free=force_free, has_vision=has_vision):
-                    return model
-        # ignore context_length and strength if no model is found
-        for model in instance.retry_models:
-            if model.model_key not in instance.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
-                if instance.model_capable_check(model, Chat(), None, local=True, force_free=force_free, has_vision=has_vision):
-                    return model
+            if force_preferred_model:
+                if force_local:
+                    # return a dummy model to force Ollama to download it
+                    return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, 8192, AIStrengths.STRONG)
+                print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
+                return None
+            
+            # Search online models by capability next
+            if not force_local:
+                for model in instance.retry_models:
+                    if model.model_key not in instance.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                        if instance.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
+                            return model
+                # ignore strength if no online model is found first
+                for model in instance.retry_models:
+                    if model.model_key not in instance.failed_models and not model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                        if instance.model_capable_check(model, chat, None, local=False, force_free=force_free, has_vision=has_vision):
+                            return model
 
+            # search local models last
+            # first by capability
+            for model in instance.retry_models:
+                if model.model_key not in instance.failed_models and model.local  and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                    if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision):
+                        return model
+            # ignore strength if no model is found
+            for model in instance.retry_models:
+                if model.model_key not in instance.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                    if instance.model_capable_check(model, chat, None, local=True, force_free=force_free, has_vision=has_vision):
+                        return model
+            # ignore context_length and strength if no model is found
+            for model in instance.retry_models:
+                if model.model_key not in instance.failed_models and model.local and not any(excluded_key in model.model_key for excluded_key in exclude_model_keys):
+                    if instance.model_capable_check(model, Chat(), None, local=True, force_free=force_free, has_vision=has_vision):
+                        return model
+        except Exception as e:
+            print(colored(f"Error in get_model: {e}", "red"))
         return None
     
     def model_capable_check(self, model: Llm, chat: Chat, strength: Optional[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False) -> bool:
@@ -488,7 +490,7 @@ class LlmRouter:
                 return start_response_with + response if include_start_response_str else response
 
             except Exception as e:
-                if model:
+                if 'model' in locals() and model is not None:
                     print(colored(f"generate_completion error with model {model.model_key}: {e}", "red"))
                     logger.error(f"generate_completion error with model {model.model_key}: {e}")
                     if model.model_key in instance.failed_models:

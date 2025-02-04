@@ -472,15 +472,9 @@ def main() -> None:
         # AGENT INITIALIZEATION - BEGIN
         if not context_chat:
             # llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(user_input, [args.llm], force_local=args.local, silent_reasoning=False)
-            context_chat = Chat("You are a delightfully helpful ai assistant.")
+            context_chat = Chat("You are a extremely competent agentic AI assistant.")
         # AGENT INITIALIZEATION - END
-        
-        # AGENT TOOL USE - BEGIN
         context_chat.add_message(Role.USER, user_input)
-        # 3. "majority": For solving very complex problems that require consulting high-value and high-cost expert language models.
-        # {{"tool": "majority", "reasoning": "This problem is highly complex and would benefit from consulting multiple expert models for a more comprehensive solution."}}
-        # AGENT TOOL USE - END
-
 
         def make_tools_chat(context_chat: Chat, reinclude_user_msg: bool) -> Chat:
             tool_use_context_chat = context_chat.deep_copy()
@@ -514,7 +508,7 @@ Format: {{
 - Computational tasks
 - Mathematical calculations
 Format: {{
-    "reasoning": "Explicit justification for code implementation",
+    "reasoning": "Explicit justification for code implementation including its functional requirements",
     "tool": "python",
     "title": "descriptive_name.py"
 }}
@@ -540,8 +534,8 @@ Format: {{
 }}
 
 5. "goodbye" - Use for:
-- Explicit conversation endings
-- Task completion
+- Explicit conversation ending
+- System shutdown request
 Format: {{
     "reasoning": "Why conversation is ending",
     "tool": "goodbye",
@@ -568,7 +562,7 @@ CONTEXT-AWARE BEHAVIOR:
 - Your name is Nova
 - Keep responses concise
 - Use conversational tone
-''' if args.voice else ""}
+''' if args.voice or args.speak else ""}
 ERROR PREVENTION:
 1. Before tool selection:
 - Validate necessity
