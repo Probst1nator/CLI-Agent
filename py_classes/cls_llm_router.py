@@ -88,9 +88,9 @@ class Llm:
             
             
             Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, False, 200000, AIStrengths.STRONG),
-            Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, AIStrengths.FAST),
-            Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, AIStrengths.STRONG),
-            Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, AIStrengths.FAST),
+            # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, AIStrengths.FAST),
+            # Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, AIStrengths.STRONG),
+            # Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, AIStrengths.FAST),
             # Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, AIStrengths.STRONG), # Expensive as heck
 
             # Llm(OllamaClient(), "Qwen2.5-3B-Instruct-abliterated.Q4_K_M.gguf", None, True, True, False, 128000, AIStrengths.FAST),

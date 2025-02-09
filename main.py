@@ -352,10 +352,10 @@ async def main() -> None:
             continue
         # USER INPUT HANDLING - END
         
-        # AGENT INITIALIZEATION - BEGIN
+        # AGENT INITIALIZATION - BEGIN
         if not context_chat:
             context_chat = Chat("You are a scalable agentic AI assistant.")
-        # AGENT INITIALIZEATION - END
+        # AGENT INITIALIZATION - END
         
         # Add user message to both context and web interface
         context_chat.add_message(Role.USER, user_input)
@@ -379,46 +379,32 @@ async def main() -> None:
                         context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress and respond intelligently to the user.")
                         break
 
-                # Create tool use context
-                tool_use_context_chat = context_chat.deep_copy()
-                tool_use_context_chat.debug_title = "Tool Use Context Chat"
-                if tool_use_context_chat.messages[-1][0] == Role.USER:
-                    tool_use_context_chat.messages[-1] = (Role.USER, f"Raw User input: {tool_use_context_chat.messages[-1][1]}\n")
-                
                 # Get all available tools and their prompts
                 tools_prompt = tool_manager.get_tools_prompt()
                 
-                # Add tool selection guidance
-                tool_use_context_chat.add_message(Role.USER, f"""You are an AI assistant with access to several tools. Your primary role is to provide direct, helpful responses while using tools only when strictly necessary. Follow this decision process to response to the user's request. The following tools are available:
+                # Track guidance stage (1: full, 2: summary, 3+: tools only)
+                guidance_stage = getattr(g, 'guidance_stage', 1)
+                setattr(g, 'guidance_stage', guidance_stage + 1)
+
+                # Prepare guidance based on stage
+                if guidance_stage == 1:
+                    # Full guidance for first iteration
+                    agent_prompt = f"""You are an AI assistant with access to several tools:
 
 {tools_prompt}
 
-These have been provided to you to respond to the user's request.
+You have two options for responding:
 
-MANDATORY DECISION TREE:
-1. Have I just executed a tool in my previous turn?
-YES → Consider:
-- Did the tool provide sufficient information to give a complete response?
-- Do I need to use the sequential tool to complete the task?
-- Should I summarize the tool results for the user?
-NO → Continue to 2
+1. Use the "reply" tool if you can answer directly without needing any real-time data or system operations.
 
-2. Does the request require ANY of the following?
-- Real-time data (weather, news, ongoing developments)
-- Domain specific information (code libraries, facts, expert information)
-- System operations, computations or visualizations
-- Multiple steps or operations that need to be coordinated
-YES → Select appropriate tool (use sequential tool for multi-step operations)
-NO → Continue to 3
+2. Use the "sequential" tool if you need to:
+   - Get real-time data first
+   - Perform system operations
+   - Execute computations
+   - Chain multiple operations together
+   
+The sequential tool will let you specify which tool to use now and what tool should be used next (which should typically be "reply" to provide the final response).
 
-3. Can I provide a COMPLETE and RELIABLY ACCURATE response using just "reply"?
-YES → Use "reply"
-NO → Select appropriate tool
-
-4. Which tool best solves the core need?
-- For single operations, select the most direct tool
-- For multi-step operations, use the sequential tool
-- Aim for user satisfaction
 {f'''
 CONTEXT-AWARE BEHAVIOR:
 - You are a voice assistant
@@ -426,47 +412,62 @@ CONTEXT-AWARE BEHAVIOR:
 - Keep responses concise
 - Use conversational tone
 ''' if args.voice or args.speak else ""}
-ERROR PREVENTION:
-1. Before tool selection:
-- Validate necessity
-- Check for simpler solutions
-- Verify user intent
-- For multi-step operations, use sequential tool instead of chaining individual tools
 
-ANTI-PATTERNS (STRICTLY AVOID):
-1. DO NOT use "reply" for:
-- Current weather, prices, or any real-time data
-- System operations
-- Computations
-- Visualizations
-
-2. DO NOT chain individual tools directly:
-- Use the sequential tool for multi-step operations
-- Each operation sequence should be contained within a single sequential tool call
-- Break complex operations into logical steps within the sequential tool
-
-RESPONSE FORMAT:
-1. Always respond only in the JSON example format
-2. Start with a clear reasoning about the user's request inside the "reasoning" field
-3. Populate all required tool-specific fields
-4. Example:
+Response Format:
+Either:
 {{
-    "reasoning": "This question can be answered directly without tools because it asks about a historical fact that doesn't require current data.",
     "tool": "reply",
-    "reply": "direct response"
+    "reasoning": "Why a direct response is sufficient",
+    "reply": "Your direct response here"
 }}
 
-FINAL VALIDATION CHECKLIST:
-1. Am I certain I have the required information?
-2. Can I justify any tool usage beyond "reply"?
-3. Can I provide a reliable and complete response without tools?
-4. If multiple steps are needed, am I using the sequential tool appropriately?
+Or:
+{{
+    "tool": "sequential",
+    "reasoning": "Why you need to chain operations",
+    "tool": "first_tool_name",  // The tool to use now
+    "param1": "value1",         // Parameters for the first tool
+    "next_tool": "reply",       // Usually "reply" to give final response
+    "next_title": "Final Response"
+}}"""
+                elif guidance_stage == 2:
+                    # Summary guidance for second iteration
+                    agent_prompt = f"""You are an AI assistant with these tools:
 
-Remember: You are a helpful assistant first, and a tool user second. Always use tools when needed for accuracy or fulfillment of the user's request.""")
+{tools_prompt}
+
+Either:
+1. Use "reply" for direct responses
+2. Use "sequential" to chain a tool with a final reply
+
+Response Format:
+{{
+    "tool": "reply" or "sequential",
+    "reasoning": "Why this choice is appropriate",
+    ... other parameters based on choice ...
+}}"""
+                else:
+                    # Tools-only for third iteration and beyond
+                    agent_prompt = f"""Available tools:
+
+{tools_prompt}
+
+Use "reply" directly or "sequential" to chain with reply. Always include reasoning.
+
+Response Format:
+{{
+    "tool": "reply" or "sequential",
+    "reasoning": "Why this choice is appropriate",
+    ... other parameters based on choice ...
+}}"""
+
+                # Add tool selection guidance
+                context_chat.add_message(Role.USER, f"Prompt: {user_input}\n" + agent_prompt)
 
                 # Get tool selection response
                 try:
-                    tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [] if args.local else [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, silent_reasoning=True)
+                    tool_use_response = LlmRouter.generate_completion(context_chat, [] if args.local else [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, silent_reasoning=True)
+                    context_chat.add_message(Role.ASSISTANT, tool_use_response)
                 except Exception as e:
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
                     if args.debug:
@@ -536,9 +537,6 @@ Remember: You are a helpful assistant first, and a tool user second. Always use 
                         selected_tool = tool_call.get('tool', '').strip()
                         reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
 
-                        if selected_tool and selected_tool != "reply":
-                            context_chat.add_message(Role.ASSISTANT, reasoning)
-                        
                         print(colored(f"Using tool: {selected_tool}", "green"))
                         print(colored(f"Reasoning: {reasoning}", "cyan"))
 
@@ -546,11 +544,9 @@ Remember: You are a helpful assistant first, and a tool user second. Always use 
                             tool = tool_manager.get_tool(selected_tool)()
                         except KeyError:
                             print(colored(f"Tool {selected_tool} not found", "red"))
-                            context_chat.add_message(Role.ASSISTANT, f"Error: Tool {selected_tool} not found")
                             continue
                         except Exception as e:
                             print(colored(f"Error initializing tool {selected_tool}: {str(e)}", "red"))
-                            context_chat.add_message(Role.ASSISTANT, f"Error initializing {selected_tool}: {str(e)}")
                             continue
 
                         try:
@@ -559,7 +555,6 @@ Remember: You are a helpful assistant first, and a tool user second. Always use 
                             print(colored(f"Error executing tool {selected_tool}: {str(e)}", "red"))
                             if args.debug:
                                 traceback.print_exc()
-                            context_chat.add_message(Role.ASSISTANT, f"Error executing {selected_tool}: {str(e)}")
                             continue
                         
                         # Process tool result
@@ -605,13 +600,11 @@ Please provide a corrected response that fixes this error. Remember:
                             else:
                                 # Success with corrected parameters
                                 if selected_tool == "reply":
-                                    context_chat.add_message(Role.ASSISTANT, result["reply"])
                                     if args.voice or args.speak:
                                         text_to_speech(remove_blocks(result["reply"], ["md"]))
                                     should_continue = False
                                 elif selected_tool == "goodbye":
                                     if "reply" in result:
-                                        context_chat.add_message(Role.ASSISTANT, result["reply"])
                                         if web_server and web_server.chat:
                                             web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
                                         if args.voice or args.speak:
@@ -619,19 +612,16 @@ Please provide a corrected response that fixes this error. Remember:
                                     should_continue = False
                                     perform_exit = True
                                 else:
-                                    context_chat.add_message(Role.ASSISTANT, f"Tool {selected_tool} executed successfully after correction: {json.dumps(result, indent=2)}")
                                     if web_server and web_server.chat:
                                         web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully after correction")
                                     should_continue = True
                         else:
                             if selected_tool == "reply":
-                                context_chat.add_message(Role.ASSISTANT, result["reply"])
                                 if args.voice or args.speak:
                                     text_to_speech(remove_blocks(result["reply"], ["md"]))
                                 should_continue = False
                             elif selected_tool == "goodbye":
                                 if "reply" in result:
-                                    context_chat.add_message(Role.ASSISTANT, result["reply"])
                                     if web_server and web_server.chat:
                                         web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
                                     if args.voice or args.speak:
@@ -640,7 +630,6 @@ Please provide a corrected response that fixes this error. Remember:
                                 perform_exit = True
                             elif selected_tool == "web_search":
                                 # Add tool response to chat context
-                                context_chat.add_message(Role.ASSISTANT, f"Tool {selected_tool} executed: {json.dumps(result, indent=2)}")
                                 if web_server and web_server.chat:
                                     web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
                                 # Speak the web search results directly
@@ -649,13 +638,11 @@ Please provide a corrected response that fixes this error. Remember:
                                     text_to_speech(remove_blocks(search_summary, ["md"]))
                                 should_continue = False
                             elif selected_tool == "python":
-                                context_chat.add_message(Role.ASSISTANT, f"Tool {selected_tool} executed: {json.dumps(result, indent=2)}")
                                 if web_server and web_server.chat:
                                     web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
                                 should_continue = False
                             else:
                                 # Add tool response to chat context
-                                context_chat.add_message(Role.ASSISTANT, f"Tool {selected_tool} executed: {json.dumps(result, indent=2)}")
                                 if web_server and web_server.chat:
                                     web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
                                 should_continue = True
@@ -665,7 +652,7 @@ Please provide a corrected response that fixes this error. Remember:
                         print(colored(f"Unexpected error during tool execution: {str(e)}", "red"))
                         if args.debug:
                             traceback.print_exc()
-                        context_chat.add_message(Role.ASSISTANT, f"An unexpected error occurred: {str(e)}")
+                        context_chat.add_message(Role.USER, f"An unexpected error occurred: {str(e)}")
                         should_continue = False
                 
                 if not should_continue:

@@ -168,12 +168,12 @@ The implementation must:
 4. Be self-contained and reusable
 5. Follow PEP 8 style guidelines
 
-Respond with ONLY the Python code, no explanations or markdown."""
+You may reason about the requirements and provide a detailed plan of action before responding one-shot with the full Python code."""
         )
         
         response = LlmRouter.generate_completion(
             implement_chat,
-            ["claude-3-5-sonnet-latest", "gpt-4", "qwen2.5-coder:7b-instruct"],
+            ["claude-3-5-sonnet-latest", "qwen2.5-coder:7b-instruct"],
             silent_reasoning=True
         )
         
@@ -302,17 +302,59 @@ Requirements: {script_requirements}"""
             execution_details, success = self.execute_script(script_path)
             
             if not success:
-                error_analysis = self.handle_execution_error(execution_details, context_chat)
-                if error_analysis['requires_rewrite']:
-                    # Recursively try again with a fresh implementation
-                    return await self.execute(params)
+                # Request fixed implementation with error context
+                fix_chat = context_chat.deep_copy()
+                fix_chat.add_message(
+                    Role.USER,
+                    f"""Fix this Python script that failed with the following error:
+
+ERROR OUTPUT:
+{execution_details}
+
+CURRENT SCRIPT:
+```python
+{final_script}
+```
+
+Requirements for the fix:
+{script_requirements}
+
+Respond with ONLY the complete fixed Python code, no explanations or markdown."""
+                )
+                
+                fixed_script = LlmRouter.generate_completion(
+                    fix_chat,
+                    ["qwen2.5-coder:7b-instruct", "claude-3-5-sonnet-latest"],
+                    silent_reasoning=True
+                )
+                
+                # Clean response to ensure we only get code
+                if "```python" in fixed_script:
+                    fixed_script = fixed_script[fixed_script.find("```python") + 9:fixed_script.rfind("```")]
+                fixed_script = fixed_script.strip()
+                
+                # Write fixed script
+                with open(script_path, "w") as f:
+                    f.write(fixed_script)
+                
+                # Try executing the fixed script
+                execution_details, success = self.execute_script(script_path)
+                
+                if not success:
+                    return self.format_response(
+                        reasoning=f"Script execution failed even after fix attempt",
+                        status="error",
+                        error=execution_details,
+                        script_path=script_path,
+                        fixed_script=fixed_script
+                    )
                 
                 return self.format_response(
-                    reasoning=f"Script execution failed: {error_analysis['analysis']}",
-                    status="error",
-                    error=execution_details,
-                    error_analysis=error_analysis,
-                    script_path=script_path
+                    reasoning="Script fixed and executed successfully",
+                    status="success",
+                    stdout=execution_details,
+                    script_path=script_path,
+                    fixed_script=fixed_script
                 )
             
             return self.format_response(
