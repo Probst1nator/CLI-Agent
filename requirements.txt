@@ -39,3 +39,5 @@ pyautogui
 outetts
 kokoro>=0.3.4
 soundfile
+flask>=3.0.0
+gunicorn>=21.2.0

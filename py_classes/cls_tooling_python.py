@@ -211,6 +211,11 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
     try:
         script_title = tool.get('title', '')
         script_reasoning = tool.get('reasoning', '')
+        script_requirements = tool.get('requirements', '')
+        
+        script_description = f"""Title: {script_title}
+Reasoning: {script_reasoning}
+Requirements: {script_requirements}"""
         
         if not script_title or not script_reasoning:
             raise ValueError("Python tool requires both title and reasoning")
@@ -226,10 +231,10 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
         # Handle script implementation
         if is_new_script:
             print(colored(f"Creating new script: {script_title}", "green"))
-            final_script = request_implementation(context_chat, script_reasoning, args)
+            final_script = request_implementation(context_chat, script_description, args)
         else:
             print(colored(f"Evaluating existing script: {script_path}", "yellow"))
-            evaluation = evaluate_existing_script(script_path, context_chat, script_reasoning, args)
+            evaluation = evaluate_existing_script(script_path, context_chat, script_description, args)
             
             if evaluation['decision'] == 'keep':
                 print(colored("Using existing script as-is", "green"))
@@ -240,7 +245,7 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
                     f"{'Modifying' if evaluation['decision'] == 'modify' else 'Replacing'} existing script",
                     "yellow"
                 ))
-                final_script = request_implementation(context_chat, script_reasoning, args)
+                final_script = request_implementation(context_chat, script_description, args)
         
         # Write script
         with open(script_path, "w") as f:

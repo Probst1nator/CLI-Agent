@@ -8,13 +8,16 @@ import ollama
 from termcolor import colored
 from py_classes.cls_chat import Chat
 from py_classes.cls_custom_coloring import CustomColoring
-import os
-from py_methods.logger import logger
 from py_classes.cls_ai_provider_interface import ChatClientInterface
+import os
 import socket
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from py_classes.globals import g
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class ToolType(Enum):
     """
@@ -177,38 +180,6 @@ class OllamaClient(ChatClientInterface):
     """
     reached_hosts: List[str] = []
     unreachable_hosts: List[str] = []
-    _last_print_time: float = 0
-    _last_print_message: str = ""
-    _print_threshold: float = 3.0  # seconds
-
-    @classmethod
-    def _rate_limited_print(cls, message: str) -> None:
-        """
-        Print a message with rate limiting. If called within threshold seconds of last print,
-        append a dot to the previous message instead of printing a new one.
-        
-        Args:
-            message (str): The message to print
-        """
-        current_time = datetime.now().timestamp()
-        if current_time - cls._last_print_time < cls._print_threshold and message == cls._last_print_message:
-            sys.stdout.write(".")
-            sys.stdout.flush()
-            return
-            
-        if cls._last_print_message:  # Add newline if we were printing dots
-            print()
-            
-        sys.stdout.write(message + " ")  # Add a space after message for dots
-        sys.stdout.flush()
-        cls._last_print_time = current_time
-        cls._last_print_message = message
-
-    @classmethod
-    def _reset_print_timer(cls) -> None:
-        """Reset the rate limiting timer and clear the last message."""
-        cls._last_print_time = 0
-        cls._last_print_message = ""
 
     @classmethod
     def check_host_reachability(cls, host: str) -> bool:
@@ -223,12 +194,10 @@ class OllamaClient(ChatClientInterface):
         """
         try:
             hostname, port = host.split(':') if ':' in host else (host, 11434)
-            cls._rate_limited_print(colored(f"Checking host {host}...", "green"))
+            print(colored(f"Checking host {host}...", "green"))
             with socket.create_connection((hostname, int(port)), timeout=3):
-                cls._reset_print_timer()  # Reset timer after success
                 return True
         except (socket.timeout, socket.error):
-            cls._reset_print_timer()  # Reset timer before error message
             print(colored(f"Host {host} is unreachable", "red"))
             return False
 
@@ -339,9 +308,9 @@ class OllamaClient(ChatClientInterface):
 
         try:
             if silent_reason:
-                OllamaClient._rate_limited_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to perform the action: <{colored(silent_reason, 'yellow')}>")
+                print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to perform the action: <{colored(silent_reason, 'yellow')}>")
             else:
-                OllamaClient._rate_limited_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to generate a response...")
+                print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to generate a response...")
             
             if tools:
                 response = client.chat(
@@ -370,11 +339,9 @@ class OllamaClient(ChatClientInterface):
                 logger.debug(json.dumps({"full_response": full_response}, indent=2))
                 if "instruction" in full_response.lower():
                     full_response = full_response.split("instruction")[0]
-                cls._reset_print_timer()  # Reset timer after successful completion
                 return full_response
 
         except Exception as e:
-            cls._reset_print_timer()  # Reset timer before error message
             print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model_key, 'red')}>: {e}")
             OllamaClient.unreachable_hosts.append(f"{host}{model_key}")
             logger.error(f"Ollama-Api: Failed to generate response using <{host}> with model <{model_key}>: {e}")
@@ -408,19 +375,24 @@ class OllamaClient(ChatClientInterface):
             return None
 
     @staticmethod
-    def generate_embedding(text: str, model: str = "bge-m3") -> Optional[List[float]]:
+    def generate_embedding(text: Union[str, List[str]], model: str = "bge-m3") -> Optional[Union[List[float], List[List[float]]]]:
         """
-        Generates an embedding for the given text using the specified Ollama model.
+        Generates embeddings for the given text(s) using the specified Ollama model.
         
         Args:
-            text (str): The input text to generate an embedding for.
+            text (Union[str, List[str]]): The input text or list of texts to generate embeddings for.
             model (str): The embedding model to use.
         
         Returns:
-            Optional[List[float]]: The generated embedding as a list of floats, or None if an error occurs.
+            Optional[Union[List[float], List[List[float]]]]: The generated embedding(s) as a list of floats or list of list of floats,
+                                                            or None if an error occurs.
         """
-        if len(text)<3:
+        # Handle empty input cases
+        if isinstance(text, str) and len(text) < 3:
             return None
+        if isinstance(text, list) and (len(text) == 0 or all(len(t) < 3 for t in text)):
+            return None
+
         client, model_key = OllamaClient.get_valid_client(model)
         if not client:
             logger.error(f"No valid host found for model {model}")
@@ -429,26 +401,35 @@ class OllamaClient(ChatClientInterface):
         host: str = client._client.base_url.host
 
         try:
-            OllamaClient._rate_limited_print(f"Ollama-Api: <{colored(model, 'green')}> is generating embedding using <{colored(host, 'green')}>...")
-            response = client.embeddings(model=model, prompt=text, keep_alive=7200)
-            embedding = response["embedding"]
-            # ! Test: Storing all embeddings as long term memories (storing->preloading->RAG)
-            client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
-            collection = client.get_or_create_collection(name="long-term-memories")
-            if not collection.get(text):
-                collection.add(
-                    ids=[text],
-                    embeddings=[embedding],
-                    documents=[text]
-                )
-            with open(os.path.join(g.PROJ_VSCODE_DIR_PATH, "long_term_memory_textView.txt"), "a") as f:
-                f.write(f"{text}\n\n# # #\n\n")
-            # ! Test
-            return embedding
+            if isinstance(text, str):
+                # Single text case
+                print(f"Ollama-Api: <{colored(model, 'green')}> is generating embedding using <{colored(host, 'green')}>...")
+                response = client.embeddings(model=model, prompt=text, keep_alive=7200)
+                return response["embedding"]
+            else:
+                # List of texts case
+                print(f"Ollama-Api: <{colored(model, 'green')}> is generating {len(text)} embeddings using <{colored(host, 'green')}>")
+                embeddings = []
+                
+                for i, t in enumerate(text, 1):
+                    if len(t) < 3:
+                        embeddings.append(None)
+                        continue
+                    
+                    response = client.embeddings(model=model, prompt=t, keep_alive=7200)
+                    embeddings.append(response["embedding"])
+                    
+                    # Print a dot for each successful embedding generation
+                    sys.stdout.write(".")
+                    sys.stdout.flush()
+                
+                print()  # New line after all dots
+                return embeddings
+
         except Exception as e:
-            print(f"Ollama-Api: Failed to generate embedding using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
+            print(f"Ollama-Api: Failed to generate embedding(s) using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}")
             OllamaClient.unreachable_hosts.append(f"{host}{model}")
-            logger.error(f"Ollama-Api: Failed to generate embedding using <{host}> with model <{model}>: {e}")
+            logger.error(f"Ollama-Api: Failed to generate embedding(s) using <{host}> with model <{model}>: {e}")
             return None
 
 @dataclass

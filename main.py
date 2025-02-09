@@ -13,24 +13,23 @@ from termcolor import colored
 import argparse
 import sys
 import socket
-import re
 import warnings
+import asyncio
 
 
-from py_classes.cls_html_server import HtmlServer
-from py_classes.cls_tooling_python import handle_python_tool
-from py_classes.cls_tooling_youtube import YouTube
 from py_methods.cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
+# Suppress phonemizer warnings
+warnings.filterwarnings("ignore", message="words count mismatch on*", module="phonemizer", category=UserWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
 from py_methods.tooling import extract_blocks, pdf_or_folder_to_database, listen_microphone, remove_blocks, take_screenshot, text_to_speech, update_cmd_collection
-from py_classes.cls_tooling_web import WebTools
-from py_classes.cls_llm_router import AIStrengths, LlmRouter
-from py_classes.cls_few_shot_provider import FewShotProvider
+from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_chat import Chat, Role
-from agentic.cls_AgenticPythonProcess import AgenticPythonProcess
+from py_classes.cls_web_server import WebServer
+from py_classes.cls_tool_manager import ToolManager
 from py_classes.globals import g
 
 # Suppress TensorFlow logging
@@ -39,6 +38,12 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 # Disable CUDA warnings
 os.environ['CUDA_VISIBLE_DEVICES'] = ''  # This will force CPU usage
 
+# Set up basic logging configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 def get_local_ip():
     try:
@@ -61,67 +66,47 @@ def parse_cli_args() -> argparse.Namespace:
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
     
-    parser.add_argument("-u", "--unsafe", nargs='?', const=5, type=int,
-                        help="""Allow automatic command execution even when classified unsafe.""", metavar="DELAY")
-    parser.add_argument("-s", "--safe", action="store_true",
-                        help="""Safe command execution mode, will always prompt for confirmation before executing.""")
-    parser.add_argument("-c", action="store_true",
+    parser.add_argument("--auto", nargs='?', const=5, type=int, default=None,
+                        help="""Automatically execute safe commands after specified delay in seconds. Unsafe commands still require confirmation.""", metavar="DELAY")
+    parser.add_argument("-c", action="store_true", default=False,
                         help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-e", "--edit", nargs='?', const="", type=str, metavar="FILEPATH",
+    parser.add_argument("-e", "--edit", nargs='?', const="", type=str, default=None, metavar="FILEPATH",
                         help="Edit either the file at the specified path or the contents of the clipboard.")
-    parser.add_argument("-h", "--help", action="store_true",
+    parser.add_argument("-h", "--help", action="store_true", default=False,
                         help="Display this help")
-    parser.add_argument("-i", "--intelligent", action="store_true",
+    parser.add_argument("-i", "--intelligent", action="store_true", default=False,
                         help="Use the current most intelligent model for the agent.")
-    parser.add_argument("-l", "--local", action="store_true",
+    parser.add_argument("-l", "--local", action="store_true", default=False,
                         help="Use the local Ollama backend for processing.")
-    parser.add_argument("-o", "--online", action="store_true",
+    parser.add_argument("-o", "--online", action="store_true", default=False,
                         help="Use online backends for processing.")
-    parser.add_argument("-m", "--message", type=str,
+    parser.add_argument("-m", "--message", type=str, default=None,
                         help="Enter your first message instantly.")
-    parser.add_argument("-p", "--presentation", nargs='?', const="", type=str, metavar="TOPIC",
+    parser.add_argument("-p", "--presentation", nargs='?', const="", type=str, default=None, metavar="TOPIC",
                         help="Interactively create a presentation.")    
-    parser.add_argument("-q", "--quick", action="store_true",
-                        help="Disable reasoning for the agent.")
-    parser.add_argument("-r", "--regenerate", action="store_true",
+    parser.add_argument("-r", "--regenerate", action="store_true", default=False,
                         help="Regenerate the last response.")
-    parser.add_argument("-v", "--voice", action="store_true",
+    parser.add_argument("-v", "--voice", action="store_true", default=False,
                         help="Enable microphone input and text-to-speech output.")
-    parser.add_argument("-spe", "--speak", action="store_true",
+    parser.add_argument("-spe", "--speak", action="store_true", default=False,
                         help="Text-to-speech output.")
-    parser.add_argument("-img", "--image", action="store_true",
+    parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot and generate a response based on the contents of the image.")
-    parser.add_argument("-maj", "--majority", action="store_true",
-                        help="Generate a response based on the majority of all local models.")
-    parser.add_argument("-rag", action="store_true",
-                        help="Will use rag as implemented in the given behavior.")
-    parser.add_argument("-fpy", "--fixpy", type=str,
-                        help="Execute the Python file at the specified path and iterate if an error occurs.")
-    parser.add_argument("-doc", "--documents", nargs='?', const="", type=str, metavar="PATH",
-                        help="Uses a pdf or folder of pdfs to generate a response. Uses retrieval-based approach.")
-    parser.add_argument("-vis", "--visualize", action="store_true",
-                        help="Visualize the chat on a html page.")
-    parser.add_argument("--fmake", nargs=2, type=str, metavar=('MAKE_PATH', 'CHANGED_FILE_PATH'),
-                        help="Runs the make command in the specified path and agentically fixes any errors. "
-                            "MAKE_PATH: The path where to execute the make command. "
-                            "CHANGED_FILE_PATH: The path of the file that was changed before the error occurred.")
-    parser.add_argument("--exp", action="store_true",
-                        help='Experimental agentic hierarchical optimization state machine.')
     parser.add_argument("--llm", nargs='?', type=str, default="",
                         help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. \nDefault: "llama3.2:3b", Examples: ["llama3.2:3b", "llama3.1:8b", "claude3.5", "gpt-4o"]')
-    parser.add_argument("--preload", action="store_true",
+    parser.add_argument("--preload", action="store_true", default=False,
                         help="Preload systems like embeddings and other resources.")
-    parser.add_argument("--git_message_generator", nargs='?', const="", type=str, metavar="TOPIC",
-                        help="Will rework all messages done by the user on the current branch. Enter the projects theme for better results.")
-    parser.add_argument("--yt_slides", type=str, metavar="URL", help="Convert a youtube url to a slideshow")
-    parser.add_argument("--debug", action="store_true",
-                        help="Enable debug logging for all components")
+    parser.add_argument("--gui", action="store_true", default=False,
+                        help="Open a web interface for the chat")
+    parser.add_argument("--debug", action="store_true", default=False,
+                        help="Enable debug mode")
+    parser.add_argument("--debug-chats", action="store_true", default=False,
+                        help="Enable debug windows for chat contexts without full debug logging")
+    parser.add_argument("--majority", action="store_true", default=False,
+                        help="Use majority voting for responses")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
-    
-    if args.local and not args.llm:
-        args.llm = "llama3.2:3b"
 
     if unknown_args or args.help:
         if not args.help:
@@ -132,24 +117,45 @@ def parse_cli_args() -> argparse.Namespace:
     return args
 
 
-
-def main() -> None:
+async def main() -> None:
     print("Environment path: ", g.PROJ_ENV_FILE_PATH)
     load_dotenv(g.PROJ_ENV_FILE_PATH)
     
     args = parse_cli_args()
     print(args)
     
-    # Set debug logging flag
-    g.DEBUG_LOGGING = args.debug
+    # Override logging level if debug mode is enabled
     if args.debug:
-        print(colored("Debug logging enabled", "yellow"))
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled")
+    elif args.debug_chats:
+        logger.debug("Chat debug windows enabled")
+    
+    # Store args in globals
+    g.set_args(args)
+    
+    # Initialize tool manager
+    tool_manager = ToolManager()
+    if args.debug:
+        logger.debug("Tool manager initialized")
+    print(colored("\nLoaded tools:", "green"))
+    for tool_name in tool_manager.tools.keys():
+        print(colored(f"  - {tool_name}", "green"))
+    
+    # Initialize web server early if GUI mode is enabled
+    web_server = None
+    if args.gui:
+        web_server = WebServer()
+        web_server.start(Chat(debug_title="Web Interface Chat"))  # Start with empty chat, will be updated later
+        if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online:
+            args.local = True
+            if not args.llm:
+                args.llm = "mistral-nemo:12b"
     
     if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online:
         args.local = True
         if not args.llm:
             args.llm = "mistral-nemo:12b"
-    
     
     if args.preload:
         print(colored("Preloading resources...", "green"))
@@ -160,81 +166,17 @@ def main() -> None:
         print(colored("Preloading complete.", "green"))
         exit(0)
     
-    if args.fmake:
-        from py_agents.make_agent import MakeErrorCollectorAgent
-        retry_count: int = 0
-        init_sandbox = False
-        context_file_paths: List[str] = []
-        if "[" in args.fmake[1] and "]" in args.fmake[1]:
-            context_file_paths = json.loads(args.fmake[1])
-        else:
-            context_file_paths = [args.fmake[1]]
-        
-        makeAgent = MakeErrorCollectorAgent()
-        while True: # TODO: automate checking if number of errors are reduced instead of increased 
-            retry_count += 1
-            success = makeAgent.execute(build_dir_path=args.fmake[0], context_file_paths=context_file_paths, init_sandbox=init_sandbox, force_local=args.local)
-            init_sandbox = False
-            if retry_count == 1 and not success:
-                init_sandbox = True
-                print(colored("First attempt failed, trying again with sandbox initialization...", "yellow"))
-                continue
-                
-            do_continue = input(colored("Do you want to iterate once more? (Y/n): ", "yellow"))
-            if "n" in do_continue.lower():
-                exit(0)
-    
-    if args.quick:
-        use_reasoning = False
-        print(colored("Quick mode enabled: reasoning disabled.", "green"))
-    else:
-        use_reasoning = True
-    
-    if args.intelligent:
-        args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
-        print(colored(f"Enabling the current most intelligent model: {args.llm}", "green"))
-    
-    if args.exp:
-        while True:
-            print(colored("Experimental agentic hierarchical optimization state machine.", "green"))
-            user_input = input(colored("Enter new user request or press enter to run an iteration of AgenticSelf, type 'exit' to exit: ", 'blue'))
-            if user_input == "exit":
-                exit(0)
-            # agent = AgenticPythonProcess("human")
-            agent = AgenticPythonProcess()
-            agent.run(user_input)
-            do_continue = input(colored("Do you want to continue? (Y/n): ", "yellow"))
-            if "n" in do_continue.lower():
-                exit(0)
-            
-    if args.yt_slides:
-        from py_classes.ai_providers.cls_stable_diffusion import StableDiffusion
-        from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
-        print(colored("Converting youtube video to slideshow...", "green"))
-        video_path = YouTube.download_video(args.yt_slides, g.PROJ_VSCODE_DIR_PATH)
-        mp3_path = YouTube.convert_video_to_mp3(video_path)
-        pyaihost = PyAiHost()
-        pyaihost.initialize("small")
-        songtext, _ = pyaihost.transcribe_audio(mp3_path)
-        split_songtext = songtext.split("\n")
-        stable_diffusion = StableDiffusion()
-        print(colored(f"Downloaded models: {stable_diffusion.list_downloaded_models()}", "yellow"))
-        stable_diffusion.load_model("CompVis/stable-diffusion-v1-4")
-        for text in split_songtext:
-            image_gen_prompt = FewShotProvider.few_shot_ToImageGenPrompt(text, "llama3.1:8b")
-            stable_diffusion.generate_image(image_gen_prompt, g.PROJ_VSCODE_DIR_PATH, num_inference_steps=20, guidance_scale=2.0)
-        exit(0)
-    
-    
     user_input: str = ""
     context_chat: Chat
     
     if args.c:
         context_chat = Chat.load_from_json()
-        print(colored("# # # Recent executed actions # # #", "green"))
-        print(colored("\n".join(g.get_recent_actions()), "yellow"))
     else:
-        context_chat = Chat()
+        context_chat = Chat(debug_title="Main Context Chat")
+    
+    # Update web server with the actual chat context
+    if web_server:
+        web_server.chat = context_chat
     
     if (args.voice or args.speak) and context_chat and len(context_chat.messages) > 0:
         # tts last response (when continuing)
@@ -242,11 +184,11 @@ def main() -> None:
         text_to_speech(last_response)
         print(colored(last_response, 'magenta'))
 
-    if args.edit and args.fixpy and args.presentation and args.git_message_generator:
-        from py_agents.assistants import python_error_agent, code_assistant, git_message_generator, presentation_assistant
+    if args.edit and args.fixpy and args.presentation:
+        from py_agents.assistants import python_error_agent, code_assistant, presentation_assistant
         if args.edit != None: # code edit mode
             pre_chosen_option = ""
-            if (args.unsafe):
+            if (args.auto):
                 pre_chosen_option = "1"
             code_assistant(context_chat, args.edit, pre_chosen_option)    
         
@@ -255,17 +197,10 @@ def main() -> None:
 
         if args.presentation != None:
             presentation_assistant(args, context_chat, args.presentation)
-        
-        if args.git_message_generator:
-            user_input = ""
-            if args.message:
-                user_input = args.message
-            git_message_generator(args.git_message_generator, user_input)
     
     prompt_context_augmentation: str = ""
     prompt_context_augmentation: str = ""
     previous_model_key: str | None = None
-    server: HtmlServer | None = None
     
     # remove empty context chat for few_shot_inits
     if len(context_chat.messages) == 0:
@@ -282,11 +217,6 @@ def main() -> None:
         # save the context_chat to a json file
         if context_chat:
             context_chat.save_to_json()
-    
-        if args.visualize and context_chat:
-            if not server:
-                server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
-            server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
         
         # cli args regenerate last message
         if args.regenerate:
@@ -297,8 +227,6 @@ def main() -> None:
                     user_input = context_chat.messages.pop()[1]
                     print(colored(f"# cli-agent: Regenerating last response.", "green"))
                     print(colored(user_input, "blue"))
-        
-        wake_word_used = False
         
         # screen capture
         if args.image:
@@ -325,31 +253,15 @@ def main() -> None:
                 image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image], force_local=args.local, silent_reasoning=False)
                 prompt_context_augmentation += f'\n\n```vision_{i}\n{image_response_str}\n```'
         
-        # # get controlled from the html server
-        # if server:
-        #     waiting_counter = 900
-        #     while not server.remote_user_input:
-        #         time.sleep(0.01)
-        #         waiting_counter += 1
-        #         if waiting_counter % 1000 == 0:
-        #             print(colored(f"Waiting for user input from the html server at: {server.host_route}", "green"))
-        #             waiting_counter = 0
-        #     user_input = server.remote_user_input
-        #     server.remote_user_input = ""
-        # cli args message
-        elif args.message:
+        # get user input from various sources
+        if args.message:
             user_input = args.message
             args.message = None
-        # use microphone
         elif args.voice:
             # Default voice handling
             user_input, _, wake_word_used = listen_microphone()
-            continue_workflow_count = 0
-        
-        # default user input
         else:
             user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
-            continue_workflow_count = 0
         
         # USER INPUT HANDLING - BEGIN
         if user_input.endswith('--q'):
@@ -363,7 +275,6 @@ def main() -> None:
             context_chat.messages.pop()
             user_input = context_chat.messages.pop()[1]
             print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
-            
         
         if user_input.endswith("--l"):
             user_input = user_input[:-3]
@@ -371,16 +282,10 @@ def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, type (--h) for info", "green"))
             continue
         
-        if user_input.endswith("--u"):
+        if user_input.endswith("--auto"):
             user_input = user_input[:-3]
-            args.unsafe = not args.unsafe
-            print(colored(f"# cli-agent: KeyBinding detected: Allow unsafe command execution toggled {args.unsafe}, type (--h) for info", "green"))
-            continue
-        
-        if user_input.endswith("--s"):
-            user_input = user_input[:-3]
-            args.unsafe = not args.unsafe
-            print(colored(f"# cli-agent: KeyBinding detected: Safe command execution toggled {args.safe}, type (--h) for info", "green"))
+            args.auto = not args.auto
+            print(colored(f"# cli-agent: KeyBinding detected: Auto mode toggled {args.auto}, type (--h) for info", "green"))
             continue
         
         if user_input.endswith("--img"):
@@ -404,16 +309,6 @@ def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
             continue
         
-        if user_input.endswith("--rea"):
-            use_reasoning = not use_reasoning
-            print(colored(f"# cli-agent: KeyBinding detected: Reasoning toggled to {use_reasoning}, type (--h) for info", "green"))
-            continue
-        
-        if user_input.endswith("--rag"):
-            args.rag = not args.rag
-            print(colored(f"# cli-agent: KeyBinding detected: RAG toggled to {args.rag}, type (--h) for info", "green"))
-            continue
-        
         if user_input.endswith("--i"):
             previous_model_key = args.llm
             args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
@@ -423,13 +318,6 @@ def main() -> None:
                 print(colored(f"# cli-agent: KeyBinding detected: Disabled the current most intelligent model, now using: {args.llm}, type (--h) for info", "green"))
             else:    
                 print(colored(f"# cli-agent: KeyBinding detected: Enabled the current most intelligent model: {args.llm}, type (--h) for info", "green"))
-        
-        if user_input.endswith("--vis"):
-            print(colored(f"# cli-agent: KeyBinding detected: Visualize, this will generate a html site and display it, type (--h) for info", "green"))
-            if not server:
-                server = HtmlServer(g.PROJ_VSCODE_DIR_PATH)
-            server.visualize_context(context_chat, force_local=args.local, preferred_models=[args.llm])
-            continue
         
         if "--debug" in user_input:
             print(colored(f"# cli-agent: KeyBinding detected: Debug information:", "green"))
@@ -453,17 +341,12 @@ def main() -> None:
 # cli-agent: --h: Shows this help message.
 # cli-agent: --r: Regenerates the last response.
 # cli-agent: --l: Toggles local llm host mode.
-# cli-agent: --u: Toggles unsafe command execution.
-# cli-agent: --s: Toggles safe command execution.
-# cli-agent: --m: Multiline input mode.
-# cli-agent: --i: Toggles to the current most intelligent model.
-# cli-agent: --debug: Display debug information.
+# cli-agent: --auto: Toggles auto mode.
 # cli-agent: --img: Take a screenshot.
-# cli-agent: --rag: Toggles retrieval augmented generation (RAG).
-# cli-agent: --rea: Toggles reasoning.
-# cli-agent: --vis: Visualize the chat on a html page.
 # cli-agent: --maj: Run the majority response assistant.
 # cli-agent: --llm: Set the language model to use. (Examples: "phi3.5:3.8b", "claude3.5", "gpt-4o")
+# cli-agent: --debug: Enable full debug mode with logging
+# cli-agent: --debug-chats: Enable debug windows for chat contexts only
 # cli-agent: Type 'quit' to exit the program.
 """, "yellow"))
             continue
@@ -471,142 +354,13 @@ def main() -> None:
         
         # AGENT INITIALIZEATION - BEGIN
         if not context_chat:
-            # llm_response, context_chat = FewShotProvider.few_shot_TerminalAssistant(user_input, [args.llm], force_local=args.local, silent_reasoning=False)
-            context_chat = Chat("You are a extremely competent agentic AI assistant.")
+            context_chat = Chat("You are a scalable agentic AI assistant.")
         # AGENT INITIALIZEATION - END
+        
+        # Add user message to both context and web interface
         context_chat.add_message(Role.USER, user_input)
-
-        def make_tools_chat(context_chat: Chat, reinclude_user_msg: bool) -> Chat:
-            tool_use_context_chat = context_chat.deep_copy()
-            if tool_use_context_chat.messages[-1][0] == Role.USER:
-                tool_use_context_chat.messages[-1] = (Role.USER, f"# # # USER INPUT # # #\n{tool_use_context_chat.messages[-1][1]}\n")
-            
-            tool_use_context_chat.add_message(Role.USER, f"""You are an AI assistant with access to several tools. Your primary role is to provide direct, helpful responses while using tools only when strictly necessary. Follow this decision process for every response.
-
-INITIAL RESPONSE ASSESSMENT:
-1. For new conversations:
-- Can this be handled with a simple reply?
-- Is this a general query or greeting?
-- Are tools explicitly requested?
-2. For ongoing conversations:
-- Check if previous context contains relevant information
-- Verify if new tools are actually needed
-- Consider if previous tool results are sufficient
-
-AVAILABLE TOOLS AND USAGE RULES:
-1. "reply" (DEFAULT TOOL) - Use this unless other tools are explicitly needed
-- Explanations and descriptions
-- General conversation
-Format: {{
-    "reasoning": "Explanation of why a direct response is sufficient",
-    "tool": "reply",
-    "reply": "direct response"
-}}
-
-2. "python" - RESTRICTED to:
-- Visualization requests
-- Computational tasks
-- Mathematical calculations
-Format: {{
-    "reasoning": "Explicit justification for code implementation including its functional requirements",
-    "tool": "python",
-    "title": "descriptive_name.py"
-}}
-
-3. "web_search" - RESTRICTED to:
-- Required fact verification
-- Time-sensitive information
-- Knowledge gaps
-Format: {{
-    "reasoning": "Why current knowledge is insufficient",
-    "tool": "web_search",
-    "web_query": "specific search query"
-}}
-
-4. "bash" - RESTRICTED to:
-- Required system operations
-- File manipulation needs
-- Command-line tool requests
-Format: {{
-    "reasoning": "Why system operation is necessary",
-    "tool": "bash",
-    "command": "specific_command"
-}}
-
-5. "goodbye" - Use for:
-- Explicit conversation ending
-- System shutdown request
-Format: {{
-    "reasoning": "Why conversation is ending",
-    "tool": "goodbye",
-    "reply": "short goodbye message"
-}}
-
-MANDATORY DECISION TREE:
-1. Can I provide a complete response using just "reply"?
-YES → Use "reply"
-NO → Continue to 2
-
-2. Is a tool explicitly requested or absolutely necessary?
-NO → Use "reply" and explain why
-YES → Continue to 3
-
-3. Which SINGLE tool best solves the core need?
-- Select most direct solution
-- Avoid tool chains unless absolutely necessary
-- Prefer simpler tools over complex ones
-{f'''
-CONTEXT-AWARE BEHAVIOR:
-1. You are currently in voice mode
-- You are a voice assistant
-- Your name is Nova
-- Keep responses concise
-- Use conversational tone
-''' if args.voice or args.speak else ""}
-ERROR PREVENTION:
-1. Before tool selection:
-- Validate necessity
-- Check for simpler solutions
-- Verify user intent
-
-ANTI-PATTERNS (STRICTLY AVOID):
-1. DO NOT use tools for:
-- Basic examples
-- Text formatting
-- General explanations
-
-2. DO NOT chain tools unless:
-- Explicitly required
-- No simpler solution exists
-- Each step is necessary
-
-3. DO NOT use "web_search" for:
-- Known information
-- General knowledge
-- Conceptual explanations
-
-RESPONSE FORMAT:
-1. Always use valid JSON
-2. Include clear reasoning
-3. Keep tool-specific fields
-4. Example:
-{{
-    "reasoning": "This question can be answered directly without tools because...",
-    "tool": "reply",
-    "reply": "direct response"
-}}
-
-FINAL VALIDATION CHECKLIST:
-1. Is this the simplest possible solution?
-2. Have I justified any tool usage beyond "reply"?
-3. Am I implementing something or just demonstrating?
-4. Would the user expect code/implementation or just information?
-
-Remember: You are a helpful assistant first, and a tool user second. Always default to direct assistance unless tools are specifically needed.""")
-
-            if reinclude_user_msg:
-                tool_use_context_chat.add_message(Role.USER, f"\nThis is the latest user input in full:\n{user_input}")
-            return tool_use_context_chat
+        if web_server and web_server.chat:
+            web_server.add_message_to_chat(Role.USER, user_input)
 
         # AGENTIC IN-TURN LOOP - BEGIN
         action_counter = 0  # Initialize counter for consecutive actions
@@ -625,154 +379,316 @@ Remember: You are a helpful assistant first, and a tool user second. Always defa
                         context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress and respond intelligently to the user.")
                         break
 
-                reinclude_user_msg: bool = action_counter % 2 == 0
-                tool_use_context_chat = make_tools_chat(context_chat, reinclude_user_msg)
-                tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, silent_reasoning=True)
+                # Create tool use context
+                tool_use_context_chat = context_chat.deep_copy()
+                tool_use_context_chat.debug_title = "Tool Use Context Chat"
+                if tool_use_context_chat.messages[-1][0] == Role.USER:
+                    tool_use_context_chat.messages[-1] = (Role.USER, f"Raw User input: {tool_use_context_chat.messages[-1][1]}\n")
                 
-                # Use the framework's extract_blocks function
-                tool_use_reponse_blocks = extract_blocks(tool_use_response)
-                # First try to find JSON blocks in code blocks
-                tool_call_json_list = [block[1] for block in tool_use_reponse_blocks if block[0] in ["json", "first{}"]]
+                # Get all available tools and their prompts
+                tools_prompt = tool_manager.get_tools_prompt()
                 
-                # If no JSON blocks found in code blocks, try direct JSON parsing
-                if not tool_call_json_list:
-                    try:
-                        # Clean the response of any leading/trailing whitespace and quotes
-                        cleaned_response = tool_use_response.strip().strip('"\'')
-                        # Try to parse it as JSON
-                        parsed_json = json.loads(cleaned_response)  # Test if it's valid JSON
-                        tool_call_json_list = [cleaned_response]
-                    except json.JSONDecodeError:
-                        # Try to find a JSON-like structure in the response using regex
-                        import re
-                        json_pattern = r'\{[^{}]*\}'
-                        potential_json = re.search(json_pattern, tool_use_response)
-                        if potential_json:
-                            try:
-                                parsed_json = json.loads(potential_json.group())
-                                tool_call_json_list = [potential_json.group()]
-                            except json.JSONDecodeError:
-                                print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG BEGIN", "red"))
-                                tool_use_context_chat.print_chat()
-                                print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG END", "red"))
-                                break
-                        else:
-                            print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG BEGIN", "red"))
-                            tool_use_context_chat.print_chat()
-                            print(colored("TOOL USE ERROR: No valid JSON found in response - DEBUG END", "red"))
-                            break
-                
-                if not tool_call_json_list:
+                # Add tool selection guidance
+                tool_use_context_chat.add_message(Role.USER, f"""You are an AI assistant with access to several tools. Your primary role is to provide direct, helpful responses while using tools only when strictly necessary. Follow this decision process to response to the user's request. The following tools are available:
+
+{tools_prompt}
+
+These have been provided to you to respond to the user's request.
+
+MANDATORY DECISION TREE:
+1. Have I just executed a tool in my previous turn?
+YES → Consider:
+- Did the tool provide sufficient information to give a complete response?
+- Do I need to use the sequential tool to complete the task?
+- Should I summarize the tool results for the user?
+NO → Continue to 2
+
+2. Does the request require ANY of the following?
+- Real-time data (weather, news, ongoing developments)
+- Domain specific information (code libraries, facts, expert information)
+- System operations, computations or visualizations
+- Multiple steps or operations that need to be coordinated
+YES → Select appropriate tool (use sequential tool for multi-step operations)
+NO → Continue to 3
+
+3. Can I provide a COMPLETE and RELIABLY ACCURATE response using just "reply"?
+YES → Use "reply"
+NO → Select appropriate tool
+
+4. Which tool best solves the core need?
+- For single operations, select the most direct tool
+- For multi-step operations, use the sequential tool
+- Aim for user satisfaction
+{f'''
+CONTEXT-AWARE BEHAVIOR:
+- You are a voice assistant
+- Your name is Nova
+- Keep responses concise
+- Use conversational tone
+''' if args.voice or args.speak else ""}
+ERROR PREVENTION:
+1. Before tool selection:
+- Validate necessity
+- Check for simpler solutions
+- Verify user intent
+- For multi-step operations, use sequential tool instead of chaining individual tools
+
+ANTI-PATTERNS (STRICTLY AVOID):
+1. DO NOT use "reply" for:
+- Current weather, prices, or any real-time data
+- System operations
+- Computations
+- Visualizations
+
+2. DO NOT chain individual tools directly:
+- Use the sequential tool for multi-step operations
+- Each operation sequence should be contained within a single sequential tool call
+- Break complex operations into logical steps within the sequential tool
+
+RESPONSE FORMAT:
+1. Always respond only in the JSON example format
+2. Start with a clear reasoning about the user's request inside the "reasoning" field
+3. Populate all required tool-specific fields
+4. Example:
+{{
+    "reasoning": "This question can be answered directly without tools because it asks about a historical fact that doesn't require current data.",
+    "tool": "reply",
+    "reply": "direct response"
+}}
+
+FINAL VALIDATION CHECKLIST:
+1. Am I certain I have the required information?
+2. Can I justify any tool usage beyond "reply"?
+3. Can I provide a reliable and complete response without tools?
+4. If multiple steps are needed, am I using the sequential tool appropriately?
+
+Remember: You are a helpful assistant first, and a tool user second. Always use tools when needed for accuracy or fulfillment of the user's request.""")
+
+                # Get tool selection response
+                try:
+                    tool_use_response = LlmRouter.generate_completion(tool_use_context_chat, [] if args.local else [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, silent_reasoning=True)
+                except Exception as e:
+                    print(colored(f"Error generating tool selection response: {str(e)}", "red"))
+                    if args.debug:
+                        traceback.print_exc()
                     break
+
+                # Parse tool selection response
+                tool_call_json_list = []  # Initialize list before parsing attempts
+                agent_tool_calls = []  # Initialize agent_tool_calls before try block
+                try:
+                    # First try to find a simple JSON object ending at first }
+                    import re
+                    simple_json_pattern = r'\{[^}]*\}'
+                    simple_json_match = re.search(simple_json_pattern, tool_use_response)
+                    if simple_json_match:
+                        try:
+                            # Try to parse it as JSON
+                            simple_json = simple_json_match.group()
+                            # Clean the JSON string - replace unescaped newlines and normalize whitespace
+                            simple_json = re.sub(r'(?<!\\)\n', '\\n', simple_json)
+                            simple_json = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', simple_json)  # Remove control characters
+                            parsed_json = json.loads(simple_json)
+                            tool_call_json_list = [parsed_json]  # Store the parsed object directly
+                        except json.JSONDecodeError:
+                            # If simple pattern fails, continue with more complex parsing
+                            pass
+                    
+                    # If simple pattern didn't work, try more complex parsing
+                    if not tool_call_json_list:
+                        # Use the framework's extract_blocks function
+                        tool_use_reponse_blocks = extract_blocks(tool_use_response)
+                        # First try to find JSON blocks in code blocks and parse them
+                        tool_call_json_list = [json.loads(block[1]) for block in tool_use_reponse_blocks if block[0] in ["json", "first{}"]]
+
+                except Exception as e:
+                    print(colored(f"Unexpected error parsing tool selection response: {str(e)}", "red"))
+                    if args.debug:
+                        traceback.print_exc()
+                    break
+
+                if not tool_call_json_list:
+                    print(colored("No valid tool calls found in response", "red"))
+                    break
+
+                # Assign parsed tools outside try block
+                agent_tool_calls = tool_call_json_list
+
+                print(colored(f"Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
                 
-                selected_tool_history = [json.loads(tool_call_json) for tool_call_json in tool_call_json_list]
-                print(colored(f"Selected tools: {[tool.get('tool', '') for tool in selected_tool_history]}", "green"))
+                # Notify web interface about tool selection immediately
+                if web_server and web_server.chat:
+                    # First show the raw tool selection
+                    web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Tool selection:\n```json\n{tool_call_json_list[0]}\n```")
+                    # Then show the formatted version
+                    for tool_call in agent_tool_calls:
+                        selected_tool = tool_call.get('tool', '').strip()
+                        reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
+                        if selected_tool and selected_tool != "reply":
+                            web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Using tool: {selected_tool}\n{reasoning}")
+                        elif selected_tool == "reply" and 'reply' in tool_call:
+                            web_server.add_message_to_chat(Role.ASSISTANT, tool_call['reply'])
                 
                 should_continue: bool = False
                 
-                for tool in selected_tool_history:
-                    selected_tool = tool.get('tool', '').strip()
-                    bash_command = tool.get('command', '')
-                    reasoning = tool.get('reasoning', 'No specific reasoning provided.')
-                    reply_content = tool.get('reply', '')
+                for tool_call in agent_tool_calls:
+                    try:
+                        selected_tool = tool_call.get('tool', '').strip()
+                        reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
 
-                    if selected_tool and selected_tool != "reply":
-                        context_chat.add_message(Role.ASSISTANT, reasoning)
-                    
-                    print(colored(f"Using tool: {selected_tool}", "green"))
-                    print(colored(f"Reasoning: {reasoning}", "cyan"))
+                        if selected_tool and selected_tool != "reply":
+                            context_chat.add_message(Role.ASSISTANT, reasoning)
+                        
+                        print(colored(f"Using tool: {selected_tool}", "green"))
+                        print(colored(f"Reasoning: {reasoning}", "cyan"))
 
-                    if selected_tool == 'bash':
-                        print(colored(f"Executing bash command: {bash_command}", "yellow"))
-                        cmd_context_augmentation, execution_summarization = run_bash_cmds([bash_command], args)
-                        print(execution_summarization)
-                        context_chat.add_message(Role.USER, cmd_context_augmentation)
-                        context_chat.add_message(Role.ASSISTANT, f"The bash tool has been executed for the command: '{bash_command}'.")
-                        should_continue = True
-                        action_counter += 1  # Increment action counter
-                    elif selected_tool == 'web_search':
-                        web_query = tool.get('web_query', '')
-                        # Check if we should split the web_query into multiple queries
-                        # Initial search
-                        list_docs_meta = WebTools().search_brave(web_query, 3)
-                        results = [doc for doc, _ in list_docs_meta]
-                        web_search_context_chat = context_chat.deep_copy()
-                        results_joined = '\n'.join(results)
-                        # Check if we should continue searching based on the results
-                        continue_context_chat = Chat().deep_copy()
-                        continue_context_chat.add_message(Role.USER, f"Based on the web search results for '{web_query}', should we continue searching or is the information sufficient to provide a good response? Consider if the results directly answer the query or if more searching would be valuable. Include 'yes' to continue searching or 'no' to continue with an action, include only after careful consideration.")
-                        should_deepen_research_response = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, silent_reasoning=False)
-                        continue_context_chat.add_message(Role.ASSISTANT, should_deepen_research_response)
-                        should_deepen_research = "yes" in should_deepen_research_response.lower()
+                        try:
+                            tool = tool_manager.get_tool(selected_tool)()
+                        except KeyError:
+                            print(colored(f"Tool {selected_tool} not found", "red"))
+                            context_chat.add_message(Role.ASSISTANT, f"Error: Tool {selected_tool} not found")
+                            continue
+                        except Exception as e:
+                            print(colored(f"Error initializing tool {selected_tool}: {str(e)}", "red"))
+                            context_chat.add_message(Role.ASSISTANT, f"Error initializing {selected_tool}: {str(e)}")
+                            continue
+
+                        try:
+                            result = await tool.execute(tool_call)
+                        except Exception as e:
+                            print(colored(f"Error executing tool {selected_tool}: {str(e)}", "red"))
+                            if args.debug:
+                                traceback.print_exc()
+                            context_chat.add_message(Role.ASSISTANT, f"Error executing {selected_tool}: {str(e)}")
+                            continue
                         
-                        # Deep search
-                        if should_deepen_research:
-                            continue_context_chat.add_message(Role.USER, f"Please respond with a concise thesis statement that summarizes where further research is needed.")
-                            web_query = LlmRouter.generate_completion(continue_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, silent_reasoning=False)
-                            split_queries = FewShotProvider.few_shot_SplitToQueries(web_query, force_local=args.local)
-                            for split_query in split_queries:
-                                list_docs_meta = WebTools().search_brave(split_query, 3)
-                                results = [doc for doc, _ in list_docs_meta]
-                                web_search_context_chat = context_chat.deep_copy()
-                                results_joined = '\n'.join(results)
-                                web_search_context_chat.add_message(Role.USER, f"Please summarize the relevant information from these results:\n```web_search_results\n{results_joined}\n```")
-                                web_search_summary = LlmRouter.generate_completion(web_search_context_chat, [args.llm], strength=AIStrengths.FAST, force_local=args.local, silent_reason="summarizing web search", silent_reasoning=False)
-                                context_chat.add_message(Role.USER, f"You just performed a websearch for '{split_query}', these are the returned results:\n```txt\n{web_search_summary}\n```")
-                        # Web search end
-                        context_chat.add_message(Role.ASSISTANT, "The websearch tool has been executed " + ("successfully" if any(results) else "unsuccessfully") + f" for the query: '{web_query}'.")
-                        # Check if we should continue searching based on the results
-                        continue_context_chat = Chat().deep_copy()
-                        should_continue = True
-                        action_counter += 1  # Increment action counter
-                    elif selected_tool == 'python':  # Implement and execute python script
-                        title = tool.get('title', None)
-                        if not title:
-                            title = FewShotProvider.few_shot_TextToQuery(reasoning, force_local=args.local)
-                        print(colored(f"Implementing and executing python script: {title}", "yellow"))
-                        
-                        # Use reasoning as reply content for voice feedback
-                        tool['reply'] = reasoning
-                        if args.voice or args.speak:
-                            text_to_speech(remove_blocks(reasoning, ["md"]))
+                        # Process tool result
+                        if result.get("status") == "error":
+                            error_msg = result.get("error", "Unknown error")
+                            print(colored(f"Tool execution error: {error_msg}", "red"))
                             
-                        handle_python_tool(tool, context_chat, args)
-                        should_continue = "ModuleNotFoundError" in context_chat.messages[-2][1]
-                    elif selected_tool == 'reply':
-                        if reply_content:
-                            context_chat.add_message(Role.ASSISTANT, reply_content)
-                            if args.voice or args.speak:
-                                text_to_speech(remove_blocks(reply_content, ["md"]))
-                        should_continue = False
-                        break
-                    elif selected_tool == 'goodbye':
-                        if reply_content:
-                            context_chat.add_message(Role.ASSISTANT, reply_content)
-                            if args.voice or args.speak:
-                                text_to_speech(remove_blocks(reply_content, ["md"]))
-                        should_continue = False
-                        perform_exit = True
-                        break
-                    else:
+                            # Create error feedback prompt
+                            error_feedback = f"""The previous tool call failed with error: {error_msg}
+
+Previous attempt:
+{json.dumps(tool_call, indent=2)}
+
+Please provide a corrected response that fixes this error. Remember:
+1. Check parameter names and structure
+2. Ensure all required parameters are provided
+3. Validate parameter values
+4. Follow the tool's example format exactly"""
+
+                            context_chat.add_message(Role.USER, error_feedback)
+                            
+                            try:
+                                error_response = LlmRouter.generate_completion(context_chat, [] if args.local else [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, silent_reasoning=True)
+                                error_response_json = json.loads(error_response)
+                                result = await tool.execute(error_response_json)
+                            except Exception as e:
+                                print(colored(f"Error correcting tool execution: {str(e)}", "red"))
+                                if args.debug:
+                                    traceback.print_exc()
+                                context_chat.add_message(Role.ASSISTANT, f"Error executing {selected_tool}: Failed to correct the error")
+                                continue
+
+                            if result.get("status") == "error":
+                                # If still failing, give up and inform user
+                                error_message = f"Error executing {selected_tool}: {result.get('error')}"
+                                context_chat.add_message(Role.ASSISTANT, error_message)
+                                if web_server and web_server.chat:
+                                    web_server.add_message_to_chat(
+                                        Role.ASSISTANT, 
+                                        f"❌ Tool execution failed even after correction:\n```\n{error_message}\n\nOriginal attempt:\n{json.dumps(tool_call, indent=2)}\n\nCorrected attempt:\n{json.dumps(error_response_json, indent=2)}\n```"
+                                    )
+                                should_continue = False
+                            else:
+                                # Success with corrected parameters
+                                if selected_tool == "reply":
+                                    context_chat.add_message(Role.ASSISTANT, result["reply"])
+                                    if args.voice or args.speak:
+                                        text_to_speech(remove_blocks(result["reply"], ["md"]))
+                                    should_continue = False
+                                elif selected_tool == "goodbye":
+                                    if "reply" in result:
+                                        context_chat.add_message(Role.ASSISTANT, result["reply"])
+                                        if web_server and web_server.chat:
+                                            web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
+                                        if args.voice or args.speak:
+                                            text_to_speech(remove_blocks(result["reply"], ["md"]))
+                                    should_continue = False
+                                    perform_exit = True
+                                else:
+                                    context_chat.add_message(Role.ASSISTANT, f"Tool {selected_tool} executed successfully after correction: {json.dumps(result, indent=2)}")
+                                    if web_server and web_server.chat:
+                                        web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully after correction")
+                                    should_continue = True
+                        else:
+                            if selected_tool == "reply":
+                                context_chat.add_message(Role.ASSISTANT, result["reply"])
+                                if args.voice or args.speak:
+                                    text_to_speech(remove_blocks(result["reply"], ["md"]))
+                                should_continue = False
+                            elif selected_tool == "goodbye":
+                                if "reply" in result:
+                                    context_chat.add_message(Role.ASSISTANT, result["reply"])
+                                    if web_server and web_server.chat:
+                                        web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
+                                    if args.voice or args.speak:
+                                        text_to_speech(remove_blocks(result["reply"], ["md"]))
+                                should_continue = False
+                                perform_exit = True
+                            elif selected_tool == "web_search":
+                                # Add tool response to chat context
+                                context_chat.add_message(Role.ASSISTANT, f"Tool {selected_tool} executed: {json.dumps(result, indent=2)}")
+                                if web_server and web_server.chat:
+                                    web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
+                                # Speak the web search results directly
+                                if args.voice or args.speak:
+                                    search_summary = LlmRouter.generate_completion(f"Summarize these web search results concisely:\n{json.dumps(result, indent=2)}", force_local=args.local, silent_reasoning=True)
+                                    text_to_speech(remove_blocks(search_summary, ["md"]))
+                                should_continue = False
+                            elif selected_tool == "python":
+                                context_chat.add_message(Role.ASSISTANT, f"Tool {selected_tool} executed: {json.dumps(result, indent=2)}")
+                                if web_server and web_server.chat:
+                                    web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
+                                should_continue = False
+                            else:
+                                # Add tool response to chat context
+                                context_chat.add_message(Role.ASSISTANT, f"Tool {selected_tool} executed: {json.dumps(result, indent=2)}")
+                                if web_server and web_server.chat:
+                                    web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
+                                should_continue = True
+                                action_counter += 1
+
+                    except Exception as e:
+                        print(colored(f"Unexpected error during tool execution: {str(e)}", "red"))
+                        if args.debug:
+                            traceback.print_exc()
+                        context_chat.add_message(Role.ASSISTANT, f"An unexpected error occurred: {str(e)}")
                         should_continue = False
                 
                 if not should_continue:
                     break
-                        
-            except json.JSONDecodeError as e:
-                print(colored(f"Error parsing tool selection response: {str(e)}", "red"))
-                print(colored("Raw response causing error:", "red"))
-                print(colored(tool_use_response, "red"))
-                break
+
             except Exception as e:
-                print(colored(f"An error occurred during tool use: {str(e)}", "red"))
-                traceback.print_exc()
+                print(colored(f"An unexpected error occurred: {str(e)}", "red"))
+                if args.debug:
+                    traceback.print_exc()
                 break
+
         # AGENTIC TOOL USE - END
 
-        # Only generate final response if no reply was given through tools
-        if not any(extract_reply_content(tool) for tool in selected_tool_history):
+        # Check if we already have a complete response
+        has_complete_response = (
+            any(tool.get('tool') == 'reply' for tool in agent_tool_calls) or  # Reply tool was used
+            any(tool.get('tool') == 'web_search' for tool in agent_tool_calls)  # Web search was performed
+        )
+        
+        # Only generate final response if we don't have a complete response yet
+        if not has_complete_response:
             print(colored("# # # RESPONSE # # #", "green"))
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local, use_reasoning=use_reasoning)
+            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local)
             context_chat.add_message(Role.ASSISTANT, llm_response)
             
             if (args.voice or args.speak):
@@ -808,7 +724,7 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
         bash_blocks = safe_bash_blocks
         execute_actions_automatically = True
     
-    if (args.unsafe is None and not execute_actions_automatically) or args.safe:
+    if (args.auto is None and not execute_actions_automatically) or args.safe:
         if args.voice or args.speak:
             confirmation_response = "Do you want me to execute these steps? (Yes/no)"
             print(colored(confirmation_response, 'yellow'))
@@ -820,16 +736,16 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
             bash_blocks = safe_bash_blocks
     else:
         if not execute_actions_automatically:
-            print(colored(f"Command will be executed in {args.unsafe} seconds, press Ctrl+C to abort.", 'yellow'))
+            print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
             try:
-                for remaining in range(args.unsafe, 0, -1):
+                for remaining in range(args.auto, 0, -1):
                     sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
                     sys.stdout.flush()
                     time.sleep(1)
                 sys.stdout.write("\n")  # Ensure we move to a new line after countdown
             except KeyboardInterrupt:
                 print(colored("\nExecution aborted by the user.", 'red'))
-    return select_and_execute_commands(bash_blocks, args.unsafe is not None or execute_actions_automatically) 
+    return select_and_execute_commands(bash_blocks, args.auto is not None or execute_actions_automatically) 
 
 def extract_reply_content(tool_response: dict) -> str:
     """Extract reply content from a tool response."""
@@ -838,4 +754,4 @@ def extract_reply_content(tool_response: dict) -> str:
     return ''
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

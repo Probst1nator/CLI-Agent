@@ -32,7 +32,7 @@ class PyAiHost:
     def initialize_wake_word(cls):
         """Initialize wake word detector if not already initialized."""
         if not cls.vosk_model:
-            if not g.DEBUG_LOGGING:
+            if not logger.isEnabledFor(logging.DEBUG):
                 # Temporarily redirect stderr to suppress Vosk initialization logs
                 stderr = sys.stderr
                 with open(os.devnull, 'w') as devnull:

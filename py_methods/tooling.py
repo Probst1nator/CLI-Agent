@@ -14,6 +14,10 @@ import chromadb
 from gtts import gTTS
 import numpy as np
 import pyaudio
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_few_shot_provider import FewShotProvider
@@ -32,7 +36,6 @@ from pdfminer.pdfpage import PDFPage
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.globals import g
-from py_methods.logger import logger
 
 import tkinter as tk
 from PIL import ImageGrab, Image, ImageTk

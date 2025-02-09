@@ -10,6 +10,7 @@ import time
 from typing import Dict, List, Tuple
 
 import chromadb
+from chromadb.config import Settings
 import git
 import pyperclip
 from termcolor import colored
@@ -377,7 +378,7 @@ def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_i
     4. Generates responses using an AI model based on the relevant documents found.
     5. Engages in an interactive conversation with the user, allowing for follow-up questions or new searches.
     """
-    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH, settings=Settings(anonymized_telemetry=False))
     collection = client.get_or_create_collection(name="documents")
 
     # Collect user input if not provided

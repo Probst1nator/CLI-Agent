@@ -7,7 +7,6 @@ import chromadb
 import hashlib
 from io import StringIO
 from typing import Dict, Iterable, List, Tuple, Any, Union
-from collections import defaultdict
 from datetime import datetime
 from termcolor import colored
 
