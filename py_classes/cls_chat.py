@@ -32,7 +32,7 @@ class Chat:
         self.base64_images: List[str] = []
         self._window: Optional[tk.Tk] = None
         self._text_widget: Optional[tk.Text] = None
-        self.debug_title: str = debug_title or "Chat Debug Window"
+        self.debug_title: str = debug_title or instruction_message or "Unnamed Context"
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
     

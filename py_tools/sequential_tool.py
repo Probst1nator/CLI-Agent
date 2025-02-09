@@ -27,9 +27,9 @@ class SequentialTool(BaseTool):
         """Sanitize a single step in the sequence."""
         return self._sanitize_json_value(step)
 
-    def _generate_result_summary(self, first_result: Dict[str, Any], intended_second_step: Dict[str, Any]) -> str:
-        """Generate a concise summary of the first step's result in context of the intended second step."""
-        summary_chat = Chat()
+    def _generate_result_summary(self, first_result: Dict[str, Any], subsequent_intent: str) -> str:
+        """Generate a concise summary of the first step's result in context of the subsequent intent."""
+        summary_chat = Chat(debug_title="Sequential Tool Result Summary")
         summary_chat.add_message(
             Role.SYSTEM,
             "You are an AI assistant that creates concise, relevant summaries of tool execution results."
@@ -43,13 +43,11 @@ class SequentialTool(BaseTool):
 {json.dumps(first_result, indent=2)}
 ```
 
-2. Intended next step:
-```json
-{json.dumps(intended_second_step, indent=2)}
-```
+2. Subsequent intent:
+"{subsequent_intent}"
 
-Please provide a concise summary of the first tool's results that would be relevant for deciding whether and how to execute the intended second step.
-Focus only on information that would impact the decision about the second step.
+Please provide a concise summary of the first tool's results that would be relevant for achieving this subsequent intent.
+Focus only on information that would be useful for the intended next step.
 Keep the summary brief and focused."""
         )
         
@@ -71,58 +69,52 @@ Keep the summary brief and focused."""
                     "type": "string",
                     "description": "Explanation of why this sequence is needed"
                 },
-                "tool": {
-                    "type": "string",
-                    "description": "The tool to execute"
+                "first_tool_call": {
+                    "type": "object",
+                    "description": "Complete configuration for the first tool to execute",
+                    "properties": {
+                        "tool": {
+                            "type": "string",
+                            "description": "The tool to execute first"
+                        },
+                        "reasoning": {
+                            "type": "string",
+                            "description": "Reasoning for this specific tool usage"
+                        }
+                    }
                 },
-                "web_query": {
+                "subsequent_intent": {
                     "type": "string",
-                    "description": "The search query if using web_search"
-                },
-                "command": {
-                    "type": "string",
-                    "description": "The command if using bash"
-                },
-                "title": {
-                    "type": "string",
-                    "description": "The title if using python"
-                },
-                "requirements": {
-                    "type": "string",
-                    "description": "The requirements if using python"
-                },
-                "next_tool": {
-                    "type": "string",
-                    "description": "The tool to be used in the subsequent step"
-                },
-                "next_title": {
-                    "type": "string",
-                    "description": "Title for the subsequent operation"
+                    "description": "A clear statement of what should be done next with the results, including a suggestion of which tool to use (e.g., 'Use python tool to create a visualization of the search results', 'Use reply tool to provide a summary of the findings', etc.)"
                 }
             },
-            required_params=["tool", "next_tool", "next_title"],
+            required_params=["first_tool_call", "subsequent_intent"],
             example_usage="""
             {
                 "reasoning": "Search for latest AGI papers and prepare for creating a summary presentation",
-                "tool": "web_search",
-                "web_query": "latest papers on AGI",
-                "next_tool": "python",
-                "next_title": "Create AGI Presentation"
+                "first_tool_call": {
+                    "tool": "web_search",
+                    "reasoning": "Need to gather current information about AGI developments",
+                    "web_query": "latest papers on AGI developments 2024"
+                },
+                "subsequent_intent": "Use python tool to create a visual presentation summarizing the key AGI research findings"
             }
             """
         )
 
     @property
     def prompt_template(self) -> str:
-        return """Use the sequential tool to execute a tool and prepare for a subsequent operation. The first tool executes as specified, while the subsequent step is evaluated based on the results.
+        return """Use the sequential tool to execute a tool and prepare for a subsequent operation. The first tool executes as specified, while the subsequent step is determined based on the results.
 
 Example:
 {
     "reasoning": "Search for latest AGI papers and prepare for creating a summary presentation",
-    "tool": "web_search",
-    "web_query": "latest papers on AGI",
-    "next_tool": "python",
-    "next_title": "Create AGI Presentation"
+    "first_tool_call": {
+        "tool": "web_search",
+        "reasoning": "Need to gather current information about AGI developments",
+        "web_query": "latest papers on AGI developments 2024"
+    },
+    "subsequent_intent": "Use python tool to create a visual presentation summarizing the key AGI research findings"
 }"""
 
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
@@ -131,29 +123,20 @@ Example:
             return self.format_response(
                 "Invalid parameters provided",
                 status="error",
-                error="Missing required parameters: tool, next_tool, next_title"
+                error="Missing required parameters: first_tool_call, subsequent_intent"
             )
 
         try:
             # Initialize tool manager
             tool_manager = ToolManager()
             
-            # Get tool and execute
-            tool_name = params["tool"]
-            
-            # Extract tool-specific parameters
-            tool_params = {}
-            if tool_name == "web_search" and "web_query" in params:
-                tool_params["web_query"] = params["web_query"]
-            elif tool_name == "bash" and "command" in params:
-                tool_params["command"] = params["command"]
-            elif tool_name == "python" and "title" in params and "requirements" in params:
-                tool_params["title"] = params["title"]
-                tool_params["requirements"] = params["requirements"]
-                tool_params["reasoning"] = params.get("reasoning")
+            # Get first tool call parameters
+            tool_params = params["first_tool_call"]
+            tool_name = tool_params["tool"]
             
             print(colored(f"\nExecuting tool: {tool_name}", "cyan"))
             print(colored(f"Reasoning: {params.get('reasoning', 'No specific reasoning provided')}", "cyan"))
+            print(colored(f"Subsequent intent: {params['subsequent_intent']}", "cyan"))
 
             try:
                 tool = tool_manager.get_tool(tool_name)()
@@ -175,20 +158,17 @@ Example:
                     error=f"Tool '{tool_name}' failed: {result.get('error')}"
                 )
 
-            # Prepare next step info
-            next_step = {
-                "tool": params["next_tool"],
-                "title": params["next_title"]
-            }
+            # Get subsequent intent
+            subsequent_intent = params["subsequent_intent"]
 
             # Generate summary of results and next step
-            result_summary = self._generate_result_summary(result, next_step)
+            result_summary = self._generate_result_summary(result, subsequent_intent)
 
             return self.format_response(
                 reasoning=params.get("reasoning"),
                 status="success",
                 tool_result=result,
-                next_step=next_step,
+                subsequent_intent=subsequent_intent,
                 result_summary=result_summary
             )
 

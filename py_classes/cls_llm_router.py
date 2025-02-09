@@ -412,7 +412,7 @@ class LlmRouter:
         
         # Convert string input to Chat object if necessary
         if isinstance(chat, str):
-            chat = Chat(instruction).add_message(Role.USER, chat)
+            chat = Chat(instruction, debug_title="generate_completion() call").add_message(Role.USER, chat)
         
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)
