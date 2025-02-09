@@ -65,138 +65,131 @@ Keep the summary brief and focused."""
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="sequential",
-            description="Execute multiple tools in sequence, passing results between them as needed. Use this when you need to chain multiple operations together.",
+            description="Execute a tool and prepare for a subsequent tool execution based on the results. Use this when you need to chain operations together.",
             parameters={
                 "reasoning": {
                     "type": "string",
-                    "description": "Explanation of why this sequence of tools is needed"
+                    "description": "Explanation of why this sequence is needed"
                 },
-                "steps": {
-                    "type": "array",
-                    "description": "List of tool calls to execute in sequence. Each step should be a complete tool call object with all required parameters.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "tool": {"type": "string"},
-                            "reasoning": {"type": "string"},
-                            "params": {"type": "object"}
-                        }
-                    }
+                "tool": {
+                    "type": "string",
+                    "description": "The tool to execute"
+                },
+                "web_query": {
+                    "type": "string",
+                    "description": "The search query if using web_search"
+                },
+                "command": {
+                    "type": "string",
+                    "description": "The command if using bash"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "The title if using python"
+                },
+                "requirements": {
+                    "type": "string",
+                    "description": "The requirements if using python"
+                },
+                "next_tool": {
+                    "type": "string",
+                    "description": "The tool to be used in the subsequent step"
+                },
+                "next_title": {
+                    "type": "string",
+                    "description": "Title for the subsequent operation"
                 }
             },
-            required_params=["steps"],
+            required_params=["tool", "next_tool", "next_title"],
             example_usage="""
             {
-                "reasoning": "Search for latest AGI papers and create a summary presentation.",
-                "tool": "sequential",
-                "steps": [
-                    {
-                        "tool": "web_search",
-                        "reasoning": "Find the latest papers on AGI.",
-                        "query": "latest papers on AGI"
-                    },
-                    {
-                        "tool": "python",
-                        "reasoning": "Create a presentation based on the search results.",
-                        "title": "agi_presentation.py",
-                        "requirements": "Create a presentation in python using streamlit. The presentation should be interactive and allow the user to grasp the presented implications in the latest papers on AGI."
-                    }
-                ]
+                "reasoning": "Search for latest AGI papers and prepare for creating a summary presentation",
+                "tool": "web_search",
+                "web_query": "latest papers on AGI",
+                "next_tool": "python",
+                "next_title": "Create AGI Presentation"
             }
             """
         )
 
     @property
     def prompt_template(self) -> str:
-        return """Use the sequential tool to execute tools in sequence. The first step executes as specified, while subsequent steps are evaluated based on previous results.
+        return """Use the sequential tool to execute a tool and prepare for a subsequent operation. The first tool executes as specified, while the subsequent step is evaluated based on the results.
 
 Example:
 {
-    "reasoning": "Search for latest AGI papers and create a summary presentation.",
-    "tool": "sequential",
-    "steps": [
-        {
-            "tool": "web_search",
-            "reasoning": "Find the latest papers on AGI",
-            "query": "latest papers on AGI"
-        },
-        {
-            "tool": "python",
-            "reasoning": "Create a presentation based on the search results",
-            "title": "agi_presentation.py",
-            "requirements": "Create a streamlit presentation based on the found papers"
-        }
-    ]
+    "reasoning": "Search for latest AGI papers and prepare for creating a summary presentation",
+    "tool": "web_search",
+    "web_query": "latest papers on AGI",
+    "next_tool": "python",
+    "next_title": "Create AGI Presentation"
 }"""
 
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
-        """Execute the first tool and provide a summary for deciding on subsequent steps."""
+        """Execute the tool and provide a summary for deciding on the subsequent step."""
         if not self.validate_params(params):
             return self.format_response(
                 "Invalid parameters provided",
                 status="error",
-                error="Missing required parameters: reasoning and steps"
+                error="Missing required parameters: tool, next_tool, next_title"
             )
 
         try:
-            steps = params["steps"]
-            if not isinstance(steps, list) or len(steps) < 2:
-                return self.format_response(
-                    "Invalid steps parameter",
-                    status="error",
-                    error="At least two steps must be provided"
-                )
-
-            # Sanitize steps
-            sanitized_steps = [self._sanitize_step(step) for step in steps]
-            first_step = sanitized_steps[0]
-            next_step = sanitized_steps[1]
-
             # Initialize tool manager
             tool_manager = ToolManager()
             
-            # Execute first step
-            if not isinstance(first_step, dict) or "tool" not in first_step:
-                return self.format_response(
-                    "Invalid first step",
-                    status="error",
-                    error="First step must be a dictionary with at least a 'tool' key"
-                )
-
-            tool_name = first_step["tool"]
-            print(colored(f"\nExecuting first step: {tool_name}", "cyan"))
-            print(colored(f"Reasoning: {first_step.get('reasoning', 'No specific reasoning provided')}", "cyan"))
+            # Get tool and execute
+            tool_name = params["tool"]
+            
+            # Extract tool-specific parameters
+            tool_params = {}
+            if tool_name == "web_search" and "web_query" in params:
+                tool_params["web_query"] = params["web_query"]
+            elif tool_name == "bash" and "command" in params:
+                tool_params["command"] = params["command"]
+            elif tool_name == "python" and "title" in params and "requirements" in params:
+                tool_params["title"] = params["title"]
+                tool_params["requirements"] = params["requirements"]
+                tool_params["reasoning"] = params.get("reasoning")
+            
+            print(colored(f"\nExecuting tool: {tool_name}", "cyan"))
+            print(colored(f"Reasoning: {params.get('reasoning', 'No specific reasoning provided')}", "cyan"))
 
             try:
                 tool = tool_manager.get_tool(tool_name)()
             except KeyError:
                 return self.format_response(
-                    "Invalid tool in first step",
+                    "Invalid tool specified",
                     status="error",
                     error=f"Tool '{tool_name}' not found"
                 )
 
-            # Execute first tool
-            first_result = await tool.execute(first_step)
+            # Execute the tool
+            result = await tool.execute(tool_params)
 
-            # Check for errors in first step
-            if first_result.get("status") == "error":
+            # Check for errors
+            if result.get("status") == "error":
                 return self.format_response(
-                    "Error in first step",
+                    "Error in tool execution",
                     status="error",
-                    error=f"Tool '{tool_name}' failed: {first_result.get('error')}"
+                    error=f"Tool '{tool_name}' failed: {result.get('error')}"
                 )
 
+            # Prepare next step info
+            next_step = {
+                "tool": params["next_tool"],
+                "title": params["next_title"]
+            }
+
             # Generate summary of results and next step
-            result_summary = self._generate_result_summary(first_result, next_step)
+            result_summary = self._generate_result_summary(result, next_step)
 
             return self.format_response(
-                reasoning=params["reasoning"],
+                reasoning=params.get("reasoning"),
                 status="success",
-                first_step_result=first_result,
+                tool_result=result,
                 next_step=next_step,
-                result_summary=result_summary,
-                remaining_steps=sanitized_steps[2:] if len(sanitized_steps) > 2 else []
+                result_summary=result_summary
             )
 
         except Exception as e:
