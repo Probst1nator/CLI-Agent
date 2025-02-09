@@ -1,6 +1,7 @@
 # File: globals.py
 import os
-from typing import List
+from typing import List, Optional
+import argparse
 
 class Globals:
     PROJ_DIR_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,9 +13,9 @@ class Globals:
     PROJ_AGENTIC_SANDBOX_BACKUP_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox_backup')
     CURRENT_WORKING_DIR_PATH = os.getcwd()
     CURRENT_MOST_INTELLIGENT_MODEL_KEY: str = "gpt4-o"
-    DEBUG_LOGGING: bool = False  # Global debug logging flag
     
     RECENT_ACTIONS: List[str] = []
+    args: Optional[argparse.Namespace] = None
 
     os.makedirs(PROJ_VSCODE_DIR_PATH, exist_ok=True)
     PROJ_CONFIG_FILE_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'cli-agent.json')
@@ -37,5 +38,17 @@ class Globals:
         """Get recent actions"""
         with open(cls.PROJ_MEMORY_FILE_PATH, "r") as f:
             return f.read().split("\n")
+
+    @classmethod
+    def set_args(cls, args: argparse.Namespace) -> None:
+        """Store command line arguments"""
+        cls.args = args
+
+    @classmethod
+    def get_args(cls) -> argparse.Namespace:
+        """Get command line arguments"""
+        if cls.args is None:
+            raise RuntimeError("Command line arguments not initialized. Call set_args() first.")
+        return cls.args
 
 g = Globals()

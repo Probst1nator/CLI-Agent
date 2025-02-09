@@ -28,42 +28,11 @@ class WebTools:
             path=self.persistent_dir,
             settings=Settings(
                 allow_reset=True,
-                is_persistent=True
+                is_persistent=True,
+                anonymized_telemetry=False
             )
         )
-        
-    def _get_collection(self, date: str = None) -> chromadb.Collection:
-        """
-        Get or create a collection for storing search results. Collections are created per day.
-        
-        Args:
-            date (str, optional): Date in YYYY-MM-DD format. If None, uses today's date.
-            
-        Returns:
-            chromadb.Collection: ChromaDB collection
-        """
-        if date is None:
-            date = datetime.now().strftime("%Y-%m-%d")
-            
-        collection_name = f"brave_search_{date}"
-        
-        try:
-            # Try to get existing collection for the date
-            collection = self.chroma_client.get_collection(name=collection_name)
-            print(colored(f"Using existing collection for {date}", "green"))
-        except ValueError:
-            # Create new collection if it doesn't exist for the date
-            collection = self.chroma_client.create_collection(
-                name=collection_name,
-                metadata={
-                    "description": f"Brave search results for {date}",
-                    "created_at": datetime.now().isoformat(),
-                    "date": date
-                }
-            )
-            print(colored(f"Created new collection for {date}: {collection_name}", "green"))
-            
-        return collection
+
         
     def _chunk_text(self, text: str, chunk_size: int = 4000, overlap_size: int = 200) -> List[str]:
         """
@@ -145,42 +114,41 @@ class WebTools:
             print(f"Error scraping {url}: {str(e)}")
             return ""
 
-    def search_brave(self, query: str, num_results: int = 2, force_refresh: bool = False, top_k: int = 3) -> List[Tuple[str, Dict]]:
+    def search_brave(self, query: str, num_results: int = 2, top_k: int = 3) -> List[Tuple[str, Dict]]:
         """
-        Search the web using Brave browser, store results in persistent ChromaDB, and return the most relevant chunks.
+        Search the web using Brave browser and return the most relevant chunks.
         
         Args:
             query (str): The search query
             num_results (int): Number of web results to fetch
-            force_refresh (bool): If True, force new search even if results exist
             top_k (int): Number of most relevant chunks to return
             
         Returns:
-            List[Tuple[str, Dict]]: List of (document, metadata) tuples for most relevant chunks
+            List[Tuple[str, str]]: List of (document, url) tuples for most relevant chunks
         """
         print(colored(f"BRAVE: Searching {num_results} websites for: {query}", "green"))
         
-        # Get or create collection for today
-        collection = self._get_collection()
-        
-        # Check if we already have results for this query and force_refresh is False
-        if not force_refresh:
-            existing_results = collection.get(
-                where={"query": query}
-            )
-            if existing_results["ids"]:
-                print(colored(f"Using existing results for query: {query}", "green"))
-                return self.query_stored_results(query, top_k=top_k)
+
+        # Create a new collection for this search
+        collection_name = f"brave_search_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        collection = self.chroma_client.create_collection(
+            name=collection_name,
+            metadata={
+                "description": f"Brave search results for query: {query}",
+                "created_at": datetime.now().isoformat(),
+                "query": query
+            }
+        )
         
         # Perform Brave search
         brave = Brave(self.brave_api_key)
         search_results = brave.search(q=query, count=num_results, safesearch="off")
         
         all_chunks = []
-        chunk_embeddings = []
         chunk_ids = []
-        chunk_metadata = []
+        source_urls = []
         
+        # First gather all chunks and metadata
         for web_result in search_results.web_results:
             url = web_result['url']
             scraped_content = self.scrape_text_from_url(url)
@@ -191,118 +159,63 @@ class WebTools:
             # Split content into chunks
             chunks = self._chunk_text(scraped_content)
             
-            # Process chunks in batches
+            # Process chunks
             for i, chunk in enumerate(chunks):
                 # Generate unique ID for the chunk
                 chunk_id = hashlib.md5(f"{url}_{i}_{chunk[:100]}".encode()).hexdigest()
                 
-                # Create metadata
-                metadata = {
-                    "url": str(url),  # Ensure URL is converted to string
-                    "chunk_index": i,
-                    "timestamp": datetime.now().isoformat(),
-                    "query": str(query)  # Ensure query is converted to string
-                }
-                
-                try:
-                    # Generate embedding using OllamaClient
-                    embedding = OllamaClient.generate_embedding(chunk)
-                    
-                    # Collect chunks for batch insertion
-                    all_chunks.append(chunk)
-                    chunk_embeddings.append(embedding)
-                    chunk_ids.append(chunk_id)
-                    chunk_metadata.append(metadata)
-                    
-                except Exception as e:
-                    print(colored(f"Error processing chunk {i} from {url}: {str(e)}", "red"))
-                    continue
+                all_chunks.append(chunk)
+                chunk_ids.append(chunk_id)
+                source_urls.append(url)
         
-        # Batch add all chunks to collection
-        if chunk_ids:
-            collection.add(
-                ids=chunk_ids,
-                embeddings=chunk_embeddings,
-                metadatas=chunk_metadata,
-                documents=all_chunks
-            )
-        
-        # Return relevant chunks using embedding-based search
-        return self.query_stored_results(query, top_k=top_k)
-    
-    def query_stored_results(self, query: str, top_k: int = 3, date: str = None) -> List[Tuple[str, Dict]]:
-        """
-        Query the stored results in ChromaDB for a given search query.
-        
-        Args:
-            query (str): Query string
-            top_k (int): Number of top results to return
-            date (str, optional): Specific date to query in YYYY-MM-DD format. If None, uses today's collection.
+
+        if not all_chunks:
+            return []
             
-        Returns:
-            List[Tuple[str, Dict]]: List of (document, metadata) tuples
-        """
-        collection = self._get_collection(date)
+        # Generate all embeddings at once
+        chunk_embeddings = OllamaClient.generate_embedding(all_chunks, model="bge-m3")
+        if not chunk_embeddings:
+            return []
         
-        # Generate embedding for query using OllamaClient
+        collection.add(
+            ids=chunk_ids,
+            embeddings=chunk_embeddings,
+            metadatas=[{"source_url": str(source_url)} for source_url in source_urls],
+            documents=all_chunks
+        )
+
+
+        
+        # Generate embedding for query
         query_embedding = OllamaClient.generate_embedding(query)
+        if not query_embedding:
+            return []
         
         # Query the collection
         results = collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k,
-            where={"query": query}  # Only get results for this specific query
+            n_results=top_k
         )
         
         # Combine documents and metadata
         if results["documents"] and results["metadatas"]:
-            return list(zip(results["documents"][0], results["metadatas"][0]))
+            urls = [metadata["source_url"] for metadata in results["metadatas"][0]]
+            return list(zip(results["documents"][0], urls))
         return []
 
-    def list_collections(self) -> List[str]:
-        """
-        List all available search collections.
-        
-        Returns:
-            List[str]: List of collection names
-        """
-        return [col.name for col in self.chroma_client.list_collections()]
-
-    def clear_collection(self, date: str = None):
-        """
-        Clear a specific day's search collection.
-        
-        Args:
-            date (str, optional): Date in YYYY-MM-DD format. If None, clears today's collection.
-        """
-        if date is None:
-            date = datetime.now().strftime("%Y-%m-%d")
-        
-        collection_name = f"brave_search_{date}"
-        try:
-            collection = self.chroma_client.get_collection(name=collection_name)
-            collection.delete(where={})
-            print(colored(f"Cleared collection for {date}: {collection_name}", "green"))
-        except ValueError:
-            print(colored(f"Collection not found for {date}: {collection_name}", "yellow"))
 
 # Example usage:
 if __name__ == "__main__":
     # Initialize with persistent storage
     web_tools = WebTools(persistent_dir="./web_search_db")
     
-    # Search and store results
+    # Search and get results
     query = "Latest developments in quantum computing"
     results = web_tools.search_brave(query, num_results=2)
     
-    # Query stored results
-    stored_results = web_tools.query_stored_results(query)
-    for doc, metadata in stored_results:
-        print(f"URL: {metadata['url']}")
-        print(f"Chunk {metadata['chunk_index']}:")
+    # Print results
+    for doc, url in results:
+        print(f"URL: {url}")
+        print(f"Chunk:")
         print(doc)
         print("-" * 80)
-        
-    # List available collections
-    print("Available collections:")
-    print(web_tools.list_collections())

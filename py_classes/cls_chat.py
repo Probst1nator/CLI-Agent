@@ -2,6 +2,8 @@ import copy
 import json
 import math
 import os
+import logging
+import tkinter as tk
 from enum import Enum
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -10,6 +12,8 @@ from termcolor import colored
 from py_classes.globals import g
 from ollama._types import Message
 
+logger = logging.getLogger(__name__)
+
 class Role(Enum):
     SYSTEM = "system"
     USER = "user"
@@ -17,16 +21,46 @@ class Role(Enum):
     ASSISTANT = "assistant"
 
 class Chat:
-    def __init__(self, instruction_message: str = ""):
+    def __init__(self, instruction_message: str = "", debug_title: Optional[str] = None):
         """
         Initializes a new Chat instance.
         
         :param instruction_message: The initial system instruction message.
+        :param debug_title: Optional title for the debug window.
         """
         self.messages: List[Tuple[Role, str]] = []
         self.base64_images: List[str] = []
+        self._window: Optional[tk.Tk] = None
+        self._text_widget: Optional[tk.Text] = None
+        self.debug_title: str = debug_title or "Chat Debug Window"
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
+    
+    def _update_window_display(self):
+        """Updates the window display with current chat messages if debug mode is enabled."""
+        # Check if either debug mode or debug_chats is enabled
+        if not (logger.isEnabledFor(logging.DEBUG) or (hasattr(g, 'args') and g.args and g.args.debug_chats)):
+            return
+            
+        if self._window is None:
+            self._window = tk.Tk()
+            self._window.title(self.debug_title)
+            self._text_widget = tk.Text(self._window, wrap=tk.WORD)
+            self._text_widget.pack(expand=True, fill='both')
+            self._window.geometry("800x600")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Created new debug window with title: {self.debug_title}")
+        
+        self._text_widget.delete('1.0', tk.END)
+        for role, content in self.messages:
+            role_str = f"{role.name}:\n"
+            self._text_widget.insert(tk.END, role_str, 'bold')
+            self._text_widget.insert(tk.END, f"{content}\n\n")
+        
+        self._text_widget.tag_configure('bold', font=('TkDefaultFont', 10, 'bold'))
+        self._window.update()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Updated debug window display")
     
     def add_message(self, role: Role, content: str) -> "Chat":
         """
@@ -43,6 +77,10 @@ class Chat:
             else:
                 # Otherwise, add a new message
                 self.messages.append((role, content))
+            
+            # Update window display if debug mode is enabled
+            self._update_window_display()
+            
         return self
 
     def get_messages_as_string(self, start_index: int, end_index: Optional[int] = None) -> str:
@@ -261,10 +299,11 @@ class Chat:
     def joined_messages(self) -> str:
         """
         Returns all messages joined with "\n".
-        
         :return: The joined messages as a single string.
         """
-        return "\n".join(content for _, content in self.messages)
+        # Join only the content (second element) from each message tuple
+        # Each message is a tuple of (Role, content)
+        return "\n".join(str(message[1]) for message in self.messages)
     
     def count_tokens(self, encoding_name: str = "cl100k_base") -> int:
         """

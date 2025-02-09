@@ -15,8 +15,11 @@ from py_classes.cls_ai_provider_interface import ChatClientInterface
 from py_classes.ai_providers.cls_groq_interface import GroqAPI
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
-from py_methods.logger import logger
 from py_classes.globals import g
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
@@ -83,9 +86,6 @@ class Llm:
             Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 32768, AIStrengths.STRONG),
             Llm(GroqAPI(), "gemma-7b-it", None, False, False, False, 8192, AIStrengths.FAST),
             
-            # Catch requests using strong local llms
-            Llm(OllamaClient(), "mistral-small:22b", None, False, True, True, 128000, AIStrengths.STRONG),
-            Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, AIStrengths.FAST),
             
             Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, False, 200000, AIStrengths.STRONG),
             Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, AIStrengths.FAST),
@@ -93,12 +93,16 @@ class Llm:
             Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, AIStrengths.FAST),
             # Llm(OpenAIAPI(), "o1-preview", 20, False, False, True, 128000, AIStrengths.STRONG), # Expensive as heck
 
-
-            Llm(OllamaClient(), "gemma2:2b", None, False, True, False, 4096, AIStrengths.FAST),
+            # Llm(OllamaClient(), "Qwen2.5-3B-Instruct-abliterated.Q4_K_M.gguf", None, True, True, False, 128000, AIStrengths.FAST),
+            # Llm(OllamaClient(), "Qwen2.5-3B-Instruct-abliterated.Q4_K_M.gguf", None, True, True, False, 128000, AIStrengths.STRONG),
             Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 8192, AIStrengths.STRONG),
             Llm(OllamaClient(), "llama3.2:3b", None, False, True, False, 4096, AIStrengths.FAST),
             Llm(OllamaClient(), "llama3.2:1b", None, False, True, False, 4096, AIStrengths.FAST),
             Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 131072, AIStrengths.STRONG),
+            Llm(OllamaClient(), "mistral-small:22b", None, False, True, True, 128000, AIStrengths.STRONG),
+            Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, True, 128000, AIStrengths.FAST),
+            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, True, False, 128000, AIStrengths.FAST),
+            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, True, False, 128000, AIStrengths.STRONG),
             
             Llm(OllamaClient(), "minicpm-v:8b", None, False, True, True, 4096, AIStrengths.STRONG),
             Llm(OllamaClient(), "llava-llama3:8b", None, False, True, True, 4096, AIStrengths.STRONG),
@@ -377,7 +381,7 @@ class LlmRouter:
         force_preferred_model: bool = False,
         silent_reason: str = "",
         re_print_prompt: bool = False,
-        exclude_model_keys: List[str] = ["llama-3.1-"],
+        exclude_model_keys: List[str] = [],
         use_reasoning: bool = True,
         silent_reasoning: bool = True
     ) -> str:
@@ -406,43 +410,9 @@ class LlmRouter:
         tooling = CustomColoring()
         cls.call_counter += 1
         
-        
         # Convert string input to Chat object if necessary
         if isinstance(chat, str):
             chat = Chat(instruction).add_message(Role.USER, chat)
-        
-        # if use_reasoning:
-        #     prompt = chat.messages[-1][1]
-        #     chat.messages[-1] = (Role.USER, "For this request, please think before replying. Find the my intents and explore solutions BEFORE you answer. Please then provide me a with a full well constructed response.")
-        #     chat.add_message(Role.USER, prompt)
-            # chat.add_message(Role.USER, "USER_REQUEST: You are now thinking before replying. Think about the question and understand its context. Find the user's intent and explore solutions. Think concisely. You will be asked later to respond directly to the users, prepare yourself.") # douply add the message to make sure the user sees it
-            # # chat.add_message(Role.SYSTEM, "You are now thinking before replying. Think about the question and understand its context. Find the user's intent and explore solutions. Think concisely. You will be asked later to respond directly to the users, prepare yourself.")
-            # print(colored(f"# # # Reasoning # # #", "green"))
-            # if preferred_models and not isinstance(preferred_models[0], str):
-            #     preferred_models_for_reasoning = [model.model_key for model in preferred_models]
-            # else:
-            #     preferred_models_for_reasoning = preferred_models
-            # preferred_models_for_reasoning = [model_key.replace("llama-3.1-70b-versatile", "gpt-4o-mini") for model_key in preferred_models_for_reasoning]
-            # reasoning_response = cls.generate_completion(
-            #     chat,
-            #     preferred_models=preferred_models_for_reasoning,
-            #     strength=strength,
-            #     start_response_with=start_response_with,
-            #     instruction=instruction,
-            #     temperature=temperature,
-            #     base64_images=base64_images,
-            #     include_start_response_str=include_start_response_str,
-            #     use_cache=use_cache,
-            #     force_local=force_local,
-            #     force_free=force_free,
-            #     force_preferred_model=force_preferred_model,
-            #     silent=silent_reasoning,
-            #     re_print_prompt=re_print_prompt,
-            #     exclude_model_keys=exclude_model_keys,
-            #     use_reasoning=False
-            # )
-            # chat.add_message(Role.ASSISTANT, reasoning_response)
-            # chat.add_message(Role.USER, f"SYSTEM PROMPT: \nYou are now prepared to respond to the user directly, here's the users message: \n{prompt}")
         
         if start_response_with:
             chat.add_message(Role.ASSISTANT, start_response_with)
@@ -496,6 +466,7 @@ class LlmRouter:
                     if model.model_key in instance.failed_models:
                         return None
                     instance.failed_models.add(model.model_key)
+                    instance.retry_models.remove(model)
                 else:
                     print(colored(f"generate_completion error: {e}", "red"))
                     logger.error(f"generate_completion error: {e}")
