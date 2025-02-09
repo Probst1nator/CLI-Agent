@@ -5,6 +5,7 @@ import sys
 import subprocess
 import json
 from termcolor import colored
+import re
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_chat import Chat, Role
@@ -29,21 +30,16 @@ class PythonTool(BaseTool):
                 },
                 "requirements": {
                     "type": "string",
-                    "description": "Detailed description of what the Python script should do, including input/output specifications, data handling requirements, and expected behavior"
+                    "description": "A string containing a numbered list or bullet points describing what the Python script should do"
                 }
             },
             required_params=["reasoning", "title", "requirements"],
             example_usage="""
             {
-                "reasoning": "Need to create a visualization of data points in 3D space",
                 "tool": "python",
+                "reasoning": "Need to create a visualization of data points in 3D space",
                 "title": "plot_3d_scatter.py",
-                "requirements": "Create a 3D scatter plot using matplotlib. The script should:
-                1. Generate sample data points in 3D space
-                2. Create an interactive 3D scatter plot
-                3. Add proper axis labels and title
-                4. Save the plot as 'scatter_3d.png'
-                5. Display the plot in a window"
+                "requirements": "1. Generate sample data points in 3D space\\n2. Create an interactive 3D scatter plot\\n3. Add proper axis labels and title\\n4. Save the plot as 'scatter_3d.png'\\n5. Display the plot in a window"
             }
             """
         )
@@ -63,25 +59,18 @@ Example:
 {
     "reasoning": "Need to create an interactive simulation of Conway's Game of Life",
     "tool": "python",
-    "title": "game_of_life.py",
+    "title": "game_of_life.py", 
     "requirements": "Create a script that:
-
-1. Implements a 50x50 grid using numpy arrays
-2. Initializes random starting state with 30% live cells
-3. Applies Conway's rules:
+1. Implements a grid for Conway's Game of Life using numpy
+2. Initializes with random starting cells
+3. Applies the standard Conway's Game of Life rules:
    - Live cell survives with 2-3 neighbors
    - Dead cell revives with exactly 3 neighbors
-4. Uses pygame to display animated grid with interactive features:
-   - Left click to toggle cells alive/dead
-   - Space bar to pause/resume simulation
-   - 'r' key to randomize grid state
-   - Up/Down arrows to speed up/slow down simulation
-   - 'c' key to clear the grid
-5. Updates every 200ms (adjustable with arrow keys)
-6. Displays current generation count and simulation speed
-7. Runs until 'q' is pressed
-
-The simulation should provide real-time feedback for all user interactions and maintain smooth performance throughout execution. The interface should be intuitive and responsive, allowing users to experiment with different patterns and observe their evolution."
+4. Uses pygame to display the grid with basic controls:
+   - Space to pause/resume
+   - Click to toggle cells
+   - 'r' to randomize
+5. Updates continuously until quit"
 }"""
 
     def evaluate_existing_script(
@@ -161,14 +150,35 @@ Respond with ONLY a JSON object containing:
             f"""Create a Python script that meets these requirements:
 {requirements}
 
+IMPORTANT RESPONSE FORMAT INSTRUCTIONS:
+1. Start your response with a brief plan of implementation
+2. ALWAYS wrap your code in a Python code block using:
+   ```python
+   # Your code here
+   ```
+3. DO NOT include any other code blocks or explanations after the code
+4. DO NOT split the code into multiple blocks
+
 The implementation must:
 1. Use type hints for all functions and variables
-2. Include comprehensive error handling
-3. Include docstrings and comments
-4. Be self-contained and reusable
-5. Follow PEP 8 style guidelines
+2. Include comprehensive error handling with try/except blocks
+3. Include docstrings for all functions and classes
+4. Include inline comments for complex logic
+5. Be completely self-contained:
+   - Use Pyglet instead of pptx for presentations
+6. Follow PEP 8 style guidelines
+7. Include a main guard: if __name__ == "__main__":
+8. Include all necessary imports at the top
 
-You may reason about the requirements and provide a detailed plan of action before responding one-shot with the full Python code."""
+Example response format:
+Implementation plan:
+1. First, I'll...
+2. Then, I'll...
+3. Finally, I'll...
+
+```python
+# Complete implementation here
+```"""
         )
         
         response = LlmRouter.generate_completion(
@@ -177,10 +187,54 @@ You may reason about the requirements and provide a detailed plan of action befo
             silent_reasoning=True
         )
         
-        # Clean response to ensure we only get code
-        if "```python" in response:
-            response = response[response.find("```python") + 9:response.rfind("```")]
-        return response.strip()
+        # More robust code extraction
+        def extract_python_code(text: str) -> str:
+            # Try to find code between ```python and ``` markers first
+            python_block_match = re.search(r'```python\n(.*?)\n```', text, re.DOTALL)
+            if python_block_match:
+                return python_block_match.group(1).strip()
+            
+            # If no python block found, try generic code blocks
+            code_block_match = re.search(r'```\n?(.*?)\n```', text, re.DOTALL)
+            if code_block_match:
+                return code_block_match.group(1).strip()
+            
+            # If no code blocks found, try to find Python-like content
+            # Look for content that starts with imports or comments
+            python_content_match = re.search(r'(?:(?:import|from|#).*?\n(?:.*?\n)*)', text, re.DOTALL)
+            if python_content_match:
+                return python_content_match.group(0).strip()
+            
+            # If all else fails, return the entire response
+            # This will be validated later during execution
+            return text.strip()
+
+        extracted_code = extract_python_code(response)
+        
+        # Validate the extracted code has basic Python structure
+        if not any(keyword in extracted_code for keyword in ['import ', 'def ', 'class ', '#']):
+            # If code doesn't look like Python, try one more time with more explicit instructions
+            implement_chat.add_message(
+                Role.USER,
+                """The previous response did not contain valid Python code. Please provide ONLY the Python implementation wrapped in code blocks. Example:
+```python
+import sys
+# Rest of the implementation
+```"""
+            )
+            
+            retry_response = LlmRouter.generate_completion(
+                implement_chat,
+                ["claude-3-5-sonnet-latest", "qwen2.5-coder:7b-instruct"],
+                silent_reasoning=True
+            )
+            extracted_code = extract_python_code(retry_response)
+        
+        # Ensure the code has a main guard if it's not just a function/class definition
+        if 'if __name__ == "__main__":' not in extracted_code and ('print' in extracted_code or 'input' in extracted_code):
+            extracted_code += "\n\nif __name__ == \"__main__\":\n    main()"
+        
+        return extracted_code.strip()
 
     def handle_execution_error(
         self,
@@ -252,14 +306,49 @@ Respond with ONLY a JSON object containing:
         
         return execution_details, True
 
+    def _get_missing_params(self, params: Dict[str, Any]) -> list[str]:
+        """
+        Check which required parameters are missing from the input.
+        
+        Args:
+            params: Dictionary of provided parameters
+            
+        Returns:
+            List of missing parameter names
+        """
+        required_params = self.metadata.required_params
+        return [param for param in required_params if param not in params or not params[param]]
+
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
         """Execute the Python tool with comprehensive error handling and script management."""
-        if not self.validate_params(params):
+        missing_params = self._get_missing_params(params)
+        if missing_params:
             return self.format_response(
-                "Invalid parameters provided",
+                "Missing required parameters",
                 status="error",
-                error="Missing required parameters"
+                error=f"The following required parameters are missing or empty: {', '.join(missing_params)}"
             )
+
+        # Validate requirements is a string
+        if not isinstance(params.get('requirements'), str):
+            try:
+                # Try to convert requirements to string if it's a dict or list
+                if isinstance(params['requirements'], (dict, list)):
+                    requirements_str = "\n".join(f"{k}. {v}" if isinstance(params['requirements'], dict) else f"{i+1}. {v}" 
+                                              for i, (k, v) in enumerate(params['requirements'].items() if isinstance(params['requirements'], dict) else enumerate(params['requirements'])))
+                    params['requirements'] = requirements_str
+                else:
+                    return self.format_response(
+                        "Invalid requirements format",
+                        status="error",
+                        error="Requirements must be a string containing a numbered list or bullet points"
+                    )
+            except Exception as e:
+                return self.format_response(
+                    "Invalid requirements format",
+                    status="error",
+                    error=f"Could not process requirements: {str(e)}"
+                )
 
         try:
             script_title = params['title']
@@ -276,23 +365,23 @@ Requirements: {script_requirements}"""
             script_path = os.path.join(script_dir, script_title)
             
             # Track if we're creating a new script or modifying existing
-            is_new_script = not os.path.exists(script_path)
+            # is_new_script = not os.path.exists(script_path)
             
             # Create context chat for LLM interactions
-            context_chat = Chat()
+            context_chat = Chat(debug_title="Python Tool")
             context_chat.add_message(Role.SYSTEM, "You are a Python programming assistant.")
             
             # Handle script implementation
-            if is_new_script:
-                final_script = self.request_implementation(context_chat, script_description)
-            else:
-                evaluation = self.evaluate_existing_script(script_path, context_chat, script_description)
+            # if is_new_script:
+            final_script = self.request_implementation(context_chat, script_description)
+            # else:
+            #     evaluation = self.evaluate_existing_script(script_path, context_chat, script_description)
                 
-                if evaluation['decision'] == 'keep':
-                    with open(script_path, 'r') as f:
-                        final_script = f.read()
-                else:
-                    final_script = self.request_implementation(context_chat, script_description)
+            #     if evaluation['decision'] == 'keep':
+            #         with open(script_path, 'r') as f:
+            #             final_script = f.read()
+            #     else:
+            #         final_script = self.request_implementation(context_chat, script_description)
             
             # Write script
             with open(script_path, "w") as f:

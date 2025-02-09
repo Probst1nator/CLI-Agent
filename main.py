@@ -15,6 +15,7 @@ import sys
 import socket
 import warnings
 import asyncio
+import re
 
 
 from py_methods.cmd_execution import select_and_execute_commands
@@ -171,12 +172,13 @@ async def main() -> None:
     
     if args.c:
         context_chat = Chat.load_from_json()
+        context_chat.title = "Continued Conversation"
     else:
         context_chat = Chat(debug_title="Main Context Chat")
     
     # Update web server with the actual chat context
     if web_server:
-        web_server.chat = context_chat
+        web_server.chat = context_chat.deep_copy()
     
     if (args.voice or args.speak) and context_chat and len(context_chat.messages) > 0:
         # tts last response (when continuing)
@@ -198,21 +200,10 @@ async def main() -> None:
         if args.presentation != None:
             presentation_assistant(args, context_chat, args.presentation)
     
-    prompt_context_augmentation: str = ""
-    prompt_context_augmentation: str = ""
     previous_model_key: str | None = None
-    
-    # remove empty context chat for few_shot_inits
-    if len(context_chat.messages) == 0:
-        context_chat = None
     
     # Main loop
     while True:
-        # remove temporary context augmentation from the last user message
-        if context_chat:
-            if len(context_chat.messages) > 0:
-                if context_chat.messages[-1][0] == Role.USER:
-                    context_chat.messages[-1] = (Role.USER, context_chat.messages[-1][1].replace(prompt_context_augmentation, "").strip())
         
         # save the context_chat to a json file
         if context_chat:
@@ -354,17 +345,17 @@ async def main() -> None:
         
         # AGENT INITIALIZATION - BEGIN
         if not context_chat:
-            context_chat = Chat("You are a scalable agentic AI assistant.")
+            context_chat = Chat("You are a scalable agentic AI assistant.", debug_title="Agentic AI Context Chat")
         # AGENT INITIALIZATION - END
         
         # Add user message to both context and web interface
-        context_chat.add_message(Role.USER, user_input)
         if web_server and web_server.chat:
             web_server.add_message_to_chat(Role.USER, user_input)
 
         # AGENTIC IN-TURN LOOP - BEGIN
         action_counter = 0  # Initialize counter for consecutive actions
         MAX_ACTIONS = 10    # Maximum number of consecutive actions before forcing a reply
+        tool_response = ""
         perform_exit: bool = False
 
         while True:
@@ -402,8 +393,16 @@ You have two options for responding:
    - Perform system operations
    - Execute computations
    - Chain multiple operations together
+
+First, explain your thought process:
+1. What is the user asking for?
+2. What capabilities are needed to fulfill this request?
+3. Which tool or sequence of tools would be most appropriate?
+4. Why is this the best approach?
+
+After explaining your reasoning, provide your tool selection in a single, valid JSON format.
    
-The sequential tool will let you specify which tool to use now and what tool should be used next (which should typically be "reply" to provide the final response).
+The sequential tool will let you specify a complete first tool configuration and your subsequent intent (which should typically be "reply" to provide the final response).
 
 {f'''
 CONTEXT-AWARE BEHAVIOR:
@@ -413,22 +412,23 @@ CONTEXT-AWARE BEHAVIOR:
 - Use conversational tone
 ''' if args.voice or args.speak else ""}
 
-Response Format:
-Either:
-{{
-    "tool": "reply",
-    "reasoning": "Why a direct response is sufficient",
-    "reply": "Your direct response here"
-}}
+Response Format Example:
+Let me think through this...
+1. The user is asking about [specific request]
+2. To fulfill this, I need to [capabilities needed]
+3. The best approach would be to [tool selection reasoning]
+4. This is optimal because [justification]
 
-Or:
+Here's my tool selection:
 {{
     "tool": "sequential",
     "reasoning": "Why you need to chain operations",
-    "tool": "first_tool_name",  // The tool to use now
-    "param1": "value1",         // Parameters for the first tool
-    "next_tool": "reply",       // Usually "reply" to give final response
-    "next_title": "Final Response"
+    "first_tool_call": {{
+        "tool": "web_search",
+        "reasoning": "Why this tool is needed first",
+        "web_query": "your search query"
+    }},
+    "subsequent_intent": "A clear statement of what should be done next with the results, suggesting which tool to use (e.g., 'Use python tool to create a visualization', 'Use reply tool to summarize findings')"
 }}"""
                 elif guidance_stage == 2:
                     # Summary guidance for second iteration
@@ -444,13 +444,12 @@ Response Format:
 {{
     "tool": "reply" or "sequential",
     "reasoning": "Why this choice is appropriate",
-    ... other parameters based on choice ...
+    "first_tool_call": {{...}} if sequential,
+    "subsequent_intent": "Clear statement of what to do next with suggested tool" if sequential
 }}"""
                 else:
                     # Tools-only for third iteration and beyond
-                    agent_prompt = f"""Available tools:
-
-{tools_prompt}
+                    agent_prompt = f"""{tools_prompt}
 
 Use "reply" directly or "sequential" to chain with reply. Always include reasoning.
 
@@ -458,11 +457,12 @@ Response Format:
 {{
     "tool": "reply" or "sequential",
     "reasoning": "Why this choice is appropriate",
-    ... other parameters based on choice ...
+    "first_tool_call": {{...}} if sequential,
+    "subsequent_intent": "What to do next with suggested tool" if sequential
 }}"""
 
                 # Add tool selection guidance
-                context_chat.add_message(Role.USER, f"Prompt: {user_input}\n" + agent_prompt)
+                context_chat.add_message(Role.USER, f"Prompt: {user_input}\n" + (f"Previous tool summary: {tool_response}\n"  if tool_response else "") + agent_prompt)
 
                 # Get tool selection response
                 try:
@@ -478,29 +478,48 @@ Response Format:
                 tool_call_json_list = []  # Initialize list before parsing attempts
                 agent_tool_calls = []  # Initialize agent_tool_calls before try block
                 try:
-                    # First try to find a simple JSON object ending at first }
-                    import re
-                    simple_json_pattern = r'\{[^}]*\}'
-                    simple_json_match = re.search(simple_json_pattern, tool_use_response)
-                    if simple_json_match:
-                        try:
-                            # Try to parse it as JSON
-                            simple_json = simple_json_match.group()
-                            # Clean the JSON string - replace unescaped newlines and normalize whitespace
-                            simple_json = re.sub(r'(?<!\\)\n', '\\n', simple_json)
-                            simple_json = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', simple_json)  # Remove control characters
-                            parsed_json = json.loads(simple_json)
-                            tool_call_json_list = [parsed_json]  # Store the parsed object directly
-                        except json.JSONDecodeError:
-                            # If simple pattern fails, continue with more complex parsing
-                            pass
+                    # Clean up the response text first
+                    cleaned_response = tool_use_response
+                    # Remove markdown code block markers
+                    cleaned_response = re.sub(r'```(?:json)?\n?(.*?)```', r'\1', cleaned_response, flags=re.DOTALL)
+                    # Normalize newlines and remove extra whitespace
+                    cleaned_response = re.sub(r'\s+', ' ', cleaned_response)
                     
-                    # If simple pattern didn't work, try more complex parsing
+                    # First try to find JSON in code blocks
+                    try:
+                        # Look for the outermost JSON object
+                        json_str = re.search(r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}', cleaned_response)
+                        if json_str:
+                            # Clean up the JSON string
+                            json_str = json_str.group()
+                            # Properly escape newlines in string values
+                            json_str = re.sub(r'(?<!\\)\\n', r'\\n', json_str)
+                            # Remove any control characters
+                            json_str = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', json_str)
+                            # Try to parse the JSON
+                            parsed_json = json.loads(json_str)
+                            if isinstance(parsed_json, dict) and "tool" in parsed_json:
+                                tool_call_json_list.append(parsed_json)
+                    except (json.JSONDecodeError, re.error):
+                        pass
+                    
+                    # If no valid JSON found, try more aggressive cleaning
                     if not tool_call_json_list:
-                        # Use the framework's extract_blocks function
-                        tool_use_reponse_blocks = extract_blocks(tool_use_response)
-                        # First try to find JSON blocks in code blocks and parse them
-                        tool_call_json_list = [json.loads(block[1]) for block in tool_use_reponse_blocks if block[0] in ["json", "first{}"]]
+                        try:
+                            # Remove all newlines and extra spaces
+                            cleaned_response = re.sub(r'\s+', ' ', cleaned_response)
+                            # Find anything that looks like a JSON object
+                            potential_json = re.search(r'\{[^}]+\}', cleaned_response)
+                            if potential_json:
+                                # Clean up common formatting issues
+                                json_str = potential_json.group()
+                                json_str = re.sub(r'(?<=\w)"(?=\w)', '\\"', json_str)  # Fix unescaped quotes
+                                json_str = re.sub(r',\s*([}\]])', r'\1', json_str)  # Remove trailing commas
+                                parsed_json = json.loads(json_str)
+                                if isinstance(parsed_json, dict) and "tool" in parsed_json:
+                                    tool_call_json_list.append(parsed_json)
+                        except (json.JSONDecodeError, re.error):
+                            pass
 
                 except Exception as e:
                     print(colored(f"Unexpected error parsing tool selection response: {str(e)}", "red"))
@@ -530,7 +549,7 @@ Response Format:
                         elif selected_tool == "reply" and 'reply' in tool_call:
                             web_server.add_message_to_chat(Role.ASSISTANT, tool_call['reply'])
                 
-                should_continue: bool = False
+                end_workflow: bool = False
                 
                 for tool_call in agent_tool_calls:
                     try:
@@ -561,6 +580,8 @@ Response Format:
                         if result.get("status") == "error":
                             error_msg = result.get("error", "Unknown error")
                             print(colored(f"Tool execution error: {error_msg}", "red"))
+                            if web_server and web_server.chat:
+                                web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {error_msg}")
                             
                             # Create error feedback prompt
                             error_feedback = f"""The previous tool call failed with error: {error_msg}
@@ -575,87 +596,50 @@ Please provide a corrected response that fixes this error. Remember:
 4. Follow the tool's example format exactly"""
 
                             context_chat.add_message(Role.USER, error_feedback)
-                            
-                            try:
-                                error_response = LlmRouter.generate_completion(context_chat, [] if args.local else [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, silent_reasoning=True)
-                                error_response_json = json.loads(error_response)
-                                result = await tool.execute(error_response_json)
-                            except Exception as e:
-                                print(colored(f"Error correcting tool execution: {str(e)}", "red"))
-                                if args.debug:
-                                    traceback.print_exc()
-                                context_chat.add_message(Role.ASSISTANT, f"Error executing {selected_tool}: Failed to correct the error")
-                                continue
+                            continue
 
-                            if result.get("status") == "error":
-                                # If still failing, give up and inform user
-                                error_message = f"Error executing {selected_tool}: {result.get('error')}"
-                                context_chat.add_message(Role.ASSISTANT, error_message)
+                        # Handle sequential tool results
+                        if selected_tool == "sequential" and result.get("status") == "success":
+                            # Add the result summary to chat context
+                            context_chat.add_message(
+                                Role.USER, 
+                                f"The subsequent intent is: '{result.get('subsequent_intent', 'No intent specified')}'. Here's the result of the previous operation, use it to fulfill this intent with the suggested tool:\n{result.get('result_summary', 'No summary available')}"
+                            )
+                            if web_server and web_server.chat:
+                                web_server.add_message_to_chat(
+                                    Role.ASSISTANT, 
+                                    f"✅ First operation completed:\n{result.get('result_summary', 'No summary available')}\nNext step: {result.get('subsequent_intent', 'No intent specified')}"
+                                )
+                            
+                            continue
+
+                        action_counter += 1
+                        tool_response = f"The {selected_tool} tool has been executed successfully. Here are the results:\n{json.dumps(result, indent=2)}\n\nPlease provide a reply response based on these results."
+                        if web_server and web_server.chat and selected_tool != "reply":
+                            web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
+                        
+                        # Handle other tool results
+                        if selected_tool == "reply":
+                            if args.voice or args.speak:
+                                text_to_speech(remove_blocks(result["reply"], ["md"]))
+                            end_workflow = True
+                        elif selected_tool == "goodbye":
+                            if "reply" in result:
                                 if web_server and web_server.chat:
-                                    web_server.add_message_to_chat(
-                                        Role.ASSISTANT, 
-                                        f"❌ Tool execution failed even after correction:\n```\n{error_message}\n\nOriginal attempt:\n{json.dumps(tool_call, indent=2)}\n\nCorrected attempt:\n{json.dumps(error_response_json, indent=2)}\n```"
-                                    )
-                                should_continue = False
-                            else:
-                                # Success with corrected parameters
-                                if selected_tool == "reply":
-                                    if args.voice or args.speak:
-                                        text_to_speech(remove_blocks(result["reply"], ["md"]))
-                                    should_continue = False
-                                elif selected_tool == "goodbye":
-                                    if "reply" in result:
-                                        if web_server and web_server.chat:
-                                            web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
-                                        if args.voice or args.speak:
-                                            text_to_speech(remove_blocks(result["reply"], ["md"]))
-                                    should_continue = False
-                                    perform_exit = True
-                                else:
-                                    if web_server and web_server.chat:
-                                        web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully after correction")
-                                    should_continue = True
-                        else:
-                            if selected_tool == "reply":
+                                    web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
                                 if args.voice or args.speak:
                                     text_to_speech(remove_blocks(result["reply"], ["md"]))
-                                should_continue = False
-                            elif selected_tool == "goodbye":
-                                if "reply" in result:
-                                    if web_server and web_server.chat:
-                                        web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
-                                    if args.voice or args.speak:
-                                        text_to_speech(remove_blocks(result["reply"], ["md"]))
-                                should_continue = False
-                                perform_exit = True
-                            elif selected_tool == "web_search":
-                                # Add tool response to chat context
-                                if web_server and web_server.chat:
-                                    web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
-                                # Speak the web search results directly
-                                if args.voice or args.speak:
-                                    search_summary = LlmRouter.generate_completion(f"Summarize these web search results concisely:\n{json.dumps(result, indent=2)}", force_local=args.local, silent_reasoning=True)
-                                    text_to_speech(remove_blocks(search_summary, ["md"]))
-                                should_continue = False
-                            elif selected_tool == "python":
-                                if web_server and web_server.chat:
-                                    web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
-                                should_continue = False
-                            else:
-                                # Add tool response to chat context
-                                if web_server and web_server.chat:
-                                    web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
-                                should_continue = True
-                                action_counter += 1
+                            end_workflow = True
+                            perform_exit = True
+                            
 
                     except Exception as e:
                         print(colored(f"Unexpected error during tool execution: {str(e)}", "red"))
                         if args.debug:
                             traceback.print_exc()
                         context_chat.add_message(Role.USER, f"An unexpected error occurred: {str(e)}")
-                        should_continue = False
                 
-                if not should_continue:
+                if end_workflow:
                     break
 
             except Exception as e:
@@ -663,26 +647,8 @@ Please provide a corrected response that fixes this error. Remember:
                 if args.debug:
                     traceback.print_exc()
                 break
-
         # AGENTIC TOOL USE - END
-
-        # Check if we already have a complete response
-        has_complete_response = (
-            any(tool.get('tool') == 'reply' for tool in agent_tool_calls) or  # Reply tool was used
-            any(tool.get('tool') == 'web_search' for tool in agent_tool_calls)  # Web search was performed
-        )
         
-        # Only generate final response if we don't have a complete response yet
-        if not has_complete_response:
-            print(colored("# # # RESPONSE # # #", "green"))
-            llm_response = LlmRouter.generate_completion(context_chat, [args.llm], force_local=args.local)
-            context_chat.add_message(Role.ASSISTANT, llm_response)
-            
-            if (args.voice or args.speak):
-                spoken_response = remove_blocks(llm_response, ["md"])
-                text_to_speech(spoken_response)
-                        
-
         if perform_exit:
             exit(0)
         
