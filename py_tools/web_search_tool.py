@@ -34,8 +34,8 @@ class WebSearchTool(BaseTool):
         return """
         Use the web search tool when you need to:
         1. Find time sensitive or current information
-        2. Verify facts or claims
-        3. Get real-world data
+        2. Reason about information not present in the current context
+        3. Resolve contradictions between sources
         
         The search will be performed using Brave Search.
         Provide specific, focused queries for better results.
@@ -76,11 +76,10 @@ class WebSearchTool(BaseTool):
             
 Task: Analyze the following web search results and provide a clear, informative summary that:
 1. Synthesizes the key information from all sources
-2. Maintains factual accuracy
-3. Preserves important details and context
-4. Resolves any contradictions between sources
-5. Includes relevant dates or timestamps when available
-6. Cites specific sources for key claims
+2. Preserves important details and context
+3. Resolves and highlights any contradictions between sources
+4. Includes relevant dates or timestamps when available
+5. Cites specific sources for key claims
 
 Format your response as a coherent paragraph that flows naturally.
 If sources conflict or information seems outdated, note this in your summary.

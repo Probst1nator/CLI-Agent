@@ -32,7 +32,7 @@ class SequentialTool(BaseTool):
         summary_chat = Chat(debug_title="Sequential Tool Result Summary")
         summary_chat.add_message(
             Role.SYSTEM,
-            "You are an AI assistant that creates concise, relevant summaries of tool execution results."
+            "You are an AI assistant that creates intent driven summaries of tool execution results."
         )
         
         summary_chat.add_message(
@@ -46,9 +46,8 @@ class SequentialTool(BaseTool):
 2. Subsequent intent:
 "{subsequent_intent}"
 
-Please provide a concise summary of the first tool's results that would be relevant for achieving this subsequent intent.
-Focus only on information that would be useful for the intended next step.
-Keep the summary brief and focused."""
+Please provide a factual summary of the first tool's results that would be relevant for achieving the subsequent intent.
+Include a comprehensive summary of the information for the intended next step."""
         )
         
         try:

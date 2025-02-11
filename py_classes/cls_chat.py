@@ -6,7 +6,8 @@ import logging
 import tkinter as tk
 from enum import Enum
 from typing import Dict, List, Optional, Sequence, Tuple, Union
-
+import threading
+import queue
 from termcolor import colored
 
 from py_classes.globals import g
@@ -33,34 +34,84 @@ class Chat:
         self._window: Optional[tk.Tk] = None
         self._text_widget: Optional[tk.Text] = None
         self.debug_title: str = debug_title or instruction_message or "Unnamed Context"
+        self._update_queue: Optional[queue.Queue] = None
+        self._window_thread: Optional[threading.Thread] = None
+        if self.debug_title == "Unnamed Context":
+            pass
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
     
-    def _update_window_display(self):
-        """Updates the window display with current chat messages if debug mode is enabled."""
-        # Check if either debug mode or debug_chats is enabled
-        if not (logger.isEnabledFor(logging.DEBUG) or (hasattr(g, 'args') and g.args and g.args.debug_chats)):
-            return
-            
-        if self._window is None:
+    def _create_debug_window(self):
+        """Creates and runs the debug window in a separate thread."""
+        def window_thread():
             self._window = tk.Tk()
             self._window.title(self.debug_title)
-            self._text_widget = tk.Text(self._window, wrap=tk.WORD)
+            
+            frame = tk.Frame(self._window)
+            frame.pack(expand=True, fill='both')
+            
+            y_scrollbar = tk.Scrollbar(frame)
+            y_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            x_scrollbar = tk.Scrollbar(frame, orient=tk.HORIZONTAL)
+            x_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+            
+            self._text_widget = tk.Text(frame, wrap=tk.NONE,
+                                      yscrollcommand=y_scrollbar.set,
+                                      xscrollcommand=x_scrollbar.set)
             self._text_widget.pack(expand=True, fill='both')
+            
+            y_scrollbar.config(command=self._text_widget.yview)
+            x_scrollbar.config(command=self._text_widget.xview)
+            
             self._window.geometry("800x600")
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Created new debug window with title: {self.debug_title}")
-        
-        self._text_widget.delete('1.0', tk.END)
-        for role, content in self.messages:
-            role_str = f"{role.name}:\n"
-            self._text_widget.insert(tk.END, role_str, 'bold')
-            self._text_widget.insert(tk.END, f"{content}\n\n")
-        
-        self._text_widget.tag_configure('bold', font=('TkDefaultFont', 10, 'bold'))
-        self._window.update()
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Updated debug window display")
+            self._window.grid_rowconfigure(0, weight=1)
+            self._window.grid_columnconfigure(0, weight=1)
+            
+            def check_queue():
+                try:
+                    while True:  # Process all pending updates
+                        messages = self._update_queue.get_nowait()
+                        self._text_widget.delete('1.0', tk.END)
+                        for role, content in messages:
+                            role_str = f"{role.name}:\n"
+                            self._text_widget.insert(tk.END, role_str, 'bold')
+                            self._text_widget.insert(tk.END, f"{content}\n\n")
+                        self._text_widget.tag_configure('bold', font=('TkDefaultFont', 10, 'bold'))
+                except queue.Empty:
+                    pass
+                finally:
+                    if self._window:  # Check if window still exists
+                        self._window.after(100, check_queue)  # Schedule next check
+            
+            check_queue()
+            self._window.protocol("WM_DELETE_WINDOW", self._on_window_close)
+            self._window.mainloop()
+
+        self._update_queue = queue.Queue()
+        self._window_thread = threading.Thread(target=window_thread, daemon=True)
+        self._window_thread.start()
+
+    def _on_window_close(self):
+        """Handle window closing."""
+        if self._window:
+            self._window.destroy()
+            self._window = None
+            self._text_widget = None
+
+    def _update_window_display(self):
+        """Updates the window display with current chat messages if debug mode is enabled."""
+        if not (logger.isEnabledFor(logging.DEBUG) or (hasattr(g, 'args') and g.args and g.args.debug_chats)):
+            return
+
+        if self._window is None and self._window_thread is None:
+            self._create_debug_window()
+            
+        if self._update_queue is not None:
+            try:
+                self._update_queue.put_nowait(self.messages)
+            except queue.Full:
+                pass  # Skip update if queue is full
     
     def add_message(self, role: Role, content: str) -> "Chat":
         """
@@ -374,7 +425,7 @@ class Chat:
         
         :return: A new Chat instance that is a deep copy of the current instance.
         """
-        new_chat = Chat()
+        new_chat = Chat("Copy of " + self.debug_title)
         new_chat.messages = copy.deepcopy(self.messages)
         new_chat.base64_images = copy.deepcopy(self.base64_images)
         return new_chat

@@ -373,7 +373,7 @@ async def main() -> None:
                 # Get all available tools and their prompts
                 tools_prompt = tool_manager.get_tools_prompt()
                 
-                # Track guidance stage (1: full, 2: summary, 3+: tools only)
+                # Track guidance stage (1: full, 2: summarized and no tools)
                 guidance_stage = getattr(g, 'guidance_stage', 1)
                 setattr(g, 'guidance_stage', guidance_stage + 1)
 
@@ -396,7 +396,7 @@ You have two options for responding:
 
 First, explain your thought process:
 1. What is the user asking for?
-2. What capabilities are needed to fulfill this request?
+2. Is all required information already present in the current context?
 3. Which tool or sequence of tools would be most appropriate?
 4. Why is this the best approach?
 
@@ -430,13 +430,9 @@ Here's my tool selection:
     }},
     "subsequent_intent": "A clear statement of what should be done next with the results, suggesting which tool to use (e.g., 'Use python tool to create a visualization', 'Use reply tool to summarize findings')"
 }}"""
-                elif guidance_stage == 2:
+                else:
                     # Summary guidance for second iteration
-                    agent_prompt = f"""You are an AI assistant with these tools:
-
-{tools_prompt}
-
-Either:
+                    agent_prompt = f"""Either:
 1. Use "reply" for direct responses
 2. Use "sequential" to chain a tool with a final reply
 
@@ -447,26 +443,13 @@ Response Format:
     "first_tool_call": {{...}} if sequential,
     "subsequent_intent": "Clear statement of what to do next with suggested tool" if sequential
 }}"""
-                else:
-                    # Tools-only for third iteration and beyond
-                    agent_prompt = f"""{tools_prompt}
-
-Use "reply" directly or "sequential" to chain with reply. Always include reasoning.
-
-Response Format:
-{{
-    "tool": "reply" or "sequential",
-    "reasoning": "Why this choice is appropriate",
-    "first_tool_call": {{...}} if sequential,
-    "subsequent_intent": "What to do next with suggested tool" if sequential
-}}"""
 
                 # Add tool selection guidance
                 context_chat.add_message(Role.USER, f"Prompt: {user_input}\n" + (f"Previous tool summary: {tool_response}\n"  if tool_response else "") + agent_prompt)
 
                 # Get tool selection response
                 try:
-                    tool_use_response = LlmRouter.generate_completion(context_chat, [] if args.local else [args.llm if args.llm else "llama-3.1-8b-instant"], force_local=args.local, silent_reasoning=True)
+                    tool_use_response = LlmRouter.generate_completion(context_chat, [] if args.local else [args.llm if args.llm else ""], force_local=args.local, silent_reasoning=True) # "llama-3.1-8b-instant"
                     context_chat.add_message(Role.ASSISTANT, tool_use_response)
                 except Exception as e:
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
@@ -539,17 +522,15 @@ Response Format:
                 # Notify web interface about tool selection immediately
                 if web_server and web_server.chat:
                     # First show the raw tool selection
-                    web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Tool selection:\n```json\n{tool_call_json_list[0]}\n```")
+                    web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Tool selection:\n```json\n{json.dumps(tool_call_json_list[0], indent=2)}\n```")
                     # Then show the formatted version
                     for tool_call in agent_tool_calls:
                         selected_tool = tool_call.get('tool', '').strip()
                         reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
                         if selected_tool and selected_tool != "reply":
                             web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Using tool: {selected_tool}\n{reasoning}")
-                        elif selected_tool == "reply" and 'reply' in tool_call:
-                            web_server.add_message_to_chat(Role.ASSISTANT, tool_call['reply'])
                 
-                end_workflow: bool = False
+                handover_to_user: bool = False
                 
                 for tool_call in agent_tool_calls:
                     try:
@@ -608,30 +589,32 @@ Please provide a corrected response that fixes this error. Remember:
                             if web_server and web_server.chat:
                                 web_server.add_message_to_chat(
                                     Role.ASSISTANT, 
-                                    f"✅ First operation completed:\n{result.get('result_summary', 'No summary available')}\nNext step: {result.get('subsequent_intent', 'No intent specified')}"
+                                    f"✅ Operation completed:\n{result.get('result_summary', 'No summary available')}\nNext step: {result.get('subsequent_intent', 'No intent specified')}"
                                 )
-                            
                             continue
 
                         action_counter += 1
                         tool_response = f"The {selected_tool} tool has been executed successfully. Here are the results:\n{json.dumps(result, indent=2)}\n\nPlease provide a reply response based on these results."
-                        if web_server and web_server.chat and selected_tool != "reply":
-                            web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
                         
-                        # Handle other tool results
+                        # Handle tool results
                         if selected_tool == "reply":
+                            if web_server and web_server.chat:
+                                web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
                             if args.voice or args.speak:
                                 text_to_speech(remove_blocks(result["reply"], ["md"]))
-                            end_workflow = True
+                            handover_to_user = True
                         elif selected_tool == "goodbye":
                             if "reply" in result:
                                 if web_server and web_server.chat:
                                     web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
                                 if args.voice or args.speak:
                                     text_to_speech(remove_blocks(result["reply"], ["md"]))
-                            end_workflow = True
+                            handover_to_user = True
                             perform_exit = True
-                            
+                        else:
+                            # For non-reply tools, show success message
+                            if web_server and web_server.chat:
+                                web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
 
                     except Exception as e:
                         print(colored(f"Unexpected error during tool execution: {str(e)}", "red"))
@@ -639,7 +622,7 @@ Please provide a corrected response that fixes this error. Remember:
                             traceback.print_exc()
                         context_chat.add_message(Role.USER, f"An unexpected error occurred: {str(e)}")
                 
-                if end_workflow:
+                if handover_to_user:
                     break
 
             except Exception as e:
