@@ -339,7 +339,7 @@ def listen_microphone(
     max_duration (Optional[int], optional): The maximum duration to listen. Defaults to 15.
     language (str): The language of the audio (optional).
     Returns:
-    Tuple[str, str, bool]: (transcribed text from the audio, language, used wake word)
+    Tuple[str, str, bool|str]: (transcribed text from the audio, language, used wake word)
     """
     from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
     global r, source
@@ -354,13 +354,25 @@ def listen_microphone(
             # Listen for speech until it seems to stop or reaches the maximum duration
             PyAiHost.play_notification()
             used_wake_word = PyAiHost.wait_for_wake_word()
+            print(colored("Listening closely...", "yellow"))
             PyAiHost.play_notification()
+            
+            start_time = time.time()
             with source:
                 audio = r.listen(
                     source, timeout=max_listening_duration, phrase_time_limit=max_listening_duration/2
                 )
+            listen_duration = time.time() - start_time
+            
+            PyAiHost.play_notification()
 
-            print(colored("Not listening anymore...", "yellow"))
+            # If we spent more than 90% of the max duration listening, the microphone might need recalibration
+            if listen_duration > max_listening_duration * 0.9:
+                print(colored("Warning: Listening took the full timeout duration. Recalibrating microphone...", "yellow"))
+                time.sleep(1)
+                calibrate_microphone(1)
+
+            print(colored("Processing sounds...", "yellow"))
 
             # Create a temporary file to store the audio data
             with tempfile.NamedTemporaryFile(

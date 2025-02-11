@@ -112,7 +112,7 @@ class Llm:
             # Specialised models below
             
             # RAG models
-            Llm(NvidiaAPI(), "nvidia/llama-3.1-nemotron-70b-instruct", None, False, False, False, 128000, AIStrengths.STRONG),
+            # Llm(NvidiaAPI(), "nvidia/llama-3.1-nemotron-70b-instruct", None, False, False, False, 128000, AIStrengths.STRONG),
             
             # Guard models
             Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, AIStrengths.GUARD),
