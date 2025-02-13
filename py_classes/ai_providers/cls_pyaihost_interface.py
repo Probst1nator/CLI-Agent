@@ -85,8 +85,8 @@ class PyAiHost:
                     if rec.AcceptWaveform(data):
                         json_result = json.loads(rec.Result())
                         result_str = json_result.get("text", "").lower()
-                        print(f"Local: <{colored('Vosk', 'green')}> detected: {result_str}")
-                        
+                        if result_str:
+                            print(f"Local: <{colored('Vosk', 'green')}> detected: {result_str}")
                         
                         for wake_word in wake_words:
                             if wake_word in result_str:

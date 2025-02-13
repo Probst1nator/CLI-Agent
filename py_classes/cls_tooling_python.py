@@ -58,8 +58,7 @@ Respond with ONLY a JSON object containing:
     response = LlmRouter.generate_completion(
         evaluation_chat, 
         ["claude-3-5-sonnet-latest"], 
-        force_local=args.local,
-        silent_reasoning=True
+        force_local=args.local
     )
     
     try:
@@ -106,8 +105,7 @@ Respond with ONLY the Python code, no explanations or markdown."""
     response = LlmRouter.generate_completion(
         implement_chat,
         ["claude-3-5-sonnet-latest", "gpt-4o", "qwen2.5-coder:7b-instruct"],
-        force_local=args.local,
-        silent_reasoning=True
+        force_local=args.local
     )
     
     # Clean response to ensure we only get code
@@ -153,8 +151,7 @@ Respond with ONLY a JSON object containing:
     response = LlmRouter.generate_completion(
         error_chat,
         ["claude-3-5-sonnet-latest"],
-        force_local=args.local,
-        silent_reasoning=True
+        force_local=args.local
     )
     
     try:

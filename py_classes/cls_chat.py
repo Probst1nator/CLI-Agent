@@ -449,6 +449,21 @@ class Chat:
         self.base64_images.extend(chat.base64_images)
         return self
 
+    def replace_latest_user_message(self, new_content: str) -> "Chat":
+        """
+        Replaces the content of the most recent user message with new content.
+        
+        :param new_content: The new content to replace the latest user message with
+        :return: The updated Chat instance
+        """
+        # Find the last user message index
+        for i in range(len(self.messages) - 1, -1, -1):
+            if self.messages[i][0] == Role.USER:
+                self.messages[i] = (Role.USER, new_content)
+                self._update_window_display()
+                break
+        return self
+
 
 
 # import kotlinx.serialization.*

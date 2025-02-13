@@ -11,9 +11,10 @@ from datetime import datetime
 from chromadb.config import Settings
 from brave import Brave
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+from py_classes.globals import g
 
 class WebTools:
-    def __init__(self, persistent_dir: str = "web_search_db"):
+    def __init__(self):
         """
         Initialize the WebTools class with persistent storage.
         
@@ -21,7 +22,7 @@ class WebTools:
             persistent_dir (str): Directory for persistent ChromaDB storage
         """
         self.brave_api_key = os.getenv("BRAVE_API_KEY")
-        self.persistent_dir = os.path.abspath(persistent_dir)
+        self.persistent_dir = g.PROJ_VSCODE_DIR_PATH + "/web_search_db"
         
         # Initialize persistent ChromaDB client
         self.chroma_client = chromadb.PersistentClient(
@@ -207,7 +208,7 @@ class WebTools:
 # Example usage:
 if __name__ == "__main__":
     # Initialize with persistent storage
-    web_tools = WebTools(persistent_dir="./web_search_db")
+    web_tools = WebTools()
     
     # Search and get results
     query = "Latest developments in quantum computing"

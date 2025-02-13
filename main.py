@@ -6,7 +6,7 @@ import os
 import select
 import time
 import traceback
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 from pyfiglet import figlet_format
 from dotenv import load_dotenv
 from termcolor import colored
@@ -26,7 +26,16 @@ warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:
 warnings.filterwarnings("ignore", message="words count mismatch on*", module="phonemizer", category=UserWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
-from py_methods.tooling import extract_blocks, pdf_or_folder_to_database, listen_microphone, remove_blocks, take_screenshot, text_to_speech, update_cmd_collection
+from py_methods.tooling import (
+    extract_blocks,
+    pdf_or_folder_to_database,
+    listen_microphone,
+    remove_blocks,
+    take_screenshot,
+    text_to_speech,
+    update_cmd_collection,
+    extract_json
+)
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_web_server import WebServer
@@ -241,7 +250,7 @@ async def main() -> None:
                 continue
             for i, base64_image in enumerate(base64_images):
                 print(colored(f"# cli-agent: Converting Image ({i}/{len(base64_images)}) into words...", "green"))
-                image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image], force_local=args.local, silent_reasoning=False)
+                image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image], force_local=args.local)
                 prompt_context_augmentation += f'\n\n```vision_{i}\n{image_response_str}\n```'
         
         # get user input from various sources
@@ -370,19 +379,14 @@ async def main() -> None:
                         context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress and respond intelligently to the user.")
                         break
 
-                # Get all available tools and their prompts
-                tools_prompt = tool_manager.get_tools_prompt()
-                
                 # Track guidance stage (1: full, 2: summarized and no tools)
                 guidance_stage = getattr(g, 'guidance_stage', 1)
                 setattr(g, 'guidance_stage', guidance_stage + 1)
 
-                # Prepare guidance based on stage
-                if guidance_stage == 1:
-                    # Full guidance for first iteration
-                    agent_prompt = f"""You are an AI assistant with access to several tools:
-
-{tools_prompt}
+                # Get all available tools and their prompts for first stage
+                available_tools_str = tool_manager.get_tools_prompt() if guidance_stage == 1 else tool_manager.get_tools_prompt(["reply", "sequential"])
+                
+                context_head_addition = f"""
 
 You have two options for responding:
 
@@ -392,13 +396,14 @@ You have two options for responding:
    - Get real-time data first
    - Perform system operations
    - Execute computations
-   - Chain multiple operations together
+   - Chain multiple tool operations together
 
 First, explain your thought process:
 1. What is the user asking for?
 2. Is all required information already present in the current context?
 3. Which tool or sequence of tools would be most appropriate?
 4. Why is this the best approach?
+5. Ensure that the tool selection is valid and that the tool(s) are available
 
 After explaining your reasoning, provide your tool selection in a single, valid JSON format.
    
@@ -430,79 +435,34 @@ Here's my tool selection:
     }},
     "subsequent_intent": "A clear statement of what should be done next with the results, suggesting which tool to use (e.g., 'Use python tool to create a visualization', 'Use reply tool to summarize findings')"
 }}"""
-                else:
-                    # Summary guidance for second iteration
-                    agent_prompt = f"""Either:
-1. Use "reply" for direct responses
-2. Use "sequential" to chain a tool with a final reply
+                
+                # Prepare guidance based on stage
+                agent_prompt = f"""You are an AI assistant with access to several real-time tools:\n\n{available_tools_str}{context_head_addition}"""
 
-Response Format:
-{{
-    "tool": "reply" or "sequential",
-    "reasoning": "Why this choice is appropriate",
-    "first_tool_call": {{...}} if sequential,
-    "subsequent_intent": "Clear statement of what to do next with suggested tool" if sequential
-}}"""
-
+                full_agent_prompt = f"Prompt: {user_input}\n" + (f"Previous tool summary: {tool_response}\n"  if tool_response else "") + agent_prompt
                 # Add tool selection guidance
-                context_chat.add_message(Role.USER, f"Prompt: {user_input}\n" + (f"Previous tool summary: {tool_response}\n"  if tool_response else "") + agent_prompt)
+                context_chat.add_message(Role.USER, full_agent_prompt)
 
                 # Get tool selection response
                 try:
-                    tool_use_response = LlmRouter.generate_completion(context_chat, [] if args.local else [args.llm if args.llm else ""], force_local=args.local, silent_reasoning=True) # "llama-3.1-8b-instant"
+                    tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], force_local=args.local)
                     context_chat.add_message(Role.ASSISTANT, tool_use_response)
                 except Exception as e:
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
+                    context_chat.messages.pop()
                     if args.debug:
                         traceback.print_exc()
                     break
 
                 # Parse tool selection response
-                tool_call_json_list = []  # Initialize list before parsing attempts
-                agent_tool_calls = []  # Initialize agent_tool_calls before try block
+                agent_tool_calls: List[Dict[str, Any]] = []  # Initialize agent_tool_calls before try block
                 try:
-                    # Clean up the response text first
-                    cleaned_response = tool_use_response
-                    # Remove markdown code block markers
-                    cleaned_response = re.sub(r'```(?:json)?\n?(.*?)```', r'\1', cleaned_response, flags=re.DOTALL)
-                    # Normalize newlines and remove extra whitespace
-                    cleaned_response = re.sub(r'\s+', ' ', cleaned_response)
-                    
-                    # First try to find JSON in code blocks
-                    try:
-                        # Look for the outermost JSON object
-                        json_str = re.search(r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}', cleaned_response)
-                        if json_str:
-                            # Clean up the JSON string
-                            json_str = json_str.group()
-                            # Properly escape newlines in string values
-                            json_str = re.sub(r'(?<!\\)\\n', r'\\n', json_str)
-                            # Remove any control characters
-                            json_str = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', json_str)
-                            # Try to parse the JSON
-                            parsed_json = json.loads(json_str)
-                            if isinstance(parsed_json, dict) and "tool" in parsed_json:
-                                tool_call_json_list.append(parsed_json)
-                    except (json.JSONDecodeError, re.error):
-                        pass
-                    
-                    # If no valid JSON found, try more aggressive cleaning
-                    if not tool_call_json_list:
-                        try:
-                            # Remove all newlines and extra spaces
-                            cleaned_response = re.sub(r'\s+', ' ', cleaned_response)
-                            # Find anything that looks like a JSON object
-                            potential_json = re.search(r'\{[^}]+\}', cleaned_response)
-                            if potential_json:
-                                # Clean up common formatting issues
-                                json_str = potential_json.group()
-                                json_str = re.sub(r'(?<=\w)"(?=\w)', '\\"', json_str)  # Fix unescaped quotes
-                                json_str = re.sub(r',\s*([}\]])', r'\1', json_str)  # Remove trailing commas
-                                parsed_json = json.loads(json_str)
-                                if isinstance(parsed_json, dict) and "tool" in parsed_json:
-                                    tool_call_json_list.append(parsed_json)
-                        except (json.JSONDecodeError, re.error):
-                            pass
+                    parsed_json = extract_json(tool_use_response, required_keys=["tool"])
+                    if parsed_json:
+                        agent_tool_calls.append(parsed_json)
+                    else:
+                        print(colored("No valid tool calls found in response", "red"))
+                        break
 
                 except Exception as e:
                     print(colored(f"Unexpected error parsing tool selection response: {str(e)}", "red"))
@@ -510,19 +470,24 @@ Response Format:
                         traceback.print_exc()
                     break
 
-                if not tool_call_json_list:
+                if not agent_tool_calls:
                     print(colored("No valid tool calls found in response", "red"))
                     break
 
-                # Assign parsed tools outside try block
-                agent_tool_calls = tool_call_json_list
-
                 print(colored(f"Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
+                
+                # Shorten the agents context to only always include the actually selected tools and high priority tools
+                choosen_tools = list(set([tool.get('tool', '') for tool in agent_tool_calls]))
+                prioritised_tools = ["reply", "sequential"]
+                context_relevant_tools = list(set(prioritised_tools + choosen_tools))
+                shortened_tool_str = tool_manager.get_tools_prompt(context_relevant_tools)
+                shortened_agent_prompt = full_agent_prompt.replace(available_tools_str, shortened_tool_str).replace(context_head_addition, "")
+                context_chat.replace_latest_user_message(shortened_agent_prompt)
                 
                 # Notify web interface about tool selection immediately
                 if web_server and web_server.chat:
                     # First show the raw tool selection
-                    web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Tool selection:\n```json\n{json.dumps(tool_call_json_list[0], indent=2)}\n```")
+                    web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Tool selection:\n```json\n{json.dumps(agent_tool_calls[0], indent=2)}\n```")
                     # Then show the formatted version
                     for tool_call in agent_tool_calls:
                         selected_tool = tool_call.get('tool', '').strip()
@@ -559,13 +524,13 @@ Response Format:
                         
                         # Process tool result
                         if result.get("status") == "error":
-                            error_msg = result.get("error", "Unknown error")
-                            print(colored(f"Tool execution error: {error_msg}", "red"))
+                            error_summary = result.get("summary", "No summary available")
+                            print(colored(f"Tool execution error: {error_summary}", "red"))
                             if web_server and web_server.chat:
-                                web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {error_msg}")
+                                web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {error_summary}")
                             
                             # Create error feedback prompt
-                            error_feedback = f"""The previous tool call failed with error: {error_msg}
+                            error_feedback = f"""The previous tool call failed with error: {error_summary}
 
 Previous attempt:
 {json.dumps(tool_call, indent=2)}
@@ -584,12 +549,12 @@ Please provide a corrected response that fixes this error. Remember:
                             # Add the result summary to chat context
                             context_chat.add_message(
                                 Role.USER, 
-                                f"The subsequent intent is: '{result.get('subsequent_intent', 'No intent specified')}'. Here's the result of the previous operation, use it to fulfill this intent with the suggested tool:\n{result.get('result_summary', 'No summary available')}"
+                                f"The sequential tool has been executed successfully. Here is its summary:\n{result.get('summary', 'No summary was included, report this to the user.')}"
                             )
                             if web_server and web_server.chat:
                                 web_server.add_message_to_chat(
                                     Role.ASSISTANT, 
-                                    f"✅ Operation completed:\n{result.get('result_summary', 'No summary available')}\nNext step: {result.get('subsequent_intent', 'No intent specified')}"
+                                    f"✅ Operation completed:\n{result.get('summary', 'No summary available')}\nSummary:\n{result.get('summary', 'No summary was included.')}"
                                 )
                             continue
 
@@ -598,17 +563,18 @@ Please provide a corrected response that fixes this error. Remember:
                         
                         # Handle tool results
                         if selected_tool == "reply":
+                            print(colored(f"Reply: {result['summary']}", "cyan"))
                             if web_server and web_server.chat:
-                                web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
+                                web_server.add_message_to_chat(Role.ASSISTANT, result["summary"])
                             if args.voice or args.speak:
-                                text_to_speech(remove_blocks(result["reply"], ["md"]))
+                                text_to_speech(remove_blocks(result["summary"], ["md"]))
                             handover_to_user = True
                         elif selected_tool == "goodbye":
-                            if "reply" in result:
+                            if "summary" in result:
                                 if web_server and web_server.chat:
-                                    web_server.add_message_to_chat(Role.ASSISTANT, result["reply"])
+                                    web_server.add_message_to_chat(Role.ASSISTANT, result["summary"])
                                 if args.voice or args.speak:
-                                    text_to_speech(remove_blocks(result["reply"], ["md"]))
+                                    text_to_speech(remove_blocks(result["summary"], ["md"]))
                             handover_to_user = True
                             perform_exit = True
                         else:
@@ -645,7 +611,7 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
     safe_bash_blocks: List[str] = []
     for bash_block in bash_blocks:
         print(colored(bash_block, 'magenta'))
-        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local, silent_reason="command guard")
+        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local)
         
         execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
         if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property

@@ -43,12 +43,11 @@ class ReplyTool(BaseTool):
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
-                "Invalid parameters provided",
                 status="error",
-                error="Missing required parameter: reply"
+                summary="Missing required parameter: reply"
             )
         
         return self.format_response(
-            reasoning=params.get("reasoning", "Direct response provided"),
-            reply=params["reply"]
+            status="success",
+            summary=params["reply"]
         ) 

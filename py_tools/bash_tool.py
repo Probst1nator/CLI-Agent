@@ -58,8 +58,7 @@ Example:
         safety_response = LlmRouter.generate_completion(
             command_guard_prompt, 
             ["llama-guard"], 
-            force_local=force_local,
-            silent_reasoning=True
+            force_local=force_local
         )
         
         # Consider command safe if response indicates safe or has acceptable security levels
@@ -74,20 +73,11 @@ Example:
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
-                "Invalid parameters provided",
                 status="error",
-                error="Missing required parameter: command"
+                summary="Missing required parameter: command"
             )
 
         command = params["command"]
-
-        # Basic pattern validation
-        if not self._validate_command(command):
-            return self.format_response(
-                "Command validation failed",
-                status="error",
-                error="Command contains unsafe patterns or exceeds length limit"
-            )
 
         # Get global args from the agent context
         from py_classes.globals import g
@@ -99,42 +89,12 @@ Example:
         # Print command for visibility
         print(colored(command, 'magenta'))
         
-        # Handle command execution based on safety and auto mode
-        if not is_safe or args.auto is None:
-            # For unsafe commands or when not in auto mode, always prompt
-            if args.voice or args.speak:
-                confirmation_prompt = "Do you want me to execute these steps? (Yes/no)"
-                if args.speak:
-                    text_to_speech(confirmation_prompt)
-                if args.voice:
-                    user_input, _, _ = listen_microphone(10)
-                else:
-                    user_input = input(colored(f"{confirmation_prompt} ", 'yellow')).lower()
-            else:
-                user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
-                
-            if not (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
-                return self.format_response(
-                    "Command execution cancelled by user",
-                    status="cancelled",
-                    command=command
-                )
-        
-        # If we're in auto mode and command is safe, or user approved execution
-        if args.auto is not None:
-            print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
-            try:
-                for remaining in range(args.auto, 0, -1):
-                    sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
-                    sys.stdout.flush()
-                    time.sleep(1)
-                sys.stdout.write("\n")
-            except KeyboardInterrupt:
-                return self.format_response(
-                    "Command execution aborted by user",
-                    status="cancelled",
-                    command=command
-                )
+        # Handle unsafe commands
+        if not is_safe:
+            return self.format_response(
+                status="error",
+                summary=f"Command '{command}' was flagged as potentially unsafe"
+            )
 
         # Execute command
         try:
@@ -144,19 +104,21 @@ Example:
                 capture_output=True,
                 text=True
             )
+            
+            # Format output for summary
+            output_summary = f"Exit code: {result.returncode}\n"
+            if result.stdout:
+                output_summary += f"Output: {result.stdout}\n"
+            if result.stderr:
+                output_summary += f"Errors: {result.stderr}"
+                
             return self.format_response(
-                reasoning=params.get("reasoning", "Command executed successfully"),
-                status="completed",
-                stdout=result.stdout,
-                stderr=result.stderr,
-                return_code=result.returncode,
-                command=command
+                status="success" if result.returncode == 0 else "error",
+                summary=output_summary.strip()
             )
 
         except Exception as e:
             return self.format_response(
-                reasoning="Error executing command",
                 status="error",
-                error=str(e),
-                command=command
+                summary=f"Error executing command '{command}': {str(e)}"
             )

@@ -66,7 +66,7 @@ class WebSearchTool(BaseTool):
             
             if not results:
                 return self.format_response(
-                    reasoning="No search results found",
+                    summary="No search results found",
                     status="error",
                     error="No results found for the query"
                 )
@@ -104,18 +104,13 @@ Here are the search results to analyze:
 
             # Return a clean response with the summary as a string
             return self.format_response(
-                reasoning=params.get("reasoning", "Web search completed successfully"),
-                status="success",
-                response=summary,  # Main response is now just the summary string
-                metadata={  # Additional context in metadata
-                    "query": query,
-                    "sources": [{"url": url} for _, url in results]
-                }
+                summary=summary,
+                status="success"
             )
 
         except Exception as e:
             return self.format_response(
-                reasoning="Error performing web search",
+                summary="Error performing web search",
                 status="error",
                 error=str(e)
             ) 

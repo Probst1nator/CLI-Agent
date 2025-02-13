@@ -90,11 +90,11 @@ Include a comprehensive summary of the information for the intended next step.""
             required_params=["first_tool_call", "subsequent_intent"],
             example_usage="""
             {
-                "reasoning": "Search for latest AGI papers and prepare for creating a summary presentation",
+                "reasoning": "Search for AGI papers of 2025 and prepare for creating a summary presentation",
                 "first_tool_call": {
                     "tool": "web_search",
-                    "reasoning": "Need to gather current information about AGI developments",
-                    "web_query": "latest papers on AGI developments 2024"
+                    "reasoning": "Need to gather information about AGI developments",
+                    "web_query": "papers on AGI developments 2025"
                 },
                 "subsequent_intent": "Use python tool to create a visual presentation summarizing the key AGI research findings"
             }
@@ -107,11 +107,11 @@ Include a comprehensive summary of the information for the intended next step.""
 
 Example:
 {
-    "reasoning": "Search for latest AGI papers and prepare for creating a summary presentation",
+    "reasoning": "Search for AGI papers of 2025 and prepare for creating a summary presentation",
     "first_tool_call": {
         "tool": "web_search",
-        "reasoning": "Need to gather current information about AGI developments",
-        "web_query": "latest papers on AGI developments 2024"
+        "reasoning": "Need to gather information about AGI developments",
+        "web_query": "papers on AGI developments 2025"
     },
     "subsequent_intent": "Use python tool to create a visual presentation summarizing the key AGI research findings"
 }"""
@@ -135,13 +135,12 @@ Example:
             
             print(colored(f"\nExecuting tool: {tool_name}", "cyan"))
             print(colored(f"Reasoning: {params.get('reasoning', 'No specific reasoning provided')}", "cyan"))
-            print(colored(f"Subsequent intent: {params['subsequent_intent']}", "cyan"))
+            print(colored(f"Subsequent intent: {params.get('subsequent_intent', 'No specific subsequent intent provided')}", "cyan"))
 
             try:
                 tool = tool_manager.get_tool(tool_name)()
             except KeyError:
                 return self.format_response(
-                    "Invalid tool specified",
                     status="error",
                     error=f"Tool '{tool_name}' not found"
                 )
@@ -152,28 +151,24 @@ Example:
             # Check for errors
             if result.get("status") == "error":
                 return self.format_response(
-                    "Error in tool execution",
                     status="error",
-                    error=f"Tool '{tool_name}' failed: {result.get('error')}"
+                    summary=f"Tool '{tool_name}' failed: {result.get('error')}"
                 )
 
             # Get subsequent intent
             subsequent_intent = params["subsequent_intent"]
 
             # Generate summary of results and next step
-            result_summary = self._generate_result_summary(result, subsequent_intent)
+            # result_summary = self._generate_result_summary(result, subsequent_intent)
+            result_summary = f"The {result['tool']} tool executed successfully with the following result: {result["summary"]}\n\nNext: {subsequent_intent}"
 
             return self.format_response(
-                reasoning=params.get("reasoning"),
                 status="success",
-                tool_result=result,
-                subsequent_intent=subsequent_intent,
-                result_summary=result_summary
+                summary=result_summary
             )
 
         except Exception as e:
             return self.format_response(
-                "Error executing sequential tool",
                 status="error",
-                error=str(e)
+                summary=f"Error executing sequential tool: {str(e)}"
             )

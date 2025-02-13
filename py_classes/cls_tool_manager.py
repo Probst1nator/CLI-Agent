@@ -1,7 +1,7 @@
 import importlib
 import inspect
 import os
-from typing import Dict, List, Type
+from typing import Dict, List, Type, Optional
 import logging
 from pathlib import Path
 from termcolor import colored
@@ -59,17 +59,25 @@ class ToolManager:
         """Get all available tools"""
         return list(self.tools.values())
 
-    def get_tools_prompt(self) -> str:
-        """Generate a prompt that describes all available tools"""
+    def get_tools_prompt(self, tool_names: Optional[List[str]] = None) -> str:
+        """Generate a prompt that describes available tools.
+        
+        Args:
+            tool_names: Optional list of tool names to include. If None, includes all tools.
+            
+        Returns:
+            str: Formatted prompt describing the specified tools.
+        """
         prompt = "Available tools:\n\n"
         for tool_cls in self.tools.values():
             tool = tool_cls()
-            metadata = tool.metadata
-            prompt += f"Tool: {metadata.name}\n"
-            prompt += f"Description: {metadata.description}\n"
-            prompt += f"Parameters: {metadata.parameters}\n"
-            prompt += f"Required parameters: {metadata.required_params}\n"
-            prompt += f"Example usage: {metadata.example_usage}\n\n"
+            if tool_names is None or tool.metadata.name in tool_names:
+                metadata = tool.metadata
+                prompt += f"Tool: {metadata.name}\n"
+                prompt += f"Description: {metadata.description}\n"
+                prompt += f"Parameters: {metadata.parameters}\n"
+                prompt += f"Required parameters: {metadata.required_params}\n"
+                prompt += f"Example usage: {metadata.example_usage}\n\n"
         return prompt
 
     def reload_tools(self) -> None:
