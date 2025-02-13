@@ -6,12 +6,14 @@ import subprocess
 import json
 from termcolor import colored
 import re
+import time
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_llm_router import LlmRouter
 from py_methods.cmd_execution import select_and_execute_commands
 from py_classes.globals import g
+from py_methods.tooling import extract_json
 
 class PythonTool(BaseTool):
     @property
@@ -114,20 +116,15 @@ Respond with ONLY a JSON object containing:
 }}"""
         )
         
-        response = LlmRouter.generate_completion(
-            evaluation_chat, 
-            ["claude-3-5-sonnet-latest"],
-            silent_reasoning=True
-        )
-        
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            return {
-                "reasoning": "Failed to parse evaluation response",
-                "decision": "replace",
-                "modifications_needed": None
-            }
+        response = LlmRouter.generate_completion(evaluation_chat)
+        parsed_json = extract_json(response, required_keys=["reasoning", "decision"])
+        if parsed_json:
+            return parsed_json
+        return {
+            "reasoning": "Failed to parse evaluation response",
+            "decision": "replace",
+            "modifications_needed": None
+        }
 
     def request_implementation(
         self,
@@ -181,11 +178,7 @@ Implementation plan:
 ```"""
         )
         
-        response = LlmRouter.generate_completion(
-            implement_chat,
-            ["claude-3-5-sonnet-latest", "qwen2.5-coder:7b-instruct"],
-            silent_reasoning=True
-        )
+        response = LlmRouter.generate_completion(chat)
         
         # More robust code extraction
         def extract_python_code(text: str) -> str:
@@ -223,11 +216,7 @@ import sys
 ```"""
             )
             
-            retry_response = LlmRouter.generate_completion(
-                implement_chat,
-                ["claude-3-5-sonnet-latest", "qwen2.5-coder:7b-instruct"],
-                silent_reasoning=True
-            )
+            retry_response = LlmRouter.generate_completion(chat)
             extracted_code = extract_python_code(retry_response)
         
         # Ensure the code has a main guard if it's not just a function/class definition
@@ -266,21 +255,16 @@ Respond with ONLY a JSON object containing:
 }}"""
         )
         
-        response = LlmRouter.generate_completion(
-            error_chat,
-            ["qwen2.5-coder:7b-instruct", "claude-3-5-sonnet-latest"],
-            silent_reasoning=True
-        )
-        
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            return {
-                "error_type": "unknown",
-                "analysis": "Failed to analyze error",
-                "fix_strategy": "Complete rewrite recommended",
-                "requires_rewrite": True
-            }
+        response = LlmRouter.generate_completion(error_chat)
+        parsed_json = extract_json(response, required_keys=["error_type", "analysis", "fix_strategy", "requires_rewrite"])
+        if parsed_json:
+            return parsed_json
+        return {
+            "error_type": "unknown",
+            "analysis": "Failed to analyze error",
+            "fix_strategy": "Complete rewrite recommended",
+            "requires_rewrite": True
+        }
 
     def execute_script(
         self,
@@ -324,9 +308,8 @@ Respond with ONLY a JSON object containing:
         missing_params = self._get_missing_params(params)
         if missing_params:
             return self.format_response(
-                "Missing required parameters",
                 status="error",
-                error=f"The following required parameters are missing or empty: {', '.join(missing_params)}"
+                summary=f"Missing required parameters: {', '.join(missing_params)}"
             )
 
         # Validate requirements is a string
@@ -339,53 +322,28 @@ Respond with ONLY a JSON object containing:
                     params['requirements'] = requirements_str
                 else:
                     return self.format_response(
-                        "Invalid requirements format",
                         status="error",
-                        error="Requirements must be a string containing a numbered list or bullet points"
+                        summary="Requirements must be a string containing a numbered list or bullet points"
                     )
             except Exception as e:
                 return self.format_response(
-                    "Invalid requirements format",
                     status="error",
-                    error=f"Could not process requirements: {str(e)}"
+                    summary=f"Could not process requirements: {str(e)}"
                 )
 
         try:
-            script_title = params['title']
-            script_reasoning = params['reasoning']
-            script_requirements = params['requirements']
-            
-            script_description = f"""Title: {script_title}
-Reasoning: {script_reasoning}
-Requirements: {script_requirements}"""
-            
-            # Setup script path
+            # Create script directory if it doesn't exist
             script_dir = os.path.join(g.PROJ_VSCODE_DIR_PATH, "python_tool")
             os.makedirs(script_dir, exist_ok=True)
-            script_path = os.path.join(script_dir, script_title)
             
-            # Track if we're creating a new script or modifying existing
-            # is_new_script = not os.path.exists(script_path)
+            # Generate unique script name
+            timestamp = int(time.time())
+            script_name = f"script_{timestamp}.py"
+            script_path = os.path.join(script_dir, script_name)
             
-            # Create context chat for LLM interactions
-            context_chat = Chat(debug_title="Python Tool")
-            context_chat.add_message(Role.SYSTEM, "You are a Python programming assistant.")
-            
-            # Handle script implementation
-            # if is_new_script:
-            final_script = self.request_implementation(context_chat, script_description)
-            # else:
-            #     evaluation = self.evaluate_existing_script(script_path, context_chat, script_description)
-                
-            #     if evaluation['decision'] == 'keep':
-            #         with open(script_path, 'r') as f:
-            #             final_script = f.read()
-            #     else:
-            #         final_script = self.request_implementation(context_chat, script_description)
-            
-            # Write script
+            # Write script to file
             with open(script_path, "w") as f:
-                f.write(final_script)
+                f.write(params["script"])
             
             # Execute script
             execution_details, success = self.execute_script(script_path)
@@ -411,11 +369,7 @@ Requirements for the fix:
 Respond with ONLY the complete fixed Python code, no explanations or markdown."""
                 )
                 
-                fixed_script = LlmRouter.generate_completion(
-                    fix_chat,
-                    ["qwen2.5-coder:7b-instruct", "claude-3-5-sonnet-latest"],
-                    silent_reasoning=True
-                )
+                fixed_script = LlmRouter.generate_completion(chat)
                 
                 # Clean response to ensure we only get code
                 if "```python" in fixed_script:
@@ -431,31 +385,22 @@ Respond with ONLY the complete fixed Python code, no explanations or markdown.""
                 
                 if not success:
                     return self.format_response(
-                        reasoning=f"Script execution failed even after fix attempt",
                         status="error",
-                        error=execution_details,
-                        script_path=script_path,
-                        fixed_script=fixed_script
+                        summary=f"Script execution failed even after fix attempt. Error: {execution_details}"
                     )
                 
                 return self.format_response(
-                    reasoning="Script fixed and executed successfully",
                     status="success",
-                    stdout=execution_details,
-                    script_path=script_path,
-                    fixed_script=fixed_script
+                    summary=f"Script fixed and executed successfully. Output: {execution_details}"
                 )
             
             return self.format_response(
-                reasoning="Script executed successfully",
                 status="success",
-                stdout=execution_details,
-                script_path=script_path
+                summary=f"Script executed successfully. Output: {execution_details}"
             )
 
         except Exception as e:
             return self.format_response(
-                reasoning=f"Error in Python tool execution: {str(e)}",
                 status="error",
-                error=str(e)
+                summary=f"Error in Python tool execution: {str(e)}"
             )

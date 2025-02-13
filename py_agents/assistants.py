@@ -124,9 +124,9 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 
         if pre_chosen_option == "1":
             # Automatic mode: Generate code overview and prepare prompt for docstring addition
-            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_models=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True, use_reasoning=False)
+            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_models=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.GENERAL, force_free=True, use_reasoning=False)
             if len(abstract_code_overview)/4 >= 2048:
-                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_models=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.STRONG, force_free=True, use_reasoning=False)
+                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_models=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.GENERAL, force_free=True, use_reasoning=False)
             next_prompt = "Augment the below code snippet with docstrings focusing on a concise overview of usage and parameters, alos add explanatory comments where the code seems highly complex. Do not include empty newlines in your docstrings. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
             next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
             pre_chosen_option = ""
@@ -165,7 +165,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                     query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
                 web_search_result = WebTools.search_brave(query, 2)
                 context_chat.add_message(Role.USER, f"I found something on the web, please relate it to the code we're working on:\n```web_search\n{web_search_result}```")
-                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG, use_reasoning=False)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.GENERAL, use_reasoning=False)
                 context_chat.add_message(Role.ASSISTANT, response)
                 continue
             elif user_input == "5":
@@ -234,7 +234,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                     next_prompt_i = next_prompt + f"Please provide your modified snippet without any additional code such that it can be a drop in replacement for the below snippet:\n\n{snippet}"
                 # Add the prompt to the chat context
                 context_chat.add_message(Role.USER, next_prompt_i)
-                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models + [LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models + [LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.GENERAL)
                 extracted_snippet = extract_first_snippet(response, allow_no_end=True)
                 # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
                 if (extracted_snippet):
@@ -244,7 +244,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
         else:
             # Only use prompt + context without adding snippets
             context_chat.add_message(Role.USER, next_prompt)
-            response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG)
+            response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.GENERAL)
             extracted_snippet = extract_first_snippet(response, allow_no_end=True)
             # Check if the response is empty because markers weren't included, this can be intended behavior if no code is asked for
             if (extracted_snippet):
@@ -272,7 +272,7 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             print(colored("INFO: Snippets were not reimplemented by the assistant.", 'yellow'))
             if (len(snippets_to_process) > 1):
                 context_chat.add_message(Role.USER, "Please summarize your reasoning step by step and provide a short discussion.")
-                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.STRONG)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=preferred_models+[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.GENERAL)
         # Save chat
         if context_chat:
             context_chat.save_to_json()
@@ -314,7 +314,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
     decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", preferred_models=[args.llm], force_local=args.local)
 
     # Generate detailed presentation content based on the decomposed topic
-    presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, use_cache=False, preferred_models=[args.llm], force_local=args.local)
+    presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.GENERAL, use_cache=False, preferred_models=[args.llm], force_local=args.local)
     
     # Convert the generated content into a presentation format
     chat, response = FewShotProvider.few_shot_textToPresentation(presentation_details, preferred_models=[args.llm], force_local=args.local)
@@ -330,7 +330,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
             except Exception as e:
                 # Handle errors in JSON format and regenerate the presentation
                 chat.add_message(Role.USER, "Your json object did not follow the expected format, please try again.\nError: " + str(e))
-                response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, use_cache=False, preferred_models=[args.llm], force_local=args.local)
+                response = LlmRouter.generate_completion(chat, strength=AIStrengths.GENERAL, use_cache=False, preferred_models=[args.llm], force_local=args.local)
                 chat.add_message(Role.ASSISTANT, response)
                 
         print(colored("Presentation saved.", 'green'))
@@ -347,7 +347,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
         if user_input == "1":
             # Generate and add more details to the presentation
             add_details_prompt = FewShotProvider.few_shot_rephrase(f"Please think step by step to add relevant/ missing details to the following topic: {presentation_details}", preferred_models=[args.llm])
-            suggested_details = LlmRouter.generate_completion(f"{add_details_prompt} {presentation_details}", strength=AIStrengths.STRONG, preferred_models=[args.llm], force_local=args.local)
+            suggested_details = LlmRouter.generate_completion(f"{add_details_prompt} {presentation_details}", strength=AIStrengths.GENERAL, preferred_models=[args.llm], force_local=args.local)
             next_prompt = f"Please add the following details to the presentation: \n{suggested_details}"
         elif user_input == "2":
             # Regenerate the entire presentation
@@ -359,7 +359,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
         # Rephrase the next prompt and generate a new response
         next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, preferred_models=[args.llm], force_local=args.local)
         chat.add_message(Role.USER, next_prompt)
-        response = LlmRouter.generate_completion(chat, strength=AIStrengths.STRONG, preferred_models=[args.llm], force_local=args.local)
+        response = LlmRouter.generate_completion(chat, strength=AIStrengths.GENERAL, preferred_models=[args.llm], force_local=args.local)
 
 def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_input: str = ""):
     """
@@ -472,15 +472,15 @@ def majority_response_assistant(context_chat: Chat, force_local: bool = False, p
     else:
         if force_local:
             models = LlmRouter.get_models(force_local=force_local)
-            strong_models = [model for model in models if model.strength == AIStrengths.STRONG]
+            strong_models = [model for model in models if model.strength == AIStrengths.GENERAL]
             if len(strong_models) > 1:
                 models = strong_models
         else:
             if allow_costly_models:
-                models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.STRONG)] + LlmRouter.get_models(["claude-3-5-sonnet-latest", "gpt-4o"])
+                models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.GENERAL)] + LlmRouter.get_models(["claude-3-5-sonnet-latest", "gpt-4o"])
                 final_response_models: List[str] = ["gpt-4o"]
             else:
-                models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.STRONG)] + LlmRouter.get_models(["gemma2-9b-it", "claude-3-haiku", "gpt-4o-mini"])
+                models = [LlmRouter.get_model(force_free=True, strength=AIStrengths.GENERAL)] + LlmRouter.get_models(["gemma2-9b-it", "claude-3-haiku", "gpt-4o-mini"])
                 final_response_models: List[str] = [models[0]]
 
     while True:

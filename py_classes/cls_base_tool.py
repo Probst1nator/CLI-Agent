@@ -2,16 +2,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TypedDict
 
-class ToolResponse(TypedDict, total=False):
-    reasoning: str
-    tool: str
-    reply: str
-    command: str
-    web_query: str
-    title: str
-    requirements: str
-    status: str
-    error: Optional[str]
+class ToolResponse(TypedDict):
+    status: str  # "success" | "error"
+    summary: str  # A descriptive summary of what happened, including any error details if status is "error"
+    tool: str    # Added automatically by format_response
 
 @dataclass
 class ToolMetadata:
@@ -53,11 +47,21 @@ class BaseTool(ABC):
         """Optional validation rules for the tool parameters"""
         return None
 
-    def format_response(self, reasoning: str, **kwargs) -> ToolResponse:
-        """Helper method to format tool responses consistently"""
-        response: ToolResponse = {
-            "reasoning": reasoning,
+    def format_response(self, status: str, summary: str) -> ToolResponse:
+        """Format tool responses consistently with required status and summary.
+        
+        Args:
+            status (str): Either "success" or "error"
+            summary (str): A descriptive summary of what happened, including any error details if status is "error"
+        
+        Returns:
+            ToolResponse: A consistent response format for all tools
+        """
+        if status not in ["success", "error"]:
+            raise ValueError("status must be either 'success' or 'error'")
+            
+        return {
+            "status": status,
+            "summary": summary,
             "tool": self.metadata.name
-        }
-        response.update(kwargs)
-        return response 
+        } 

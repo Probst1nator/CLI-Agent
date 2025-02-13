@@ -6,7 +6,7 @@ import pickle
 import re
 import subprocess
 import tempfile
-from typing import Any, List, Literal, Optional, Tuple
+from typing import Any, List, Literal, Optional, Tuple, Dict
 import sqlite3
 import os
 from typing import List, Tuple
@@ -15,6 +15,8 @@ from gtts import gTTS
 import numpy as np
 import pyaudio
 import logging
+import json
+from termcolor import colored
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,7 +26,6 @@ from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_llm_router import LlmRouter
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
-from termcolor import colored
 from pynput import keyboard
 from speech_recognition import Microphone, Recognizer, WaitTimeoutError
 from io import StringIO
@@ -298,6 +299,9 @@ def text_to_speech(text: str, enable_keyboard_interrupt: bool = True, speed: flo
     Returns:
     None
     """
+    # print a loading message if PyAiHost is not yet imported
+    # if not PyAiHost:
+    #     print(f"Local: <{colored('PyAiHost', 'green')}> is initializing...")
     from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
     if text == "":
         print(colored("No text to convert to speech.", "red"))
@@ -668,6 +672,77 @@ def extract_blocks(text: str) -> List[Tuple[str, str]]:
         blocks.append((language, content))
     
     return blocks
+
+def extract_json(text: str, required_keys: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Extract and validate JSON from text that may contain explanatory content or markdown.
+    Handles various formats including code blocks and direct JSON content.
+    
+    Args:
+        text (str): The text to extract JSON from
+        required_keys (Optional[List[str]]): List of keys that must be present in the JSON
+    
+    Returns:
+        Optional[Dict[str, Any]]: The extracted and validated JSON object, or None if extraction fails
+    """
+    try:
+        # First try to extract from code blocks
+        blocks = extract_blocks(text)
+        
+        # Look for JSON in code blocks first
+        for block_type, content in blocks:
+            if block_type.lower() in ['json', '']:
+                try:
+                    # Clean up the JSON string
+                    content = re.sub(r'(?<!\\)\\n', r'\\n', content)  # Fix newlines
+                    content = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', content)  # Remove control chars
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict):
+                        if required_keys and not all(key in parsed for key in required_keys):
+                            continue
+                        return parsed
+                except (json.JSONDecodeError, re.error):
+                    continue
+        
+        # If no valid JSON found in code blocks, try the first {} block
+        for block_type, content in blocks:
+            if block_type == 'first{}':
+                try:
+                    content = re.sub(r'(?<!\\)\\n', r'\\n', content)
+                    content = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', content)
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict):
+                        if required_keys and not all(key in parsed for key in required_keys):
+                            continue
+                        return parsed
+                except (json.JSONDecodeError, re.error):
+                    continue
+        
+        # If still no valid JSON, try more aggressive extraction
+        # Clean up the text first
+        cleaned_text = re.sub(r'\s+', ' ', text)
+        json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
+        matches = re.finditer(json_pattern, cleaned_text)
+        
+        for match in matches:
+            try:
+                content = match.group()
+                # Fix common JSON formatting issues
+                content = re.sub(r'(?<=\w)"(?=\w)', '\\"', content)  # Fix unescaped quotes
+                content = re.sub(r',\s*([}\]])', r'\1', content)  # Remove trailing commas
+                parsed = json.loads(content)
+                if isinstance(parsed, dict):
+                    if required_keys and not all(key in parsed for key in required_keys):
+                        continue
+                    return parsed
+            except (json.JSONDecodeError, re.error):
+                continue
+        
+        return None
+        
+    except Exception as e:
+        print(colored(f"Error extracting JSON: {str(e)}", "red"))
+        return None
 
 ColorType = Literal['black', 'grey', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 
                     'light_grey', 'dark_grey', 'light_red', 'light_green', 'light_yellow', 

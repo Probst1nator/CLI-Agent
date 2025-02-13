@@ -570,7 +570,7 @@ Implementation of opponent modeling for strategic advantages.
 A hierarchical learning approach to separate strategy and execution."""
         rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local)
         decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local)
-        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.STRONG, silent_reason=True, preferred_models=preferred_models, force_local=force_local)
+        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.GENERAL, silent_reason=True, preferred_models=preferred_models, force_local=force_local)
         chat.add_message(Role.USER, presentation_details)
         
         create_presentation_response = FewShotProvider.few_shot_rephrase("I will create a presentation titled 'ER-Force Strategy Optimization' that covers the main points of your discussion.", silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local).strip(".")
@@ -583,7 +583,7 @@ A hierarchical learning approach to separate strategy and execution."""
         
         response: str = LlmRouter.generate_completion(
             chat,
-            strength=AIStrengths.STRONG,
+            strength=AIStrengths.GENERAL,
             preferred_models=preferred_models, 
             force_local=force_local
         )
@@ -719,7 +719,7 @@ Create such object(s) based on this description: {target_description}""")
                 # Generate the response
                 response: str = LlmRouter.generate_completion(
                     chat,
-                    strength=AIStrengths.STRONG,
+                    strength=AIStrengths.GENERAL,
                     preferred_models=preferred_models,
                     force_local=force_local,
                     use_reasoning=use_reasoning,
@@ -748,7 +748,7 @@ Create such object(s) based on this description: {target_description}""")
                     # Generate the response
                     response: str = LlmRouter.generate_completion(
                         error_chat,
-                        strength=AIStrengths.STRONG,
+                        strength=AIStrengths.GENERAL,
                         preferred_models=preferred_models,
                         force_local=force_local,
                         use_reasoning=use_reasoning,
@@ -1556,3 +1556,49 @@ I hope this helps! Let me know if you have any further questions."""
         )
 
         return response.strip()
+
+    def get_response_with_few_shot_examples(
+        self,
+        chat: Chat,
+        preferred_models: List[str] = [],
+        strength: AIStrengths = AIStrengths.GENERAL,
+        force_local: bool = False,
+        silent_reason: str = False
+    ) -> Tuple[str, Chat]:
+        """
+        Get a response using few-shot examples.
+
+        Args:
+            chat (Chat): The chat object containing the conversation.
+            preferred_models (List[str], optional): List of preferred model keys.
+            strength (AIStrengths, optional): The required strength of the model.
+            force_local (bool, optional): Whether to force local models only.
+            silent_reason (str, optional): Reason for silent mode.
+
+        Returns:
+            Tuple[str, Chat]: A tuple containing the response and the updated chat object.
+        """
+        # ... existing code ...
+
+    def get_response_with_few_shot_examples_and_tools(
+        self,
+        chat: Chat,
+        preferred_models: List[str] = [],
+        strength: AIStrengths = AIStrengths.GENERAL,
+        force_local: bool = False,
+        silent_reason: str = False
+    ) -> Tuple[str,Chat]:
+        """
+        Get a response using few-shot examples and tools.
+
+        Args:
+            chat (Chat): The chat object containing the conversation.
+            preferred_models (List[str], optional): List of preferred model keys.
+            strength (AIStrengths, optional): The required strength of the model.
+            force_local (bool, optional): Whether to force local models only.
+            silent_reason (str, optional): Reason for silent mode.
+
+        Returns:
+            Tuple[str, Chat]: A tuple containing the response and the updated chat object.
+        """
+        # ... existing code ...
