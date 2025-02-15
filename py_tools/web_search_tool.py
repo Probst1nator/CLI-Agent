@@ -51,7 +51,6 @@ class WebSearchTool(BaseTool):
     async def execute(self, params: Dict[str, Any], preferred_models: List[str] = ["mixtral"]) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
-                "Invalid parameters provided",
                 status="error",
                 error="Missing required parameter: web_query"
             )
@@ -66,9 +65,8 @@ class WebSearchTool(BaseTool):
             
             if not results:
                 return self.format_response(
-                    summary="No search results found",
+                    summary="No search results found for the query",
                     status="error",
-                    error="No results found for the query"
                 )
 
             # Format results
@@ -110,7 +108,6 @@ Here are the search results to analyze:
 
         except Exception as e:
             return self.format_response(
-                summary="Error performing web search",
+                summary=f"Error performing web search: {str(e)}",
                 status="error",
-                error=str(e)
             ) 
