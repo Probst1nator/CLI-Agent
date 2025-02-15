@@ -120,7 +120,6 @@ Example:
         """Execute the tool and provide a summary for deciding on the subsequent step."""
         if not self.validate_params(params):
             return self.format_response(
-                "Invalid parameters provided",
                 status="error",
                 error="Missing required parameters: first_tool_call, subsequent_intent"
             )

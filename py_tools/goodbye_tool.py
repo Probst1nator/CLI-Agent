@@ -46,7 +46,6 @@ class GoodbyeTool(BaseTool):
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
-                "Invalid parameters provided",
                 status="error",
                 error="Missing required parameter: reply"
             )
