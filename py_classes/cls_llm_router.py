@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
+    TOOLUSE = 8
+    OMNIMODAL = 7
     UNCENSORED = 6
-    REASON = 5
+    REASONING = 5
     CODE = 4
     GUARD = 3
     GENERAL = 2
@@ -44,7 +46,7 @@ class Llm:
         available_local: bool, 
         has_vision: bool, 
         context_window: int, 
-        strength: Optional[AIStrengths] = None, 
+        strength: List[AIStrengths] = [], 
     ):
         """
         Initialize an LLM instance.
@@ -78,39 +80,45 @@ class Llm:
         """
         # Define and return a list of available LLM instances
         return [
-            # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, AIStrengths.STRONG), # For testing
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, False, 32768, AIStrengths.GENERAL),
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 8192, AIStrengths.FAST),
-            Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 30000, AIStrengths.GENERAL),
-            Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 30000, AIStrengths.FAST),
-            Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, AIStrengths.FAST),
-            Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 32768, AIStrengths.GENERAL),
+            # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, [AIStrengths.STRONG]), # For testing
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, False, 32768, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 8192, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 30000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 30000, [AIStrengths.FAST]),
+            Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, [AIStrengths.FAST]),
+            Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 32768, [AIStrengths.GENERAL]),
+            
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, False, False, False, 32768, [AIStrengths.GENERAL, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, False, False, False, 32768, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, True, 32768, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL]),
             
             
-            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, False, 200000, AIStrengths.GENERAL),
-            # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, AIStrengths.FAST),
-            # Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, AIStrengths.STRONG),
-            # Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, AIStrengths.FAST),
-            Llm(OllamaClient(), "deepseek-r1:8b", None, True, True, False, 128000, AIStrengths.REASON),
-            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 8192, AIStrengths.GENERAL),
-            Llm(OllamaClient(), "llama3.2:3b", None, False, True, False, 4096, AIStrengths.FAST),
-            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 131072, AIStrengths.CODE),
-            Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, False, 128000, AIStrengths.GENERAL),
-            Llm(OllamaClient(), "mistral-small:22b", None, False, True, False, 128000, AIStrengths.GENERAL),
-            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, True, False, 128000, AIStrengths.UNCENSORED),
-            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, True, False, 128000, AIStrengths.UNCENSORED),
+            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, False, 200000, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL, AIStrengths.CODE, AIStrengths.TOOLUSE]),
+            # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, [AIStrengths.FAST]),
             
-            Llm(OllamaClient(), "minicpm-v:8b", None, False, True, True, 32768 ),
+            # Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, [AIStrengths.STRONG]),
+            # Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, [AIStrengths.FAST]),
+            
+            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 8192, [AIStrengths.GENERAL]),
+            Llm(OllamaClient(), "deepseek-r1:8b", None, True, True, False, 128000, [AIStrengths.REASONING]),
+            Llm(OllamaClient(), "command-r7b:latest", None, True, True, False, 128000, [AIStrengths.TOOLUSE]),
+            Llm(OllamaClient(), "llama3.2:3b", None, False, True, False, 4096, [AIStrengths.FAST]),
+            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 131072, [AIStrengths.GENERAL, AIStrengths.CODE]),
+            Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, False, 128000, [AIStrengths.GENERAL]),
+            Llm(OllamaClient(), "mistral-small:22b", None, False, True, False, 128000, [AIStrengths.GENERAL]),
+            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, True, False, 128000, [AIStrengths.UNCENSORED]),
+            
+            Llm(OllamaClient(), "minicpm-v:8b", None, False, True, True, 32768, []),
             
             # Specialised models below
             
             # RAG models
-            # Llm(NvidiaAPI(), "nvidia/llama-3.1-nemotron-70b-instruct", None, False, False, False, 128000, AIStrengths.STRONG),
+            # Llm(NvidiaAPI(), "nvidia/llama-3.1-nemotron-70b-instruct", None, False, False, False, 128000, [AIStrengths.STRONG]),
             
             # Guard models
-            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, AIStrengths.GUARD),
-            Llm(OllamaClient(), "llama-guard3:8b", None, False, True, False, 4096, AIStrengths.GUARD),
-            Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, AIStrengths.GUARD),
+            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, [AIStrengths.GUARD]),
+            Llm(OllamaClient(), "llama-guard3:8b", None, False, True, False, 4096, [AIStrengths.GUARD]),
+            Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, [AIStrengths.GUARD]),
         ]
 
 
@@ -122,6 +130,8 @@ class LlmRouter:
     _instance: Optional["LlmRouter"] = None
     call_counter: int = 0
     last_used_model: str = ""
+    _model_limits: Dict[str, int] = {}
+    _model_limits_loaded: bool = False
     
     def __new__(cls, *args, **kwargs) -> "LlmRouter":
         """
@@ -142,7 +152,21 @@ class LlmRouter:
         # Load cache and initialize retry models and failed models set
         self.cache = self._load_cache()
         self.retry_models = Llm.get_available_llms()
+        self._load_dynamic_model_limits()
         self.failed_models: Set[str] = set()
+    
+    def _load_dynamic_model_limits(self) -> None:
+        """Load model limits from disk if not already loaded."""
+        if not self._model_limits_loaded:
+            try:
+                if os.path.exists(g.DYNAMIC_MODEL_LIMITS_PATH):
+                    with open(g.DYNAMIC_MODEL_LIMITS_PATH, 'r') as f:
+                        self._model_limits = json.load(f)
+                self._model_limits_loaded = True
+            except Exception as e:
+                logger.error(f"Failed to load model token limits: {e}")
+                self._model_limits = {}
+                self._model_limits_loaded = True
 
     def _generate_hash(self, model_key: str, temperature: str, prompt: str, images: List[str]) -> str:
         """
@@ -225,14 +249,53 @@ class LlmRouter:
             print(colored(f"Failed to update cache: {e}", "red"))
             print("Continuing without updating cache file...")
 
+    def model_capable_check(self, model: Llm, chat: Chat, strength: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, allow_general: bool = True) -> bool:
+        """
+        Check if a model is capable of handling the given constraints.
+        
+        Args:
+            model (Llm): The model to check.
+            chat (Chat): The chat to process.
+            strength (List[AIStrengths]): The required strengths.
+            local (bool): Whether the model should be local.
+            force_free (bool): Whether to force free models only.
+            has_vision (bool): Whether vision capability is required.
+            allow_general (bool): Whether to allow GENERAL strength as a fallback.
+
+        Returns:
+            bool: True if the model is capable, False otherwise.
+        """
+        if force_free and model.pricing_in_dollar_per_1M_tokens is not None:
+            return False
+        if has_vision and not model.has_vision:
+            return False
+            
+        if model.model_key in self._model_limits:
+            token_limit = self._model_limits[model.model_key]
+            if chat.count_tokens() >= token_limit:
+                return False
+        
+        if model.context_window < chat.count_tokens():
+            return False
+        if strength and model.strength:
+            # Check if any of the required strengths match any of the model's strengths
+            if not any(s.value in [ms.value for ms in model.strength] for s in strength):
+                # Only check for GENERAL if allowed
+                if allow_general:
+                    return any(s.value == AIStrengths.GENERAL.value for s in model.strength)
+                return False
+        if model.local != local:
+            return False
+        return True
+
     @classmethod
-    def get_models(cls, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
+    def get_models(cls, preferred_models: List[str] = [], strength: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
         """
         Get a list of available models based on the given constraints.
         
         Args:
             preferred_models (List[str]): List of preferred model keys.
-            strength (AIStrengths): The required strength of the model.
+            strength (List[AIStrengths]): The required strengths of the model.
             chat (Chat): The chat which the model will be processing.
             force_local (bool): Whether to force local models only.
             force_free (bool): Whether to force free models only.
@@ -244,30 +307,46 @@ class LlmRouter:
         instance = cls()
         available_models: List[Llm] = []
 
-        # Check for exact matches in preferred model keys
+        # First try to find models with exact capability matches
         for model_key in preferred_models:
             if model_key and model_key not in instance.failed_models:
                 model = next((model for model in instance.retry_models if model_key in model.model_key), None)
-                if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision):
+                if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=False):
                     available_models.append(model)
-        if available_models:
-            return available_models
-        # Check all models based on capabilities
-        for model in instance.retry_models:
-            if model.model_key not in instance.failed_models and not model.model_key in [model.model_key for model in available_models]:
-                if (not force_local or model.local) and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision):
-                    available_models.append(model)
+        
+        # If no preferred models with exact capabilities, check all models
+        if not available_models:
+            for model in instance.retry_models:
+                if model.model_key not in instance.failed_models and not model.model_key in [model.model_key for model in available_models]:
+                    if (not force_local or model.local) and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=False):
+                        available_models.append(model)
+        
+        # If still no models found, try again allowing GENERAL capability
+        if not available_models and strength:
+            # First check preferred models
+            for model_key in preferred_models:
+                if model_key and model_key not in instance.failed_models:
+                    model = next((model for model in instance.retry_models if model_key in model.model_key), None)
+                    if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=True):
+                        available_models.append(model)
+            
+            # Then check all models
+            if not available_models:
+                for model in instance.retry_models:
+                    if model.model_key not in instance.failed_models and not model.model_key in [model.model_key for model in available_models]:
+                        if (not force_local or model.local) and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=True):
+                            available_models.append(model)
 
         return available_models
 
     @classmethod
-    def get_model(cls, preferred_models: List[str] = [], strength: Optional[AIStrengths] = None, chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
+    def get_model(cls, preferred_models: List[str] = [], strength: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
         
         Args:
             preferred_models (List[str]): List of preferred model keys.
-            strength (AIStrengths): The required strength of the model.
+            strength (List[AIStrengths]): The required strengths of the model.
             chat (Chat): The chat which the model will be processing.
             force_local (bool): Whether to force local models only.
             force_free (bool): Whether to force free models only.
@@ -283,86 +362,63 @@ class LlmRouter:
             if (chat.count_tokens() > 4000 and not force_free and not force_local):
                 print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
             
-            # Search for preferred model key match first
+            # First try to find preferred model with exact capabilities
             for model_key in preferred_models:
                 if (model_key not in instance.failed_models) and model_key:
                     model = next((model for model in instance.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
-                    if model:
+                    if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=False):
                         return model
 
             if force_preferred_model:
                 if force_local:
                     # return a dummy model to force Ollama to download it
-                    return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, 8192, AIStrengths.GENERAL)
+                    return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, [AIStrengths.GENERAL])
                 print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
                 return None
             
-            # Search online models by capability next
+            # Search online models by exact capability next
             if not force_local:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and not model.local:
-                        if instance.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision):
+                        if instance.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision, allow_general=False):
                             return model
-                # ignore strength if no online model is found first
-                for model in instance.retry_models:
-                    if model.model_key not in instance.failed_models and not model.local:
-                        if instance.model_capable_check(model, chat, None, local=False, force_free=force_free, has_vision=has_vision):
-                            return model
+                
+                # Try online models with GENERAL capability
+                if strength:
+                    for model in instance.retry_models:
+                        if model.model_key not in instance.failed_models and not model.local:
+                            if instance.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision, allow_general=True):
+                                return model
 
-            # search local models last
-            # first by capability
+            # Search local models by exact capability
             for model in instance.retry_models:
                 if model.model_key not in instance.failed_models and model.local:
-                    if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision):
+                    if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision, allow_general=False):
                         return model
-            # ignore strength if no model is found
+            
+            # Try local models with GENERAL capability
+            if strength:
+                for model in instance.retry_models:
+                    if model.model_key not in instance.failed_models and model.local:
+                        if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision, allow_general=True):
+                            return model
+            
+            # Last resort: try with empty chat to ignore context length
             for model in instance.retry_models:
                 if model.model_key not in instance.failed_models and model.local:
-                    if instance.model_capable_check(model, chat, None, local=True, force_free=force_free, has_vision=has_vision):
-                        return model
-            # ignore context_length and strength if no model is found
-            for model in instance.retry_models:
-                if model.model_key not in instance.failed_models and model.local:
-                    if instance.model_capable_check(model, Chat(), None, local=True, force_free=force_free, has_vision=has_vision):
+                    if instance.model_capable_check(model, Chat(), strength, local=True, force_free=force_free, has_vision=has_vision, allow_general=True):
                         return model
         except Exception as e:
             print(colored(f"Error in get_model: {e}", "red"))
+            logger.error(f"Error in get_model: {e}")
         return None
     
-    def model_capable_check(self, model: Llm, chat: Chat, strength: Optional[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False) -> bool:
-        """
-        Check if a model is capable of handling the given constraints.
-        
-        Args:
-            model (Llm): The model to check.
-            chat (Chat): The chat to process.
-            strength (AIStrengths): The required strength.
-            local (bool): Whether the model should be local.
-            force_free (bool): Whether to force free models only.
-            has_vision (bool): Whether vision capability is required.
-
-        Returns:
-            bool: True if the model is capable, False otherwise.
-        """
-        if force_free and model.pricing_in_dollar_per_1M_tokens is not None:
-            return False
-        if has_vision and not model.has_vision:
-            return False
-        if model.context_window < chat.count_tokens():
-            return False
-        if strength:
-            if model.strength and model.strength.value != strength.value and model.strength.value != AIStrengths.GENERAL.value:
-                return False
-        if model.local != local:
-            return False
-        return True
-
     @classmethod
     def generate_completion(
         cls,
         chat: Chat|str,
         preferred_models: List[str] | List[Llm] = [],
-        strength: AIStrengths = AIStrengths.GENERAL,
+        strength: List[AIStrengths] | AIStrengths = [],
         start_response_with: str = "",
         instruction: str = "",
         temperature: float = 0.7,
@@ -373,7 +429,8 @@ class LlmRouter:
         force_free: bool = True,
         force_preferred_model: bool = False,
         silent_reason: str = "",
-        re_print_prompt: bool = False
+        re_print_prompt: bool = False,
+        exclude_reasoning_tokens: bool = False
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -381,7 +438,7 @@ class LlmRouter:
         Args:
             chat (Chat|str): The chat prompt or string.
             preferred_models (List[str]): List of preferred model keys.
-            strength (Optional[AIStrengths]): The required strength of the model.
+            strength (List[AIStrengths] | AIStrengths): The required strengths of the model.
             start_response_with (str): Initial string to start the response with.
             instruction (str): Instruction for the chat.
             temperature (float): Temperature setting for the model.
@@ -402,6 +459,14 @@ class LlmRouter:
         tooling = CustomColoring()
         cls.call_counter += 1
         
+        if g.FORCE_LOCAL:
+            force_local = True
+        
+        def preprocess_response(response: str) -> str:
+            if exclude_reasoning_tokens:
+                return response.split("</think>")[1]
+            return response
+        
         # Convert string input to Chat object if necessary
         if isinstance(chat, str):
             chat = Chat(instruction, debug_title="generate_completion() call").add_message(Role.USER, chat)
@@ -414,6 +479,10 @@ class LlmRouter:
         
         if not preferred_models or preferred_models == [""] or preferred_models == [None]:
             preferred_models = []
+            
+        # BREAKING CHANGE HOFTIX: Ensure strength is a list
+        if not isinstance(strength, list):
+            strength = [strength] if strength else []
         
         while True:
             try:
@@ -444,14 +513,19 @@ class LlmRouter:
                                 print(tooling.apply_color(char), end="")
                                 time.sleep(0) # better observable for the user
                             print()
-                        return cached_completion
+                        return preprocess_response(cached_completion)
 
                 response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
                 instance.last_used_model = model.model_key
                 instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
+                response = preprocess_response(response)
                 return start_response_with + response if include_start_response_str else response
 
             except Exception as e:
+                if "too large" in str(e):
+                    # Save the model's maximum token limit
+                    instance._save_dynamic_token_limit_for_model(model, chat.count_tokens())
+                
                 if 'model' in locals() and model is not None:
                     print(colored(f"generate_completion error with model {model.model_key}: {e}", "red"))
                     logger.error(f"generate_completion error with model {model.model_key}: {e}")
@@ -529,3 +603,29 @@ class LlmRouter:
         except Exception as e:
             logger.error(f"Error with model {model.model_key}: {e}")
             return None
+
+    def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
+        """
+        Save or update the token limit for a model that encountered a 'too large' error.
+        
+        Args:
+            model (Llm): The model that encountered the error
+            token_count (int): The token count that caused the error
+        """
+        try:
+            # Ensure limits are loaded
+            self._load_dynamic_model_limits()
+            
+            # Update the cached limits
+            self._model_limits[model.model_key] = min(
+                token_count,
+                self._model_limits.get(model.model_key, float('inf'))
+            )
+            
+            # Save updated limits to disk
+            with open(g.DYNAMIC_MODEL_LIMITS_PATH, 'w') as f:
+                json.dump(self._model_limits, f, indent=4)
+            
+            logger.info(f"Updated token limit for {model.model_key}: {token_count} tokens")
+        except Exception as limit_error:
+            logger.error(f"Failed to save model token limit: {limit_error}")

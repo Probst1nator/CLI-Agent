@@ -12,7 +12,7 @@ class Globals:
     PROJ_AGENTIC_SANDBOX_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox')
     PROJ_AGENTIC_SANDBOX_BACKUP_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox_backup')
     CURRENT_WORKING_DIR_PATH = os.getcwd()
-    CURRENT_MOST_INTELLIGENT_MODEL_KEY: str = "gpt4-o"
+    FORCE_LOCAL: bool = False
     
     RECENT_ACTIONS: List[str] = []
     args: Optional[argparse.Namespace] = None
@@ -20,6 +20,7 @@ class Globals:
     os.makedirs(PROJ_VSCODE_DIR_PATH, exist_ok=True)
     PROJ_CONFIG_FILE_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'cli-agent.json')
     PROJ_MEMORY_FILE_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'agent_memory.json')
+    DYNAMIC_MODEL_LIMITS_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'dynamic_model_limits.json')
 
     @classmethod
     def get_path(cls, path_name: str) -> str:

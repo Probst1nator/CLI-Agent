@@ -84,8 +84,6 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Edit either the file at the specified path or the contents of the clipboard.")
     parser.add_argument("-h", "--help", action="store_true", default=False,
                         help="Display this help")
-    parser.add_argument("-i", "--intelligent", action="store_true", default=False,
-                        help="Use the current most intelligent model for the agent.")
     parser.add_argument("-l", "--local", action="store_true", default=False,
                         help="Use the local Ollama backend for processing.")
     parser.add_argument("-o", "--online", action="store_true", default=False,
@@ -157,22 +155,21 @@ async def main() -> None:
     if args.gui:
         web_server = WebServer()
         web_server.start(Chat(debug_title="Web Interface Chat"))  # Start with empty chat, will be updated later
-        if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online:
-            args.local = True
-            if not args.llm:
-                args.llm = "mistral-nemo:12b"
     
     if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online:
         args.local = True
         if not args.llm:
             args.llm = "mistral-nemo:12b"
     
+    if args.local:
+        g.FORCE_LOCAL = True
+    
     if args.preload:
         print(colored("Preloading resources...", "green"))
         print(colored("Generating atuin-command-history embeddings...", "green"))
         update_cmd_collection()
         print(colored("Generating pdf embeddings for cli-agent directory...", "green"))
-        pdf_or_folder_to_database(g.PROJ_DIR_PATH, force_local=args.local)
+        pdf_or_folder_to_database(g.PROJ_DIR_PATH)
         print(colored("Preloading complete.", "green"))
         exit(0)
     
@@ -250,7 +247,7 @@ async def main() -> None:
                 continue
             for i, base64_image in enumerate(base64_images):
                 print(colored(f"# cli-agent: Converting Image ({i}/{len(base64_images)}) into words...", "green"))
-                image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image], force_local=args.local)
+                image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image])
                 prompt_context_augmentation += f'\n\n```vision_{i}\n{image_response_str}\n```'
         
         # get user input from various sources
@@ -309,16 +306,6 @@ async def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
             continue
         
-        if user_input.endswith("--i"):
-            previous_model_key = args.llm
-            args.llm = g.CURRENT_MOST_INTELLIGENT_MODEL_KEY
-            if previous_model_key:
-                args.llm = previous_model_key
-                previous_model_key = None
-                print(colored(f"# cli-agent: KeyBinding detected: Disabled the current most intelligent model, now using: {args.llm}, type (--h) for info", "green"))
-            else:    
-                print(colored(f"# cli-agent: KeyBinding detected: Enabled the current most intelligent model: {args.llm}, type (--h) for info", "green"))
-        
         if "--debug" in user_input:
             print(colored(f"# cli-agent: KeyBinding detected: Debug information:", "green"))
             context_chat.print_chat()
@@ -366,7 +353,97 @@ async def main() -> None:
         MAX_ACTIONS = 10    # Maximum number of consecutive actions before forcing a reply
         tool_response = ""
         perform_exit: bool = False
+        skip_agent_guidance: bool = False
+        
+        tool_call_retry_prompt = """I need you to select a specific tool to help with this request.
 
+Please provide:
+1. Your reasoning about the best tool for this task
+2. A JSON snippet in the exact format as specified in the tool's example usage
+Generic example usage:
+{
+    "tool": "name_of_tool",
+    "reasoning": "reasoning as specified in the tool's example usage",
+    "parameters": {
+        "param1": "value1",
+        "param2": "value2",
+    }
+}
+
+Remember to use proper JSON formatting with quotes around strings and correct parameter names.
+
+Which tool would you like to use?"""
+
+        guidance_head_prompt = f"""
+
+First, reason through these steps:
+1. What is the user asking for?
+2. Is all required information already present?
+3. Which tool(s) would best serve this request?
+4. Why is this the optimal approach?
+
+Then, select ONE of these response options:
+1. Use "reply" tool for direct answers requiring no real-time data or reliable computations
+2. Use "sequential" tool when you need to:
+   - Search the web
+   - Perform system operations
+   - Chain multiple operations
+   - Perform deep thought or reasoning before responding
+
+{f'''
+CONTEXT-AWARE BEHAVIOR:
+- You are a voice assistant
+- Your name is Nova
+- Keep responses concise
+- Use conversational tone
+''' if args.voice or args.speak else ""}
+
+Response Format Example:
+Let me analyze this request...
+1. Lets first remember, the user's prompt was about [reflecting on the user's prompt]
+2. I've already done [past steps]
+3. To provide value to the user, next I need to [capabilities needed]
+4. Let me evaluate each potential approach:
+   - Tool A could [what this tool would do]
+   - Tool B might [alternative approach]
+   - Tool C would [another possibility]
+5. Comparing these options:
+   - [Strengths/weaknesses of Tool A]
+   - [Strengths/weaknesses of Tool B]
+   - [Strengths/weaknesses of Tool C]
+6. After evaluation, [selected tool] appears most suitable because [specific reasons]
+7. For [selected tool], the available parameters are [parameters]
+8. Let me consider parameter variations:
+   - Option 1: [parameter set 1] would achieve [outcome 1]
+   - Option 2: [parameter set 2] would achieve [outcome 2]
+9. Based on this analysis, here's my recommended approach:
+{{
+    "tool": "[tool_name]",
+    "reasoning": "[why this tool is was choosen]",
+    "parameters": {{
+        "[param1]": "[value1]",
+        "[param2]": "[value2]"
+    }}
+}}
+
+IMPORTANT NOTES:
+1. ALL tool-specific parameters MUST be nested under a "parameters" object
+2. The "reasoning" field should be at the root level
+3. Each tool has specific required parameters - check the tool's example usage
+4. Follow the exact parameter names and structure shown in the tool's example
+
+REMEMBER: 
+- FOCUS on UNDERSTANDING AND UTILIZING your TOOL CALL CAPABILITIES
+- ALWAYS INCLUDE A SINGLE VALID JSON TOOL CALL IN YOUR RESPONSE
+- If you decide to respond to the user you MUST use the reply tool
+- The USER CANNOT SEE ANYTHING other than the string value in your final reply tool's 'reply' parameter until you choose to call it.
+- The users has no influence on tool examples, he is only communicating to you via the user's prompt."""
+        
+        # Prepare guidance based on stage
+        def get_agent_prompt(user_prompt: str, available_tools_str: str, context_head_addition: str = ""):
+            agent_prompt = (f"Last tool call summary: {tool_response}\n"  if tool_response else "") + f"""You are an AI assistant with access to several real-time tools, first reason about if current chat contains sufficient information to faithfully respond to the user, then deduct the most appropriate tool to gather required information or act as needed on the users behalf.{user_prompt}\nReason about which of these tools is best suited given the current context and the user's intend. The following tool calls are available to you:\n\n{available_tools_str}{context_head_addition}"""
+            return agent_prompt
+        
         while True:
             try:
                 # Check if we've hit the maximum number of consecutive actions
@@ -379,73 +456,25 @@ async def main() -> None:
                         context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress and respond intelligently to the user.")
                         break
 
-                # Track guidance stage (1: full, 2: summarized and no tools)
-                guidance_stage = getattr(g, 'guidance_stage', 1)
-                setattr(g, 'guidance_stage', guidance_stage + 1)
-
                 # Get all available tools and their prompts for first stage
-                available_tools_str = tool_manager.get_tools_prompt() if guidance_stage == 1 else tool_manager.get_tools_prompt(["reply", "sequential"])
+                all_available_tools_str = tool_manager.get_tools_prompt(include_details=False)
                 
-                context_head_addition = f"""
-
-You have two options for responding:
-
-1. Use the "reply" tool if you can answer directly without needing any real-time data or system operations.
-
-2. Use the "sequential" tool if you need to:
-   - Get real-time data first
-   - Perform system operations
-   - Execute computations
-   - Chain multiple tool operations together
-
-First, explain your thought process:
-1. What is the user asking for?
-2. Is all required information already present in the current context?
-3. Which tool or sequence of tools would be most appropriate?
-4. Why is this the best approach?
-5. Ensure that the tool selection is valid and that the tool(s) are available
-
-After explaining your reasoning, provide your tool selection in a single, valid JSON format.
-   
-The sequential tool will let you specify a complete first tool configuration and your subsequent intent (which should typically be "reply" to provide the final response).
-
-{f'''
-CONTEXT-AWARE BEHAVIOR:
-- You are a voice assistant
-- Your name is Nova
-- Keep responses concise
-- Use conversational tone
-''' if args.voice or args.speak else ""}
-
-Response Format Example:
-Let me think through this...
-1. The user is asking about [specific request]
-2. To fulfill this, I need to [capabilities needed]
-3. The best approach would be to [tool selection reasoning]
-4. This is optimal because [justification]
-
-Here's my tool selection:
-{{
-    "tool": "sequential",
-    "reasoning": "Why you need to chain operations",
-    "first_tool_call": {{
-        "tool": "web_search",
-        "reasoning": "Why this tool is needed first",
-        "web_query": "your search query"
-    }},
-    "subsequent_intent": "A clear statement of what should be done next with the results, suggesting which tool to use (e.g., 'Use python tool to create a visualization', 'Use reply tool to summarize findings')"
-}}"""
+                # if user_prompt already present anywhere in the context (context_chat.messages)
+                full_user_prompt = f"\nThis is the user's prompt:\n{user_input}"
+                if any(message[0] == Role.USER and full_user_prompt in message[1] for message in context_chat.messages):
+                    user_prompt = ""
+                else:
+                    user_prompt = full_user_prompt
                 
-                # Prepare guidance based on stage
-                agent_prompt = f"""You are an AI assistant with access to several real-time tools:\n\n{available_tools_str}{context_head_addition}"""
-
-                full_agent_prompt = f"Prompt: {user_input}\n" + (f"Previous tool summary: {tool_response}\n"  if tool_response else "") + agent_prompt
-                # Add tool selection guidance
-                context_chat.add_message(Role.USER, full_agent_prompt)
+                full_agent_prompt = get_agent_prompt(user_prompt, all_available_tools_str, guidance_head_prompt)
+                
+                if not skip_agent_guidance:
+                    # Add tool selection guidance
+                    context_chat.add_message(Role.USER, full_agent_prompt)
 
                 # Get tool selection response
                 try:
-                    tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], force_local=args.local)
+                    tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""])
                     context_chat.add_message(Role.ASSISTANT, tool_use_response)
                 except Exception as e:
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
@@ -462,27 +491,53 @@ Here's my tool selection:
                         agent_tool_calls.append(parsed_json)
                     else:
                         print(colored("No valid tool calls found in response", "red"))
-                        break
+                        # Add guidance message to the chat context
+                        context_chat.add_message(Role.USER, tool_call_retry_prompt)
+                        skip_agent_guidance = True
+                        continue
 
                 except Exception as e:
                     print(colored(f"Unexpected error parsing tool selection response: {str(e)}", "red"))
                     if args.debug:
                         traceback.print_exc()
-                    break
-
-                if not agent_tool_calls:
-                    print(colored("No valid tool calls found in response", "red"))
-                    break
+                    # Add encouraging feedback for tool selection
+                    context_chat.add_message(Role.USER, tool_call_retry_prompt)
+                    skip_agent_guidance = True
+                    continue
 
                 print(colored(f"Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
                 
-                # Shorten the agents context to only always include the actually selected tools and high priority tools
-                choosen_tools = list(set([tool.get('tool', '') for tool in agent_tool_calls]))
-                prioritised_tools = ["reply", "sequential"]
-                context_relevant_tools = list(set(prioritised_tools + choosen_tools))
-                shortened_tool_str = tool_manager.get_tools_prompt(context_relevant_tools)
-                shortened_agent_prompt = full_agent_prompt.replace(available_tools_str, shortened_tool_str).replace(context_head_addition, "")
-                context_chat.replace_latest_user_message(shortened_agent_prompt)
+                if skip_agent_guidance:
+                    # Cleanup context
+                    # Remove Assistant message
+                    context_chat.messages.pop()
+                    # Remove User message
+                    context_chat.messages.pop()
+                    # Reset skip_agent_guidance flag
+                    skip_agent_guidance = False
+                else:
+                    # Shorten the agents context to only always include the actually selected tools and high priority tools
+                    choosen_tools = []
+                    for tool_call in agent_tool_calls:
+                        # Add the main tool
+                        choosen_tools.append(tool_call.get('tool', ''))
+                        # If it's a sequential tool, also add the tool from first_tool_call
+                        if tool_call.get('tool') == 'sequential' and 'parameters' in tool_call:
+                            first_tool = tool_call.get('parameters', {}).get('first_tool_call', {}).get('tool')
+                            if first_tool:
+                                choosen_tools.append(first_tool)
+                    
+                    choosen_tools = list(set(choosen_tools))  # Remove duplicates
+                    prioritised_tools = ["reply", "sequential"]
+                    context_relevant_tools = list(set(prioritised_tools + choosen_tools))
+                    shortened_tool_str = tool_manager.get_tools_prompt(context_relevant_tools, include_details=False)
+                    
+                    # Reconstruct full_agent_prompt, always adding the full_user_prompt (enabling the agent to see the users intend in its past => enhancing guidance)
+                    shortened_agent_prompt = get_agent_prompt(full_user_prompt, context_relevant_tools)
+                    
+                    # Replace the latest user message with the shortened version
+                    context_chat.replace_latest_user_message(shortened_agent_prompt)
+                
                 
                 # Notify web interface about tool selection immediately
                 if web_server and web_server.chat:
@@ -529,19 +584,8 @@ Here's my tool selection:
                             if web_server and web_server.chat:
                                 web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {error_summary}")
                             
-                            # Create error feedback prompt
-                            error_feedback = f"""The previous tool call failed with error: {error_summary}
-
-Previous attempt:
-{json.dumps(tool_call, indent=2)}
-
-Please provide a corrected response that fixes this error. Remember:
-1. Check parameter names and structure
-2. Ensure all required parameters are provided
-3. Validate parameter values
-4. Follow the tool's example format exactly"""
-
-                            context_chat.add_message(Role.USER, error_feedback)
+                            context_chat.add_message(Role.USER, "The tool call has failed with an error, please consider the error for your next steps.\nIf this is a critical issue, contact the user.\nThe error was: " + error_summary)
+                            skip_agent_guidance = True
                             continue
 
                         # Handle sequential tool results
@@ -559,7 +603,7 @@ Please provide a corrected response that fixes this error. Remember:
                             continue
 
                         action_counter += 1
-                        tool_response = f"The {selected_tool} tool has been executed successfully. Here are the results:\n{json.dumps(result, indent=2)}\n\nPlease provide a reply response based on these results."
+                        tool_response = f"The {selected_tool} tool has indicated success and returned a summary of its execution.\nPlease remember its summary in downstream reasoning tasks and use it to inform your future tool selection to enhance your value to the user.\nHere is its summary:\n```summary\n{result.get('summary', 'ERROR: No summary was included.')}\n```"
                         
                         # Handle tool results
                         if selected_tool == "reply":
@@ -611,7 +655,7 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
     safe_bash_blocks: List[str] = []
     for bash_block in bash_blocks:
         print(colored(bash_block, 'magenta'))
-        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"], force_local=args.local)
+        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"])
         
         execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
         if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property

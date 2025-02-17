@@ -19,161 +19,6 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class ToolType(Enum):
-    """
-    Enumeration of tool types supported by the Ollama API.
-    
-    Attributes:
-        FUNCTION (str): Represents a function tool type.
-    """
-    FUNCTION = "function"
-
-@dataclass
-class FunctionParameters:
-    """
-    Represents parameters for a function tool.
-    
-    Attributes:
-        type (str): The type of the parameters object (usually "object").
-        properties (Dict[str, Dict[str, Any]]): A dictionary of parameter properties.
-        required (List[str]): A list of required parameter names.
-    """
-    type: str
-    properties: Dict[str, Dict[str, Any]]
-    required: List[str]
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-@dataclass
-class FunctionDefinition:
-    """
-    Defines a function tool with its name, description, and parameters.
-    
-    Attributes:
-        name (str): The name of the function.
-        description (str): A description of what the function does.
-        parameters (FunctionParameters): The parameters of the function.
-    """
-    name: str
-    description: str
-    parameters: FunctionParameters
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": self.parameters.to_dict()
-        }
-
-@dataclass
-class FunctionTool:
-    """
-    Represents a complete function tool with its type and definition.
-    
-    Attributes:
-        type (ToolType): The type of the tool (e.g., ToolType.FUNCTION).
-        function (FunctionDefinition): The definition of the function.
-    """
-    type: ToolType
-    function: FunctionDefinition
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "type": self.type.value,  # Convert enum to string
-            "function": self.function.to_dict()
-        }
-
-@dataclass
-class FunctionCall:
-    """
-    Represents a function call made by the model.
-    
-    Attributes:
-        name (str): The name of the function being called.
-        arguments (Dict[str, Any]): The arguments passed to the function.
-    """
-    name: str
-    arguments: Dict[str, Any]
-
-@dataclass
-class ToolCall:
-    """
-    Represents a processed tool call with its type and function call details.
-    
-    Attributes:
-        type (ToolType): The type of the tool being called.
-        function (FunctionCall): The details of the function call.
-    """
-    function: FunctionCall
-
-def ollama_convert_method_to_tool(method_string: str) -> FunctionTool:
-    """
-    Converts a Python method string into a FunctionTool object.
-
-    Args:
-    - method_string (str): A string containing the Python method to be converted.
-
-    Returns:
-    - FunctionTool: A FunctionTool object representing the method in the specified format.
-    """
-    # Parse the method string into an AST
-    parsed = ast.parse(method_string)
-    # Extract the function definition
-    func_def = parsed.body[0]
-    if not isinstance(func_def, ast.FunctionDef):
-        raise ValueError("The provided string does not contain a valid function definition.")
-    
-    # Extract function name
-    func_name = func_def.name
-    
-    # Extract docstring
-    docstring = ast.get_docstring(func_def)
-    
-    # Extract parameters
-    params = {
-        "type": "object",
-        "properties": {},
-        "required": []
-    }
-    for arg in func_def.args.args:
-        arg_name = arg.arg
-        params["properties"][arg_name] = {
-            "type": "string",  # Default to string, as we can't infer type from AST easily
-            "description": f"Parameter: {arg_name}"
-        }
-        params["required"].append(arg_name)
-    
-    # Try to extract parameter types and descriptions from docstring
-    if docstring:
-        docstring_lines = docstring.split('\n')
-        for line in docstring_lines:
-            if ':param' in line:
-                parts = line.split(':')
-                if len(parts) >= 3:
-                    param_name = parts[1].split()[1]
-                    param_description = ':'.join(parts[2:]).strip()
-                    if param_name in params["properties"]:
-                        params["properties"][param_name]["description"] = param_description
-    
-    # Create the FunctionTool object
-    function_parameters = FunctionParameters(
-        type="object",
-        properties=params["properties"],
-        required=params["required"]
-    )
-    
-    function_definition = FunctionDefinition(
-        name=func_name,
-        description=docstring.split('\n')[0] if docstring else "No description provided.",
-        parameters=function_parameters
-    )
-    
-    return FunctionTool(
-        type=ToolType.FUNCTION,
-        function=function_definition
-    )
-
 class OllamaClient(ChatClientInterface):
     """
     Implementation of the ChatClientInterface for the Ollama API.
@@ -225,8 +70,72 @@ class OllamaClient(ChatClientInterface):
             if host in OllamaClient.reached_hosts and host not in OllamaClient.unreachable_hosts:
                 client = ollama.Client(host=f'http://{host}:11434')
                 try:
-                    model_list = OllamaModelList.from_json(json.dumps(client.list()))
-                    found_model_key = next((model.name for model in model_list.models if model_key in model.name), None)
+                    response = client.list()
+                    logger.debug("=== START MODEL PROCESSING ===")
+                    logger.debug(f"Raw response type: {type(response)}")
+                    logger.debug(f"Raw response dir: {dir(response)}")
+                    logger.debug(f"Models list type: {type(response.models)}")
+                    logger.debug(f"Number of models: {len(response.models)}")
+                    
+                    # Examine first model's structure if available
+                    if response.models:
+                        first_model = response.models[0]
+                        logger.debug(f"First model type: {type(first_model)}")
+                        logger.debug(f"First model dir: {dir(first_model)}")
+                        logger.debug(f"First model attributes: {[(attr, getattr(first_model, attr, None)) for attr in dir(first_model) if not attr.startswith('_')]}")
+                    
+                    # Convert ListResponse to dict before JSON serialization
+                    response_dict = {"models": []}
+                    for idx, model in enumerate(response.models):
+                        logger.debug(f"\nProcessing model {idx + 1}:")
+                        try:
+                            # Get raw model attributes
+                            model_attrs = {
+                                "model": getattr(model, "model", None),
+                                "name": getattr(model, "name", None),
+                                "modified_at": getattr(model, "modified_at", None),
+                                "size": getattr(model, "size", None),
+                                "digest": getattr(model, "digest", None),
+                            }
+                            logger.debug(f"Raw model attributes: {model_attrs}")
+                            
+                            # Clean and validate attributes
+                            model_dict = {
+                                "model": model_attrs["model"] or model_attrs["name"] or "",
+                                "modified_at": (model_attrs["modified_at"].isoformat() 
+                                              if hasattr(model_attrs["modified_at"], 'isoformat') 
+                                              else model_attrs["modified_at"] or datetime.now().isoformat()),
+                                "size": model_attrs["size"] or 0,
+                                "digest": model_attrs["digest"] or "",
+                            }
+                            logger.debug(f"Processed model dict: {model_dict}")
+                            
+                            # Verify JSON serialization
+                            json.dumps(model_dict)  # Test serialization
+                            response_dict["models"].append(model_dict)
+                            logger.debug(f"Successfully added model to response_dict")
+                        except Exception as e:
+                            logger.error(f"Error processing model {idx + 1}: {str(e)}")
+                            continue
+                    
+                    logger.debug(f"\nFinal response dict: {response_dict}")
+                    logger.debug("Testing full JSON serialization...")
+                    serialized = json.dumps(response_dict)
+                    logger.debug("JSON serialization successful")
+                    
+                    logger.debug("Creating OllamaModelList...")
+                    model_list = OllamaModelList.from_json(serialized)
+                    logger.debug(f"Created model list with {len(model_list.models)} models")
+                    
+                    # Look for model name in all available models
+                    logger.debug(f"\nSearching for model key: {model_key}")
+                    found_model_key = next((
+                        model.model 
+                        for model in model_list.models 
+                        if model_key.lower() in model.model.lower()
+                    ), None)
+                    logger.debug(f"Found model key: {found_model_key}")
+                    logger.debug("=== END MODEL PROCESSING ===\n")
                     if found_model_key:
                         return client, found_model_key 
                     elif host in auto_download_hosts:
@@ -265,9 +174,8 @@ class OllamaClient(ChatClientInterface):
         chat: Chat,
         model_key: str = "phi3.5:3.8b",
         temperature: Optional[float] = 0.75,
-        silent_reason: str = "",
-        tools: Optional[List[FunctionTool]] = None
-    ) -> Optional[Union[str, List[ToolCall]]]:
+        silent_reason: str = ""
+    ) -> Optional[str]:
         """
         Generates a response using the Ollama API, with support for tool calling.
 
@@ -281,16 +189,13 @@ class OllamaClient(ChatClientInterface):
         Returns:
             Optional[Union[str, List[ToolCall]]]: The generated response, or None if an error occurs.
         """
-        options = ollama.Options()
-        if "hermes" in model_key.lower():
-            options.update(stop=["<|end_of_text|>"])
-        if temperature:
-            options.update(temperature=temperature)
-        options.update(max_tokens=1500)
+        # options = ollama.Options()
+        # if "hermes" in model_key.lower():
+        #     options.update(stop=["<|end_of_text|>"])
+        # if temperature:
+        #     options.update(temperature=temperature)
+        # options.update(max_tokens=1500)
         
-        # ! This is a bad solution because a remote machine likely has a different core count, but will work for the Pepper project as needed
-        # cpu_core_count = os.cpu_count()-1 # lets leave one core for other processes
-        # options.update(num_thread=cpu_core_count)
         # ! Hack to try lower ram usage
         if "mistral-small" in model_key:
             model_key = "mistral-small:22b-instruct-2409-q3_K_M"
@@ -312,34 +217,19 @@ class OllamaClient(ChatClientInterface):
             else:
                 print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to generate a response...")
             
-            if tools:
-                response = client.chat(
-                    model=model_key,
-                    messages=chat.to_ollama(),
-                    stream=False,
-                    options=options,
-                    keep_alive=1800,
-                    tools=[tool.to_dict() for tool in tools]
-                )
-                
-                if "tool_calls" in response["message"]:
-                    return [ToolCall(**tool_call) for tool_call in response["message"]["tool_calls"]]
-                else:
-                    return response["message"]["content"]
-            else:
-                response_stream = client.chat(model=model_key, messages=chat.to_ollama(), stream=True, options=options, keep_alive=1800)
-                full_response = ""
-                for line in response_stream:
-                    next_string = line["message"]["content"]
-                    full_response += next_string
-                    if not silent_reason:
-                        print(tooling.apply_color(next_string), end="")
+            response_stream = client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800)
+            full_response = ""
+            for line in response_stream:
+                next_string = line["message"]["content"]
+                full_response += next_string
                 if not silent_reason:
-                    print()
-                logger.debug(json.dumps({"full_response": full_response}, indent=2))
-                if "instruction" in full_response.lower():
-                    full_response = full_response.split("instruction")[0]
-                return full_response
+                    print(tooling.apply_color(next_string), end="")
+            if not silent_reason:
+                print()
+            logger.debug(json.dumps({"full_response": full_response}, indent=2))
+            if "instruction" in full_response.lower():
+                full_response = full_response.split("instruction")[0]
+            return full_response
 
         except Exception as e:
             print(f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model_key, 'red')}>: {e}")
@@ -433,71 +323,20 @@ class OllamaClient(ChatClientInterface):
             return None
 
 @dataclass
-class OllamaDetails:
-    """
-    Represents details of an Ollama model.
-    
-    Attributes:
-        format (str): The format of the model (e.g., 'gguf').
-        family (str): The family of the model (e.g., 'llama').
-        parameter_size (str): The parameter size of the model (e.g., '7B').
-        quantization_level (str): The quantization level of the model (e.g., 'Q4_0').
-        parent_model (str): The parent model, if any.
-        families (Optional[List[str]]): List of model families, if multiple.
-    """
-    format: str
-    family: str
-    parameter_size: str
-    quantization_level: str
-    parent_model: str
-    families: Optional[List[str]] = None
-    
-    def to_dict(self) -> dict:
-        """
-        Converts OllamaDetails to a dictionary.
-        
-        Returns:
-            dict: A dictionary representation of the OllamaDetails instance.
-        """
-        return {
-            "format": self.format,
-            "family": self.family,
-            "families": self.families,
-            "parent_model": self.parent_model,
-            "parameter_size": self.parameter_size,
-            "quantization_level": self.quantization_level
-        }
-    
-    @classmethod
-    def from_dict(cls, data: dict) -> 'OllamaDetails':
-        """
-        Creates an OllamaDetails instance from a dictionary.
-        
-        Args:
-            data (dict): A dictionary containing OllamaDetails attributes.
-        
-        Returns:
-            OllamaDetails: An instance of OllamaDetails.
-        """
-        return cls(**data)
-
-@dataclass
 class OllamaModel:
     """
-    Represents an Ollama model with its details and metadata.
+    Represents an Ollama model with its metadata.
     
     Attributes:
-        name (str): The name of the model.
+        model (str): The name/identifier of the model.
         modified_at (str): The last modification timestamp of the model.
         size (int): The size of the model in bytes.
         digest (str): The digest (hash) of the model.
-        details (OllamaDetails): Detailed information about the model.
     """
-    name: str
+    model: str
     modified_at: str
     size: int
     digest: str
-    details: OllamaDetails
     
     def to_dict(self) -> dict:
         """
@@ -507,11 +346,10 @@ class OllamaModel:
             dict: A dictionary representation of the OllamaModel instance.
         """
         return {
-            "name": self.name,
+            "model": self.model,
             "modified_at": self.modified_at,
             "size": self.size,
             "digest": self.digest,
-            "details": self.details.to_dict()
         }
     
     @classmethod
@@ -525,14 +363,7 @@ class OllamaModel:
         Returns:
             OllamaModel: An instance of OllamaModel.
         """
-        details = OllamaDetails.from_dict(data['details'])
-        return cls(
-            name=data['name'],
-            modified_at=data['modified_at'],
-            size=data['size'],
-            digest=data['digest'],
-            details=details
-        )
+        return cls(**data)
 
 @dataclass
 class OllamaModelList:

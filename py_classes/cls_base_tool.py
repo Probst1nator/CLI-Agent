@@ -11,6 +11,7 @@ class ToolResponse(TypedDict):
 class ToolMetadata:
     name: str
     description: str
+    detailed_description: str
     parameters: Dict[str, Any]
     required_params: List[str]
     example_usage: str
@@ -22,12 +23,6 @@ class BaseTool(ABC):
         """Return the tool's metadata"""
         pass
     
-    @property
-    @abstractmethod
-    def prompt_template(self) -> str:
-        """Return the prompt template for the tool"""
-        pass
-
     @abstractmethod
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
         """Execute the tool with the given parameters"""
@@ -35,11 +30,19 @@ class BaseTool(ABC):
 
     def validate_params(self, params: Dict[str, Any]) -> bool:
         """Validate the parameters against the tool's requirements"""
-        # Check both root level and under 'params' key
-        if 'params' in params:
-            params = params['params']
-        if not all(param in params for param in self.metadata.required_params):
+        # Check if parameters are in the correct structure
+        if not isinstance(params, dict):
             return False
+            
+        # Get parameters from the parameters property
+        parameters = params.get('parameters', {})
+        if not isinstance(parameters, dict):
+            return False
+            
+        # Check required parameters
+        if not all(param in parameters for param in self.metadata.required_params):
+            return False
+            
         return True
 
     @property

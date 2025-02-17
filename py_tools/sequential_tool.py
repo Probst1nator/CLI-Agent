@@ -63,11 +63,18 @@ Include a comprehensive summary of the information for the intended next step.""
         return ToolMetadata(
             name="sequential",
             description="Execute a tool and prepare for a subsequent tool execution based on the results. Use this when you need to chain operations together.",
+            detailed_description="""Use this tool when you need to:
+- Chain multiple operations together
+- Use the output of one tool as input for another
+- Create multi-step workflows
+- Process results before the next step
+
+Perfect for tasks like:
+- Search and summarize workflows
+- Data gathering
+- Complex multi-step automations
+- Processing and transforming data across tools""",
             parameters={
-                "reasoning": {
-                    "type": "string",
-                    "description": "Explanation of why this sequence is needed"
-                },
                 "first_tool_call": {
                     "type": "object",
                     "description": "Complete configuration for the first tool to execute",
@@ -84,44 +91,35 @@ Include a comprehensive summary of the information for the intended next step.""
                 },
                 "subsequent_intent": {
                     "type": "string",
-                    "description": "A clear statement of what should be done next with the results, including a suggestion of which tool to use (e.g., 'Use python tool to create a visualization of the search results', 'Use reply tool to provide a summary of the findings', etc.)"
+                    "description": "A clear statement of what should be done next with the results, including a suggestion of which tool(s) may be appropriate (e.g., 'Perform another web search to also retrieve information about x or use reply tool to provide a summary on the findings about y', etc.)"
                 }
             },
             required_params=["first_tool_call", "subsequent_intent"],
             example_usage="""
-            {
-                "reasoning": "Search for AGI papers of 2025 and prepare for creating a summary presentation",
-                "first_tool_call": {
-                    "tool": "web_search",
-                    "reasoning": "Need to gather information about AGI developments",
-                    "web_query": "papers on AGI developments 2025"
-                },
-                "subsequent_intent": "Use python tool to create a visual presentation summarizing the key AGI research findings"
-            }
-            """
-        )
-
-    @property
-    def prompt_template(self) -> str:
-        return """Use the sequential tool to execute a tool and prepare for a subsequent operation. The first tool executes as specified, while the subsequent step is determined based on the results.
-
-Example:
 {
-    "reasoning": "Search for AGI papers of 2025 and prepare for creating a summary presentation",
-    "first_tool_call": {
-        "tool": "web_search",
-        "reasoning": "Need to gather information about AGI developments",
-        "web_query": "papers on AGI developments 2025"
-    },
-    "subsequent_intent": "Use python tool to create a visual presentation summarizing the key AGI research findings"
-}"""
+    "reasoning": "Before achieving y I should optimally call tool_1 as this will allow me to achieve x relevant to y",
+    "tool": "sequential",
+    "parameters": {
+        "first_tool_call": {
+            "tool": "tool_1",
+            "reasoning": "Reasoning for using tool_1 in the context of x",
+            "parameters": {
+                "tool_param_1": "tool_param_1",
+                "tool_param_2": "tool_param_2"
+            }
+        },
+        "subsequent_intent": "Use summary of tool_1 to do x enabling meto achieve y"
+    }
+}
+"""
+        )
 
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
         """Execute the tool and provide a summary for deciding on the subsequent step."""
         if not self.validate_params(params):
             return self.format_response(
                 status="error",
-                error="Missing required parameters: first_tool_call, subsequent_intent"
+                summary="Missing required parameters: first_tool_call, subsequent_intent"
             )
 
         try:
@@ -129,19 +127,19 @@ Example:
             tool_manager = ToolManager()
             
             # Get first tool call parameters
-            tool_params = params["first_tool_call"]
+            tool_params = params["parameters"]["first_tool_call"]
             tool_name = tool_params["tool"]
             
             print(colored(f"\nExecuting tool: {tool_name}", "cyan"))
             print(colored(f"Reasoning: {params.get('reasoning', 'No specific reasoning provided')}", "cyan"))
-            print(colored(f"Subsequent intent: {params.get('subsequent_intent', 'No specific subsequent intent provided')}", "cyan"))
+            print(colored(f"Subsequent intent: {params['parameters'].get('subsequent_intent', 'No specific subsequent intent provided')}", "cyan"))
 
             try:
                 tool = tool_manager.get_tool(tool_name)()
             except KeyError:
                 return self.format_response(
                     status="error",
-                    error=f"Tool '{tool_name}' not found"
+                    summary=f"Tool '{tool_name}' not found"
                 )
 
             # Execute the tool
@@ -155,11 +153,10 @@ Example:
                 )
 
             # Get subsequent intent
-            subsequent_intent = params["subsequent_intent"]
+            subsequent_intent = params["parameters"]["subsequent_intent"]
 
             # Generate summary of results and next step
-            # result_summary = self._generate_result_summary(result, subsequent_intent)
-            result_summary = f"The {result['tool']} tool executed successfully with the following result: {result["summary"]}\n\nNext: {subsequent_intent}"
+            result_summary = f"The {result['tool']} tool executed successfully with the following result: {result['summary']}\n\nNext: {subsequent_intent}"
 
             return self.format_response(
                 status="success",
