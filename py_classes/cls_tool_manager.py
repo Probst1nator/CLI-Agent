@@ -59,7 +59,7 @@ class ToolManager:
         """Get all available tools"""
         return list(self.tools.values())
 
-    def get_tools_prompt(self, tool_names: Optional[List[str]] = None) -> str:
+    def get_tools_prompt(self, tool_names: Optional[List[str]] = None, include_details: bool = False) -> str:
         """Generate a prompt that describes available tools.
         
         Args:
@@ -68,16 +68,19 @@ class ToolManager:
         Returns:
             str: Formatted prompt describing the specified tools.
         """
-        prompt = "Available tools:\n\n"
+        prompt = "Available tools:\n```\n"
         for tool_cls in self.tools.values():
             tool = tool_cls()
             if tool_names is None or tool.metadata.name in tool_names:
                 metadata = tool.metadata
                 prompt += f"Tool: {metadata.name}\n"
                 prompt += f"Description: {metadata.description}\n"
-                prompt += f"Parameters: {metadata.parameters}\n"
-                prompt += f"Required parameters: {metadata.required_params}\n"
+                if include_details:
+                    prompt += f"Detailed description: {metadata.detailed_description}\n"
+                    prompt += f"Parameters: {metadata.parameters}\n"
+                    prompt += f"Required parameters: {metadata.required_params}\n"
                 prompt += f"Example usage: {metadata.example_usage}\n\n"
+        prompt += "```"
         return prompt
 
     def reload_tools(self) -> None:

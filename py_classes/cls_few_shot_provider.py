@@ -570,7 +570,7 @@ Implementation of opponent modeling for strategic advantages.
 A hierarchical learning approach to separate strategy and execution."""
         rephrased_user_input = FewShotProvider.few_shot_rephrase(user_input, silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local)
         decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local)
-        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.GENERAL, silent_reason=True, preferred_models=preferred_models, force_local=force_local)
+        presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", silent_reason=True, preferred_models=preferred_models, force_local=force_local)
         chat.add_message(Role.USER, presentation_details)
         
         create_presentation_response = FewShotProvider.few_shot_rephrase("I will create a presentation titled 'ER-Force Strategy Optimization' that covers the main points of your discussion.", silent_reason="No given reason", preferred_models=preferred_models, force_local=force_local).strip(".")

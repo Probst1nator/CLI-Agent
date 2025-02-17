@@ -13,54 +13,43 @@ class WebSearchTool(BaseTool):
         return ToolMetadata(
             name="web_search",
             description="Search the web for current information using Brave Search",
+            detailed_description="""Use this tool when you need to:
+- Research topics outside your knowledge
+- Get real-time data or updates
+- Fact check contradictions between sources
+
+Perfect for:
+- Information gathering
+- News and weather
+- Latest developments in any field
+- Resolution of contradicting information""",
             parameters={
-                "web_query": {
+                "search_query": {
                     "type": "string",
                     "description": "The search query to execute"
                 }
             },
-            required_params=["web_query"],
+            required_params=["search_query"],
             example_usage="""
-            {
-                "reasoning": "Need to find current information about a topic",
-                "tool": "web_search",
-                "web_query": "latest developments in AI 2024"
-            }
-            """
+{
+    "reasoning": "Need to find information about x",
+    "tool": "web_search",
+    "parameters": {
+        "search_query": "detailed web query to retrieve the required information about x"
+    }
+}
+"""
         )
 
-    @property
-    def prompt_template(self) -> str:
-        return """
-        Use the web search tool when you need to:
-        1. Find time sensitive or current information
-        2. Reason about information not present in the current context
-        3. Resolve contradictions between sources
-        
-        The search will be performed using Brave Search.
-        Provide specific, focused queries for better results.
-        
-        Example:
-        {
-            "reasoning": "The user wants to know if he needs to bring an umbrella today when visiting the Brandenburg Gate",
-            "tool": "web_search",
-            "web_query": "todays weather in Berlin"
-        }
-        """
-
-    async def execute(self, params: Dict[str, Any], preferred_models: List[str] = ["mixtral"]) -> ToolResponse:
+    async def execute(self, params: Dict[str, Any], preferred_models: List[str] = []) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
                 status="error",
-                error="Missing required parameter: web_query"
+                summary="Missing required parameter: search_query"
             )
 
         try:
-            # Handle parameters both at root level and under 'params' key
-            if 'params' in params:
-                params = params['params']
-            
-            query = params["web_query"]
+            query = params["parameters"]["search_query"]
             results = self.web_tools.search_brave(query, num_results=3)
             
             if not results:
@@ -97,7 +86,9 @@ Here are the search results to analyze:
 
             summary = LlmRouter.generate_completion(
                 summarization_prompt,
-                preferred_models=preferred_models
+                preferred_models=preferred_models,
+                strength=AIStrengths.REASONING,
+                exclude_reasoning_tokens=True
             )
 
             # Return a clean response with the summary as a string

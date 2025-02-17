@@ -10,7 +10,7 @@ import time
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_chat import Chat, Role
-from py_classes.cls_llm_router import LlmRouter
+from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_methods.cmd_execution import select_and_execute_commands
 from py_classes.globals import g
 from py_methods.tooling import extract_json
@@ -20,12 +20,18 @@ class PythonTool(BaseTool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="python",
-            description="Execute Python code for visualization, computation, data analysis, or automation tasks. Use this tool when you need to create and run Python scripts for tasks like data processing, plotting graphs, mathematical calculations, or file operations.",
+            description="Call this tool when you need to performmathematical calculations, implement mathematical visualizations or create a interactive window for the user",
+            detailed_description="""Use this tool when you need to:
+- Create visualizations or plots
+- Perform calculations
+- Create interactive applications
+
+Perfect for tasks like:
+- Generating charts and graphs
+- Mathematical modeling
+- Creating simple interactive applications (using matplotlib, pygame or pyglet)
+- API integrations""",
             parameters={
-                "reasoning": {
-                    "type": "string",
-                    "description": "Explanation of why this script is needed and how it helps solve the current task"
-                },
                 "title": {
                     "type": "string",
                     "description": "Name for the Python script (e.g., 'plot_data.py', 'calculate_stats.py')"
@@ -35,45 +41,18 @@ class PythonTool(BaseTool):
                     "description": "A string containing a numbered list or bullet points describing what the Python script should do"
                 }
             },
-            required_params=["reasoning", "title", "requirements"],
+            required_params=["title", "requirements"],
             example_usage="""
-            {
-                "tool": "python",
-                "reasoning": "Need to create a visualization of data points in 3D space",
-                "title": "plot_3d_scatter.py",
-                "requirements": "1. Generate sample data points in 3D space\\n2. Create an interactive 3D scatter plot\\n3. Add proper axis labels and title\\n4. Save the plot as 'scatter_3d.png'\\n5. Display the plot in a window"
-            }
-            """
-        )
-
-    @property
-    def prompt_template(self) -> str:
-        """Return the prompt template for the tool"""
-        return """Use the Python tool to implement and execute Python code.
-To use the Python tool, provide in this exact order:
-1. Reasoning for why Python is needed for this task
-2. The tool name (python)
-3. A descriptive title for the script (e.g., 'plot_data.py')
-4. Clear requirements for what the script should do
-5. The code will be implemented automatically by the tool call, so DO NOT IMPLEMENT THE CODE, if you do, it will be ignored.
-
-Example:
 {
-    "reasoning": "Need to create an interactive simulation of Conway's Game of Life",
+    "reasoning": "Need to utilise python to achieve y",
     "tool": "python",
-    "title": "game_of_life.py", 
-    "requirements": "Create a script that:
-1. Implements a grid for Conway's Game of Life using numpy
-2. Initializes with random starting cells
-3. Applies the standard Conway's Game of Life rules:
-   - Live cell survives with 2-3 neighbors
-   - Dead cell revives with exactly 3 neighbors
-4. Uses pygame to display the grid with basic controls:
-   - Space to pause/resume
-   - Click to toggle cells
-   - 'r' to randomize
-5. Updates continuously until quit"
-}"""
+    "parameters": {
+        "title": "y_descriptor.py",
+        "requirements": "1. Need to achieve y\\n2. Use libs like pandas, numpy, matplotlib, pygame or pyglet\\n3. How to achieve y step by step\\n4.How this script will be self contained and easily executable without additions to achieve y"
+    }
+}
+"""
+        )
 
     def evaluate_existing_script(
         self,
@@ -116,7 +95,7 @@ Respond with ONLY a JSON object containing:
 }}"""
         )
         
-        response = LlmRouter.generate_completion(evaluation_chat)
+        response = LlmRouter.generate_completion(evaluation_chat, strength=AIStrengths.TOOLUSE)
         parsed_json = extract_json(response, required_keys=["reasoning", "decision"])
         if parsed_json:
             return parsed_json
@@ -160,25 +139,17 @@ The implementation must:
 1. Use type hints for all functions and variables
 2. Include comprehensive error handling with try/except blocks
 3. Include docstrings for all functions and classes
-4. Include inline comments for complex logic
-5. Be completely self-contained:
+4. Be completely self-contained:
    - Use Pyglet instead of pptx for presentations
-6. Follow PEP 8 style guidelines
-7. Include a main guard: if __name__ == "__main__":
-8. Include all necessary imports at the top
-
-Example response format:
-Implementation plan:
-1. First, I'll...
-2. Then, I'll...
-3. Finally, I'll...
+5. Include a main guard: if __name__ == "__main__":
+6. Include all necessary imports at the top
 
 ```python
 # Complete implementation here
 ```"""
         )
         
-        response = LlmRouter.generate_completion(chat)
+        response = LlmRouter.generate_completion(implement_chat, strength=AIStrengths.CODE)
         
         # More robust code extraction
         def extract_python_code(text: str) -> str:
@@ -209,14 +180,10 @@ Implementation plan:
             # If code doesn't look like Python, try one more time with more explicit instructions
             implement_chat.add_message(
                 Role.USER,
-                """The previous response did not contain valid Python code. Please provide ONLY the Python implementation wrapped in code blocks. Example:
-```python
-import sys
-# Rest of the implementation
-```"""
+                """My system was unable to extract the Python code from the response. If your previouse response is incomplete, shorten your code. If it was complete, try again strictly following the instructions above."""
             )
             
-            retry_response = LlmRouter.generate_completion(chat)
+            retry_response = LlmRouter.generate_completion(implement_chat, strength=AIStrengths.CODE)
             extracted_code = extract_python_code(retry_response)
         
         # Ensure the code has a main guard if it's not just a function/class definition
@@ -225,46 +192,32 @@ import sys
         
         return extracted_code.strip()
 
-    def handle_execution_error(
-        self,
-        error_details: str, 
-        context_chat: Chat
-    ) -> Dict:
+    def _truncate_output(self, output: str, max_length: int = 1000, tail_length: int = 200) -> str:
         """
-        Analyze and handle script execution errors.
+        Truncate long output to a reasonable length, keeping the last part.
         
         Args:
-            error_details: Error output from script execution
-            context_chat: Current conversation context
-        
+            output: The output string to truncate
+            max_length: Maximum allowed length before truncation
+            tail_length: Number of characters to keep from the end when truncating
+            
         Returns:
-            Dict containing error analysis
+            Truncated string with "..." prefix if it was truncated
         """
-        error_chat = context_chat.deep_copy()
-        error_chat.add_message(
-            Role.USER,
-            f"""Analyze this Python execution error and suggest fixes:
-{error_details}
-
-Respond with ONLY a JSON object containing:
-{{
-    "error_type": "classification of error",
-    "analysis": "what went wrong",
-    "fix_strategy": "how to fix it",
-    "requires_rewrite": boolean
-}}"""
-        )
+        if len(output) <= max_length:
+            return output
+            
+        # Try to find the last newline within the tail section
+        tail_start = len(output) - tail_length
+        tail = output[tail_start:]
+        last_newline = tail.rfind('\n')
         
-        response = LlmRouter.generate_completion(error_chat)
-        parsed_json = extract_json(response, required_keys=["error_type", "analysis", "fix_strategy", "requires_rewrite"])
-        if parsed_json:
-            return parsed_json
-        return {
-            "error_type": "unknown",
-            "analysis": "Failed to analyze error",
-            "fix_strategy": "Complete rewrite recommended",
-            "requires_rewrite": True
-        }
+        if last_newline != -1:
+            # Found a newline in the tail, adjust tail_start to start at that newline
+            tail_start = tail_start + last_newline + 1
+            tail = output[tail_start:]
+            
+        return f"...{tail}"
 
     def execute_script(
         self,
@@ -286,71 +239,121 @@ Respond with ONLY a JSON object containing:
         )
         
         if "error" in execution_summary.lower() or "error" in execution_details.lower():
-            return execution_details, False
+            return self._truncate_output(execution_details), False
         
-        return execution_details, True
+        return self._truncate_output(execution_details), True
 
     def _get_missing_params(self, params: Dict[str, Any]) -> list[str]:
         """
         Check which required parameters are missing from the input.
         
         Args:
-            params: Dictionary of provided parameters
+            params: Dictionary of provided parameters, with nested 'parameters' key
             
         Returns:
             List of missing parameter names
         """
-        required_params = self.metadata.required_params
-        return [param for param in required_params if param not in params or not params[param]]
+        if not isinstance(params, dict) or "parameters" not in params:
+            return self.metadata.required_params
+        
+        parameters = params["parameters"]
+        return [param for param in self.metadata.required_params if param not in parameters or not parameters[param]]
 
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
-        """Execute the Python tool with comprehensive error handling and script management."""
-        missing_params = self._get_missing_params(params)
-        if missing_params:
-            return self.format_response(
-                status="error",
-                summary=f"Missing required parameters: {', '.join(missing_params)}"
-            )
-
-        # Validate requirements is a string
-        if not isinstance(params.get('requirements'), str):
-            try:
-                # Try to convert requirements to string if it's a dict or list
-                if isinstance(params['requirements'], (dict, list)):
-                    requirements_str = "\n".join(f"{k}. {v}" if isinstance(params['requirements'], dict) else f"{i+1}. {v}" 
-                                              for i, (k, v) in enumerate(params['requirements'].items() if isinstance(params['requirements'], dict) else enumerate(params['requirements'])))
-                    params['requirements'] = requirements_str
-                else:
-                    return self.format_response(
-                        status="error",
-                        summary="Requirements must be a string containing a numbered list or bullet points"
-                    )
-            except Exception as e:
+        """
+        Execute the Python tool with comprehensive error handling and script management.
+        
+        Args:
+            params: Dictionary containing the tool parameters
+            
+        Returns:
+            ToolResponse indicating success or failure with details
+        """
+        try:
+            # Validate required parameters
+            missing_params = self._get_missing_params(params)
+            if missing_params:
                 return self.format_response(
                     status="error",
-                    summary=f"Could not process requirements: {str(e)}"
+                    summary=f"Missing required parameters: {', '.join(missing_params)}"
                 )
 
-        try:
-            # Create script directory if it doesn't exist
+            # Validate and process requirements
+            parameters = params["parameters"]
+            if not isinstance(parameters.get('requirements'), str):
+                try:
+                    if isinstance(parameters['requirements'], (dict, list)):
+                        requirements_str = "\n".join(
+                            f"{k}. {v}" if isinstance(parameters['requirements'], dict) 
+                            else f"{i+1}. {v}" 
+                            for i, (k, v) in enumerate(
+                                parameters['requirements'].items() 
+                                if isinstance(parameters['requirements'], dict) 
+                                else enumerate(parameters['requirements'])
+                            )
+                        )
+                        parameters['requirements'] = requirements_str
+                    else:
+                        return self.format_response(
+                            status="error",
+                            summary="Requirements must be a string containing a numbered list or bullet points"
+                        )
+                except Exception as e:
+                    return self.format_response(
+                        status="error",
+                        summary=f"Could not process requirements: {str(e)}"
+                    )
+
+            # Create script directory
             script_dir = os.path.join(g.PROJ_VSCODE_DIR_PATH, "python_tool")
             os.makedirs(script_dir, exist_ok=True)
             
-            # Generate unique script name
+            # Generate unique script name using title and timestamp
             timestamp = int(time.time())
-            script_name = f"script_{timestamp}.py"
+            base_name = os.path.splitext(parameters['title'])[0]
+            # Replace spaces and any other problematic characters with underscores
+            safe_base_name = re.sub(r'[^a-zA-Z0-9_-]', '_', base_name)
+            script_name = f"{safe_base_name}_{timestamp}.py"
             script_path = os.path.join(script_dir, script_name)
             
-            # Write script to file
+            # Create implementation chat for generating the script
+            implement_chat = Chat()
+            implement_chat.add_message(
+                Role.USER,
+                f"""Create a Python script that meets these requirements:
+{parameters['requirements']}
+
+The implementation must:
+1. Use type hints for all functions and variables
+2. Include comprehensive error handling with try/except blocks
+3. Include docstrings for all functions and classes
+4. Include inline comments for complex logic
+5. Be completely self-contained
+6. Follow PEP 8 style guidelines
+7. Include a main guard: if __name__ == "__main__":
+8. Include all necessary imports at the top
+
+Respond with ONLY the complete Python code, no explanations or markdown."""
+            )
+            
+            # Generate the implementation
+            implementation = LlmRouter.generate_completion(implement_chat, strength=AIStrengths.CODE)
+            
+            # Clean response to ensure we only get code
+            if "```python" in implementation:
+                implementation = implementation[implementation.find("```python") + 9:implementation.rfind("```")]
+            implementation = implementation.strip()
+            
+            # Write implementation to file
             with open(script_path, "w") as f:
-                f.write(params["script"])
+                f.write(implementation)
             
             # Execute script
             execution_details, success = self.execute_script(script_path)
             
             if not success:
-                # Request fixed implementation with error context
-                fix_chat = context_chat.deep_copy()
+                # Create a new chat for error fixing with analysis and implementation
+                fix_chat = Chat()
                 fix_chat.add_message(
                     Role.USER,
                     f"""Fix this Python script that failed with the following error:
@@ -360,21 +363,36 @@ ERROR OUTPUT:
 
 CURRENT SCRIPT:
 ```python
-{final_script}
+{implementation}
 ```
 
 Requirements for the fix:
-{script_requirements}
+{parameters['requirements']}
 
-Respond with ONLY the complete fixed Python code, no explanations or markdown."""
+First, analyze the error and explain your fix strategy. Then, provide the complete fixed implementation.
+
+Your response should follow this format:
+1. ERROR ANALYSIS: Brief explanation of what went wrong
+2. FIX STRATEGY: How you plan to fix it
+3. IMPLEMENTATION: The complete fixed code in a Python code block
+
+The implementation must maintain all original requirements including type hints, error handling, and documentation."""
                 )
                 
-                fixed_script = LlmRouter.generate_completion(chat)
+                # Get the analysis and fixed implementation
+                fix_response = LlmRouter.generate_completion(fix_chat, strength=AIStrengths.CODE)
                 
-                # Clean response to ensure we only get code
-                if "```python" in fixed_script:
-                    fixed_script = fixed_script[fixed_script.find("```python") + 9:fixed_script.rfind("```")]
-                fixed_script = fixed_script.strip()
+                # Extract the analysis sections for potential error reporting
+                error_analysis = ""
+                
+                # Try to extract the analysis sections
+                if "ERROR ANALYSIS:" in fix_response:
+                    error_parts = fix_response.split("FIX STRATEGY:")
+                    if len(error_parts) > 1:
+                        error_analysis = error_parts[0].split("ERROR ANALYSIS:")[1].strip()
+                
+                # Use the existing request_implementation method to extract and validate the code
+                fixed_script = self.request_implementation(fix_chat, parameters['requirements'])
                 
                 # Write fixed script
                 with open(script_path, "w") as f:
@@ -386,21 +404,26 @@ Respond with ONLY the complete fixed Python code, no explanations or markdown.""
                 if not success:
                     return self.format_response(
                         status="error",
-                        summary=f"Script execution failed even after fix attempt. Error: {execution_details}"
+                        summary=f"""Task: {parameters['requirements']}
+Execution failed: {execution_details}
+Analysis: {error_analysis}"""
                     )
                 
                 return self.format_response(
                     status="success",
-                    summary=f"Script fixed and executed successfully. Output: {execution_details}"
+                    summary=f"""Task: {parameters['requirements']}
+Output: {execution_details}"""
                 )
             
             return self.format_response(
                 status="success",
-                summary=f"Script executed successfully. Output: {execution_details}"
+                summary=f"""Task: {parameters['requirements']}
+Output: {execution_details}"""
             )
 
         except Exception as e:
             return self.format_response(
                 status="error",
-                summary=f"Error in Python tool execution: {str(e)}"
+                summary=f"""Task: {parameters.get('requirements', 'Unknown')}
+Error in Python tool execution: {str(e)}"""
             )

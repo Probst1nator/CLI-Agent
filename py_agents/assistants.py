@@ -124,9 +124,9 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 
         if pre_chosen_option == "1":
             # Automatic mode: Generate code overview and prepare prompt for docstring addition
-            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_models=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.GENERAL, force_free=True, use_reasoning=False)
+            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_models=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], force_free=True, use_reasoning=False)
             if len(abstract_code_overview)/4 >= 2048:
-                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_models=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], strength=AIStrengths.GENERAL, force_free=True, use_reasoning=False)
+                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_models=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], force_free=True, use_reasoning=False)
             next_prompt = "Augment the below code snippet with docstrings focusing on a concise overview of usage and parameters, alos add explanatory comments where the code seems highly complex. Do not include empty newlines in your docstrings. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
             next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
             pre_chosen_option = ""
@@ -147,7 +147,6 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 print(colored("4. Perform web search", 'yellow'))
                 print(colored("5. Use a custom delimiter for splitting the code into chunks", 'yellow'))
                 print(colored("6. Add clipboard contents", 'yellow'))
-                print(colored("7. Enable the most intelligent model", 'yellow'))
                 print(colored("Write the prompt yourself", 'yellow') + " " + colored("(Use --m for multiline input)", 'grey'))
                 user_input = input(colored("Enter your choice: ", 'blue'))
             
@@ -159,13 +158,13 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             elif user_input == "3":
                 next_prompt = "Please explain the code, providing a concise explanation of the code's functionality and use."
             elif user_input == "4":
-                web_query = input(colored("Enter your search query (defaults to the topic of the last 3 messages): ", 'blue'))
-                if not web_query:
+                search_query = input(colored("Enter your search query (defaults to the topic of the last 3 messages): ", 'blue'))
+                if not search_query:
                     recent_context_str = context_chat.get_messages_as_string(-3)
                     query = FewShotProvider.few_shot_TextToQuery(recent_context_str)
                 web_search_result = WebTools.search_brave(query, 2)
                 context_chat.add_message(Role.USER, f"I found something on the web, please relate it to the code we're working on:\n```web_search\n{web_search_result}```")
-                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], strength=AIStrengths.GENERAL, use_reasoning=False)
+                response = LlmRouter.generate_completion(context_chat, preferred_models=[LlmRouter.last_used_model, "llama-3.1-405b-reasoning", "claude-3-5-sonnet-latest", "gpt-4o"], use_reasoning=False)
                 context_chat.add_message(Role.ASSISTANT, response)
                 continue
             elif user_input == "5":
@@ -181,14 +180,6 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
             elif user_input == "6":
                 clipboard_content = pyperclip.paste()
                 snippets_to_process.insert(0, f"Here have a look at my clipboard:\n```\n{clipboard_content}\n```")
-            elif user_input == "7":
-                if preferred_models == [g.CURRENT_MOST_INTELLIGENT_MODEL_KEY]:
-                    preferred_models = preferred_models_before
-                    print(colored("Disabled the most intelligent model.", 'yellow'))
-                else:
-                    preferred_models_before = preferred_models
-                    preferred_models = [g.CURRENT_MOST_INTELLIGENT_MODEL_KEY]
-                    print(colored(f"Enabled the most intelligent model: {preferred_models[0]}", 'yellow'))
             else:
                 next_prompt = user_input
             
@@ -314,7 +305,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
     decomposition_prompt = FewShotProvider.few_shot_rephrase("Please decompose the following into 3-6 subtopics and provide step by step explanations + a very short discussion:", preferred_models=[args.llm], force_local=args.local)
 
     # Generate detailed presentation content based on the decomposed topic
-    presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", strength=AIStrengths.GENERAL, use_cache=False, preferred_models=[args.llm], force_local=args.local)
+    presentation_details = LlmRouter.generate_completion(f"{decomposition_prompt}: '{rephrased_user_input}'", use_cache=False, preferred_models=[args.llm], force_local=args.local)
     
     # Convert the generated content into a presentation format
     chat, response = FewShotProvider.few_shot_textToPresentation(presentation_details, preferred_models=[args.llm], force_local=args.local)
@@ -330,7 +321,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
             except Exception as e:
                 # Handle errors in JSON format and regenerate the presentation
                 chat.add_message(Role.USER, "Your json object did not follow the expected format, please try again.\nError: " + str(e))
-                response = LlmRouter.generate_completion(chat, strength=AIStrengths.GENERAL, use_cache=False, preferred_models=[args.llm], force_local=args.local)
+                response = LlmRouter.generate_completion(chat, use_cache=False, preferred_models=[args.llm], force_local=args.local)
                 chat.add_message(Role.ASSISTANT, response)
                 
         print(colored("Presentation saved.", 'green'))
@@ -347,7 +338,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
         if user_input == "1":
             # Generate and add more details to the presentation
             add_details_prompt = FewShotProvider.few_shot_rephrase(f"Please think step by step to add relevant/ missing details to the following topic: {presentation_details}", preferred_models=[args.llm])
-            suggested_details = LlmRouter.generate_completion(f"{add_details_prompt} {presentation_details}", strength=AIStrengths.GENERAL, preferred_models=[args.llm], force_local=args.local)
+            suggested_details = LlmRouter.generate_completion(f"{add_details_prompt} {presentation_details}", preferred_models=[args.llm], force_local=args.local)
             next_prompt = f"Please add the following details to the presentation: \n{suggested_details}"
         elif user_input == "2":
             # Regenerate the entire presentation
@@ -359,7 +350,7 @@ def presentation_assistant(args: argparse.Namespace, context_chat: Chat, user_in
         # Rephrase the next prompt and generate a new response
         next_prompt = FewShotProvider.few_shot_rephrase(next_prompt, preferred_models=[args.llm], force_local=args.local)
         chat.add_message(Role.USER, next_prompt)
-        response = LlmRouter.generate_completion(chat, strength=AIStrengths.GENERAL, preferred_models=[args.llm], force_local=args.local)
+        response = LlmRouter.generate_completion(chat, preferred_models=[args.llm], force_local=args.local)
 
 def search_folder_assistant(args: argparse.Namespace, context_chat: Chat, user_input: str = ""):
     """

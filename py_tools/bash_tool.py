@@ -15,6 +15,19 @@ class BashTool(BaseTool):
         return ToolMetadata(
             name="bash",
             description="Execute bash commands safely",
+            detailed_description="""Use this tool when you need to:
+- Execute system commands
+- Manage files and directories
+- Get system information
+- Run command-line utilities
+- Install packages
+
+Perfect for:
+- File operations
+- System queries
+- Process management
+- Package installation
+- Running system utilities""",
             parameters={
                 "command": {
                     "type": "string",
@@ -23,27 +36,15 @@ class BashTool(BaseTool):
             },
             required_params=["command"],
             example_usage="""
-            {
-                "reasoning": "Need to list files in the current directory",
-                "tool": "bash",
-                "command": "ls -la"
-            }
-            """
-        )
-
-    @property
-    def prompt_template(self) -> str:
-        return """Use the bash tool to execute shell commands.
-Always include clear reasoning for what the command will be doing.
-You can use this tool to combine multiple commands, gather system information, and more...
-
-Example:
 {
-    "reasoning": "I need to check the current date and time, and get the weather in my area",
+    "reasoning": "Need to list files in the current directory",
     "tool": "bash",
-    "command": "date "+%Y-%m-%d %H:%M:%S" && curl -s wttr.in/?format=3"
-}"""
-
+    "parameters": {
+        "command": "ls -la"
+    }
+}
+"""
+        )
 
     def _check_command_safety(self, command: str, force_local: bool = False) -> bool:
         """Check command safety using LLM"""
@@ -77,7 +78,7 @@ Example:
                 summary="Missing required parameter: command"
             )
 
-        command = params["command"]
+        command = params["parameters"]["command"]
 
         # Get global args from the agent context
         from py_classes.globals import g

@@ -8,6 +8,16 @@ class ReplyTool(BaseTool):
         return ToolMetadata(
             name="reply",
             description="Provide a direct response to the user's query",
+            detailed_description="""Use this tool when you need to:
+- Provide direct answers to questions
+- Ask for clarification
+- Explain concepts or ideas
+
+Perfect for:
+- Simple questions that don't need other tools
+- Requesting more information from the user
+- Summarizing information
+- Interacting with the user at all""",
             parameters={
                 "reply": {
                     "type": "string",
@@ -16,29 +26,15 @@ class ReplyTool(BaseTool):
             },
             required_params=["reply"],
             example_usage="""
-            {
-                "reasoning": "A direct response is appropriate here",
-                "tool": "reply",
-                "reply": "Here's the information you requested..."
-            }
-            """
+{
+    "reasoning": "Enough information is present to faithfully reply directly. The reply should include a, b and c as this will provide a comprehensive answer to the user's prompt about x and y.",
+    "tool": "reply",
+    "parameters": {
+        "reply": "Summarizing a, b and c, and their relevance to x and y."
+    }
+}
+"""
         )
-
-    @property
-    def prompt_template(self) -> str:
-        return """
-        Use the reply tool when you can directly answer the user's query without needing other tools.
-        Always include clear reasoning for why a direct response is sufficient.
-        The user can only see the reply, not the reasoning, so make sure the reply is clear and complete.
-        
-        Example:
-        User: "What is Python?"
-        Response: {
-            "reasoning": "This is a general knowledge question about Python that can be answered directly",
-            "tool": "reply",
-            "reply": "Python is a high-level, interpreted programming language..."
-        }
-        """
 
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
         if not self.validate_params(params):
@@ -49,5 +45,5 @@ class ReplyTool(BaseTool):
         
         return self.format_response(
             status="success",
-            summary=params["reply"]
+            summary=params["parameters"]["reply"]
         ) 

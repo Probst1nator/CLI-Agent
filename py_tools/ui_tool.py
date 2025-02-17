@@ -9,9 +9,11 @@ import base64
 from dataclasses import dataclass
 from enum import Enum, auto
 import re
+import mss
+import mss.tools
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
-from py_classes.cls_llm_router import LlmRouter
+from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.globals import g
 from py_methods.tooling import extract_blocks, extract_json
@@ -45,6 +47,7 @@ class UiTool(BaseTool):
     def __init__(self):
         super().__init__()
         self.parser = None
+        self.selected_screen_index: Optional[int] = None
         self._action_handlers: Dict[UiAction, ActionHandler] = self._initialize_action_handlers()
 
     def _initialize_action_handlers(self) -> Dict[UiAction, ActionHandler]:
@@ -64,14 +67,14 @@ class UiTool(BaseTool):
 
     class ComprehendActionHandler(BaseActionHandler):
         async def handle(self, target: str, screenshot_path: str, screen_description: str) -> ActionResult:
-            visual_analysis = await self.tool._analyze_screen_with_vlm(screenshot_path, target)
+            visual_analysis = await self.tool._analyze_screen_with_vlm(screenshot_path, self.tool.selected_screen_index)
             if visual_analysis["status"] != "success":
                 return ActionResult(False, f"Failed to comprehend target: {target}", screen_description)
             return ActionResult(True, visual_analysis["screen_description"], screen_description, False)
 
     class ClickActionHandler(BaseActionHandler):
         async def handle(self, target: str, screenshot_path: str, screen_description: str) -> ActionResult:
-            screen_elements = await self.tool._analyze_screen_for_clicking()
+            _, screen_elements = self.tool._get_annotated_image_path(screenshot_path)
             if not screen_elements:
                 return ActionResult(False, f"Failed to analyze screen for clicking", screen_description)
 
@@ -108,7 +111,20 @@ class UiTool(BaseTool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="ui",
-            description="Analyze the current screen or control the UI",
+            description="Call the UI tool when you need to directly interact with the user interface or any of the user's graphical applications",
+            detailed_description="""Use this tool when you need to:
+- Understand what's currently on the user's screen
+- Click buttons, links, or other UI elements
+- Enter text into forms or input fields
+- Navigate through content by scrolling
+- Perform sequences of UI interactions
+
+Perfect for tasks like:
+- Navigating websites
+- Interacting with desktop applications
+- Filling out forms
+- Analyzing screen content
+- Automating UI workflows""",
             parameters={
                 "intent": {
                     "type": "string",
@@ -117,98 +133,127 @@ class UiTool(BaseTool):
             },
             required_params=["intent"],
             example_usage="""
-            {
-                "tool": "ui",
-                "reasoning": "Need to display the video 'Never Gonna Give You Up'",
-                "intent": "Open a browser, navigate to YouTube, search for 'Never Gonna Give You Up', and play the video"
-            }
-            
-            {
-                "tool": "ui",
-                "reasoning": "I can use the UI tool to analyze the current screen and analyze what the user is engaging with",
-                "intent": "Analyze the screen to identify the users current activities"
-            }
-            """
+{
+    "reasoning": "Explanation of why y is best achieved through the use of the UI",
+    "tool": "ui",
+    "parameters": {
+        "intent": "Detailed context aware description of what to achieve through the use of the UI"
+    }
+}"""
         )
 
-    @property
-    def prompt_template(self) -> str:
-        return """Use the UI tool to analyze and interact with screen elements based on natural language intent.
-The tool will automatically:
-1. Analyze the screen before any action
-2. Find relevant UI elements
-3. Execute appropriate actions (click, type) based on the intent
-4. Iterate until the provided intent is achieved or aborted
-
-Example usage:
-{
-    "tool": "ui",
-    "reasoning": "Need to display the video 'Never Gonna Give You Up'",
-    "intent": "Open a browser, navigate to YouTube, search for 'Never Gonna Give You Up', and play the video"
-}
-
-{
-    "tool": "ui",
-    "reasoning": "Understand what the user is doing",
-    "intent": "Analyze the current screen"
-}"""
-
-    def _take_screenshot(self) -> Tuple[str, str]:
-        """Take a screenshot and save both original and annotated versions."""
-        print(colored("📸 Taking screenshot...", "cyan"))
+    def _take_screenshot(self, monitor_index: Optional[int] = None) -> Tuple[List[str], int]:
+        """Take screenshots of monitors.
+        
+        Args:
+            monitor_index: Optional index of specific monitor to capture. If None, captures all monitors.
+        
+        Returns:
+            Tuple containing:
+            - List of screenshot paths for each monitor
+            - Number of displays detected
+        """
+        print(colored("📸 Taking screenshots...", "cyan"))
         timestamp = int(time.time())
         screenshot_dir = os.path.join(g.PROJ_VSCODE_DIR_PATH, "ui_tool")
         os.makedirs(screenshot_dir, exist_ok=True)
         
-        screenshot_path = os.path.join(screenshot_dir, f"screen_{timestamp}.png")
-        annotated_path = os.path.join(screenshot_dir, f"screen_{timestamp}_annotated.png")
+        # Save current mouse position
+        original_x, original_y = pyautogui.position()
         
-        pyautogui.screenshot(screenshot_path)
-        print(colored(f"✅ Screenshot saved to: {screenshot_path}", "green"))
-        return screenshot_path, annotated_path
+        screenshot_paths = []
+        try:
+            with mss.mss() as sct:
+                monitors = sct.monitors[1:]  # Skip the first monitor which is the "all in one"
+                
+                if monitor_index is not None:
+                    # Capture only the specified monitor
+                    if 0 <= monitor_index < len(monitors):
+                        monitor = monitors[monitor_index]
+                        screenshot_path = os.path.join(screenshot_dir, f"screen_{timestamp}_display_{monitor_index}.png")
+                        
+                        # Move mouse to center of monitor
+                        center_x = monitor["left"] + (monitor["width"] // 2)
+                        center_y = monitor["top"] + (monitor["height"] // 2)
+                        pyautogui.moveTo(center_x, center_y)
+                        time.sleep(0.5)  # Wait for any hover effects
+                        
+                        screenshot = sct.grab(monitor)
+                        mss.tools.to_png(screenshot.rgb, screenshot.size, output=screenshot_path)
+                        
+                        screenshot_paths = [screenshot_path]
+                        print(colored(f"✅ Screenshot saved for display {monitor_index}: {screenshot_path}", "green"))
+                        return screenshot_paths, 1
+                    else:
+                        print(colored(f"⚠️ Invalid monitor index {monitor_index}, falling back to single screenshot", "yellow"))
+                else:
+                    # Capture all monitors
+                    for i, monitor in enumerate(monitors):
+                        screenshot_path = os.path.join(screenshot_dir, f"screen_{timestamp}_display_{i}.png")
+                        
+                        # Move mouse to center of monitor
+                        center_x = monitor["left"] + (monitor["width"] // 2)
+                        center_y = monitor["top"] + (monitor["height"] // 2)
+                        pyautogui.moveTo(center_x, center_y)
+                        time.sleep(0.5)  # Wait for any hover effects
+                        
+                        screenshot = sct.grab(monitor)
+                        mss.tools.to_png(screenshot.rgb, screenshot.size, output=screenshot_path)
+                        
+                        screenshot_paths.append(screenshot_path)
+                        print(colored(f"✅ Screenshot saved for display {i}: {screenshot_path}", "green"))
+            
+            num_displays = len(screenshot_paths)
+            if num_displays == 0:
+                # Fallback to single screenshot if no monitors detected
+                screenshot_path = os.path.join(screenshot_dir, f"screen_{timestamp}_display_0.png")
+                
+                # Move mouse to center of primary screen
+                screen_width, screen_height = pyautogui.size()
+                pyautogui.moveTo(screen_width // 2, screen_height // 2)
+                time.sleep(0.5)  # Wait for any hover effects
+                
+                pyautogui.screenshot(screenshot_path)
+                screenshot_paths = [screenshot_path]
+                num_displays = 1
+                print(colored("⚠️ No monitors detected, falling back to single screenshot", "yellow"))
+            
+            return screenshot_paths, num_displays
+        finally:
+            # Restore original mouse position
+            pyautogui.moveTo(original_x, original_y)
 
-    def _get_base64_image(self, image_path: str) -> str:
-        """Convert image to base64 string."""
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode()
-
-    async def _analyze_screen_with_vlm(self, screenshot_path: str, intent: str) -> Dict[str, Any]:
-        """Analyze the screen using LLM's vision capabilities."""
-        base64_image = self._get_base64_image(screenshot_path)
+    def _get_annotated_image_path(self, screenshot_path: str) -> Tuple[str, List[Dict[str, Any]]]:
+        """Generate annotated image from a screenshot and return its path along with screen elements.
         
-        analysis_chat = Chat(debug_title="VLM Screenshot Analysis")
-        
-        analysis_chat.add_message(
-            Role.USER,
-            f"{intent}\nWhat windows are open and what are their contents?.",
-        )
-        
-        screen_description = LlmRouter.generate_completion(analysis_chat, base64_images=[base64_image])
-        
-        return {
-            "status": "success",
-            "summary": screen_description
-        }
-
-    async def _analyze_screen_for_clicking(self) -> List[Dict[str, Any]]:
-        """Analyze the screen using Omniparser to prepare for clicking elements."""
-        screenshot_path, annotated_path = self._take_screenshot()
+        Args:
+            screenshot_path: Path to the original screenshot
+            
+        Returns:
+            Tuple containing:
+            - Path where the annotated image was saved
+            - List of screen elements found in the image
+        """
         if not self.parser:
             from OmniParser.omniparser import Omniparser, config as omniparser_config
             self.parser = Omniparser(omniparser_config)
         
         image, screen_elements = self.parser.parse(screenshot_path)
         
-        # Always save the annotated image
+        # Generate the annotated image path
+        base_path = screenshot_path.rsplit('.', 1)[0]
+        annotated_path = f"{base_path}_annotated.png"
+        
+        # Save the annotated image
         image.save(annotated_path)
+        print(f"✅ Annotated image saved to: {annotated_path}")
         
         # Transform screen elements into simplified format
         simplified_elements = []
         for element in screen_elements:
             simplified_element = {
-                'type': element.get('type', ''),
-                'content': element.get('text', element.get('content', '')),  # Try text first, fall back to content
-                'shape': {}
+                'shape': element.get('shape', ''),
+                'content': eval(element.get('text', '')).get('content', '') if element.get('text') else element.get('content', ''),  # Try text first, fall back to content
             }
             
             # Convert shape coordinates to integers if present
@@ -217,11 +262,37 @@ Example usage:
                     k: int(v) for k, v in element['shape'].items()
                 }
             
-            simplified_elements.append(simplified_element)
+            # verify if shape and content values are present
+            if simplified_element.get('shape') and simplified_element.get('content'):
+                simplified_elements.append(simplified_element)
         
-        return simplified_elements
+        return annotated_path, simplified_elements
 
-    def _parse_intent(self, reasoning: str, intent: str, screen_description: str) -> Dict[str, Any]:
+    def _get_base64_image(self, image_path: str) -> str:
+        """Convert image to base64 string."""
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode()
+
+    async def _analyze_screen_with_vlm(self, screenshot_path: str, screen_index: int) -> Dict[str, Any]:
+        """Analyze a single screen using LLM's vision capabilities."""
+        base64_image = self._get_base64_image(screenshot_path)
+        
+        analysis_chat = Chat(debug_title=f"VLM Screenshot Analysis - Display {screen_index}")
+        
+        analysis_chat.add_message(
+            Role.USER,
+            f"This is display {screen_index}. Are any windows open and if so, what are their contents?.",
+        )
+        
+        screen_description = LlmRouter.generate_completion(analysis_chat, base64_images=[base64_image])
+        
+        return {
+            "status": "success",
+            "summary": screen_description,
+            "display": screen_index
+        }
+
+    def _decide_next_action(self, reasoning: str, intent: str, screen_description: str) -> Dict[str, Any]:
         """Parse the intent string to determine required actions, with screen context."""
         # Create a chat context for intent parsing
         parse_chat = Chat(debug_title="UI Intent Parsing")
@@ -290,7 +361,7 @@ Return a single JSON object containing the most relevant next action."""
         )
         
         try:
-            response = LlmRouter.generate_completion(parse_chat)
+            response = LlmRouter.generate_completion(parse_chat, strength=AIStrengths.TOOLUSE)
             parsed_json = extract_json(response, required_keys=["action", "target"])
             
             if parsed_json is None:
@@ -339,34 +410,20 @@ Analyze the available elements and respond with a JSON object containing:
     "best_match": number (index of the best candidate, or -1 if no good match found)
 }
 
-Guidelines:
-1. Evaluate semantic similarity between target description and element text/type
-2. Consider element type (button, link, text, etc.) and context
-3. List at most 3 candidates, ordered by relevance
-4. Return -1 if no suitable match is found
-
-Example response:
+Systematically evaluate promising element's relevance to the target description:
+1. Read the target description and come up with a list of keywords that may indicate the best match
+2. List promising elements and shortly explain why they are promising
+3. Evaluate each element's relevance to the target description
+4. Select the best matching element and provide it in the below JSON format:
 {
-    "candidates": [
-        {
-            "index": 5,
-            "explanation": "Element text 'Play' exactly matches target 'play button' and is a button type"
-        },
-        {
-            "index": 2,
-            "explanation": "Element is a play icon but lacks text label"
-        }
-    ],
-    "reasoning": "Selected index 5 because it has exact text match and correct element type",
+    "reasoning": "Selected index 5 because it has exact text match and its position is common for such clickable element",
     "best_match": 5
 }"""
         )
         
         # Include more detailed element information for better matching
         elements_list = "\n".join(
-            f"{i}. Type: {elem['type']}, Text: '{elem['text']}', "
-            f"Location: (x={elem['shape']['x']:.0f}, y={elem['shape']['y']:.0f}), "
-            f"Size: {elem['shape']['width']:.0f}x{elem['shape']['height']:.0f}"
+            f"{i}. {json.dumps(elem)}"
             for i, elem in enumerate(screen_elements)
         )
         
@@ -381,7 +438,7 @@ Return a JSON object selecting the best matching element."""
         )
         
         try:
-            response = LlmRouter.generate_completion(match_chat)
+            response = LlmRouter.generate_completion(match_chat, strength=AIStrengths.TOOLUSE)
             parsed_response = json.loads(response)
             
             best_match_index = parsed_response.get("best_match", -1)
@@ -426,6 +483,69 @@ Return a JSON object selecting the best matching element."""
         except KeyError:
             return None
 
+    def _select_relevant_screen(self, screen_analyses: List[Dict[str, Any]], intent: str) -> Optional[Dict[str, Any]]:
+        """Select the most relevant screen based on the intent and screen analyses.
+        
+        Args:
+            screen_analyses: List of screen analysis results
+            intent: The user's intent
+            
+        Returns:
+            The most relevant screen analysis or None if no relevant screen found
+        """
+        selection_chat = Chat(debug_title="Screen Selection")
+        
+        # Format screen descriptions for analysis
+        screen_descriptions = "\n\n".join([
+            f"Display {analysis['display']}:\n{analysis['summary']}"
+            for analysis in screen_analyses
+        ])
+        
+        selection_chat.add_message(
+            Role.USER,
+            f"""Based on the following intent and screen descriptions, determine which screen is most relevant for achieving the intent.
+
+Intent: {intent}
+
+Available Screens:
+{screen_descriptions}
+
+Analyze each screen's content and determine which ONE is most relevant for the intent, following these steps:
+1. Review the intent
+2. Review each screen's content in the context of the intent
+3. Systematically evaluate each screen's relevance to the intent
+4. Provide a chain of thought for your final selection
+
+ALWAYS end your response with the below JSON object:
+{{
+    "selected_display": number,  // The most relevant display number
+}}"""
+        )
+        
+        try:
+            response = LlmRouter.generate_completion(selection_chat, strength=AIStrengths.TOOLUSE)
+            parsed_json = extract_json(response, required_keys=["selected_display"])
+            
+            if parsed_json is None:
+                print(colored("No valid JSON found in screen selection response", "red"))
+                return None
+            
+            selected_display = parsed_json["selected_display"]
+            reasoning = parsed_json.get("reasoning", "No reasoning provided")
+            
+            # Find the selected screen analysis
+            for analysis in screen_analyses:
+                if analysis["display"] == selected_display:
+                    print(colored(f"\nSelected Display {selected_display}: {reasoning}", "cyan"))
+                    return analysis
+            
+            print(colored(f"Selected display {selected_display} not found in analyses", "red"))
+            return None
+            
+        except Exception as e:
+            print(colored(f"Error selecting relevant screen: {str(e)}", "red"))
+            return None
+
     async def execute(self, params: Dict[str, Any]) -> ToolResponse:
         """Execute the UI tool based on natural language intent."""
         if not self.validate_params(params):
@@ -434,34 +554,49 @@ Return a JSON object selecting the best matching element."""
                 summary="Missing required parameter: intent"
             )
 
-        reasoning = params["reasoning"]
-        intent = params["intent"]
-        action_counter = 0
-        MAX_ACTIONS = 10
-        last_screen_description = None
-        action_results = []
-
         try:
-            while action_counter < MAX_ACTIONS:
-                # Take and analyze screenshot
-                screenshot_path, _ = self._take_screenshot()
-                screen_analysis = await self._analyze_screen_with_vlm(screenshot_path, intent)
-                
+            parameters = params["parameters"]
+            reasoning = params.get("reasoning", "No specific reasoning provided")
+            intent = parameters["intent"]
+            action_counter = 0
+            MAX_ACTIONS = 10
+            action_results = []
+            self.selected_screen_index = None  # Reset at start of execution
+
+            # Initial capture of all screens
+            screenshot_paths, num_displays = self._take_screenshot()
+            
+            # Analyze all screens initially
+            screen_analyses = []
+            for i, screenshot_path in enumerate(screenshot_paths):
+                screen_analysis = await self._analyze_screen_with_vlm(screenshot_path, i)
                 if screen_analysis["status"] != "success":
                     return self.format_response(
                         status="error",
-                        summary=f"Failed to analyze screen: {screen_analysis.get('error', 'Unknown error')}"
+                        summary=f"Failed to analyze screen {i}: {screen_analysis.get('error', 'Unknown error')}"
                     )
+                screen_analyses.append(screen_analysis)
 
-                screen_description = screen_analysis["summary"]
-                last_screen_description = screen_description
+            # Select the most relevant screen once
+            selected_screen = self._select_relevant_screen(screen_analyses, intent)
+            if selected_screen is None:
+                return self.format_response(
+                    status="error",
+                    summary="Failed to select a relevant screen"
+                )
+            
+            # Store the selected screen index globally
+            self.selected_screen_index = selected_screen["display"]
+            screen_description = selected_screen["summary"]
 
-                # Parse intent
-                parsed_intent = self._parse_intent(reasoning, intent, screen_description)
+            # Main action loop
+            while action_counter < MAX_ACTIONS:
+                # Parse intent for the selected screen
+                parsed_intent = self._decide_next_action(reasoning, intent, screen_description)
                 if parsed_intent is None:
                     return self.format_response(
                         status="success",
-                        summary=f"Intent parsing failed, but screen analysis completed. Screen contents: {screen_description}"
+                        summary=f"Intent parsing failed, but screen analyses completed. Screen contents:\n{screen_description}"
                     )
 
                 # Map action string to enum
@@ -470,7 +605,7 @@ Return a JSON object selecting the best matching element."""
                 if action is None:
                     return self.format_response(
                         status="error",
-                        summary=f"Unsupported action: {action_str}. Screen contents: {screen_description}"
+                        summary=f"Unsupported action: {action_str}. Screen contents:\n{screen_description}"
                     )
 
                 # Get action handler
@@ -478,11 +613,13 @@ Return a JSON object selecting the best matching element."""
                 if handler is None:
                     return self.format_response(
                         status="error",
-                        summary=f"No handler found for action: {action_str}. Screen contents: {screen_description}"
+                        summary=f"No handler found for action: {action_str}. Screen contents:\n{screen_description}"
                     )
 
-                # Execute action
+                # Execute action on the selected screen
                 target = parsed_intent["target"]
+                screenshot_paths, _ = self._take_screenshot(self.selected_screen_index)
+                screenshot_path = screenshot_paths[0]  # Only one screenshot now
                 result = await handler.handle(target, screenshot_path, screen_description)
                 action_results.append(result)
 
@@ -502,6 +639,19 @@ Return a JSON object selecting the best matching element."""
                         summary=success_summary
                     )
 
+                # Take new screenshot of only the selected screen
+                screenshot_paths, _ = self._take_screenshot(self.selected_screen_index)
+                screenshot_path = screenshot_paths[0]  # Only one screenshot now
+                
+                # Analyze only the selected screen
+                screen_analysis = await self._analyze_screen_with_vlm(screenshot_path, self.selected_screen_index)
+                if screen_analysis["status"] != "success":
+                    return self.format_response(
+                        status="error",
+                        summary=f"Failed to analyze screen after action: {screen_analysis.get('error', 'Unknown error')}"
+                    )
+                screen_description = screen_analysis["summary"]
+
                 action_counter += 1
                 time.sleep(0.5)  # Allow UI to update
 
@@ -509,7 +659,7 @@ Return a JSON object selecting the best matching element."""
             final_summary = self._format_action_results(action_results)
             return self.format_response(
                 status="error",
-                summary=f"Maximum actions ({MAX_ACTIONS}) reached without completing task.\nActions performed:\n{final_summary}\nLast screen state: {last_screen_description}"
+                summary=f"Maximum actions ({MAX_ACTIONS}) reached without completing task.\nActions performed:\n{final_summary}\nLast screen state:\n{screen_description}"
             )
 
         except Exception as e:
