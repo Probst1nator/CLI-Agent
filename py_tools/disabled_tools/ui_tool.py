@@ -11,6 +11,7 @@ from enum import Enum, auto
 import re
 import mss
 import mss.tools
+import io
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
@@ -74,7 +75,7 @@ class UiTool(BaseTool):
 
     class ClickActionHandler(BaseActionHandler):
         async def handle(self, target: str, screenshot_path: str, screen_description: str) -> ActionResult:
-            _, screen_elements = self.tool._get_annotated_image_path(screenshot_path)
+            _, screen_elements = await self.tool._get_annotated_image_path(screenshot_path)
             if not screen_elements:
                 return ActionResult(False, f"Failed to analyze screen for clicking", screen_description)
 
@@ -142,20 +143,32 @@ Perfect for tasks like:
 }"""
         )
 
-    def _take_screenshot(self, monitor_index: Optional[int] = None) -> Tuple[List[str], int]:
-        """Take screenshots of monitors.
+    def _get_monitor_center(self, monitor_index: Optional[int] = None) -> Tuple[int, int]:
+        """Get the center coordinates of the specified monitor.
         
         Args:
-            monitor_index: Optional index of specific monitor to capture. If None, captures all monitors.
-        
+            monitor_index: Optional index of specific monitor. If None, uses selected_screen_index.
+            
         Returns:
-            Tuple containing:
-            - List of screenshot paths for each monitor
-            - Number of displays detected
+            Tuple of (center_x, center_y) coordinates
         """
+        monitors = mss.mss().monitors[1:]  # Skip first monitor (represents all monitors combined)
+        monitor_idx = monitor_index if monitor_index is not None else self.selected_screen_index
+        if monitor_idx is None or monitor_idx >= len(monitors):
+            # Fallback to primary screen center
+            screen_width, screen_height = pyautogui.size()
+            return (screen_width // 2, screen_height // 2)
+            
+        monitor = monitors[monitor_idx]
+        center_x = monitor["left"] + (monitor["width"] // 2)
+        center_y = monitor["top"] + (monitor["height"] // 2)
+        return (center_x, center_y)
+
+    def _take_screenshot(self, monitor_index: Optional[int] = None) -> Tuple[List[str], int]:
+        """Take screenshots of monitors."""
         print(colored("📸 Taking screenshots...", "cyan"))
         timestamp = int(time.time())
-        screenshot_dir = os.path.join(g.PROJ_VSCODE_DIR_PATH, "ui_tool")
+        screenshot_dir = os.path.join(g.PROJ_TEMP_STORAGE_PATH, "ui_tool")
         os.makedirs(screenshot_dir, exist_ok=True)
         
         # Save current mouse position
@@ -173,8 +186,7 @@ Perfect for tasks like:
                         screenshot_path = os.path.join(screenshot_dir, f"screen_{timestamp}_display_{monitor_index}.png")
                         
                         # Move mouse to center of monitor
-                        center_x = monitor["left"] + (monitor["width"] // 2)
-                        center_y = monitor["top"] + (monitor["height"] // 2)
+                        center_x, center_y = self._get_monitor_center(monitor_index)
                         pyautogui.moveTo(center_x, center_y)
                         time.sleep(0.5)  # Wait for any hover effects
                         
@@ -192,8 +204,7 @@ Perfect for tasks like:
                         screenshot_path = os.path.join(screenshot_dir, f"screen_{timestamp}_display_{i}.png")
                         
                         # Move mouse to center of monitor
-                        center_x = monitor["left"] + (monitor["width"] // 2)
-                        center_y = monitor["top"] + (monitor["height"] // 2)
+                        center_x, center_y = self._get_monitor_center(i)
                         pyautogui.moveTo(center_x, center_y)
                         time.sleep(0.5)  # Wait for any hover effects
                         
@@ -209,8 +220,8 @@ Perfect for tasks like:
                 screenshot_path = os.path.join(screenshot_dir, f"screen_{timestamp}_display_0.png")
                 
                 # Move mouse to center of primary screen
-                screen_width, screen_height = pyautogui.size()
-                pyautogui.moveTo(screen_width // 2, screen_height // 2)
+                center_x, center_y = self._get_monitor_center()
+                pyautogui.moveTo(center_x, center_y)
                 time.sleep(0.5)  # Wait for any hover effects
                 
                 pyautogui.screenshot(screenshot_path)
@@ -223,17 +234,8 @@ Perfect for tasks like:
             # Restore original mouse position
             pyautogui.moveTo(original_x, original_y)
 
-    def _get_annotated_image_path(self, screenshot_path: str) -> Tuple[str, List[Dict[str, Any]]]:
-        """Generate annotated image from a screenshot and return its path along with screen elements.
-        
-        Args:
-            screenshot_path: Path to the original screenshot
-            
-        Returns:
-            Tuple containing:
-            - Path where the annotated image was saved
-            - List of screen elements found in the image
-        """
+    async def _get_annotated_image_path(self, screenshot_path: str) -> Tuple[str, List[Dict[str, Any]]]:
+        """Generate annotated image from a screenshot and return its path along with screen elements."""
         if not self.parser:
             from OmniParser.omniparser import Omniparser, config as omniparser_config
             self.parser = Omniparser(omniparser_config)
@@ -250,6 +252,7 @@ Perfect for tasks like:
         
         # Transform screen elements into simplified format
         simplified_elements = []
+        unlabelled_elements = []
         for element in screen_elements:
             simplified_element = {
                 'shape': element.get('shape', ''),
@@ -265,6 +268,39 @@ Perfect for tasks like:
             # verify if shape and content values are present
             if simplified_element.get('shape') and simplified_element.get('content'):
                 simplified_elements.append(simplified_element)
+            else:
+                unlabelled_elements.append(element)
+        
+        # handle elements without text content        
+        print(colored("🔍 Capturing elements without text content...", "cyan"))
+        # save the original mouse position
+        original_x, original_y = pyautogui.position()
+        # move the mouse to the center of the screen
+        center_x, center_y = self._get_monitor_center()
+        pyautogui.moveTo(center_x, center_y)
+        time.sleep(0.5)
+        for index, unlabelled_element in enumerate(unlabelled_elements):
+            print(colored(f"🔍 Capturing elements progress: {index}/{len(unlabelled_elements)}", "cyan"))
+            shape = unlabelled_element['shape']
+            # screenshot the element region
+            # move the mouse to the center of the element
+            center_x = int(shape['x'] + (shape['width'] / 2))
+            center_y = int(shape['y'] + (shape['height'] / 2))
+            pyautogui.moveTo(center_x, center_y)
+            region = (int(shape['x']), int(shape['y']), int(shape['width']), int(shape['height']))
+            screenshot = pyautogui.screenshot(region=region)
+            # save the screenshot as content as file and put the path in the content
+            temp_path = os.path.join(g.PROJ_TEMP_STORAGE_PATH, "ui_tool", f"element_{index}.png")
+            screenshot.save(temp_path)
+            unlabelled_element["content"] = temp_path
+        # move the mouse to its original position
+        pyautogui.moveTo(original_x, original_y)
+        # replace base64 content with vlm analysis
+        print(colored("🔍 Analyzing elements with VLM...", "cyan"))
+        for index, unlabelled_element in enumerate(unlabelled_elements):
+            print(colored(f"🔍 VLM analyzing elements progress: {index}/{len(unlabelled_elements)}", "cyan"))
+            vlm_analysis = await self._analyze_element_with_vlm(unlabelled_element["content"])
+            unlabelled_element["content"] = vlm_analysis
         
         return annotated_path, simplified_elements
 
@@ -290,6 +326,45 @@ Perfect for tasks like:
             "status": "success",
             "summary": screen_description,
             "display": screen_index
+        }
+    
+    async def _analyze_element_with_vlm(self, screenshot_path: Optional[str] = None) -> Dict[str, str]:
+        """Analyze a single screen using LLM's vision capabilities.
+        
+        Args:
+            screenshot_path: Path to image file to analyze
+            base64_image: Base64 encoded image to analyze
+            
+        Returns:
+            Dict containing analysis status and summary
+        """
+        # Create temp dir if it doesn't exist
+        temp_dir = os.path.join(g.PROJ_TEMP_STORAGE_PATH, "ui_tool", "temp")
+        
+        # Resize image to 672x672 (llava hotfix)
+        image = Image.open(screenshot_path)
+        image.thumbnail((672, 672), Image.Resampling.LANCZOS)
+        
+        # Save resized image
+        image.save(screenshot_path, "PNG")
+        
+        # Create analysis chat
+        analysis_chat = Chat(debug_title=f"VLM Screenshot Analysis - Element")
+        analysis_chat.add_message(
+            Role.USER,
+            f"This is an graphical ui element. What is it?. Be concise and to the point.",
+        )
+        
+        # Get base64 of resized image
+        with open(screenshot_path, "rb") as f:
+            resized_base64 = base64.b64encode(f.read()).decode()
+        
+        # Get analysis
+        screen_description = LlmRouter.generate_completion(analysis_chat, base64_images=[resized_base64])
+        
+        return {
+            "status": "success",
+            "summary": screen_description,
         }
 
     def _decide_next_action(self, reasoning: str, intent: str, screen_description: str) -> Dict[str, Any]:
@@ -393,34 +468,7 @@ Return a single JSON object containing the most relevant next action."""
             
         # Create a chat context for semantic matching
         match_chat = Chat(debug_title="UI Element Matching")
-        match_chat.add_message(
-            Role.SYSTEM,
-            """You are an AI assistant that matches UI element descriptions to actual elements.
-Your task is to find the best matching UI element based on semantic similarity and visual context.
 
-Analyze the available elements and respond with a JSON object containing:
-{
-    "candidates": [
-        {
-            "index": number,
-            "explanation": "why this element matches the target description"
-        }
-    ],
-    "reasoning": "detailed explanation of why the best candidate was chosen",
-    "best_match": number (index of the best candidate, or -1 if no good match found)
-}
-
-Systematically evaluate promising element's relevance to the target description:
-1. Read the target description and come up with a list of keywords that may indicate the best match
-2. List promising elements and shortly explain why they are promising
-3. Evaluate each element's relevance to the target description
-4. Select the best matching element and provide it in the below JSON format:
-{
-    "reasoning": "Selected index 5 because it has exact text match and its position is common for such clickable element",
-    "best_match": 5
-}"""
-        )
-        
         # Include more detailed element information for better matching
         elements_list = "\n".join(
             f"{i}. {json.dumps(elem)}"
@@ -429,17 +477,35 @@ Systematically evaluate promising element's relevance to the target description:
         
         match_chat.add_message(
             Role.USER,
-            f"""Target description: "{target_description}"
+            f"""You are an AI assistant that matches UI element descriptions to actual elements.
+Your task is to find the best matching UI element based on semantic similarity and visual context.
+
+Please pick the UI element that best matches the following target description: "{target_description}"
             
 Available UI elements:
 {elements_list}
 
-Return a JSON object selecting the best matching element."""
+Instructions:
+1. Read the target description and come up with a list of keywords that may indicate the best match
+2. List promising available UI elements and shortly explain why they are promising
+3. Evaluate each element's relevance to the target description
+
+After explicitly working through these steps, provide a final selection of the best matching element in the below JSON format:
+{{
+    "reasoning": "Selected index 5 because it has exact text match and its position is common for such clickable element",
+    "best_match": 5
+}}
+
+Return the valid JSON object as shown, populated with the best matching element."""
         )
         
         try:
             response = LlmRouter.generate_completion(match_chat, strength=AIStrengths.TOOLUSE)
-            parsed_response = json.loads(response)
+            parsed_response = extract_json(response, required_keys=["reasoning", "best_match"])
+            
+            if parsed_response is None:
+                print(colored("No valid JSON found in response", "red"))
+                return None
             
             best_match_index = parsed_response.get("best_match", -1)
             if best_match_index >= 0 and best_match_index < len(screen_elements):
@@ -503,7 +569,7 @@ Return a JSON object selecting the best matching element."""
         
         selection_chat.add_message(
             Role.USER,
-            f"""Based on the following intent and screen descriptions, determine which screen is most relevant for achieving the intent.
+            f"""Based on the following intent and screen descriptions, you MUST select ONE screen that is most relevant for achieving the intent.
 
 Intent: {intent}
 
@@ -516,22 +582,24 @@ Analyze each screen's content and determine which ONE is most relevant for the i
 3. Systematically evaluate each screen's relevance to the intent
 4. Provide a chain of thought for your final selection
 
-ALWAYS end your response with the below JSON object:
+IMPORTANT: Respond with valid JSON only. Do not include comments in the JSON.
+Your response must end with this exact format:
 {{
-    "selected_display": number,  // The most relevant display number
+    "selected_display": 0,
+    "reasoning": "Detailed explanation of selection"
 }}"""
         )
         
         try:
             response = LlmRouter.generate_completion(selection_chat, strength=AIStrengths.TOOLUSE)
-            parsed_json = extract_json(response, required_keys=["selected_display"])
+            parsed_json = extract_json(response, required_keys=["selected_display", "reasoning"])
             
             if parsed_json is None:
                 print(colored("No valid JSON found in screen selection response", "red"))
                 return None
             
             selected_display = parsed_json["selected_display"]
-            reasoning = parsed_json.get("reasoning", "No reasoning provided")
+            reasoning = parsed_json["reasoning"]
             
             # Find the selected screen analysis
             for analysis in screen_analyses:

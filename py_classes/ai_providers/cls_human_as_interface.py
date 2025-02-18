@@ -70,7 +70,7 @@ class HumanAPI(ChatClientInterface):
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_VSCODE_DIR_PATH) as temp_audio_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file.write(audio_data.get_wav_data())
                 temp_audio_file_path = temp_audio_file.name
 

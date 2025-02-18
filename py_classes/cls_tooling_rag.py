@@ -100,7 +100,7 @@ class RagTooling:
         return text.strip()
     
     def get_cache_file_path(file_path: str, cache_key: str) -> str:
-        cache_dir = os.path.join(g.PROJ_VSCODE_DIR_PATH, "pdf_cache")
+        cache_dir = os.path.join(g.PROJ_PERSISTENT_STORAGE_PATH, "pdf_cache")
         os.makedirs(cache_dir, exist_ok=True)
         last_modified = os.path.getmtime(file_path)
         full_cache_key = hashlib.md5(f"{file_path}_{last_modified}".encode()).hexdigest()

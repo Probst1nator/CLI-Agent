@@ -305,7 +305,7 @@ The implementation must:
                     )
 
             # Create script directory
-            script_dir = os.path.join(g.PROJ_VSCODE_DIR_PATH, "python_tool")
+            script_dir = os.path.join(g.PROJ_PERSISTENT_STORAGE_PATH, "python_tool")
             os.makedirs(script_dir, exist_ok=True)
             
             # Generate unique script name using title and timestamp

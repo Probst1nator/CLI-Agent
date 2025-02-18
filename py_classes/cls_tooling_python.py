@@ -218,7 +218,7 @@ Requirements: {script_requirements}"""
             raise ValueError("Python tool requires both title and reasoning")
         
         # Setup script path
-        script_dir = os.path.join(g.PROJ_VSCODE_DIR_PATH, "python_tool")
+        script_dir = os.path.join(g.PROJ_PERSISTENT_STORAGE_PATH, "python_tool")
         os.makedirs(script_dir, exist_ok=True)
         script_path = os.path.join(script_dir, script_title)
         
