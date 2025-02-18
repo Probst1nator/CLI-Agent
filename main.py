@@ -250,6 +250,9 @@ async def main() -> None:
                 image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image])
                 prompt_context_augmentation += f'\n\n```vision_{i}\n{image_response_str}\n```'
         
+        if LlmRouter.has_unconfirmed_data():
+            LlmRouter.confirm_finetuning_data()
+        
         # get user input from various sources
         if args.message:
             user_input = args.message
@@ -258,16 +261,16 @@ async def main() -> None:
             # Default voice handling
             user_input, _, wake_word_used = listen_microphone()
         else:
-            if LlmRouter.has_unconfirmed_data():  # Show rating info if there's unconfirmed data
-                print(colored("(Optional: Enter 1 to save or 2 to discard last response for training)", 'yellow', attrs=["dark"]))
+            # if LlmRouter.has_unconfirmed_data():  # Show rating info if there's unconfirmed data
+            #     print(colored("(Optional: Enter 1 to save or 2 to discard last response for training)", 'yellow', attrs=["dark"]))
             user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
-            if LlmRouter.has_unconfirmed_data() and user_input.strip() in ['1', '2']:
-                if user_input.strip() == '1':
-                    LlmRouter.confirm_finetuning_data()
-                else:
-                    LlmRouter.clear_unconfirmed_finetuning_data()
-                print(colored("Response rated. What would you like to do next?", 'green'))
-                user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            # if LlmRouter.has_unconfirmed_data() and user_input.strip() in ['1', '2']:
+            #     if user_input.strip() == '1':
+            #         LlmRouter.confirm_finetuning_data()
+            #     else:
+            #         LlmRouter.clear_unconfirmed_finetuning_data()
+            #     print(colored("Response rated. What would you like to do next?", 'green'))
+            #     user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
         
         # USER INPUT HANDLING - BEGIN
         if user_input.endswith('--q'):
@@ -486,6 +489,7 @@ REMEMBER:
                     tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], strength=AIStrengths.TOOLUSE)
                     context_chat.add_message(Role.ASSISTANT, tool_use_response)
                 except Exception as e:
+                    LlmRouter.clear_unconfirmed_finetuning_data()
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
                     context_chat.messages.pop()
                     if args.debug:
@@ -506,6 +510,7 @@ REMEMBER:
                         continue
 
                 except Exception as e:
+                    LlmRouter.clear_unconfirmed_finetuning_data()
                     print(colored(f"Unexpected error parsing tool selection response: {str(e)}", "red"))
                     if args.debug:
                         traceback.print_exc()
@@ -581,6 +586,7 @@ REMEMBER:
                         try:
                             result = await tool.execute(tool_call)
                         except Exception as e:
+                            LlmRouter.clear_unconfirmed_finetuning_data()
                             print(colored(f"Error executing tool {selected_tool}: {str(e)}", "red"))
                             if args.debug:
                                 traceback.print_exc()
@@ -636,6 +642,7 @@ REMEMBER:
                                 web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
 
                     except Exception as e:
+                        LlmRouter.clear_unconfirmed_finetuning_data()
                         print(colored(f"Unexpected error during tool execution: {str(e)}", "red"))
                         if args.debug:
                             traceback.print_exc()
@@ -645,6 +652,7 @@ REMEMBER:
                     break
 
             except Exception as e:
+                LlmRouter.clear_unconfirmed_finetuning_data()
                 print(colored(f"An unexpected error occurred: {str(e)}", "red"))
                 if args.debug:
                     traceback.print_exc()
