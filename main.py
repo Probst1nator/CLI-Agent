@@ -258,7 +258,16 @@ async def main() -> None:
             # Default voice handling
             user_input, _, wake_word_used = listen_microphone()
         else:
+            if LlmRouter.has_unconfirmed_data():  # Show rating info if there's unconfirmed data
+                print(colored("(Optional: Enter 1 to save or 2 to discard last response for training)", 'yellow', attrs=["dark"]))
             user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            if LlmRouter.has_unconfirmed_data() and user_input.strip() in ['1', '2']:
+                if user_input.strip() == '1':
+                    LlmRouter.confirm_finetuning_data()
+                else:
+                    LlmRouter.clear_unconfirmed_finetuning_data()
+                print(colored("Response rated. What would you like to do next?", 'green'))
+                user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
         
         # USER INPUT HANDLING - BEGIN
         if user_input.endswith('--q'):
