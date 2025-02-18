@@ -1,55 +1,27 @@
 # File: globals.py
 import os
+import shutil
 from typing import List, Optional
 import argparse
 
 class Globals:
+    args: Optional[argparse.Namespace] = None
+    
     PROJ_DIR_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    PROJ_VSCODE_DIR_PATH = os.path.join(PROJ_DIR_PATH, '.vscode')
+    PROJ_PERSISTENT_STORAGE_PATH = os.path.join(PROJ_DIR_PATH, '.cliagent')
+    PROJ_TEMP_STORAGE_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'temporary')
     PROJ_ENV_FILE_PATH = os.path.join(PROJ_DIR_PATH, '.env')
-    PROJ_AGENTIC_PATH = os.path.join(PROJ_DIR_PATH, 'agentic')
-    PROJ_SANDBOX_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'sandbox')
-    PROJ_AGENTIC_SANDBOX_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox')
-    PROJ_AGENTIC_SANDBOX_BACKUP_PATH = os.path.join(PROJ_AGENTIC_PATH, 'sandbox_backup')
-    CURRENT_WORKING_DIR_PATH = os.getcwd()
     FORCE_LOCAL: bool = False
     
-    RECENT_ACTIONS: List[str] = []
-    args: Optional[argparse.Namespace] = None
+    DYNAMIC_MODEL_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'dynamic_model_limits.json')
 
-    os.makedirs(PROJ_VSCODE_DIR_PATH, exist_ok=True)
-    PROJ_CONFIG_FILE_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'cli-agent.json')
-    PROJ_MEMORY_FILE_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'agent_memory.json')
-    DYNAMIC_MODEL_LIMITS_PATH = os.path.join(PROJ_VSCODE_DIR_PATH, 'dynamic_model_limits.json')
-
-    @classmethod
-    def get_path(cls, path_name: str) -> str:
-        """Get a project path by name."""
-        return getattr(cls, f"{path_name.upper()}_PATH", cls.PROJ_DIR_PATH)
-
-    @classmethod
-    def remember_recent_action(cls, action: str) -> None:
-        """Remember a recent action"""
-        cls.RECENT_ACTIONS.append(action)
-        with open(cls.PROJ_MEMORY_FILE_PATH, "w") as f:
-            f.write("\n".join(cls.RECENT_ACTIONS))
+    os.makedirs(PROJ_PERSISTENT_STORAGE_PATH, exist_ok=True)
     
-    @classmethod
-    def get_recent_actions(cls) -> List[str]:
-        """Get recent actions"""
-        with open(cls.PROJ_MEMORY_FILE_PATH, "r") as f:
-            return f.read().split("\n")
+    if os.path.exists(PROJ_TEMP_STORAGE_PATH):
+        shutil.rmtree(PROJ_TEMP_STORAGE_PATH)
+    os.makedirs(PROJ_TEMP_STORAGE_PATH, exist_ok=True)
+    
+    
 
-    @classmethod
-    def set_args(cls, args: argparse.Namespace) -> None:
-        """Store command line arguments"""
-        cls.args = args
-
-    @classmethod
-    def get_args(cls) -> argparse.Namespace:
-        """Get command line arguments"""
-        if cls.args is None:
-            raise RuntimeError("Command line arguments not initialized. Call set_args() first.")
-        return cls.args
 
 g = Globals()

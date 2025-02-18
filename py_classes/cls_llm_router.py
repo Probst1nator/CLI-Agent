@@ -81,15 +81,16 @@ class Llm:
         # Define and return a list of available LLM instances
         return [
             # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, [AIStrengths.STRONG]), # For testing
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, False, 32768, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 8192, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 30000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 30000, [AIStrengths.FAST]),
+            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, False, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 8192, [AIStrengths.FAST]),
             Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, [AIStrengths.FAST]),
             Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 32768, [AIStrengths.GENERAL]),
             
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, False, False, False, 32768, [AIStrengths.GENERAL, AIStrengths.REASONING]),
-            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, False, False, False, 32768, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b-specdec", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
             Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, True, 32768, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL]),
             
             
@@ -147,7 +148,7 @@ class LlmRouter:
         Initialize the LlmRouter instance.
         """
         # Set up cache directory and file path
-        self.cache_file_path = f"{g.PROJ_VSCODE_DIR_PATH}/llm_cache.json"
+        self.cache_file_path = f"{g.PROJ_PERSISTENT_STORAGE_PATH}/llm_cache.json"
         
         # Load cache and initialize retry models and failed models set
         self.cache = self._load_cache()

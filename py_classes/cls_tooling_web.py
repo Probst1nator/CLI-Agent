@@ -22,7 +22,7 @@ class WebTools:
             persistent_dir (str): Directory for persistent ChromaDB storage
         """
         self.brave_api_key = os.getenv("BRAVE_API_KEY")
-        self.persistent_dir = g.PROJ_VSCODE_DIR_PATH + "/web_search_db"
+        self.persistent_dir = g.PROJ_PERSISTENT_STORAGE_PATH + "/web_search_db"
         
         # Initialize persistent ChromaDB client
         self.chroma_client = chromadb.PersistentClient(

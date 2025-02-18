@@ -155,14 +155,13 @@ def select_and_execute_commands(commands: List[str], auto_execute: bool = False,
     else:
         selected_commands = commands
     
-    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH)
     collection = client.get_or_create_collection(name="commands")
 
     results = []
     summary = []
     
     for cmd in selected_commands:
-        g.remember_recent_action(cmd)
         
         result = run_command(cmd, verbose, detached)
         formatted_result = format_command_result(result)

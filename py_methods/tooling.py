@@ -462,7 +462,7 @@ from termcolor import colored
 import json
 
 def get_cache_file_path(file_path: str, cache_key: str) -> str:
-    cache_dir = os.path.join(g.PROJ_VSCODE_DIR_PATH, "pdf_cache")
+    cache_dir = os.path.join(g.PROJ_PERSISTENT_STORAGE_PATH, "pdf_cache")
     os.makedirs(cache_dir, exist_ok=True)
     last_modified = os.path.getmtime(file_path)
     full_cache_key = hashlib.md5(f"{file_path}_{last_modified}".encode()).hexdigest()
@@ -781,7 +781,7 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
 
 
 def update_cmd_collection():
-    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH)
     collection = client.get_or_create_collection(name="commands")
     all_commands = get_atuin_history(200)
     if all_commands:
@@ -813,7 +813,7 @@ def pdf_or_folder_to_database(pdf_or_folder_path: str, preferred_models:List[str
     FileNotFoundError: If the pdf_or_folder_path does not exist.
     ValueError: If the pdf_or_folder_path is neither a file nor a directory.
     """
-    client = chromadb.PersistentClient(g.PROJ_VSCODE_DIR_PATH)
+    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH)
     collection = client.get_or_create_collection(name=hashlib.md5(pdf_or_folder_path.encode()).hexdigest())
     
     if not os.path.exists(pdf_or_folder_path):

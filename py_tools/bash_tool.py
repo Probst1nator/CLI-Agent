@@ -8,6 +8,7 @@ from termcolor import colored
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import LlmRouter
 from py_methods.tooling import listen_microphone, text_to_speech
+from py_classes.globals import g
 
 class BashTool(BaseTool):
     @property
@@ -80,12 +81,8 @@ Perfect for:
 
         command = params["parameters"]["command"]
 
-        # Get global args from the agent context
-        from py_classes.globals import g
-        args = g.get_args()  # This ensures we have all args with proper defaults
-        
         # LLM safety check
-        is_safe = self._check_command_safety(command, force_local=args.local)
+        is_safe = self._check_command_safety(command, force_local=g.FORCE_LOCAL)
         
         # Print command for visibility
         print(colored(command, 'magenta'))

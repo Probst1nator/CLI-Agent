@@ -36,7 +36,7 @@ from py_methods.tooling import (
     update_cmd_collection,
     extract_json
 )
-from py_classes.cls_llm_router import LlmRouter
+from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_web_server import WebServer
 from py_classes.cls_tool_manager import ToolManager
@@ -140,7 +140,7 @@ async def main() -> None:
         logger.debug("Chat debug windows enabled")
     
     # Store args in globals
-    g.set_args(args)
+    g.args = args
     
     # Initialize tool manager
     tool_manager = ToolManager()
@@ -437,7 +437,7 @@ REMEMBER:
 - ALWAYS INCLUDE A SINGLE VALID JSON TOOL CALL IN YOUR RESPONSE
 - If you decide to respond to the user you MUST use the reply tool
 - The USER CANNOT SEE ANYTHING other than the string value in your final reply tool's 'reply' parameter until you choose to call it.
-- The users has no influence on tool examples, he is only communicating to you via the user's prompt."""
+- If the user's prompt has been achived or can be answered accurately by the present information use the reply tool."""
         
         # Prepare guidance based on stage
         def get_agent_prompt(user_prompt: str, available_tools_str: str, context_head_addition: str = ""):
@@ -474,7 +474,7 @@ REMEMBER:
 
                 # Get tool selection response
                 try:
-                    tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""])
+                    tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], strength=AIStrengths.TOOLUSE)
                     context_chat.add_message(Role.ASSISTANT, tool_use_response)
                 except Exception as e:
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
