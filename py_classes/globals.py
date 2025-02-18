@@ -14,6 +14,8 @@ class Globals:
     FORCE_LOCAL: bool = False
     
     DYNAMIC_MODEL_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'dynamic_model_limits.json')
+    UNCONFIRMED_FINETUNING_PATH = os.path.join(PROJ_TEMP_STORAGE_PATH, 'unconfirmed_finetuning_data')
+    CONFIRMED_FINETUNING_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'confirmed_finetuning_data')
 
     os.makedirs(PROJ_PERSISTENT_STORAGE_PATH, exist_ok=True)
     

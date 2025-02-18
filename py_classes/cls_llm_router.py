@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from random import shuffle
+import shutil
 import time
 from typing import Dict, List, Optional, Set
 from termcolor import colored
@@ -481,7 +482,7 @@ class LlmRouter:
         if not preferred_models or preferred_models == [""] or preferred_models == [None]:
             preferred_models = []
             
-        # BREAKING CHANGE HOFTIX: Ensure strength is a list
+        # FIX FOR BREAKING CHANGE: Ensure strength is a list
         if not isinstance(strength, list):
             strength = [strength] if strength else []
         
@@ -519,6 +520,11 @@ class LlmRouter:
                 response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
                 instance.last_used_model = model.model_key
                 instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
+                
+                # Save the chat completion pair if requested
+                if not force_local:
+                    instance._save_chat_completion_pair(chat, response, model.model_key)
+                
                 response = preprocess_response(response)
                 return start_response_with + response if include_start_response_str else response
 
@@ -537,73 +543,6 @@ class LlmRouter:
                 else:
                     print(colored(f"generate_completion error: {e}", "red"))
                     logger.error(f"generate_completion error: {e}")
-
-    @classmethod
-    def generate_completion_raw(
-        cls,
-        chat: Chat|str,
-        model: Llm,
-        start_response_with: str = "",
-        instruction: str = "You are a helpful assistant.",
-        temperature: float = 0.75,
-        base64_images: List[str] = [],
-        include_start_response_str: bool = True,
-        use_cache: bool = True,
-        silent_reason: str = False
-    ) -> Optional[str]:
-        """
-        Generate a completion response using the specified LLM.
-        
-        Args:
-            chat (Chat|str): The chat prompt or string.
-            model (Llm): The specific model to use.
-            strength (AIStrengths): The required strength of the model.
-            start_response_with (str): Initial string to start the response with.
-            instruction (str): Instruction for the chat.
-            temperature (float): Temperature setting for the model.
-            base64_images (List[str]): List of base64-encoded images.
-            include_start_response_str (bool): Whether to include the start response string.
-            use_cache (bool): Whether to use the cache.
-            force_local (Optional[bool]): Whether to force local models only.
-            force_free (bool): Whether to force free models only.
-            silent (bool): Whether to suppress output.
-
-        Returns:
-            Optional[str]: The generated completion string, or None if the model fails to generate a completion.
-        """
-        instance = cls()
-        tooling = CustomColoring()
-        cls.call_counter += 1
-        
-        # Convert string input to Chat object if necessary
-        if isinstance(chat, str):
-            chat = Chat(instruction).add_message(Role.USER, chat)
-        if start_response_with:
-            chat.add_message(Role.ASSISTANT, start_response_with)
-        
-        if base64_images:
-            chat.base64_images = base64_images
-        
-        try:
-            if use_cache:
-                cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
-                if cached_completion:
-                    if not silent_reason:
-                        print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}>","blue"))
-                        for char in cached_completion:
-                            print(tooling.apply_color(char), end="")
-                            time.sleep(0.001) # better observable for the user
-                        print()
-                    return cached_completion
-
-            response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
-            instance.last_used_model = model.model_key
-            instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
-            return start_response_with + response if include_start_response_str else response
-
-        except Exception as e:
-            logger.error(f"Error with model {model.model_key}: {e}")
-            return None
 
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """
@@ -630,3 +569,74 @@ class LlmRouter:
             logger.info(f"Updated token limit for {model.model_key}: {token_count} tokens")
         except Exception as limit_error:
             logger.error(f"Failed to save model token limit: {limit_error}")
+
+    @classmethod
+    def _save_chat_completion_pair(cls, chat: Chat, response: str, model_key: str) -> None:
+        """
+        Save a chat completion pair for finetuning.
+        
+        Args:
+            chat (Chat): The input chat context
+            response (str): The model's response
+            model_key (str): The key of the model that generated the response
+        """
+        try:
+            # Create the finetuning data directory if it doesn't exist
+            os.makedirs(g.UNCONFIRMED_FINETUNING_PATH, exist_ok=True)
+            
+            # Create a filename with timestamp to avoid collisions
+            timestamp = int(time.time())
+            cleaned_debug_title = chat.debug_title.replace(" ", "_")
+            filename = os.path.join(g.UNCONFIRMED_FINETUNING_PATH, f'completion_pair_{cleaned_debug_title}_{timestamp}.jsonl')
+            
+            # Create the training example
+            training_example = {
+                "input": chat.to_openai(),  # Convert chat to OpenAI format
+                "output": response,
+                "metadata": {
+                    "model": model_key,
+                    "timestamp": timestamp,
+                    "debug_title": cleaned_debug_title
+                }
+            }
+            
+            # Save to JSONL file
+            with open(filename, 'a') as f:
+                f.write(json.dumps(training_example) + '\n')
+                
+            logger.info(f"Saved chat completion pair to {filename}")
+        except Exception as e:
+            logger.error(f"Failed to save chat completion pair: {e}")
+    
+    @classmethod
+    def has_unconfirmed_data(cls) -> bool:
+        """Check if there are any unconfirmed finetuning data files."""
+        try:
+            if not os.path.exists(g.UNCONFIRMED_FINETUNING_PATH):
+                return False
+            return len(os.listdir(g.UNCONFIRMED_FINETUNING_PATH)) > 0
+        except Exception:
+            return False
+
+    @classmethod
+    def confirm_finetuning_data(cls) -> None:
+        """Move unconfirmed finetuning data to confirmed directory."""
+        os.makedirs(g.CONFIRMED_FINETUNING_PATH, exist_ok=True)
+        if not os.path.exists(g.UNCONFIRMED_FINETUNING_PATH):
+            return
+        
+        # move all files from unconfirmed_dir to confirmed_dir
+        for file in os.listdir(g.UNCONFIRMED_FINETUNING_PATH):
+            shutil.move(
+                os.path.join(g.UNCONFIRMED_FINETUNING_PATH, file), 
+                os.path.join(g.CONFIRMED_FINETUNING_PATH, file)
+            )
+    
+    @classmethod
+    def clear_unconfirmed_finetuning_data(cls) -> None:
+        """Delete all unconfirmed finetuning data."""
+        if not os.path.exists(g.UNCONFIRMED_FINETUNING_PATH):
+            return
+        for file in os.listdir(g.UNCONFIRMED_FINETUNING_PATH):
+            os.remove(os.path.join(g.UNCONFIRMED_FINETUNING_PATH, file))
+        
