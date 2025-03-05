@@ -599,7 +599,7 @@ REMEMBER:
                             if web_server and web_server.chat:
                                 web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {error_summary}")
                             
-                            context_chat.add_message(Role.USER, "The tool call has failed with an error, please consider the error for your next steps.\nIf this is a critical issue, contact the user.\nThe error was: " + error_summary)
+                            context_chat.add_message(Role.USER, "The tool call has failed with an error message. If you're unable to identify the error in your own tool call, consider if another tool is fit for the task. If not, consider using the reply tool to inform to the user with the error message." + error_summary)
                             skip_agent_guidance = True
                             continue
 

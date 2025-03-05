@@ -10,8 +10,10 @@ __pycache__/
 *.csv
 *.log
 *.json
+*.jsonl
 *.pptx
 *.pdf
+*.gif
 *.wav
 .vscode
 .venv/**

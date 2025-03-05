@@ -689,18 +689,30 @@ def extract_json(text: str, required_keys: Optional[List[str]] = None) -> Option
         # First try to extract from code blocks
         blocks = extract_blocks(text)
         
+        def clean_json_content(content: str) -> str:
+            """Helper function to clean JSON content before parsing."""
+            content = re.sub(r'(?<!\\)\\n', r'\\n', content)  # Fix newlines
+            content = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', content)  # Remove control chars
+            content = re.sub(r',\s*([}\]])', r'\1', content)  # Remove trailing commas
+            content = re.sub(r'(?<=\w)"(?=\w)', '\\"', content)  # Fix unescaped quotes
+            return content
+            
+        def validate_json_dict(parsed: Any) -> Optional[Dict[str, Any]]:
+            """Helper function to validate parsed JSON."""
+            if not isinstance(parsed, dict):
+                return None
+            if required_keys and not all(key in parsed for key in required_keys):
+                return None
+            return parsed
+        
         # Look for JSON in code blocks first
         for block_type, content in blocks:
             if block_type.lower() in ['json', '']:
                 try:
-                    # Clean up the JSON string
-                    content = re.sub(r'(?<!\\)\\n', r'\\n', content)  # Fix newlines
-                    content = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', content)  # Remove control chars
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict):
-                        if required_keys and not all(key in parsed for key in required_keys):
-                            continue
-                        return parsed
+                    cleaned_content = clean_json_content(content)
+                    parsed = json.loads(cleaned_content)
+                    if result := validate_json_dict(parsed):
+                        return result
                 except (json.JSONDecodeError, re.error):
                     continue
         
@@ -708,33 +720,24 @@ def extract_json(text: str, required_keys: Optional[List[str]] = None) -> Option
         for block_type, content in blocks:
             if block_type == 'first{}':
                 try:
-                    content = re.sub(r'(?<!\\)\\n', r'\\n', content)
-                    content = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', content)
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict):
-                        if required_keys and not all(key in parsed for key in required_keys):
-                            continue
-                        return parsed
+                    cleaned_content = clean_json_content(content)
+                    parsed = json.loads(cleaned_content)
+                    if result := validate_json_dict(parsed):
+                        return result
                 except (json.JSONDecodeError, re.error):
                     continue
         
         # If still no valid JSON, try more aggressive extraction
-        # Clean up the text first
         cleaned_text = re.sub(r'\s+', ' ', text)
         json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
         matches = re.finditer(json_pattern, cleaned_text)
         
         for match in matches:
             try:
-                content = match.group()
-                # Fix common JSON formatting issues
-                content = re.sub(r'(?<=\w)"(?=\w)', '\\"', content)  # Fix unescaped quotes
-                content = re.sub(r',\s*([}\]])', r'\1', content)  # Remove trailing commas
-                parsed = json.loads(content)
-                if isinstance(parsed, dict):
-                    if required_keys and not all(key in parsed for key in required_keys):
-                        continue
-                    return parsed
+                cleaned_content = clean_json_content(match.group())
+                parsed = json.loads(cleaned_content)
+                if result := validate_json_dict(parsed):
+                    return result
             except (json.JSONDecodeError, re.error):
                 continue
         
