@@ -217,7 +217,7 @@ class OllamaClient(ChatClientInterface):
             else:
                 print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to generate a response...")
             
-            response_stream = client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800)
+            response_stream = client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800, options={"num_predict": 32768})
             full_response = ""
             for line in response_stream:
                 next_string = line["message"]["content"]

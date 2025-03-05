@@ -4,6 +4,7 @@ import sys
 import time
 import warnings
 from dotenv import load_dotenv
+import psutil
 from termcolor import colored
 import whisper
 from typing import Dict, Tuple, Optional, List, Union
@@ -53,15 +54,19 @@ class PyAiHost:
             
         q: queue.Queue = queue.Queue()
         
-        def callback(indata: np.ndarray, frames: int, time: object, status: object) -> None:
-            """This is called (from a separate thread) for each audio block."""
-            if status:
-                print(status, file=sys.stderr)
-            q.put(bytes(indata))
             
         try:
             device_info = sd.query_devices(None, 'input')
             samplerate = int(device_info['default_samplerate'])
+            samplerate = 16000
+            
+            
+            def callback(indata: np.ndarray, frames: int, time: object, status: object) -> None:
+                """This is called (from a separate thread) for each audio block."""
+                if status:
+                    print(status, file=sys.stderr)
+                    print("samplerate: ", samplerate, "frames: ", frames)
+                q.put(bytes(indata))
             
             rec = KaldiRecognizer(cls.vosk_model, samplerate)
             rec.SetWords(True)
@@ -70,23 +75,26 @@ class PyAiHost:
             
             wake_words: List[str] = [
                 # Single words
-                "ai", "assistant", "computer", "nova",
+                "computer", "nova",
                 # Full phrases 
-                "a ai", "a assistant", "a computer", "a nova",
-                "hey ai", "hey assistant", "hey computer", "hey nova",
-                "ok ai", "ok assistant", "ok computer", "ok nova"
+                "hey computer", "hey nova",
+                "ok computer", "ok nova",
+                "okay computer", "okay nova"
             ]
             
-            with sd.RawInputStream(samplerate=samplerate, blocksize=8000, device=None,
+            with sd.RawInputStream(samplerate=samplerate, blocksize=int(samplerate/8), device=None,
                                  dtype='int16', channels=1, callback=callback):
                 
                 while True:
                     data = q.get()
                     if rec.AcceptWaveform(data):
                         json_result = json.loads(rec.Result())
-                        result_str = json_result.get("text", "").lower()
+                        result_str:str = json_result.get("text", "").lower()
                         if result_str:
                             print(f"Local: <{colored('Vosk', 'green')}> detected: {result_str}")
+                        
+                        if result_str.count(" ") > 4: # ignore if much more than the wake words are detected
+                            continue
                         
                         for wake_word in wake_words:
                             if wake_word in result_str:
@@ -97,11 +105,55 @@ class PyAiHost:
             return None
 
     
+
     @classmethod
-    def _initialize_whisper_model(cls, whisper_model_key: str = 'medium'):
+    def _initialize_whisper_model(cls, whisper_model_key: str = ''):
+        """
+        Initialize the Whisper speech recognition model.
+        
+        Model Sizes:
+        - tiny: 39M parameters
+        - base: 74M parameters
+        - small: 244M parameters
+        - medium: 769M parameters
+        - large: 1550M parameters
+        - large-v2: 1550M parameters (improved version of large)
+        
+        Parameters:
+            whisper_model_key (str): The key of the Whisper model to initialize. Defaults to 'medium'.
+        
+        Returns:
+            None: Sets the whisper_model class variable.
+        """
         if cls.whisper_model is None:
-            # Force CPU device if CUDA is not available
-            device = "cpu"  # Override device selection to ensure CPU usage
+            if torch.cuda.is_available():
+                device = "cuda"
+            else:
+                device = "cpu"
+                
+            # if no key provided, devide using cuda availablility and core count
+                
+            if whisper_model_key == '':
+                if device == "cuda":
+                    # check free vram
+                    free_vram = torch.cuda.mem_get_info()[0]
+                    ## if more than 2gb use large else medium
+                    if free_vram > 2 * 1024 * 1024 * 1024:  # 2 GB in bytes
+                        whisper_model_key = 'large-v2'
+                    else:
+                        whisper_model_key = 'medium'
+                else:
+                    # check core count
+                    core_count = psutil.cpu_count(logical=False)
+                    ## if more than 8 use medium, if more than 4 use small, else tiny
+                    if core_count > 8:
+                        whisper_model_key = 'medium'
+                    elif core_count > 4:
+                        whisper_model_key = 'small'
+                    else:
+                        whisper_model_key = 'tiny'
+
+                
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", FutureWarning)
                 cls.whisper_model = whisper.load_model(
@@ -281,7 +333,7 @@ class PyAiHost:
             sd.stop()
 
     @classmethod
-    def transcribe_audio(cls, audio_path: str, whisper_model_key: str = 'small') -> Tuple[str, str]:
+    def transcribe_audio(cls, audio_path: str, whisper_model_key: str = '') -> Tuple[str, str]:
         """Transcribes the audio file."""
         if cls.whisper_model is None:
             cls._initialize_whisper_model(whisper_model_key)

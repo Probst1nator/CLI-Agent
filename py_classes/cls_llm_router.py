@@ -86,6 +86,9 @@ class Llm:
             Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
             Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "mistral-saba-24b", None, False, False, False, 8192, [AIStrengths.FAST, AIStrengths.GENERAL]),
+            Llm(GroqAPI(), "qwen-2.5-coder-32b", None, False, False, False, 128000, [AIStrengths.CODE]),
+            Llm(GroqAPI(), "qwen-2.5-32b", None, False, False, False, 8192, [AIStrengths.FAST, AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.CODE]),
             Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 8192, [AIStrengths.FAST]),
             Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, [AIStrengths.FAST]),
             Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 32768, [AIStrengths.GENERAL]),
@@ -93,6 +96,7 @@ class Llm:
             Llm(GroqAPI(), "deepseek-r1-distill-llama-70b-specdec", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
             Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
             Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, True, 32768, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL]),
+            Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
             
             
             Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, False, 200000, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL, AIStrengths.CODE, AIStrengths.TOOLUSE]),
@@ -101,14 +105,16 @@ class Llm:
             # Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, [AIStrengths.STRONG]),
             # Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, [AIStrengths.FAST]),
             
-            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 8192, [AIStrengths.GENERAL]),
+            Llm(OllamaClient(), "phi4-mini", None, True, True, False, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(OllamaClient(), "deepseek-r1:14b", None, True, True, False, 128000, [AIStrengths.REASONING]),
             Llm(OllamaClient(), "deepseek-r1:8b", None, True, True, False, 128000, [AIStrengths.REASONING]),
             Llm(OllamaClient(), "command-r7b:latest", None, True, True, False, 128000, [AIStrengths.TOOLUSE]),
-            Llm(OllamaClient(), "llama3.2:3b", None, False, True, False, 4096, [AIStrengths.FAST]),
             Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 131072, [AIStrengths.GENERAL, AIStrengths.CODE]),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, False, 128000, [AIStrengths.GENERAL]),
             Llm(OllamaClient(), "mistral-small:22b", None, False, True, False, 128000, [AIStrengths.GENERAL]),
+            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 8192, [AIStrengths.GENERAL]),
             Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, True, False, 128000, [AIStrengths.UNCENSORED]),
+            Llm(OllamaClient(), "llama3.2:3b", None, False, True, False, 4096, [AIStrengths.FAST]),
             
             Llm(OllamaClient(), "minicpm-v:8b", None, False, True, True, 32768, []),
             

@@ -271,36 +271,37 @@ Perfect for tasks like:
             else:
                 unlabelled_elements.append(element)
         
-        # handle elements without text content        
-        print(colored("🔍 Capturing elements without text content...", "cyan"))
-        # save the original mouse position
-        original_x, original_y = pyautogui.position()
-        # move the mouse to the center of the screen
-        center_x, center_y = self._get_monitor_center()
-        pyautogui.moveTo(center_x, center_y)
-        time.sleep(0.5)
-        for index, unlabelled_element in enumerate(unlabelled_elements):
-            print(colored(f"🔍 Capturing elements progress: {index}/{len(unlabelled_elements)}", "cyan"))
-            shape = unlabelled_element['shape']
-            # screenshot the element region
-            # move the mouse to the center of the element
-            center_x = int(shape['x'] + (shape['width'] / 2))
-            center_y = int(shape['y'] + (shape['height'] / 2))
-            pyautogui.moveTo(center_x, center_y)
-            region = (int(shape['x']), int(shape['y']), int(shape['width']), int(shape['height']))
-            screenshot = pyautogui.screenshot(region=region)
-            # save the screenshot as content as file and put the path in the content
-            temp_path = os.path.join(g.PROJ_TEMP_STORAGE_PATH, "ui_tool", f"element_{index}.png")
-            screenshot.save(temp_path)
-            unlabelled_element["content"] = temp_path
-        # move the mouse to its original position
-        pyautogui.moveTo(original_x, original_y)
-        # replace base64 content with vlm analysis
-        print(colored("🔍 Analyzing elements with VLM...", "cyan"))
-        for index, unlabelled_element in enumerate(unlabelled_elements):
-            print(colored(f"🔍 VLM analyzing elements progress: {index}/{len(unlabelled_elements)}", "cyan"))
-            vlm_analysis = await self._analyze_element_with_vlm(unlabelled_element["content"])
-            unlabelled_element["content"] = vlm_analysis
+        # # handle elements without text content        
+        # print(colored("🔍 Capturing elements without text content...", "cyan"))
+        # # save the original mouse position
+        # original_x, original_y = pyautogui.position()
+        # # move the mouse to the center of the screen
+        # center_x, center_y = self._get_monitor_center()
+        # pyautogui.moveTo(center_x, center_y)
+        # time.sleep(0.5)
+        # for index, unlabelled_element in enumerate(unlabelled_elements):
+        #     print(colored(f"🔍 Capturing elements progress: {index}/{len(unlabelled_elements)}", "cyan"))
+        #     shape = unlabelled_element['shape']
+        #     # screenshot the element region
+        #     # move the mouse to the center of the element
+        #     center_x = int(shape['x'] + (shape['width'] / 2))
+        #     center_y = int(shape['y'] + (shape['height'] / 2))
+        #     pyautogui.moveTo(center_x, center_y)
+        #     region = (int(shape['x']), int(shape['y']), int(shape['width']), int(shape['height']))
+        #     screenshot = pyautogui.screenshot(region=region)
+        #     # save the screenshot as content as file and put the path in the content
+        #     temp_path = os.path.join(g.PROJ_TEMP_STORAGE_PATH, "ui_tool", f"element_{index}.png")
+        #     screenshot.save(temp_path)
+        #     unlabelled_element["content"] = temp_path
+        # # move the mouse to its original position
+        # pyautogui.moveTo(original_x, original_y)
+        # # replace base64 content with vlm analysis
+        # print(colored("🔍 Analyzing elements with VLM...", "cyan"))
+        # for index, unlabelled_element in enumerate(unlabelled_elements):
+        #     print(colored(f"🔍 VLM analyzing elements progress: {index}/{len(unlabelled_elements)}", "cyan"))
+        #     vlm_analysis = await self._analyze_element_with_vlm(unlabelled_element["content"])
+        #     unlabelled_element["content"] = vlm_analysis
+        # simplified_elements.extend(unlabelled_elements)
         
         return annotated_path, simplified_elements
 

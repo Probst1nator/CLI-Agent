@@ -9,22 +9,24 @@ from termcolor import colored
 from .cls_base_tool import BaseTool
 
 class ToolManager:
-    def __init__(self, tools_directory: str = "py_tools"):
-        self.tools_directory = tools_directory
+    def __init__(self):
+        # Get the absolute path of the project root directory (parent of py_classes)
+        self.project_root = Path(__file__).parent.parent.absolute()
+        self.tools_directory = "py_tools"
+        self.tools_path = self.project_root / self.tools_directory
         self.tools: Dict[str, Type[BaseTool]] = {}
-        print(colored(f"Initializing ToolManager with directory: {tools_directory}", "green"))
+        print(colored(f"Initializing ToolManager with directory: {self.tools_path}", "green"))
         self._load_tools()
 
     def _load_tools(self) -> None:
         """Dynamically load all tool modules from the tools directory"""
-        tools_path = Path(self.tools_directory)
-        if not tools_path.exists():
-            os.makedirs(tools_path)
+        if not self.tools_path.exists():
+            os.makedirs(self.tools_path)
             # Create __init__.py to make it a package
-            (tools_path / "__init__.py").touch()
+            (self.tools_path / "__init__.py").touch()
 
-        print(colored(f"Scanning for tools in: {tools_path}", "green"))
-        for file in tools_path.glob("*.py"):
+        print(colored(f"Scanning for tools in: {self.tools_path}", "green"))
+        for file in self.tools_path.glob("*.py"):
             if file.name.startswith("_"):
                 continue
 
