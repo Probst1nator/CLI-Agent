@@ -19,11 +19,13 @@ import queue
 import sounddevice as sd
 from kokoro import KPipeline
 from py_classes.globals import g
+from scipy import signal
 
 logger = logging.getLogger(__name__)
 
 class PyAiHost:
     whisper_model: Optional[whisper.Whisper] = None
+    whisper_model_key: Optional[str] = None
     tts_interface: Optional[outetts.InterfaceHF] = None
     kokoro_pipeline: Optional[KPipeline] = None
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -52,27 +54,14 @@ class PyAiHost:
         if not cls.vosk_model:
             cls.initialize_wake_word()
             
-        q: queue.Queue = queue.Queue()
+        # Use a smaller queue to prevent memory buildup
+        audio_queue = queue.Queue(maxsize=5)
         
-            
         try:
-            device_info = sd.query_devices(None, 'input')
-            samplerate = int(device_info['default_samplerate'])
-            samplerate = 16000
+            # Force the correct sample rate for Vosk
+            target_sample_rate = 16000
             
-            
-            def callback(indata: np.ndarray, frames: int, time: object, status: object) -> None:
-                """This is called (from a separate thread) for each audio block."""
-                if status:
-                    print(status, file=sys.stderr)
-                    print("samplerate: ", samplerate, "frames: ", frames)
-                q.put(bytes(indata))
-            
-            rec = KaldiRecognizer(cls.vosk_model, samplerate)
-            rec.SetWords(True)
-            
-            print(f"Local: <{colored('Vosk', 'green')}> is listening for wake word...")
-            
+            # Wake word list
             wake_words: List[str] = [
                 # Single words
                 "computer", "nova",
@@ -82,26 +71,85 @@ class PyAiHost:
                 "okay computer", "okay nova"
             ]
             
-            with sd.RawInputStream(samplerate=samplerate, blocksize=int(samplerate/8), device=None,
-                                 dtype='int16', channels=1, callback=callback):
+            # Create recognizer with correct sample rate
+            rec = KaldiRecognizer(cls.vosk_model, target_sample_rate)
+            rec.SetWords(True)
+            
+            print(f"Local: <{colored('Vosk', 'green')}> is listening for wake word...")
+            
+            # Track last overflow message time to reduce spam
+            last_overflow_time = time.time()
+            overflow_count = 0
+            
+            def audio_callback(indata: np.ndarray, frames: int, time_info: object, status: object) -> None:
+                """Called for each audio block from the sound device."""
+                nonlocal last_overflow_time, overflow_count
+                
+                # Handle status messages
+                if status:
+                    now = time.time()
+                    if status.input_overflow:
+                        overflow_count += 1
+                        if now - last_overflow_time > 5.0:  # Only log every 5 seconds
+                            print(f"Input overflow occurred {overflow_count} times")
+                            last_overflow_time = now
+                    else:
+                        print(f"Audio status: {status}")
+                
+                # Only add to queue if there's room (non-blocking)
+                if not audio_queue.full():
+                    try:
+                        audio_queue.put_nowait(bytes(indata))
+                    except queue.Full:
+                        pass  # Queue is full, skip this frame
+            
+            # Device configuration options
+            device_config = {
+                'samplerate': target_sample_rate,
+                'channels': 1,
+                'dtype': 'int16',
+                'latency': 'high',  # Use high latency for more stable processing
+                'blocksize': 4000   # 250ms at 16kHz - large enough to reduce callbacks
+            }
+            
+            # Start input stream
+            with sd.RawInputStream(**device_config, callback=audio_callback):
+                print("Listening for wake words...")
                 
                 while True:
-                    data = q.get()
-                    if rec.AcceptWaveform(data):
-                        json_result = json.loads(rec.Result())
-                        result_str:str = json_result.get("text", "").lower()
-                        if result_str:
-                            print(f"Local: <{colored('Vosk', 'green')}> detected: {result_str}")
+                    # Non-blocking queue get with timeout
+                    try:
+                        audio_data = audio_queue.get(timeout=0.5)
                         
-                        if result_str.count(" ") > 4: # ignore if much more than the wake words are detected
-                            continue
-                        
-                        for wake_word in wake_words:
-                            if wake_word in result_str:
-                                return wake_word
+                        # Process audio data
+                        if rec.AcceptWaveform(audio_data):
+                            try:
+                                result = json.loads(rec.Result())
+                                text = result.get("text", "").lower().strip()
                                 
+                                if text:
+                                    print(f"Detected: '{text}'")
+                                    
+                                    # Check for wake words (simple contains check)
+                                    if text.count(" ") <= 4:  # Skip if too many words (likely not a wake word)
+                                        for wake_word in wake_words:
+                                            if wake_word in text:
+                                                return wake_word
+                            except json.JSONDecodeError:
+                                pass  # Invalid JSON, just skip
+                    
+                    except queue.Empty:
+                        # Timeout on queue - this is normal, just continue
+                        continue
+                    
+                    except Exception as e:
+                        # Log other errors but keep running
+                        print(f"Error in speech recognition: {e}")
+                
         except Exception as e:
             print(f"Error in wake word detection: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     
@@ -156,6 +204,7 @@ class PyAiHost:
                 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", FutureWarning)
+                cls.whisper_model_key = whisper_model_key
                 cls.whisper_model = whisper.load_model(
                     whisper_model_key,
                     device=device
@@ -340,9 +389,9 @@ class PyAiHost:
         
         load_dotenv(g.PROJ_ENV_FILE_PATH)
         voice_activation_whisper_prompt = os.getenv('VOICE_ACTIVATION_WHISPER_PROMPT', '')
-        
+
         try:
-            print(f"Local: <{colored('Whisper', 'green')}> is transcribing...")
+            print(f"Local: <{colored(f'Whisper - {cls.whisper_model_key}', 'green')}> is transcribing...")
             # Use CUDA if available but suppress warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -359,16 +408,6 @@ class PyAiHost:
         except Exception as e:
             print(f"An error occurred during transcription: {e}")
             return "", ""
-    
-    @classmethod
-    def _initialize_tts_model(cls, language: str = "en", use_flash_attention: bool = False):
-        if cls.tts_interface is None:
-            model_config = outetts.HFModelConfig_v1(
-                model_path="OuteAI/OuteTTS-0.2-500M",
-                language=language,
-                dtype=torch.float32,
-                device=cls.device,  # Add explicit device specification
-            )
     
 
     @classmethod
