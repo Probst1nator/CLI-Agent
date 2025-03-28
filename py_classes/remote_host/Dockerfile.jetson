@@ -1,0 +1,114 @@
+FROM dustynv/l4t-pytorch:r35.4.1
+
+# Add labels for better maintainability
+LABEL maintainer="CLI-Agent Team"
+LABEL description="CLI-Agent Remote Host Service with Speech Processing for Jetson devices"
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies for audio processing and build tools
+RUN apt-get update && apt-get install -y \
+    libportaudio2 \
+    libsndfile1 \
+    libgomp1 \
+    python3-dev \
+    gcc \
+    git \
+    ffmpeg \
+    build-essential \
+    cmake \
+    libavformat-dev \
+    libavfilter-dev \
+    libavdevice-dev \
+    libavutil-dev \
+    libswscale-dev \
+    libswresample-dev \
+    libavcodec-dev \
+    pkg-config \
+    libssl-dev \
+    rustc \
+    cargo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+
+# Install numpy 1.x explicitly for Whisper compatibility
+RUN pip3 install --no-cache-dir "numpy<2.0.0"
+
+# Install minimal dependencies one by one to avoid issues
+RUN pip3 install --no-cache-dir flask==2.3.3 
+RUN pip3 install --no-cache-dir requests==2.31.0 
+RUN pip3 install --no-cache-dir gunicorn==21.2.0 
+RUN pip3 install --no-cache-dir scipy 
+RUN pip3 install --no-cache-dir python-dotenv 
+RUN pip3 install --no-cache-dir termcolor 
+RUN pip3 install --no-cache-dir psutil
+
+# Install sounddevice and soundfile
+RUN pip3 install --no-cache-dir sounddevice || echo "Warning: sounddevice installation failed"
+RUN pip3 install --no-cache-dir soundfile || echo "Warning: soundfile installation failed"
+
+# Install specified versions of dependencies for faster-whisper
+RUN pip3 install --no-cache-dir "huggingface-hub>=0.13.0" "numpy>=1.17.0"
+
+# Install PyAV for audio processing
+RUN pip3 install --no-cache-dir av
+
+# Install tokenizers with build flags for ARM
+RUN RUSTFLAGS="-C target-feature=-crt-static" pip3 install --no-cache-dir tokenizers==0.13.3
+
+# Install CTranslate2 with CUDA support
+ENV CT2_USE_CUDA=1
+RUN pip3 install --force-reinstall --no-cache-dir ctranslate2==3.20.0
+
+# Install onnxruntime for VAD filter support
+RUN pip3 install --no-cache-dir onnxruntime-gpu || pip3 install --no-cache-dir onnxruntime
+
+# Install faster-whisper without dependencies (we already installed them)
+RUN pip3 install --no-cache-dir --no-deps faster-whisper==1.0.0
+
+# Install vosk separately with specific version
+RUN pip3 install --no-cache-dir vosk==0.3.45
+
+# Copy only the necessary files
+COPY py_classes/remote_host /app/py_classes/remote_host
+COPY py_classes/__init__.py /app/py_classes/__init__.py
+COPY py_classes/globals.py /app/py_classes/globals.py
+
+# Make the preload script executable
+RUN chmod +x /app/py_classes/remote_host/preload_models.py
+
+# Create a startup script
+RUN echo '#!/bin/bash\n\
+echo "Preloading Whisper models..."\n\
+python3 /app/py_classes/remote_host/preload_models.py\n\
+echo "Starting Gunicorn server..."\n\
+# Set Python memory management variables\n\
+export MALLOC_TRIM_THRESHOLD_=100000\n\
+export MALLOC_MMAP_THRESHOLD_=100000\n\
+export PYTHONMALLOC=malloc\n\
+export PYTHONMALLOCSTATS=0\n\
+# Use only 1 worker to avoid memory competition and set a longer timeout\n\
+exec gunicorn -b 0.0.0.0:5000 --timeout 600 --workers 1 --threads 1 --worker-class sync py_classes.remote_host.cls_remote_host_server:app\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+# Create empty .env file
+RUN touch /app/.env
+
+# Set environment variables
+ENV PORT=5000
+ENV HOST=0.0.0.0
+ENV PYTHONPATH=/app
+
+# Expose port
+EXPOSE 5000
+
+# Create volume for model cache
+VOLUME /root/.cache/vosk
+VOLUME /root/.cache/whisper
+VOLUME /root/.cache/huggingface
+
+# Run the startup script
+CMD ["/app/start.sh"] 

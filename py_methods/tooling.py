@@ -335,7 +335,7 @@ def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
     return source
 
 def listen_microphone(
-    max_listening_duration: Optional[int] = 60, force_local: bool = True
+    max_listening_duration: Optional[int] = 60, force_local_speech_recognition: bool = True, private_remote_wake_detection: bool = False
 ) -> Tuple[str, str, bool|str]:
     """
     Listen to the microphone, save to a temporary file, and return transcription.
@@ -357,7 +357,7 @@ def listen_microphone(
         try:
             # Listen for speech until it seems to stop or reaches the maximum duration
             PyAiHost.play_notification()
-            used_wake_word = PyAiHost.wait_for_wake_word()
+            used_wake_word = PyAiHost.wait_for_wake_word(private_remote_wake_detection)
             print(colored("Listening closely...", "yellow"))
             PyAiHost.play_notification()
             
@@ -386,7 +386,7 @@ def listen_microphone(
                 temp_audio_file_path = temp_audio_file.name
 
                 # Transcribe the audio from the temporary file
-                if force_local:
+                if force_local_speech_recognition:
                     transcription, detected_language = PyAiHost.transcribe_audio(temp_audio_file_path)
                 else:
                     transcription, detected_language = OpenAIAPI.transcribe_audio(temp_audio_file_path)

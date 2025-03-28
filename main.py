@@ -112,6 +112,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enable debug windows for chat contexts without full debug logging")
     parser.add_argument("--majority", action="store_true", default=False,
                         help="Use majority voting for responses")
+    parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
+                        help="Use private remote wake detection")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -193,7 +195,7 @@ async def main() -> None:
         print(colored(last_response, 'magenta'))
 
     if args.edit and args.fixpy and args.presentation:
-        from py_agents.assistants import python_error_agent, code_assistant, presentation_assistant
+        from manual_agents.assistants import python_error_agent, code_assistant, presentation_assistant
         if args.edit != None: # code edit mode
             pre_chosen_option = ""
             if (args.auto):
@@ -259,7 +261,7 @@ async def main() -> None:
             args.message = None
         elif args.voice:
             # Default voice handling
-            user_input, _, wake_word_used = listen_microphone()
+            user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
         else:
             # if LlmRouter.has_unconfirmed_data():  # Show rating info if there's unconfirmed data
             #     print(colored("(Optional: Enter 1 to save or 2 to discard last response for training)", 'yellow', attrs=["dark"]))
@@ -692,7 +694,7 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
             confirmation_response = "Do you want me to execute these steps? (Yes/no)"
             print(colored(confirmation_response, 'yellow'))
             text_to_speech(confirmation_response)
-            user_input = listen_microphone(10)[0]
+            user_input = listen_microphone(10, private_remote_wake_detection=args.private_remote_wake_detection)[0]
         else:
             user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
         if not (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
