@@ -30,6 +30,7 @@ class PyAiHost:
     kokoro_pipeline: Optional[KPipeline] = None
     device = "cuda" if torch.cuda.is_available() else "cpu"
     vosk_model: Optional[Model] = None
+    remote_host_client = None
     
     @classmethod
     def initialize_wake_word(cls):
@@ -49,8 +50,54 @@ class PyAiHost:
                 cls.vosk_model = Model(lang="en-us")  # Downloads small model automatically
             
     @classmethod
-    def wait_for_wake_word(cls) -> Optional[str]:
-        """Listen for wake word and return either the detected wake word or None if failed."""
+    def initialize_remote_host_client(cls):
+        """Initialize the remote host client."""
+        if cls.remote_host_client is None:
+            try:
+                from py_classes.remote_host.cls_remote_host_client import RemoteHostClient
+                cls.remote_host_client = RemoteHostClient()
+                logger.info("Remote host client initialized")
+            except ImportError as e:
+                logger.error(f"Failed to import RemoteHostClient: {e}")
+                print(f"Local: <{colored('PyAiHost', 'red')}> failed to import RemoteHostClient: {e}")
+                cls.remote_host_client = None
+            except Exception as e:
+                logger.error(f"Failed to initialize remote host client: {e}")
+                print(f"Local: <{colored('PyAiHost', 'red')}> failed to initialize remote host client: {e}")
+                cls.remote_host_client = None
+
+    @classmethod
+    def wait_for_wake_word(cls, use_remote: bool = False) -> Optional[str]:
+        """
+        Listen for wake word and return either the detected wake word or None if failed.
+        
+        Args:
+            use_remote: If True, use the remote host for wake word detection
+                        instead of local detection
+        
+        Returns:
+            Optional[str]: The detected wake word or None if detection failed
+        """
+        # Use remote host if requested
+        if use_remote:
+            # Initialize remote client if needed
+            if cls.remote_host_client is None:
+                cls.initialize_remote_host_client()
+                
+            # If we still don't have a remote client, fall back to local
+            if cls.remote_host_client is None:
+                logger.warning("Remote host requested but failed to initialize client. Falling back to local.")
+                return cls.wait_for_wake_word(use_remote=False)
+                
+            # Check if wake word service is available
+            if not cls.remote_host_client.is_service_available("wake_word"):
+                logger.warning("Wake word service not available on remote host. Falling back to local.")
+                return cls.wait_for_wake_word(use_remote=False)
+                
+            # Use remote client
+            return cls.remote_host_client.wait_for_wake_word()
+        
+        # Use local wake word detection
         if not cls.vosk_model:
             cls.initialize_wake_word()
             
@@ -151,8 +198,6 @@ class PyAiHost:
             import traceback
             traceback.print_exc()
             return None
-
-    
 
     @classmethod
     def _initialize_whisper_model(cls, whisper_model_key: str = ''):
@@ -265,9 +310,9 @@ class PyAiHost:
     @classmethod
     def record_audio(cls, sample_rate: int = 44100, threshold: float = 0.05,
                     silence_duration: float = 2.0, min_duration: float = 1.0, 
-                    max_duration: float = 30.0, use_wake_word: bool = True) -> Tuple[np.ndarray, int]:
+                    max_duration: float = 30.0, use_wake_word: bool = True,
+                    use_remote: bool = False) -> Tuple[np.ndarray, int]:
         """
-        Record audio with automatic speech detection and optional wake word detection.
         Record audio with automatic speech detection and optional wake word detection.
         
         Args:
@@ -277,20 +322,14 @@ class PyAiHost:
             min_duration (float): Minimum recording duration (seconds)
             max_duration (float): Maximum recording duration (seconds)
             use_wake_word (bool): Whether to wait for wake word before recording
-                
-            use_wake_word (bool): Whether to wait for wake word before recording
+            use_remote (bool): Whether to use remote host for wake word detection
                 
         Returns:
             Tuple[np.ndarray, int]: Recorded audio array and sample rate
         """
         # Check for wake word if enabled
-        if use_wake_word and cls.porcupine_instance:
-            if not cls.wait_for_wake_word():
-                return np.array([]), sample_rate
-            
-        # Check for wake word if enabled
-        if use_wake_word and cls.porcupine_instance:
-            if not cls.wait_for_wake_word():
+        if use_wake_word:
+            if not cls.wait_for_wake_word(use_remote=use_remote):
                 return np.array([]), sample_rate
             
         chunk_duration = 0.1  # Process audio in 100ms chunks
@@ -308,9 +347,6 @@ class PyAiHost:
         recorded_chunks = 0
         
         print("\nListening... (speak now, recording will stop after silence)")
-        
-        # Play notification sound after wake word detection
-        cls.play_notification()
         
         # Play notification sound after wake word detection
         cls.play_notification()
@@ -388,17 +424,13 @@ class PyAiHost:
             cls._initialize_whisper_model(whisper_model_key)
         
         load_dotenv(g.PROJ_ENV_FILE_PATH)
-        voice_activation_whisper_prompt = os.getenv('VOICE_ACTIVATION_WHISPER_PROMPT', '')
 
         try:
             print(f"Local: <{colored(f'Whisper - {cls.whisper_model_key}', 'green')}> is transcribing...")
             # Use CUDA if available but suppress warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                if voice_activation_whisper_prompt:
-                    result: Dict[str, any] = cls.whisper_model.transcribe(audio_path, initial_prompt=voice_activation_whisper_prompt)
-                else:
-                    result: Dict[str, any] = cls.whisper_model.transcribe(audio_path)
+                result: Dict[str, any] = cls.whisper_model.transcribe(audio_path)
             
             transcribed_text: str = result.get('text', '')
             detected_language: str = result.get('language', '')
