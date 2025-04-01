@@ -86,14 +86,11 @@ class Llm:
             Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
             Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "mistral-saba-24b", None, False, False, False, 8192, [AIStrengths.FAST, AIStrengths.GENERAL]),
             Llm(GroqAPI(), "qwen-2.5-coder-32b", None, False, False, False, 128000, [AIStrengths.CODE]),
             Llm(GroqAPI(), "qwen-2.5-32b", None, False, False, False, 8192, [AIStrengths.FAST, AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.CODE]),
             Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 8192, [AIStrengths.FAST]),
             Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, [AIStrengths.FAST]),
-            Llm(GroqAPI(), "mixtral-8x7b-32768", None, False, False, False, 32768, [AIStrengths.GENERAL]),
             
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b-specdec", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
             Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
             Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, True, 32768, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL]),
             Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
@@ -104,10 +101,11 @@ class Llm:
             
             # Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, [AIStrengths.STRONG]),
             # Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, [AIStrengths.FAST]),
-            
-            Llm(OllamaClient(), "phi4-mini", None, True, True, False, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(OllamaClient(), "deepseek-r1:14b", None, True, True, False, 128000, [AIStrengths.REASONING]),
-            Llm(OllamaClient(), "deepseek-r1:8b", None, True, True, False, 128000, [AIStrengths.REASONING]),
+            Llm(OllamaClient(), "gemma3:27b", None, True, True, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(OllamaClient(), "gemma3:12b", None, True, True, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(OllamaClient(), "gemma3:4b", None, True, True, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            # Llm(OllamaClient(), "deepseek-r1:14b", None, True, True, False, 128000, [AIStrengths.REASONING]),
+            Llm(OllamaClient(), "deepseek-r1:8b", None, True, True, False, 128000, [AIStrengths.REASONING, AIStrengths.FAST]),
             Llm(OllamaClient(), "command-r7b:latest", None, True, True, False, 128000, [AIStrengths.TOOLUSE]),
             Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 131072, [AIStrengths.GENERAL, AIStrengths.CODE]),
             Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, False, 128000, [AIStrengths.GENERAL]),
@@ -286,8 +284,8 @@ class LlmRouter:
         if model.context_window < chat.count_tokens():
             return False
         if strength and model.strength:
-            # Check if any of the required strengths match any of the model's strengths
-            if not any(s.value in [ms.value for ms in model.strength] for s in strength):
+            # Check if ALL of the required strengths are included in the model's strengths
+            if not all(s.value in [ms.value for ms in model.strength] for s in strength):
                 # Only check for GENERAL if allowed
                 if allow_general:
                     return any(s.value == AIStrengths.GENERAL.value for s in model.strength)
@@ -471,7 +469,7 @@ class LlmRouter:
             force_local = True
         
         def preprocess_response(response: str) -> str:
-            if exclude_reasoning_tokens:
+            if exclude_reasoning_tokens and "</think>" in response:
                 return response.split("</think>")[1]
             return response
         
@@ -540,15 +538,18 @@ class LlmRouter:
                     instance._save_dynamic_token_limit_for_model(model, chat.count_tokens())
                 
                 if 'model' in locals() and model is not None:
-                    print(colored(f"generate_completion error with model {model.model_key}: {e}", "red"))
-                    logger.error(f"generate_completion error with model {model.model_key}: {e}")
                     if model.model_key in instance.failed_models:
                         return None
                     instance.failed_models.add(model.model_key)
                     instance.retry_models.remove(model)
-                else:
-                    print(colored(f"generate_completion error: {e}", "red"))
-                    logger.error(f"generate_completion error: {e}")
+                # Do not print Groq rate limit errors
+                if (not ("Groq" in str(e) and "rate_limit_exceeded" in str(e))):
+                    if 'model' in locals() and model is not None:
+                        print(colored(f"generate_completion error with model {model.model_key}: {e}", "red"))
+                        logger.error(f"generate_completion error with model {model.model_key}: {e}")
+                    else:
+                        print(colored(f"generate_completion error: {e}", "red"))
+                        logger.error(f"generate_completion error: {e}")
 
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """
@@ -572,7 +573,7 @@ class LlmRouter:
             with open(g.DYNAMIC_MODEL_LIMITS_PATH, 'w') as f:
                 json.dump(self._model_limits, f, indent=4)
             
-            logger.info(f"Updated token limit for {model.model_key}: {token_count} tokens")
+            # logger.info(f"Updated token limit for {model.model_key}: {token_count} tokens")
         except Exception as limit_error:
             logger.error(f"Failed to save model token limit: {limit_error}")
 

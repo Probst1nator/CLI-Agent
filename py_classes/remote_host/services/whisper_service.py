@@ -86,6 +86,22 @@ class WhisperService:
         self.cuda_available = torch.cuda.is_available()
         self.device = "cuda" if self.cuda_available else "cpu"
         
+        # Check CTranslate2 CUDA support explicitly
+        self.ctranslate2_cuda_available = False
+        try:
+            import ctranslate2
+            cuda_count = ctranslate2.get_cuda_device_count()
+            self.ctranslate2_cuda_available = cuda_count > 0
+            logger.info(f"CTranslate2 CUDA device count: {cuda_count}")
+            
+            # Print CUDA environment variables for debugging
+            relevant_vars = ["CUDA_HOME", "CUDA_VISIBLE_DEVICES", "CUDA_PATH", "CT2_USE_CUDA", "LD_LIBRARY_PATH"]
+            env_info = {var: os.environ.get(var, "Not set") for var in relevant_vars}
+            logger.info(f"CUDA environment variables: {env_info}")
+        except Exception as e:
+            logger.warning(f"Error checking CTranslate2 CUDA support: {e}")
+            self.ctranslate2_cuda_available = False
+        
         # Check if we're on a Jetson device
         self.is_jetson = self._check_is_jetson()
         
@@ -309,18 +325,11 @@ class WhisperService:
             
             compute_type = "int8" if self.is_jetson else "float16" if loading_device == "cuda" else "float32"
             
-            # Try to verify CUDA support in CTranslate2
-            cuda_available_for_ct2 = False
-            try:
-                import ctranslate2
-                cuda_available_for_ct2 = ctranslate2.get_cuda_device_count() > 0
-                logger.info(f"CTranslate2 CUDA device count: {ctranslate2.get_cuda_device_count()}")
-            except Exception as e:
-                logger.warning(f"Could not verify CTranslate2 CUDA support: {e}")
-            
+            # Check if CTranslate2 can use CUDA - use our pre-computed flag for consistency
             # If CUDA is not available for CTranslate2 but we're trying to use it, force CPU
-            if loading_device == "cuda" and not cuda_available_for_ct2:
+            if loading_device == "cuda" and not self.ctranslate2_cuda_available:
                 logger.warning("CTranslate2 was not compiled with CUDA support, falling back to CPU")
+                logger.warning("Please rebuild the Docker image to ensure proper CUDA support")
                 loading_device = "cpu"
                 compute_type = "float32"
             
@@ -337,7 +346,24 @@ class WhisperService:
             if self.device == "cuda":
                 self._log_gpu_memory("After model load")
             
-            logger.info(f"Successfully loaded Whisper model: {model_name} on {loading_device}")
+            # Verify the device the model is actually using
+            model_device = "unknown"
+            if hasattr(self.models[model_name], 'device'):
+                model_device = self.models[model_name].device
+            logger.info(f"Successfully loaded Whisper model: {model_name} on {loading_device} (actual: {model_device})")
+            
+            # Double-check that CTranslate2 CUDA is working if we requested CUDA
+            if loading_device == "cuda":
+                try:
+                    import ctranslate2
+                    cuda_count = ctranslate2.get_cuda_device_count()
+                    if cuda_count > 0:
+                        logger.info(f"CTranslate2 confirms CUDA is available with {cuda_count} devices")
+                    else:
+                        logger.warning("CTranslate2 still reports no CUDA devices available even though we requested CUDA")
+                except Exception as e:
+                    logger.warning(f"Could not verify CTranslate2 CUDA devices: {e}")
+            
             return True
         except Exception as e:
             logger.error(f"Failed to load Whisper model {model_name}: {e}")
@@ -377,21 +403,15 @@ class WhisperService:
             torch.cuda.empty_cache()
             self._log_gpu_memory("Before model load")
             
-            # Verify CUDA support in CTranslate2
-            cuda_available_for_ct2 = False
-            try:
-                import ctranslate2
-                cuda_available_for_ct2 = ctranslate2.get_cuda_device_count() > 0
-                logger.info(f"CTranslate2 CUDA device count: {ctranslate2.get_cuda_device_count()}")
-            except Exception as e:
-                logger.warning(f"Could not verify CTranslate2 CUDA support: {e}")
-            
-            # Determine device based on CUDA support
-            device = "cuda" if cuda_available_for_ct2 else "cpu"
+            # Determine device based on CUDA support - use class-level detection
+            device = "cuda" if self.ctranslate2_cuda_available else "cpu"
             compute_type = "int8" if device == "cuda" else "float32"
             
             if device != "cuda":
                 logger.warning("CTranslate2 was not compiled with CUDA support, using CPU instead")
+                logger.warning("Performance will be significantly slower. Please rebuild the Docker image.")
+            else:
+                logger.info("CTranslate2 CUDA support confirmed, using GPU acceleration")
             
             # Use int8 quantization on Jetson for improved memory usage
             with warnings.catch_warnings():
@@ -402,6 +422,12 @@ class WhisperService:
                     compute_type=compute_type,
                     download_root=None
                 )
+            
+            # Verify the device the model is actually using
+            model_device = "unknown"
+            if hasattr(self.models[model_name], 'device'):
+                model_device = self.models[model_name].device
+            logger.info(f"Successfully loaded Whisper model: {model_name} on {device} (actual: {model_device})")
             
             # Cleanup
             gc.collect()

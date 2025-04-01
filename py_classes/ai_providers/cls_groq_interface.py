@@ -24,13 +24,13 @@ class GroqAPI(ChatClientInterface):
             Optional[str]: The generated response, or None if an error occurs.
         """
         try:
-            client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=2)
+            client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=0)
             if silent_reason:
                 print(f"Groq-Api: <{colored(model, 'green')}> is {colored('silently ' + silent_reason, 'green')}")
             else:
                 print(f"Groq-Api: <{colored(model, 'green')}> is generating response...")
             chat_completion = client.chat.completions.create(
-                messages=chat.to_groq(), model=model, temperature=temperature, stream=True, stop="</s>", timeout=2.5
+                messages=chat.to_groq(), model=model, temperature=temperature, stream=True, stop="</s>"
             )
             full_response = ""
             token_keeper = CustomColoring()
@@ -60,7 +60,7 @@ class GroqAPI(ChatClientInterface):
             Optional[Tuple[str, str]]: A tuple containing the transcribed text and detected language, or None if an error occurs.
         """
         try:
-            client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=30.0, max_retries=2)
+            client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=0)
             if not silent_reason:
                 print(f"Groq-Api: Transcribing audio using <{colored(model, 'green')}>...")
             

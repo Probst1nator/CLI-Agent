@@ -77,11 +77,10 @@ class ToolManager:
                 metadata = tool.metadata
                 prompt += f"Tool: {metadata.name}\n"
                 prompt += f"Description: {metadata.description}\n"
+                prompt += f"run(...) parameters: {metadata.parameters}\n"
                 if include_details:
                     prompt += f"Detailed description: {metadata.detailed_description}\n"
-                    prompt += f"Parameters: {metadata.parameters}\n"
-                    prompt += f"Required parameters: {metadata.required_params}\n"
-                prompt += f"Example usage: {metadata.example_usage}\n\n"
+                    prompt += f"Example usage: {metadata.example_usage}\n\n"
         prompt += "```"
         return prompt
 

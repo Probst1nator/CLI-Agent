@@ -88,7 +88,9 @@ run_container() {
             --shm-size=2g \
             --ipc=host \
             -e NVIDIA_DRIVER_CAPABILITIES=all \
-            -e NVIDIA_VISIBLE_DEVICES=all \
+            -e NVIDIA_VISIBLE_DEVICES=0 \
+            -e CUDA_VISIBLE_DEVICES=0 \
+            -e CT2_USE_CUDA=1 \
             -e PYTHONMALLOC=malloc \
             -e MALLOC_TRIM_THRESHOLD_=100000 \
             -e MALLOC_MMAP_THRESHOLD_=100000 \
@@ -110,6 +112,9 @@ run_container() {
             --gpus all \
             --shm-size=2g \
             --ipc=host \
+            -e NVIDIA_VISIBLE_DEVICES=0 \
+            -e CUDA_VISIBLE_DEVICES=0 \
+            -e CT2_USE_CUDA=1 \
             -e PYTHONMALLOC=malloc \
             -e MALLOC_TRIM_THRESHOLD_=100000 \
             -e MALLOC_MMAP_THRESHOLD_=100000 \

@@ -34,7 +34,8 @@ from py_methods.tooling import (
     take_screenshot,
     text_to_speech,
     update_cmd_collection,
-    extract_json
+    extract_json,
+    extract_tool_code
 )
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_chat import Chat, Role
@@ -367,42 +368,48 @@ async def main() -> None:
         MAX_ACTIONS = 10    # Maximum number of consecutive actions before forcing a reply
         tool_response = ""
         perform_exit: bool = False
-        skip_agent_guidance: bool = False
+        remaining_todos: List[str] = []
         
-        tool_call_retry_prompt = """I need you to select a specific tool to help with this request.
+        while True:
+            try:
+                # Check if we've hit the maximum number of consecutive actions
+                if action_counter >= MAX_ACTIONS:
+                    # Ask user if to continue or not
+                    do_continue_user_input = input(colored(f"Warning: Agent has performed {MAX_ACTIONS} consecutive actions without replying. Do you want to continue? (Y/n) ", "yellow")).lower()
+                    if (do_continue_user_input == "" or do_continue_user_input == "y" or "yes" in do_continue_user_input or "sure" in do_continue_user_input or "ja" in do_continue_user_input):
+                        MAX_ACTIONS += 3  # Increase the maximum number of consecutive actions
+                    else:
+                        context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress and respond intelligently to the user.")
+                        break
 
-Please provide:
-1. Your reasoning about the best tool for this task
-2. A JSON snippet in the exact format as specified in the tool's example usage
-Generic example usage:
-{
-    "tool": "name_of_tool",
-    "reasoning": "reasoning as specified in the tool's example usage",
-    "parameters": {
-        "param1": "value1",
-        "param2": "value2",
-    }
-}
+                # Get all available tools and their prompts for first stage
+                all_available_tools_str = tool_manager.get_tools_prompt(include_details=True)
+                
+                
+                # full_agent_prompt = get_agent_prompt(user_prompt, all_available_tools_str, guidance_head_prompt)
+                agent_base = f"""# SYSTEM INSTRUCTION
+You are an expert AI agent with real-time tool execution capabilities acting as a reliable assistant to the user. Your primary goal is to determine the optimal way to respond to user requests.
+"""
 
-Remember to use proper JSON formatting with quotes around strings and correct parameter names.
+                agent_core = f"""
+## AVAILABLE TOOLS
+{all_available_tools_str}
 
-Which tool would you like to use?"""
-
-        guidance_head_prompt = f"""
-
+## RESPONSE FORMAT
 First, reason through these steps:
 1. What is the user asking for?
 2. Is all required information already present?
-3. Which tool(s) would best serve this request?
-4. Why is this the optimal approach?
+3. How can the task be decomposed into singular tool calls to serve the users intend in their sequence?
+4. Why is this the optimal approach and was the task realistically and optimally decomposed given the available tools?
 
-Then, select ONE of these response options:
-1. Use "reply" tool for direct answers requiring no real-time data or reliable computations
-2. Use "sequential" tool when you need to:
+Then, provide a tool_code block with a single tool call and subsequent TODOs if necessary.
+The TODOs will help you retrain coherency throughout your operation in later turns.
+1. Use the "reply" tool for direct answers requiring no real-time data or reliable computations
+2. Use any other tool(s) once or multiple times if you need to:
    - Search the web
-   - Perform system operations
-   - Chain multiple operations
-   - Perform deep thought or reasoning before responding
+   - Gather system information using bash
+   - Create visualizations with python
+   - Chain multiple operations in sequence to intelligently solve a task
 
 {f'''
 CONTEXT-AWARE BEHAVIOR:
@@ -412,82 +419,79 @@ CONTEXT-AWARE BEHAVIOR:
 - Use conversational tone
 ''' if args.voice or args.speak else ""}
 
-Response Format Example:
-Let me analyze this request...
-1. Lets first remember, the user's prompt was about [reflecting on the user's prompt]
-2. I've already done [past steps]
-3. To provide value to the user, next I need to [capabilities needed]
-4. Let me evaluate each potential approach:
-   - Tool A could [what this tool would do]
-   - Tool B might [alternative approach]
-   - Tool C would [another possibility]
-5. Comparing these options:
-   - [Strengths/weaknesses of Tool A]
-   - [Strengths/weaknesses of Tool B]
-   - [Strengths/weaknesses of Tool C]
-6. After evaluation, [selected tool] appears most suitable because [specific reasons]
-7. For [selected tool], the available parameters are [parameters]
-8. Let me consider parameter variations:
-   - Option 1: [parameter set 1] would achieve [outcome 1]
-   - Option 2: [parameter set 2] would achieve [outcome 2]
-9. Based on this analysis, here's my recommended approach:
-{{
-    "tool": "[tool_name]",
-    "reasoning": "[why this tool is was choosen]",
-    "parameters": {{
-        "[param1]": "[value1]",
-        "[param2]": "[value2]"
-    }}
-}}
+You must provide your reasoning first, followed by a tool_code block with the sequential tool calls.
 
-IMPORTANT NOTES:
-1. ALL tool-specific parameters MUST be nested under a "parameters" object
-2. The "reasoning" field should be at the root level
-3. Each tool has specific required parameters - check the tool's example usage
-4. Follow the exact parameter names and structure shown in the tool's example
+<EXAMPLE>
+    <USER> Whats files are at ~/Downloads? </USER>
+    <ASSISTANT> The user wants to know what files are at ~/Downloads.
+        ```tool_code
+        # Run the dir command to list the files in the ~/Downloads directory
+        bash.run(command="dir ~/Downloads")
+        # TODO: Reply to the user with the found files
+        ```
+    </ASSISTANT>
+</EXAMPLE>
 
-REMEMBER: 
-- FOCUS on UNDERSTANDING AND UTILIZING your TOOL CALL CAPABILITIES
-- ALWAYS INCLUDE A SINGLE VALID JSON TOOL CALL IN YOUR RESPONSE
-- If you decide to respond to the user you MUST use the reply tool
-- The USER CANNOT SEE ANYTHING other than the string value in your final reply tool's 'reply' parameter until you choose to call it.
-- If the user's prompt has been achived or can be answered accurately by the present information use the reply tool."""
-        
-        # Prepare guidance based on stage
-        def get_agent_prompt(user_prompt: str, available_tools_str: str, context_head_addition: str = ""):
-            agent_prompt = (f"Last tool call summary: {tool_response}\n"  if tool_response else "") + f"""You are an AI assistant with access to several real-time tools, first reason about if current chat contains sufficient information to faithfully respond to the user, then deduct the most appropriate tool to gather required information or act as needed on the users behalf.{user_prompt}\nReason about which of these tools is best suited given the current context and the user's intend. The following tool calls are available to you:\n\n{available_tools_str}{context_head_addition}"""
-            return agent_prompt
-        
-        while True:
-            try:
-                # Check if we've hit the maximum number of consecutive actions
-                if action_counter >= MAX_ACTIONS:
-                    # Ask user if to continue or not
-                    user_input = input(colored(f"Warning: Agent has performed {MAX_ACTIONS} consecutive actions without replying. Do you want to continue? (Y/n) ", "yellow")).lower()
-                    if (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
-                        MAX_ACTIONS += 3  # Increase the maximum number of consecutive actions
-                    else:
-                        context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress and respond intelligently to the user.")
-                        break
+<EXAMPLE>
+    <USER> What 3 processes are using the most internet bandwidth? </USER>
+    <ASSISTANT> The user wants to know what 3 processes are using the most internet bandwidth.
+        ```tool_code
+        # Construct a command in bash to find the 3 processes using the most internet bandwidth
+        bash.run(command="sudo nethogs -t | sort -k2 -r | head -n 3")
+        # TODO: Reply to the user with the found processes
+        ```
+    </ASSISTANT>
+    <USER> ERROR: Nethogs is not installed. </USER>
+    <ASSISTANT> Install nethogs and chain the failed command afterwards:
+        ```tool_code
+        # Install nethogs using the package manager and chain the previous command
+        bash.run(command="sudo apt-get install nethogs -y && sudo nethogs -t | sort -k2 -r | head -n 3")
+        # TODO: Reply to the user indicating that nethogs has been installed and listing the found processes
+        ```
+    </ASSISTANT>
+</EXAMPLE>
 
-                # Get all available tools and their prompts for first stage
-                all_available_tools_str = tool_manager.get_tools_prompt(include_details=False)
-                
-                # if user_prompt already present anywhere in the context (context_chat.messages)
-                full_user_prompt = f"\nThis is the user's prompt:\n{user_input}"
-                if any(message[0] == Role.USER and full_user_prompt in message[1] for message in context_chat.messages):
-                    user_prompt = ""
+<EXAMPLE>
+    <USER> Get me up to speed on the latest technology trends, i dont have much time so make it accessible. </USER>
+    <ASSISTANT> The user wants to know about the latest technology trends and have them visualized.
+        ```tool_code
+        # Perform a web search to find the most relevant information
+        web_search.run(queries=["latest technology trends 2023", "emerging tech innovations"])
+        # TODO: Python should be used to create a visualization of the trends after the web search is complete
+        # TODO: Reply to the user indicating that the trends have been visualized and where the visualization is located
+        ```
+    </ASSISTANT>
+</EXAMPLE>
+"""
+
+                if tool_response:
+                    agent_instruction = f"""{agent_base}
+
+## CURRENT CONTEXT
+{tool_response}
+"""
                 else:
-                    user_prompt = full_user_prompt
+                    agent_instruction = f"""{agent_base}
+
+{agent_core}
+"""
                 
-                full_agent_prompt = get_agent_prompt(user_prompt, all_available_tools_str, guidance_head_prompt)
+                context_chat.set_instruction_message(agent_instruction)
                 
-                if not skip_agent_guidance:
-                    # Add tool selection guidance
-                    context_chat.add_message(Role.USER, full_agent_prompt)
+                
+                planned_todos_prompt = f"\n\nTODOs: {remaining_todos}\n\nPlease proceeed as planned."
+                # If the last message is not a user message, add the tools prompt and the todos prompt
+                if (context_chat[-1][0] != Role.USER):
+                    user_input += "\n\n" + tool_manager.get_tools_prompt(include_details=False)
+                    if (len(remaining_todos) > 0):
+                        user_input += planned_todos_prompt
+                    context_chat.add_message(Role.USER, user_input)
+                else:
+                    context_chat.add_message(Role.USER, planned_todos_prompt)
 
                 # Get tool selection response
                 try:
+                    # ! First tool call
                     tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], strength=AIStrengths.TOOLUSE)
                     context_chat.add_message(Role.ASSISTANT, tool_use_response)
                 except Exception as e:
@@ -498,18 +502,24 @@ REMEMBER:
                         traceback.print_exc()
                     break
 
-                # Parse tool selection response
+                # ! Parse tool selection response
                 agent_tool_calls: List[Dict[str, Any]] = []  # Initialize agent_tool_calls before try block
                 try:
-                    parsed_json = extract_json(tool_use_response, required_keys=["tool"])
-                    if parsed_json:
-                        agent_tool_calls.append(parsed_json)
-                    else:
-                        print(colored("No valid tool calls found in response", "red"))
-                        # Add guidance message to the chat context
-                        context_chat.add_message(Role.USER, tool_call_retry_prompt)
-                        skip_agent_guidance = True
-                        continue
+                    # First try to extract tool_code format
+                    tool_code_result = extract_tool_code(tool_use_response)
+                    if tool_code_result:
+                        # Get reasoning from the text before the tool_code block
+                        reasoning_end_pattern = r'(.*?)```tool_code'
+                        reasoning_match = re.search(reasoning_end_pattern, tool_use_response, re.DOTALL)
+                        if reasoning_match:
+                            tool_code_result["reasoning"] = reasoning_match.group(1).strip()
+                        else:
+                            tool_code_result["reasoning"] = "No specific reasoning provided."
+                        
+                        if "todos" in tool_code_result and tool_code_result["todos"]:
+                            remaining_todos = tool_code_result["todos"]
+                            
+                        agent_tool_calls.append(tool_code_result)
 
                 except Exception as e:
                     LlmRouter.clear_unconfirmed_finetuning_data()
@@ -517,43 +527,15 @@ REMEMBER:
                     if args.debug:
                         traceback.print_exc()
                     # Add encouraging feedback for tool selection
-                    context_chat.add_message(Role.USER, tool_call_retry_prompt)
-                    skip_agent_guidance = True
+                    context_chat.add_message(Role.USER, f"Unexpected error parsing tool selection response: {str(e)}.\n\nNo valid tool calls were found in your response, please verify your format and try again.")
                     continue
+                
+                if(len(agent_tool_calls) == 0):
+                    print(colored("CRITICAL ERROR: No valid tool calls were found in your response, please verify the llm response.", "red"))
+                    context_chat.print_chat()
+
 
                 print(colored(f"Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
-                
-                if skip_agent_guidance:
-                    # Cleanup context
-                    # Remove Assistant message
-                    context_chat.messages.pop()
-                    # Remove User message
-                    context_chat.messages.pop()
-                    # Reset skip_agent_guidance flag
-                    skip_agent_guidance = False
-                else:
-                    # Shorten the agents context to only always include the actually selected tools and high priority tools
-                    choosen_tools = []
-                    for tool_call in agent_tool_calls:
-                        # Add the main tool
-                        choosen_tools.append(tool_call.get('tool', ''))
-                        # If it's a sequential tool, also add the tool from first_tool_call
-                        if tool_call.get('tool') == 'sequential' and 'parameters' in tool_call:
-                            first_tool = tool_call.get('parameters', {}).get('first_tool_call', {}).get('tool')
-                            if first_tool:
-                                choosen_tools.append(first_tool)
-                    
-                    choosen_tools = list(set(choosen_tools))  # Remove duplicates
-                    prioritised_tools = ["reply", "sequential"]
-                    context_relevant_tools = list(set(prioritised_tools + choosen_tools))
-                    shortened_tool_str = tool_manager.get_tools_prompt(context_relevant_tools, include_details=False)
-                    
-                    # Reconstruct full_agent_prompt, always adding the full_user_prompt (enabling the agent to see the users intend in its past => enhancing guidance)
-                    shortened_agent_prompt = get_agent_prompt(full_user_prompt, context_relevant_tools)
-                    
-                    # Replace the latest user message with the shortened version
-                    context_chat.replace_latest_user_message(shortened_agent_prompt)
-                
                 
                 # Notify web interface about tool selection immediately
                 if web_server and web_server.chat:
@@ -566,7 +548,7 @@ REMEMBER:
                         if selected_tool and selected_tool != "reply":
                             web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Using tool: {selected_tool}\n{reasoning}")
                 
-                handover_to_user: bool = False
+                end_agent_recursion: bool = False
                 
                 for tool_call in agent_tool_calls:
                     try:
@@ -574,6 +556,7 @@ REMEMBER:
                         reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
 
                         print(colored(f"Using tool: {selected_tool}", "green"))
+                        print(colored(f"Using params: {tool_call.get('parameters', '')}", "green"))
                         print(colored(f"Reasoning: {reasoning}", "cyan"))
 
                         try:
@@ -586,7 +569,7 @@ REMEMBER:
                             continue
 
                         try:
-                            result = await tool.execute(tool_call)
+                            result = await tool.run(tool_call)
                         except Exception as e:
                             LlmRouter.clear_unconfirmed_finetuning_data()
                             print(colored(f"Error executing tool {selected_tool}: {str(e)}", "red"))
@@ -602,7 +585,6 @@ REMEMBER:
                                 web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {error_summary}")
                             
                             context_chat.add_message(Role.USER, "The tool call has failed with an error message. If you're unable to identify the error in your own tool call, consider if another tool is fit for the task. If not, consider using the reply tool to inform to the user with the error message." + error_summary)
-                            skip_agent_guidance = True
                             continue
 
                         # Handle sequential tool results
@@ -620,7 +602,6 @@ REMEMBER:
                             continue
 
                         action_counter += 1
-                        tool_response = f"The {selected_tool} tool has indicated success and returned a summary of its execution.\nPlease remember its summary in downstream reasoning tasks and use it to inform your future tool selection to enhance your value to the user.\nHere is its summary:\n```summary\n{result.get('summary', 'ERROR: No summary was included.')}\n```"
                         
                         # Handle tool results
                         if selected_tool == "reply":
@@ -629,16 +610,18 @@ REMEMBER:
                                 web_server.add_message_to_chat(Role.ASSISTANT, result["summary"])
                             if args.voice or args.speak:
                                 text_to_speech(remove_blocks(result["summary"], ["md"]))
-                            handover_to_user = True
+                            end_agent_recursion = True
                         elif selected_tool == "goodbye":
                             if "summary" in result:
                                 if web_server and web_server.chat:
                                     web_server.add_message_to_chat(Role.ASSISTANT, result["summary"])
                                 if args.voice or args.speak:
                                     text_to_speech(remove_blocks(result["summary"], ["md"]))
-                            handover_to_user = True
                             perform_exit = True
+                            end_agent_recursion = True
                         else:
+                            if (result.get("status") == "success" and result.get("summary")):
+                                context_chat.add_message(Role.USER, f"{tool_call.get('tool', '')} tool exited successfully while returning this summary:\n```summary\n{result.get('summary')}\n```")
                             # For non-reply tools, show success message
                             if web_server and web_server.chat:
                                 web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
@@ -648,9 +631,9 @@ REMEMBER:
                         print(colored(f"Unexpected error during tool execution: {str(e)}", "red"))
                         if args.debug:
                             traceback.print_exc()
-                        context_chat.add_message(Role.USER, f"An unexpected error occurred: {str(e)}")
+                        context_chat.add_message(Role.USER, f"An unexpected error occurred: {str(e)}, report this to the user.")
                 
-                if handover_to_user:
+                if end_agent_recursion:
                     break
 
             except Exception as e:

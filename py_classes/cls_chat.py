@@ -113,6 +113,28 @@ class Chat:
             except queue.Full:
                 pass  # Skip update if queue is full
     
+    def set_instruction_message(self, instruction_message: str) -> "Chat":
+        """
+        Sets the instruction message for the chat.
+        If a system message already exists, it will be replaced.
+        If not, the system message will be inserted at the beginning of the chat.
+        
+        :param instruction_message: The system instruction message.
+        :return: The updated Chat instance.
+        """
+        # Check if there's already a system message
+        for i, (role, _) in enumerate(self.messages):
+            if role == Role.SYSTEM:
+                # Replace existing system message
+                self.messages[i] = (Role.SYSTEM, instruction_message)
+                self._update_window_display()
+                return self
+        
+        # No system message found, insert at the beginning
+        self.messages.insert(0, (Role.SYSTEM, instruction_message))
+        self._update_window_display()
+        return self
+    
     def add_message(self, role: Role, content: str) -> "Chat":
         """
         Adds a message to the chat.

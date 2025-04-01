@@ -19,7 +19,6 @@ class DeepResearchTool(BaseTool):
 - Gather information from multiple specialized sources
 - Compare perspectives across different domains
 - Get detailed analysis beyond surface-level information
-
 Perfect for:
 - Comprehensive information gathering
 - Academic or technical research
@@ -33,23 +32,20 @@ Perfect for:
                 "depth_level": {
                     "type": "string", 
                     "description": "Desired depth of research: 'basic', 'moderate', or 'comprehensive'",
-                    "enum": ["basic", "moderate", "comprehensive"]
+                    "enum": ["basic", "moderate", "comprehensive"],
+                    "optional": True
                 }
             },
-            required_params=["research_objective"],
-            example_usage="""
-{
-    "reasoning": "Need to synthesize an informed list of the latest large language models on huggingface specifically for coding",
-    "tool": "deep_research",
-    "parameters": {
-        "research_objective": "latest large language models on huggingface specifically for coding",
-        "depth_level": "comprehensive"
-    }
-}
-"""
+            example_usage="""I need to find comprehensive information about the latest large language models for coding tasks on Hugging Face.
+```tool_code
+deep_research.run(
+    research_objective="latest large language models on huggingface specifically for coding",
+    depth_level="comprehensive"
+)
+```"""
         )
 
-    async def execute(self, params: Dict[str, Any], preferred_models: List[str] = []) -> ToolResponse:
+    async def run(self, params: Dict[str, Any], preferred_models: List[str] = []) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
                 status="error",
@@ -137,7 +133,7 @@ Convert this into a JSON object with the following structure:
       "title": "brief descriptive title of this research step",
       "task": "specific research action to take",
       "reasoning": "why this step is valuable based on current findings",
-      "search_query": "specific query to perform",
+      "query": "specific query to perform",
       "expected_outcome": "what information this step aims to discover"
     }},
     // Additional steps...
@@ -162,7 +158,7 @@ Ensure the JSON is properly formatted and contains all the suggested research st
                 title = step["title"]
                 task = step["task"]
                 reasoning = step["reasoning"]
-                search_query = step["search_query"]
+                search_query = step["query"]
                 expected_outcome = step["expected_outcome"]
                 
                 research_steps_tasks.append(task)
