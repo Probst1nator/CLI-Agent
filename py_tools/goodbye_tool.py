@@ -10,7 +10,6 @@ class GoodbyeTool(BaseTool):
             description="End the conversation or system interaction",
             detailed_description="""Use this tool when you need to:
 - Acknowledge a user's request to exit
-
 Perfect for:
 - User requests to end interaction""",
             parameters={
@@ -19,19 +18,13 @@ Perfect for:
                     "description": "The farewell message to send"
                 }
             },
-            required_params=["reply"],
-            example_usage="""
-{
-    "reasoning": "User has requested to end the conversation",
-    "tool": "goodbye",
-    "parameters": {
-        "reply": "Friendly and quirky farewell message referencing the conversation concisely"
-    }
-}
-"""
+            example_usage="""The user has asked to end the conversation, so I'll acknowledge their request with a friendly farewell.
+```tool_code
+goodbye.run(reply="Thanks for chatting with me today! I've enjoyed helping you with your Python project. If you have any more questions in the future, feel free to start another conversation. Have a great day!")
+```"""
         )
 
-    async def execute(self, params: Dict[str, Any]) -> ToolResponse:
+    async def run(self, params: Dict[str, Any]) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
                 status="error",

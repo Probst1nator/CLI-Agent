@@ -3,7 +3,7 @@ from .python_tool import PythonTool
 from .web_search_tool import WebSearchTool
 from .bash_tool import BashTool
 from .goodbye_tool import GoodbyeTool
-from .sequential_tool import SequentialTool
+from .disabled_tools.sequential_tool import SequentialTool
 
 __all__ = [
     'ReplyTool',
@@ -11,5 +11,6 @@ __all__ = [
     'WebSearchTool',
     'BashTool',
     'GoodbyeTool',
-    'SequentialTool'
+    'SequentialTool',
+    'DeepResearchTool'
 ] 

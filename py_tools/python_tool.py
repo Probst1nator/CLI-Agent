@@ -20,17 +20,17 @@ class PythonTool(BaseTool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="python",
-            description="Call this tool when you need to performmathematical calculations, implement mathematical visualizations or create a interactive window for the user",
+            description="Call this tool if you require to perform a calculation, implement visualizations or perform more complex tasks in a single python script. (NOT ALLOWED: Internet search, Api key requirements (use web_search tool instead))",
             detailed_description="""Use this tool when you need to:
 - Create visualizations or plots
 - Perform calculations
-- Create interactive applications
-
 Perfect for tasks like:
-- Generating charts and graphs
-- Mathematical modeling
-- Creating simple interactive applications (using matplotlib, pygame or pyglet)
-- API integrations""",
+- Requested visualizations
+- Statistical data visualization
+- Simple interactive applications (using matplotlib, pygame or pyglet)
+NOT ALLOWED:
+- Api key requirements
+- Internet search (use web_search tool instead)""",
             parameters={
                 "title": {
                     "type": "string",
@@ -39,19 +39,21 @@ Perfect for tasks like:
                 "requirements": {
                     "type": "string",
                     "description": "A string containing a numbered list or bullet points describing what the Python script should do"
+                },
+                "additional_data": {
+                    "type": "string",
+                    "description": "A string containing data for visualizations, calculations from previous steps or other relevant data",
+                    "optional": True
                 }
             },
-            required_params=["title", "requirements"],
-            example_usage="""
-{
-    "reasoning": "Need to utilise python to achieve y",
-    "tool": "python",
-    "parameters": {
-        "title": "y_descriptor.py",
-        "requirements": "1. Need to achieve y\\n2. Use libs like pandas, numpy, matplotlib, pygame or pyglet\\n3. How to achieve y step by step\\n4.How this script will be self contained and easily executable without additions to achieve y"
-    }
-}
-"""
+            example_usage="""The user wants to visualize smartphone sales data over a 5-year period with year-over-year comparisons.
+```tool_code
+python.run(
+    title="smartphone_sales_visualization.py",
+    requirements="1. Create a bar chart visualization showing smartphone sales data over 5 years\n2. Use matplotlib and pandas for data handling and visualization\n3. Include appropriate labels, title, and color coding for different smartphone brands\n4. Add annotations showing the percent change year over year for each brand\n5. Create a legend and ensure the plot is properly scaled\n6. Save the visualization as a PNG file and display it",
+    additional_data="Sales data (in millions of units):\nYear, Apple, Samsung, Xiaomi, Huawei, Other\n2018, 218, 293, 122, 206, 341\n2019, 198, 295, 126, 240, 329\n2020, 201, 253, 147, 184, 295\n2021, 235, 272, 191, 127, 301\n2022, 226, 259, 153, 152, 320"
+)
+```"""
         )
 
     def evaluate_existing_script(
@@ -243,23 +245,8 @@ The implementation must:
         
         return self._truncate_output(execution_details), True
 
-    def _get_missing_params(self, params: Dict[str, Any]) -> list[str]:
-        """
-        Check which required parameters are missing from the input.
-        
-        Args:
-            params: Dictionary of provided parameters, with nested 'parameters' key
-            
-        Returns:
-            List of missing parameter names
-        """
-        if not isinstance(params, dict) or "parameters" not in params:
-            return self.metadata.required_params
-        
-        parameters = params["parameters"]
-        return [param for param in self.metadata.required_params if param not in parameters or not parameters[param]]
 
-    async def execute(self, params: Dict[str, Any]) -> ToolResponse:
+    async def run(self, params: Dict[str, Any]) -> ToolResponse:
         """
         Execute the Python tool with comprehensive error handling and script management.
         
@@ -270,14 +257,6 @@ The implementation must:
             ToolResponse indicating success or failure with details
         """
         try:
-            # Validate required parameters
-            missing_params = self._get_missing_params(params)
-            if missing_params:
-                return self.format_response(
-                    status="error",
-                    summary=f"Missing required parameters: {', '.join(missing_params)}"
-                )
-
             # Validate and process requirements
             parameters = params["parameters"]
             if not isinstance(parameters.get('requirements'), str):
@@ -303,6 +282,11 @@ The implementation must:
                         status="error",
                         summary=f"Could not process requirements: {str(e)}"
                     )
+            if not isinstance(parameters.get('additional_data'), str):
+                return self.format_response(
+                    status="error",
+                    summary="Additional data must be a string"
+                )
 
             # Create script directory
             script_dir = os.path.join(g.PROJ_PERSISTENT_STORAGE_PATH, "python_tool")
@@ -323,17 +307,19 @@ The implementation must:
                 f"""Create a Python script that meets these requirements:
 {parameters['requirements']}
 
+Additional data:
+{parameters['additional_data']}
+
 The implementation must:
 1. Use type hints for all functions and variables
-2. Include comprehensive error handling with try/except blocks
-3. Include docstrings for all functions and classes
-4. Include inline comments for complex logic
-5. Be completely self-contained
-6. Follow PEP 8 style guidelines
-7. Include a main guard: if __name__ == "__main__":
-8. Include all necessary imports at the top
+2. Include docstrings for all functions and classes
+3. Include inline comments for complex logic
+4. Be completely self-contained
+5. Follow PEP 8 style guidelines
+6. Include a main guard: if __name__ == "__main__":
+7. Include all necessary imports at the top
 
-Respond with ONLY the complete Python code, no explanations or markdown."""
+Please start by providing a outline of an implementation, then provide the complete implementation as a python code block."""
             )
             
             # Generate the implementation

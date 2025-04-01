@@ -22,7 +22,6 @@ class BashTool(BaseTool):
 - Get system information
 - Run command-line utilities
 - Install packages
-
 Perfect for:
 - File operations
 - System queries
@@ -35,16 +34,10 @@ Perfect for:
                     "description": "The bash command to execute"
                 }
             },
-            required_params=["command"],
-            example_usage="""
-{
-    "reasoning": "Need to list files in the current directory",
-    "tool": "bash",
-    "parameters": {
-        "command": "ls -la"
-    }
-}
-"""
+            example_usage="""I need to check what files are in the current directory to understand the project structure.
+```tool_code
+bash.run(command="ls -la")
+```"""
         )
 
     def _check_command_safety(self, command: str, force_local: bool = False) -> bool:
@@ -72,7 +65,7 @@ Perfect for:
         
         return is_safe
 
-    async def execute(self, params: Dict[str, Any]) -> ToolResponse:
+    async def run(self, params: Dict[str, Any]) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
                 status="error",

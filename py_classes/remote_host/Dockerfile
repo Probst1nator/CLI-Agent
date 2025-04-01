@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     rustc \
     cargo \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip
@@ -39,14 +40,46 @@ RUN pip install --no-cache-dir -r requirements.txt || \
      pip install --no-cache-dir vosk==0.3.45 && \
      pip install --no-cache-dir numpy scipy sounddevice soundfile python-dotenv && \
      pip install --no-cache-dir termcolor psutil && \
-     echo "Note: Some optional dependencies might be missing" && \
      # Install faster-whisper with specified versions
      pip install --no-cache-dir "huggingface-hub>=0.13.0" "numpy>=1.17.0" && \
      pip install --no-cache-dir av && \
-     RUSTFLAGS="-C target-feature=-crt-static" pip install --no-cache-dir tokenizers==0.13.3 && \
-     CT2_USE_CUDA=1 pip install --no-cache-dir ctranslate2==3.20.0 && \
-     pip install --no-cache-dir onnxruntime-gpu || pip install --no-cache-dir onnxruntime && \
-     pip install --no-cache-dir --no-deps faster-whisper==1.0.0)
+     RUSTFLAGS="-C target-feature=-crt-static" pip install --no-cache-dir tokenizers==0.13.3)
+
+# Install CTranslate2 dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set CUDA environment variables
+ENV CT2_USE_CUDA=1
+ENV CUDA_DYNAMIC_LOADING=ON
+
+# Clone and build CTranslate2 from source with CUDA support
+WORKDIR /tmp
+RUN git clone https://github.com/OpenNMT/CTranslate2.git && \
+    cd CTranslate2 && \
+    git checkout v3.20.0 && \
+    mkdir build && \
+    cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DWITH_CUDA=ON -DWITH_CUDA_RUNTIME=STATIC -DCUDA_DYNAMIC_LOADING=ON -DOPENMP_RUNTIME=COMP && \
+    make -j$(nproc) && \
+    cd ../python && \
+    pip install -e .
+
+# Return to app directory
+WORKDIR /app
+
+# Verify CTranslate2 installation with CUDA
+RUN python3 -c "import ctranslate2; print(f'CTranslate2 version: {ctranslate2.__version__}'); print(f'CUDA device count: {ctranslate2.get_cuda_device_count()}')" || \
+    echo "WARNING: CTranslate2 CUDA detection failed - will use CPU fallback"
+
+# Install onnxruntime
+RUN pip install --no-cache-dir onnxruntime-gpu || pip install --no-cache-dir onnxruntime
+
+# Install faster-whisper
+RUN pip install --no-cache-dir --no-deps faster-whisper==1.0.0
 
 # Copy the project files
 COPY . .
@@ -54,19 +87,10 @@ COPY . .
 # Make the preload script executable
 RUN chmod +x /app/py_classes/remote_host/preload_models.py
 
-# Create a startup script
-RUN echo '#!/bin/bash\n\
-echo "Preloading Whisper models..."\n\
-python /app/py_classes/remote_host/preload_models.py\n\
-echo "Starting Gunicorn server..."\n\
-# Set Python memory management variables\n\
-export MALLOC_TRIM_THRESHOLD_=100000\n\
-export MALLOC_MMAP_THRESHOLD_=100000\n\
-export PYTHONMALLOC=malloc\n\
-export PYTHONMALLOCSTATS=0\n\
-# Set reasonable timeouts for transcription\n\
-exec gunicorn -b 0.0.0.0:5000 --timeout 600 py_classes.remote_host.cls_remote_host_server:app\n\
-' > /app/start.sh && chmod +x /app/start.sh
+# Copy the CUDA check and startup scripts
+COPY py_classes/remote_host/scripts/check_cuda.py /app/check_cuda.py
+COPY py_classes/remote_host/scripts/start.sh /app/start.sh
+RUN chmod +x /app/check_cuda.py /app/start.sh
 
 # Set environment variables
 ENV PORT=5000
@@ -81,8 +105,11 @@ VOLUME /root/.cache/vosk
 VOLUME /root/.cache/whisper
 VOLUME /root/.cache/huggingface
 
-# Run the startup script
-CMD ["/app/start.sh"]
+# Create empty .env file
+RUN touch /app/.env
+
+# Use our startup script as entrypoint
+ENTRYPOINT ["/app/start.sh"]
 
 # For development, use this instead:
 # CMD ["python", "py_classes/remote_host/run_server.py"] 

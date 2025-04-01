@@ -622,7 +622,7 @@ def get_atuin_history(limit: int = 10) -> List[str]:
             ORDER BY timestamp DESC
             LIMIT ?
             """
-            cursor.execute(query, (limit,))
+            cursor.run(query, (limit,))
             result_tuples = cursor.fetchall()
             results = []
             for result_tuple in result_tuples:
@@ -816,7 +816,7 @@ def pdf_or_folder_to_database(pdf_or_folder_path: str, preferred_models:List[str
     FileNotFoundError: If the pdf_or_folder_path does not exist.
     ValueError: If the pdf_or_folder_path is neither a file nor a directory.
     """
-    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH)
+    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH, settings=chromadb.Settings(anonymized_telemetry=False))
     collection = client.get_or_create_collection(name=hashlib.md5(pdf_or_folder_path.encode()).hexdigest())
     
     if not os.path.exists(pdf_or_folder_path):
@@ -1134,3 +1134,149 @@ def clean_and_reduce_html(html: str) -> str:
     # For example, removing unnecessary whitespace, comments, etc.
 
     return cleaned_html
+
+
+def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract and parse a tool code call from text.
+    Handles the new format with tool_code blocks.
+    """
+    try:
+        # Extract code blocks with tool_code language tag
+        blocks = extract_blocks(text)
+        
+        for block_type, content in blocks:
+            if block_type.lower() == 'tool_code':
+                # Extract TODOs
+                todos: List[str] = []
+                todo_pattern = r'#\s*TODO:\s*(.*?)(?=$|\n)'
+                todo_matches = re.finditer(todo_pattern, content, re.IGNORECASE | re.MULTILINE)
+                for todo_match in todo_matches:
+                    todos.append(todo_match.group(1).strip())
+                
+                # Find the tool name and start of parameters
+                tool_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*run\s*\('
+                tool_match = re.search(tool_pattern, content)
+                if not tool_match:
+                    continue
+                    
+                tool_name = tool_match.group(1)
+                params_start = tool_match.end()
+                
+                # Find the matching closing parenthesis
+                params_end = -1
+                paren_level = 1
+                in_string = False
+                string_char = None
+                
+                for i in range(params_start, len(content)):
+                    char = content[i]
+                    
+                    if not in_string:
+                        if char == '"' or char == "'":
+                            in_string = True
+                            string_char = char
+                        elif char == '(':
+                            paren_level += 1
+                        elif char == ')':
+                            paren_level -= 1
+                            if paren_level == 0:
+                                params_end = i
+                                break
+                    elif char == string_char and content[i-1] != '\\':
+                        in_string = False
+                
+                if params_end == -1:
+                    continue
+                
+                params_str = content[params_start:params_end]
+                
+                # Create the base structure
+                result = {
+                    "tool": tool_name,
+                    "parameters": {}
+                }
+                
+                if todos:
+                    result["todos"] = todos
+                
+                # Split parameters at top-level commas
+                params = []
+                start = 0
+                depth = 0
+                in_string = False
+                string_char = None
+                
+                for i, char in enumerate(params_str):
+                    if not in_string:
+                        if char == '"' or char == "'":
+                            in_string = True
+                            string_char = char
+                        elif char in '([{':
+                            depth += 1
+                        elif char in ')]}':
+                            depth -= 1
+                        elif char == ',' and depth == 0:
+                            params.append(params_str[start:i].strip())
+                            start = i + 1
+                    elif char == string_char and params_str[i-1] != '\\':
+                        in_string = False
+                
+                # Add the last parameter
+                if start < len(params_str):
+                    params.append(params_str[start:].strip())
+                
+                # Process each parameter
+                for param in params:
+                    # Find the equals sign outside of strings
+                    equals_pos = -1
+                    in_string = False
+                    string_char = None
+                    
+                    for i, char in enumerate(param):
+                        if not in_string:
+                            if char == '"' or char == "'":
+                                in_string = True
+                                string_char = char
+                            elif char == '=':
+                                equals_pos = i
+                                break
+                        elif char == string_char and param[i-1] != '\\':
+                            in_string = False
+                    
+                    if equals_pos == -1:
+                        continue
+                    
+                    param_name = param[:equals_pos].strip()
+                    param_value_str = param[equals_pos+1:].strip()
+                    
+                    # Handle string values
+                    if (param_value_str.startswith('"') and param_value_str.endswith('"')) or \
+                       (param_value_str.startswith("'") and param_value_str.endswith("'")):
+                        result["parameters"][param_name] = param_value_str[1:-1]
+                    else:
+                        # Try to convert to appropriate type
+                        try:
+                            if '.' in param_value_str:
+                                param_value = float(param_value_str)
+                            else:
+                                param_value = int(param_value_str)
+                        except ValueError:
+                            if param_value_str.lower() == 'true':
+                                param_value = True
+                            elif param_value_str.lower() == 'false':
+                                param_value = False
+                            elif param_value_str.lower() == 'none':
+                                param_value = None
+                            else:
+                                param_value = param_value_str
+                                
+                        result["parameters"][param_name] = param_value
+                
+                return result
+        
+        return None
+        
+    except Exception as e:
+        print(colored(f"Error extracting tool code: {str(e)}", "red"))
+        return None

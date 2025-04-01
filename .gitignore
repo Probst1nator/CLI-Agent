@@ -20,7 +20,7 @@ __pycache__/
 .vscode
 .venv/**
 
-/agentic/sandbox/**
+.cliagent
 **/env/**
 **.bin
 **.sqlite3

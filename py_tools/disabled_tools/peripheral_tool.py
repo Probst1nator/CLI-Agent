@@ -36,7 +36,6 @@ Examples of key sequences:
                     "description": "List of key inputs. Each input can be a string for single key or array for parallel keys"
                 }
             },
-            required_params=["inputs"],
             example_usage="""
 {
     "reasoning": "Need to pause media playback",
@@ -72,7 +71,7 @@ Examples of key sequences:
 """
         )
 
-    async def execute(self, params: Dict[str, Any]) -> ToolResponse:
+    async def run(self, params: Dict[str, Any]) -> ToolResponse:
         """Execute keyboard inputs in sequence."""
         if not self.validate_params(params):
             return self.format_response(

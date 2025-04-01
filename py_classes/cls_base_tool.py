@@ -13,7 +13,6 @@ class ToolMetadata:
     description: str
     detailed_description: str
     parameters: Dict[str, Any]
-    required_params: List[str]
     example_usage: str
 
 class BaseTool(ABC):
@@ -24,7 +23,7 @@ class BaseTool(ABC):
         pass
     
     @abstractmethod
-    async def execute(self, params: Dict[str, Any]) -> ToolResponse:
+    async def run(self, params: Dict[str, Any]) -> ToolResponse:
         """Execute the tool with the given parameters"""
         pass
 
@@ -37,10 +36,6 @@ class BaseTool(ABC):
         # Get parameters from the parameters property
         parameters = params.get('parameters', {})
         if not isinstance(parameters, dict):
-            return False
-            
-        # Check required parameters
-        if not all(param in parameters for param in self.metadata.required_params):
             return False
             
         return True

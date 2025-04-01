@@ -132,7 +132,6 @@ Perfect for tasks like:
                     "description": "Step by step description of what to achieve using the UI"
                 }
             },
-            required_params=["intent"],
             example_usage="""
 {
     "reasoning": "Explanation of why y is best achieved through the use of the UI",
@@ -615,7 +614,7 @@ Your response must end with this exact format:
             print(colored(f"Error selecting relevant screen: {str(e)}", "red"))
             return None
 
-    async def execute(self, params: Dict[str, Any]) -> ToolResponse:
+    async def run(self, params: Dict[str, Any]) -> ToolResponse:
         """Execute the UI tool based on natural language intent."""
         if not self.validate_params(params):
             return self.format_response(

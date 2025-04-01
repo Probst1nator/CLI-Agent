@@ -86,35 +86,72 @@ Perfect for tasks like:
                         "reasoning": {
                             "type": "string",
                             "description": "Reasoning for this specific tool usage"
+                        },
+                        "parameters": {
+                            "...",
                         }
                     }
                 },
                 "subsequent_intent": {
                     "type": "string",
-                    "description": "A clear statement of what should be done next with the results, including a suggestion of which tool(s) may be appropriate (e.g., 'Perform another web search to also retrieve information about x or use reply tool to provide a summary on the findings about y', etc.)"
+                    "description": "A action suggestion to guide the intent of the agent by preparing for both potential failure or success cases of the first tool call for the next step"
                 }
             },
-            required_params=["first_tool_call", "subsequent_intent"],
             example_usage="""
+Example Pattern: First gather information, then take action based on that information
 {
-    "reasoning": "Before achieving y I should optimally call tool_1 as this will allow me to achieve x relevant to y",
     "tool": "sequential",
+    "reasoning": "I need to execute a two-step process: first gather information, then use that information to take appropriate action.",
     "parameters": {
         "first_tool_call": {
-            "tool": "tool_1",
-            "reasoning": "Reasoning for using tool_1 in the context of x",
+            "tool": "[information_gathering_tool]",
+            "reasoning": "This tool will provide me with the necessary context to determine the next steps",
             "parameters": {
-                "tool_param_1": "tool_param_1",
-                "tool_param_2": "tool_param_2"
+                "param1": "value1",
+                "param2": "value2"
             }
         },
-        "subsequent_intent": "Use summary of tool_1 to do x enabling meto achieve y"
+        "subsequent_intent": "Use the gathered information to determine and execute the appropriate next action"
+    }
+}
+
+Example Pattern: First check conditions, then execute appropriate command
+{
+    "tool": "sequential",
+    "reasoning": "To properly address the task, I first need to check current conditions before executing the right command.",
+    "parameters": {
+        "first_tool_call": {
+            "tool": "[condition_checking_tool]",
+            "reasoning": "Checking conditions first will help identify the proper course of action",
+            "parameters": {
+                "check_type": "relevant_condition",
+                "detail_level": "comprehensive"
+            }
+        },
+        "subsequent_intent": "Based on the condition results, select and execute the most appropriate command"
+    }
+}
+
+Example Pattern: First establish environment, then perform main task
+{
+    "tool": "sequential",
+    "reasoning": "The task requires proper environment setup before we can perform the main operation.",
+    "parameters": {
+        "first_tool_call": {
+            "tool": "[environment_setup_tool]",
+            "reasoning": "Setting up the environment is a prerequisite for the main task",
+            "parameters": {
+                "setup_target": "target_environment",
+                "configuration": "standard_config"
+            }
+        },
+        "subsequent_intent": "Once the environment is properly set up, proceed with executing the main task"
     }
 }
 """
         )
 
-    async def execute(self, params: Dict[str, Any]) -> ToolResponse:
+    async def run(self, params: Dict[str, Any]) -> ToolResponse:
         """Execute the tool and provide a summary for deciding on the subsequent step."""
         if not self.validate_params(params):
             return self.format_response(
@@ -143,7 +180,7 @@ Perfect for tasks like:
                 )
 
             # Execute the tool
-            result = await tool.execute(tool_params)
+            result = await tool.run(tool_params)
 
             # Check for errors
             if result.get("status") == "error":

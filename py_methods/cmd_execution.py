@@ -155,7 +155,7 @@ def select_and_execute_commands(commands: List[str], auto_execute: bool = False,
     else:
         selected_commands = commands
     
-    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH)
+    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH, settings=chromadb.Settings(anonymized_telemetry=False))
     collection = client.get_or_create_collection(name="commands")
 
     results = []
