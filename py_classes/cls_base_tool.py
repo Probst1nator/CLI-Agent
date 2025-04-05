@@ -12,8 +12,7 @@ class ToolMetadata:
     name: str
     description: str
     detailed_description: str
-    parameters: Dict[str, Any]
-    example_usage: str
+    constructor: str
 
 class BaseTool(ABC):
     @property

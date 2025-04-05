@@ -77,10 +77,23 @@ class ToolManager:
                 metadata = tool.metadata
                 prompt += f"Tool: {metadata.name}\n"
                 prompt += f"Description: {metadata.description}\n"
-                prompt += f"run(...) parameters: {metadata.parameters}\n"
+                
+                # Extract method signature from the constructor string
+                constructor_lines = metadata.constructor.strip().split('\n')
+                method_signature = ""
+                if constructor_lines:
+                    # The first line should be the method signature (def run(...))
+                    method_signature = constructor_lines[0].strip()
+                    # Remove the "def " part to get just the method name and parameters
+                    if method_signature.startswith("def "):
+                        method_signature = method_signature[4:]
+                
+                prompt += f"```tool_code\n{metadata.name}.{method_signature}\n```\n"
+                
                 if include_details:
-                    prompt += f"Detailed description: {metadata.detailed_description}\n"
-                    prompt += f"Example usage: {metadata.example_usage}\n\n"
+                    prompt += f"Detailed description: {metadata.detailed_description}\n\n"
+                else:
+                    prompt += f"\n"
         prompt += "```"
         return prompt
 

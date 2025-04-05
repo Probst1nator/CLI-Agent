@@ -126,20 +126,20 @@ Perfect for tasks like:
 - Filling out forms
 - Analyzing screen content
 - Automating UI workflows""",
-            parameters={
-                "intent": {
-                    "type": "string",
-                    "description": "Step by step description of what to achieve using the UI"
-                }
-            },
-            example_usage="""
-{
-    "reasoning": "Explanation of why y is best achieved through the use of the UI",
-    "tool": "ui",
-    "parameters": {
-        "intent": "Detailed context aware description of what to achieve through the use of the UI"
-    }
-}"""
+            constructor="""
+def run(
+    component_type: str,
+    content: str,
+    properties: Dict[str, Any] = None
+) -> None:
+    \"\"\"Create UI components.
+    
+    Args:
+        component_type: Type of UI component ('button', 'text', 'image', 'input', 'chart')
+        content: The main content for the component (text, URL, data)
+        properties: Optional dictionary of additional properties for the component
+    \"\"\"
+"""
         )
 
     def _get_monitor_center(self, monitor_index: Optional[int] = None) -> Tuple[int, int]:

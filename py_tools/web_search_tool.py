@@ -81,16 +81,14 @@ Perfect for:
 - News and weather
 - Latest developments in any field
 - Resolution of contradicting information""",
-            parameters={
-                "queries": {
-                    "type": "array<string>",
-                    "description": "A list of search queries to execute"
-                }
-            },
-            example_usage="""I need to figure out how to make one interface inherit from multiple interfaces in TypeScript
-```tool_code
-web_search.run(queries=['typescript how to extend multiple interfaces example code', 'typescript interface inheritance'])
-```"""
+            constructor="""
+def run(queries: List[str]) -> None:
+    \"\"\"Search the web for information.
+    
+    Args:
+        queries: A list of search queries to execute
+    \"\"\"
+"""
         )
 
     async def run(self, params: Dict[str, Any], preferred_models: List[str] = []) -> ToolResponse:

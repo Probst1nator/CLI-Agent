@@ -480,12 +480,14 @@ You must provide your reasoning first, followed by a tool_code block with the se
                 
                 
                 planned_todos_prompt = f"\n\nTODOs: {remaining_todos}\n\nPlease proceeed as planned."
+                
+                extended_user_input = user_input
                 # If the last message is not a user message, add the tools prompt and the todos prompt
                 if (context_chat[-1][0] != Role.USER):
-                    user_input += "\n\n" + tool_manager.get_tools_prompt(include_details=False)
+                    extended_user_input += "\n\nDo not respond to me directly, please pick one of the following tools instead:\n" + tool_manager.get_tools_prompt(include_details=False)
                     if (len(remaining_todos) > 0):
-                        user_input += planned_todos_prompt
-                    context_chat.add_message(Role.USER, user_input)
+                        extended_user_input += planned_todos_prompt
+                    context_chat.add_message(Role.USER, extended_user_input)
                 else:
                     context_chat.add_message(Role.USER, planned_todos_prompt)
 
@@ -677,10 +679,10 @@ def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
             confirmation_response = "Do you want me to execute these steps? (Yes/no)"
             print(colored(confirmation_response, 'yellow'))
             text_to_speech(confirmation_response)
-            user_input = listen_microphone(10, private_remote_wake_detection=args.private_remote_wake_detection)[0]
+            _user_input = listen_microphone(10, private_remote_wake_detection=args.private_remote_wake_detection)[0]
         else:
-            user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
-        if not (user_input == "" or user_input == "y" or "yes" in user_input or "sure" in user_input or "ja" in user_input):
+            _user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
+        if not (_user_input == "" or _user_input == "y" or "yes" in _user_input or "sure" in _user_input or "ja" in _user_input):
             bash_blocks = safe_bash_blocks
     else:
         if not execute_actions_automatically:

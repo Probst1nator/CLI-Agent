@@ -30,44 +30,14 @@ Examples of key sequences:
 - ["left", "left", "left"] : Skip back 3 times
 - [["ctrl", "a"], ["ctrl", "c"]] : Select all and copy
 - ["space", ["alt", "tab"]] : Pause media and switch window""",
-            parameters={
-                "inputs": {
-                    "type": "array",
-                    "description": "List of key inputs. Each input can be a string for single key or array for parallel keys"
-                }
-            },
-            example_usage="""
-{
-    "reasoning": "Need to pause media playback",
-    "tool": "peripheral",
-    "parameters": {
-        "inputs": ["space"]
-    }
-}
-
-{
-    "reasoning": "Need to step back in the video",
-    "tool": "peripheral",
-    "parameters": {
-        "inputs": ["left", "left", "left", "left", "left", "left"]
-    }
-}
-
-{
-    "reasoning": "Need to save the current document",
-    "tool": "peripheral",
-    "parameters": {
-        "inputs": [["ctrl", "s"]]
-    }
-}
-
-{
-    "reasoning": "Need to select all text and copy it",
-    "tool": "peripheral",
-    "parameters": {
-        "inputs": [["ctrl", "a"], ["ctrl", "c"]]
-    }
-}
+            constructor="""
+def run(action: str, device: str) -> None:
+    \"\"\"Control peripheral devices.
+    
+    Args:
+        action: The action to perform ('open', 'close', 'connect', 'disconnect')
+        device: The peripheral device to control ('camera', 'microphone', 'speaker', 'printer')
+    \"\"\"
 """
         )
 

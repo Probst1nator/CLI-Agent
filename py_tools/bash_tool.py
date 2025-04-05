@@ -28,16 +28,14 @@ Perfect for:
 - Process management
 - Package installation
 - Running system utilities""",
-            parameters={
-                "command": {
-                    "type": "string",
-                    "description": "The bash command to execute"
-                }
-            },
-            example_usage="""I need to check what files are in the current directory to understand the project structure.
-```tool_code
-bash.run(command="ls -la")
-```"""
+            constructor="""
+def run(command: str) -> None:
+    \"\"\"Execute a bash command safely.
+    
+    Args:
+        command: The bash command to execute
+    \"\"\"
+"""
         )
 
     def _check_command_safety(self, command: str, force_local: bool = False) -> bool:
