@@ -24,25 +24,18 @@ Perfect for:
 - Academic or technical research
 - In-depth analysis of topics
 - Comparative studies""",
-            parameters={
-                "research_objective": {
-                    "type": "string",
-                    "description": "The detailed research query to investigate"
-                },
-                "depth_level": {
-                    "type": "string", 
-                    "description": "Desired depth of research: 'basic', 'moderate', or 'comprehensive'",
-                    "enum": ["basic", "moderate", "comprehensive"],
-                    "optional": True
-                }
-            },
-            example_usage="""I need to find comprehensive information about the latest large language models for coding tasks on Hugging Face.
-```tool_code
-deep_research.run(
-    research_objective="latest large language models on huggingface specifically for coding",
-    depth_level="comprehensive"
-)
-```"""
+            constructor="""
+def run(
+    research_objective: str, 
+    depth_level: str = "moderate"
+) -> None:
+    \"\"\"Conduct comprehensive research on a topic.
+    
+    Args:
+        research_objective: The detailed research query to investigate
+        depth_level: Desired depth of research: 'basic', 'moderate', or 'comprehensive'
+    \"\"\"
+"""
         )
 
     async def run(self, params: Dict[str, Any], preferred_models: List[str] = []) -> ToolResponse:

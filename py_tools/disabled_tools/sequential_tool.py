@@ -74,80 +74,17 @@ Perfect for tasks like:
 - Data gathering
 - Complex multi-step automations
 - Processing and transforming data across tools""",
-            parameters={
-                "first_tool_call": {
-                    "type": "object",
-                    "description": "Complete configuration for the first tool to execute",
-                    "properties": {
-                        "tool": {
-                            "type": "string",
-                            "description": "The tool to execute first"
-                        },
-                        "reasoning": {
-                            "type": "string",
-                            "description": "Reasoning for this specific tool usage"
-                        },
-                        "parameters": {
-                            "...",
-                        }
-                    }
-                },
-                "subsequent_intent": {
-                    "type": "string",
-                    "description": "A action suggestion to guide the intent of the agent by preparing for both potential failure or success cases of the first tool call for the next step"
-                }
-            },
-            example_usage="""
-Example Pattern: First gather information, then take action based on that information
-{
-    "tool": "sequential",
-    "reasoning": "I need to execute a two-step process: first gather information, then use that information to take appropriate action.",
-    "parameters": {
-        "first_tool_call": {
-            "tool": "[information_gathering_tool]",
-            "reasoning": "This tool will provide me with the necessary context to determine the next steps",
-            "parameters": {
-                "param1": "value1",
-                "param2": "value2"
-            }
-        },
-        "subsequent_intent": "Use the gathered information to determine and execute the appropriate next action"
-    }
-}
-
-Example Pattern: First check conditions, then execute appropriate command
-{
-    "tool": "sequential",
-    "reasoning": "To properly address the task, I first need to check current conditions before executing the right command.",
-    "parameters": {
-        "first_tool_call": {
-            "tool": "[condition_checking_tool]",
-            "reasoning": "Checking conditions first will help identify the proper course of action",
-            "parameters": {
-                "check_type": "relevant_condition",
-                "detail_level": "comprehensive"
-            }
-        },
-        "subsequent_intent": "Based on the condition results, select and execute the most appropriate command"
-    }
-}
-
-Example Pattern: First establish environment, then perform main task
-{
-    "tool": "sequential",
-    "reasoning": "The task requires proper environment setup before we can perform the main operation.",
-    "parameters": {
-        "first_tool_call": {
-            "tool": "[environment_setup_tool]",
-            "reasoning": "Setting up the environment is a prerequisite for the main task",
-            "parameters": {
-                "setup_target": "target_environment",
-                "configuration": "standard_config"
-            }
-        },
-        "subsequent_intent": "Once the environment is properly set up, proceed with executing the main task"
-    }
-}
+            constructor="""
+def run(
+    first_tool_call: Dict[str, Any],
+    subsequent_intent: str
+) -> None:
+    \"\"\"Chain multiple tool operations together.
+    
+    Args:
+        first_tool_call: Complete configuration for the first tool to execute (with 'tool', 'reasoning', and 'parameters')
+        subsequent_intent: A action suggestion to guide the intent of the agent for the next step
+    \"\"\"
 """
         )
 

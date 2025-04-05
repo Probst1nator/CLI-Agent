@@ -12,16 +12,14 @@ class GoodbyeTool(BaseTool):
 - Acknowledge a user's request to exit
 Perfect for:
 - User requests to end interaction""",
-            parameters={
-                "reply": {
-                    "type": "string",
-                    "description": "The farewell message to send"
-                }
-            },
-            example_usage="""The user has asked to end the conversation, so I'll acknowledge their request with a friendly farewell.
-```tool_code
-goodbye.run(reply="Thanks for chatting with me today! I've enjoyed helping you with your Python project. If you have any more questions in the future, feel free to start another conversation. Have a great day!")
-```"""
+            constructor="""
+def run(reply: str) -> None:
+    \"\"\"End the conversation with a farewell message.
+    
+    Args:
+        reply: The farewell message to send
+    \"\"\"
+"""
         )
 
     async def run(self, params: Dict[str, Any]) -> ToolResponse:

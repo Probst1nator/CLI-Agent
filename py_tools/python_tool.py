@@ -31,29 +31,20 @@ Perfect for tasks like:
 NOT ALLOWED:
 - Api key requirements
 - Internet search (use web_search tool instead)""",
-            parameters={
-                "title": {
-                    "type": "string",
-                    "description": "Name for the Python script (e.g., 'plot_data.py', 'calculate_stats.py')"
-                },
-                "requirements": {
-                    "type": "string",
-                    "description": "A string containing a numbered list or bullet points describing what the Python script should do"
-                },
-                "additional_data": {
-                    "type": "string",
-                    "description": "A string containing data for visualizations, calculations from previous steps or other relevant data",
-                    "optional": True
-                }
-            },
-            example_usage="""The user wants to visualize smartphone sales data over a 5-year period with year-over-year comparisons.
-```tool_code
-python.run(
-    title="smartphone_sales_visualization.py",
-    requirements="1. Create a bar chart visualization showing smartphone sales data over 5 years\n2. Use matplotlib and pandas for data handling and visualization\n3. Include appropriate labels, title, and color coding for different smartphone brands\n4. Add annotations showing the percent change year over year for each brand\n5. Create a legend and ensure the plot is properly scaled\n6. Save the visualization as a PNG file and display it",
-    additional_data="Sales data (in millions of units):\nYear, Apple, Samsung, Xiaomi, Huawei, Other\n2018, 218, 293, 122, 206, 341\n2019, 198, 295, 126, 240, 329\n2020, 201, 253, 147, 184, 295\n2021, 235, 272, 191, 127, 301\n2022, 226, 259, 153, 152, 320"
-)
-```"""
+            constructor="""
+def run(
+    title: str,
+    requirements: str,
+    additional_data: str = None
+) -> None:
+    \"\"\"Create and run a Python script.
+    
+    Args:
+        title: Name for the Python script (e.g., 'plot_data.py', 'calculate_stats.py')
+        requirements: A string containing a numbered list or bullet points describing what the Python script should do
+        additional_data: A string containing data for visualizations, calculations from previous steps or other relevant data
+    \"\"\"
+"""
         )
 
     def evaluate_existing_script(
