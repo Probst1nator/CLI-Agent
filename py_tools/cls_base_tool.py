@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TypedDict
+import asyncio
+
+from py_classes.cls_chat import Chat
 
 class ToolResponse(TypedDict):
     status: str  # "success" | "error"
@@ -16,15 +19,44 @@ class ToolMetadata:
 
 class BaseTool(ABC):
     @property
+    def default_timeout(self) -> float:
+        """Default timeout in seconds for tool execution"""
+        return 30.0
+    
+    @property
     @abstractmethod
     def metadata(self) -> ToolMetadata:
         """Return the tool's metadata"""
         pass
     
     @abstractmethod
-    async def run(self, params: Dict[str, Any]) -> ToolResponse:
-        """Execute the tool with the given parameters"""
+    async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
+        """The actual implementation of the tool execution logic"""
         pass
+    
+    async def run(self, params: Dict[str, Any], context_chat: Chat, timeout: Optional[float] = None) -> ToolResponse:
+        """Execute the tool with the given parameters and a timeout
+        
+        Args:
+            params: The parameters for tool execution
+            timeout: Optional custom timeout in seconds. If None, uses the default_timeout.
+                     Set to 0 to disable timeout.
+        
+        Returns:
+            ToolResponse: The result of the tool execution or a timeout error
+        """
+        effective_timeout = timeout if timeout is not None else self.default_timeout
+        
+        try:
+            if effective_timeout <= 0:  # No timeout
+                return await self._run(params, context_chat)
+            else:
+                return await asyncio.wait_for(self._run(params, context_chat), timeout=effective_timeout)
+        except asyncio.TimeoutError:
+            return self.format_response(
+                "error", 
+                f"Tool execution timed out after {effective_timeout} seconds"
+            )
 
     def validate_params(self, params: Dict[str, Any]) -> bool:
         """Validate the parameters against the tool's requirements"""

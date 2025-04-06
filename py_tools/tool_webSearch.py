@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Union, Tuple
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_tooling_web import WebTools
 
-from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_methods.tooling import extract_blocks
 import requests
@@ -68,6 +68,18 @@ class WebSearchTool(BaseTool):
         self.web_tools = WebTools()
 
     @property
+    def default_timeout(self) -> float:
+        """Override default timeout to 60 seconds for web searches"""
+        return 60.0
+
+    async def _run(self, params: Dict[str, Any], context_chat: Chat, preferred_models: List[str] = [], timeout: float = None) -> ToolResponse:
+        """Override to maintain backward compatibility with the preferred_models parameter"""
+        # Pass the preferred_models to _execute by extending the params
+        params_with_models = params.copy()
+        params_with_models["preferred_models"] = preferred_models
+        return await super().run(params_with_models, timeout=timeout)
+
+    @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="web_search",
@@ -91,7 +103,7 @@ def run(queries: List[str]) -> None:
 """
         )
 
-    async def run(self, params: Dict[str, Any], preferred_models: List[str] = []) -> ToolResponse:
+    async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
                 status="error",
@@ -99,6 +111,8 @@ def run(queries: List[str]) -> None:
             )
 
         try:
+            # Extract preferred_models if it was passed via the run method
+            preferred_models = params.pop("preferred_models", []) if "preferred_models" in params else []
             queries: Union[List[str], str] = params["parameters"]["queries"]
             
             # Handle both single string and list of strings

@@ -43,7 +43,6 @@ class Llm:
         provider: ChatClientInterface, 
         model_key: str, 
         pricing_in_dollar_per_1M_tokens: Optional[float], 
-        has_tool_use: bool, 
         available_local: bool, 
         has_vision: bool, 
         context_window: int, 
@@ -65,7 +64,6 @@ class Llm:
         self.provider = provider
         self.model_key = model_key
         self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
-        self.has_tool_use = has_tool_use
         self.local = available_local
         self.has_vision = has_vision
         self.context_window = context_window
@@ -81,50 +79,41 @@ class Llm:
         """
         # Define and return a list of available LLM instances
         return [
-            # Llm(HumanAPI(), "human", None, True, True, True, 131072, 30000, [AIStrengths.STRONG]), # For testing
-            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, False, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, False, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama3-70b-8192", None, False, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "qwen-2.5-coder-32b", None, False, False, False, 128000, [AIStrengths.CODE]),
-            Llm(GroqAPI(), "qwen-2.5-32b", None, False, False, False, 8192, [AIStrengths.FAST, AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.CODE]),
-            Llm(GroqAPI(), "llama3-8b-8192", None, False, False, False, 8192, [AIStrengths.FAST]),
-            Llm(GroqAPI(), "gemma2-9b-it", None, False, False, False, 8192, [AIStrengths.FAST]),
+            # Llm(HumanAPI(), "human", None, True, True, 131072, 30000, [AIStrengths.STRONG]), # For testing
+            Llm(GroqAPI(), "meta-llama/llama-4-scout-17b-16e-instruct", None, False, False, 131072, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama3-70b-8192", None, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "qwen-2.5-coder-32b", None, False, False, 128000, [AIStrengths.CODE]),
+            Llm(GroqAPI(), "qwen-2.5-32b", None, False, False, 8192, [AIStrengths.FAST, AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.CODE]),
+            Llm(GroqAPI(), "llama3-8b-8192", None, False, False, 8192, [AIStrengths.FAST]),
+            Llm(GroqAPI(), "gemma2-9b-it", None, False, False, 8192, [AIStrengths.FAST]),
             
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
-            Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, False, True, 32768, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL]),
-            Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, False, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, True, 32768, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL]),
+            Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
             
             
-            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, False, 200000, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL, AIStrengths.CODE, AIStrengths.TOOLUSE]),
-            # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, False, 200000, [AIStrengths.FAST]),
+            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, 200000, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL, AIStrengths.CODE, AIStrengths.TOOLUSE]),
+            # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, 200000, [AIStrengths.FAST]),
             
-            # Llm(OpenAIAPI(), "gpt-4o", 10, False, False, True, 128000, [AIStrengths.STRONG]),
-            # Llm(OpenAIAPI(), "gpt-4o-mini", 0.4, False, False, True, 128000, [AIStrengths.FAST]),
-            Llm(OllamaClient(), "gemma3:27b", None, True, True, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(OllamaClient(), "gemma3:12b", None, True, True, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(OllamaClient(), "gemma3:4b", None, True, True, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            # Llm(OllamaClient(), "deepseek-r1:14b", None, True, True, False, 128000, [AIStrengths.REASONING]),
-            Llm(OllamaClient(), "deepseek-r1:8b", None, True, True, False, 128000, [AIStrengths.REASONING, AIStrengths.FAST]),
-            Llm(OllamaClient(), "command-r7b:latest", None, True, True, False, 128000, [AIStrengths.TOOLUSE]),
-            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, False, True, False, 131072, [AIStrengths.GENERAL, AIStrengths.CODE]),
-            Llm(OllamaClient(), "mistral-nemo:12b", None, False, True, False, 128000, [AIStrengths.GENERAL]),
-            Llm(OllamaClient(), "mistral-small:22b", None, False, True, False, 128000, [AIStrengths.GENERAL]),
-            Llm(OllamaClient(), 'llama3.1:8b', None, True, True, False, 8192, [AIStrengths.GENERAL]),
-            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, True, False, 128000, [AIStrengths.UNCENSORED]),
-            Llm(OllamaClient(), "llama3.2:3b", None, False, True, False, 4096, [AIStrengths.FAST]),
-            
-            Llm(OllamaClient(), "minicpm-v:8b", None, False, True, True, 32768, []),
-            
-            # Specialised models below
-            
-            # RAG models
-            # Llm(NvidiaAPI(), "nvidia/llama-3.1-nemotron-70b-instruct", None, False, False, False, 128000, [AIStrengths.STRONG]),
+            Llm(OllamaClient(), "gemma3:12b", None, True, True, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(OllamaClient(), "gemma3:4b", None, True, True, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            # Llm(OllamaClient(), "deepseek-r1:14b", None, True, False, 128000, [AIStrengths.REASONING]),
+            Llm(OllamaClient(), "deepseek-r1:8b", None, True, False, 128000, [AIStrengths.REASONING, AIStrengths.FAST]),
+            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, True, False, 131072, [AIStrengths.GENERAL, AIStrengths.CODE]),
+            Llm(OllamaClient(), "mistral-nemo:12b", None, True, False, 128000, [AIStrengths.GENERAL]),
+            Llm(OllamaClient(), "gemma3:27b", None, True, True, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(OllamaClient(), "mistral-small:22b", None, True, False, 128000, [AIStrengths.GENERAL]),
+            Llm(OllamaClient(), 'llama3.1:8b', None, True, False, 8192, [AIStrengths.GENERAL]),
+            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, False, 128000, [AIStrengths.UNCENSORED]),
+            Llm(OllamaClient(), "llama3.2:3b", None, True, False, 4096, [AIStrengths.FAST]),
             
             # Guard models
-            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, False, 8192, [AIStrengths.GUARD]),
-            Llm(OllamaClient(), "llama-guard3:8b", None, False, True, False, 4096, [AIStrengths.GUARD]),
-            Llm(OllamaClient(), "llama-guard3:1b", None, False, True, False, 4096, [AIStrengths.GUARD]),
+            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, 8192, [AIStrengths.GUARD]),
+            Llm(OllamaClient(), "llama-guard3:8b", None, True, False, 4096, [AIStrengths.GUARD]),
+            Llm(OllamaClient(), "llama-guard3:1b", None, True, False, 4096, [AIStrengths.GUARD]),
         ]
 
 
@@ -357,67 +346,108 @@ class LlmRouter:
             force_local (bool): Whether to force local models only.
             force_free (bool): Whether to force free models only.
             has_vision (bool): Whether to require models with vision capability.
+            force_preferred_model (bool): Whether to only consider preferred models.
 
         Returns:
             Optional[Llm]: The next available Llm instance if available, otherwise None.
         """
-        try:
-            instance = cls()
-            
-            # Debug print for large token counts
-            if (chat.count_tokens() > 4000 and not force_free and not force_local):
-                print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
-            
-            # First try to find preferred model with exact capabilities
-            for model_key in preferred_models:
-                if (model_key not in instance.failed_models) and model_key:
-                    model = next((model for model in instance.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
-                    if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=False):
-                        return model
+        instance = cls()
+        force_fast_hosts = os.getenv("OLLAMA_HOST_FORCE_FAST_MODELS", "").split(",")
+        force_fast_hosts = [h.strip() for h in force_fast_hosts if h.strip()]
+        
+        # Debug print for large token counts
+        if (chat.count_tokens() > 4000 and not force_free and not force_local):
+            print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
+        
+        # Try models in order of preference
+        candidates = []
+        
+        # First try to find preferred model with exact capabilities
+        for model_key in preferred_models:
+            if (model_key not in instance.failed_models) and model_key:
+                model = next((model for model in instance.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
+                if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=False):
+                    candidates.append(model)
 
-            if force_preferred_model:
-                if force_local:
-                    # return a dummy model to force Ollama to download it
-                    return Llm(OllamaClient(), preferred_models[0], 0, True, True, True, 8192, [AIStrengths.GENERAL])
-                print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
-                return None
-            
+        # If no preferred candidates and force_preferred_model is True
+        if not candidates and force_preferred_model:
+            if force_local:
+                # return a dummy model to force Ollama to download it
+                return Llm(OllamaClient(), preferred_models[0], 0, True, True, 8192, [AIStrengths.GENERAL])
+            print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
+            return None
+        
+        # Continue gathering candidates from other models if needed
+        if not candidates and not force_preferred_model:
             # Search online models by exact capability next
             if not force_local:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and not model.local:
                         if instance.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision, allow_general=False):
-                            return model
+                            candidates.append(model)
                 
-                # Try online models with GENERAL capability
-                if strength:
+                # Add online models with GENERAL capability
+                if not candidates and strength:
                     for model in instance.retry_models:
                         if model.model_key not in instance.failed_models and not model.local:
                             if instance.model_capable_check(model, chat, strength, local=False, force_free=force_free, has_vision=has_vision, allow_general=True):
-                                return model
+                                candidates.append(model)
 
-            # Search local models by exact capability
-            for model in instance.retry_models:
-                if model.model_key not in instance.failed_models and model.local:
-                    if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision, allow_general=False):
-                        return model
+            # Add local models by exact capability
+            if not candidates or force_local:
+                for model in instance.retry_models:
+                    if model.model_key not in instance.failed_models and model.local:
+                        if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision, allow_general=False):
+                            candidates.append(model)
             
-            # Try local models with GENERAL capability
-            if strength:
+            # Add local models with GENERAL capability
+            if not candidates and strength:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and model.local:
                         if instance.model_capable_check(model, chat, strength, local=True, force_free=force_free, has_vision=has_vision, allow_general=True):
-                            return model
+                            candidates.append(model)
             
             # Last resort: try with empty chat to ignore context length
-            for model in instance.retry_models:
-                if model.model_key not in instance.failed_models and model.local:
-                    if instance.model_capable_check(model, Chat(), strength, local=True, force_free=force_free, has_vision=has_vision, allow_general=True):
-                        return model
-        except Exception as e:
-            print(colored(f"Error in get_model: {e}", "red"))
-            logger.error(f"Error in get_model: {e}")
-        return None
+            if not candidates:
+                for model in instance.retry_models:
+                    if model.model_key not in instance.failed_models and model.local:
+                        if instance.model_capable_check(model, Chat(), strength, local=True, force_free=force_free, has_vision=has_vision, allow_general=True):
+                            candidates.append(model)
+        
+        # Now, check Ollama candidates against force_fast_hosts
+        if force_fast_hosts:
+            valid_candidates = []
+            
+            for model in candidates:
+                # Skip non-Ollama models
+                if not isinstance(model.provider, OllamaClient):
+                    valid_candidates.append(model)
+                    continue
+                    
+                # Skip fast models (they're always valid)
+                if any(s == AIStrengths.FAST for s in model.strength):
+                    valid_candidates.append(model)
+                    continue
+                    
+                # For non-fast Ollama models, check which host would be used
+                try:
+                    client, _ = model.provider.get_valid_client(model.model_key)
+                    if client:
+                        host = client._client.base_url.host
+                        # If host is not in force_fast_hosts, it's valid
+                        if host not in force_fast_hosts:
+                            valid_candidates.append(model)
+                        else:
+                            print(colored(f"Skipping model {model.model_key} because host {host} requires FAST models", "yellow"))
+                except Exception as e:
+                    # If we can't determine the host, be conservative and skip
+                    print(colored(f"Error checking host for {model.model_key}: {e}", "red"))
+                    
+            # Replace candidates with valid ones
+            candidates = valid_candidates
+        
+        # Return the first valid candidate
+        return candidates[0] if candidates else None
     
     @classmethod
     def generate_completion(

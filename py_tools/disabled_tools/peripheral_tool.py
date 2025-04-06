@@ -3,7 +3,7 @@ import pyautogui
 import time
 from termcolor import colored
 
-from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 
 class PeripheralTool(BaseTool):
     @property
@@ -41,7 +41,7 @@ def run(action: str, device: str) -> None:
 """
         )
 
-    async def run(self, params: Dict[str, Any]) -> ToolResponse:
+    async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
         """Execute keyboard inputs in sequence."""
         if not self.validate_params(params):
             return self.format_response(

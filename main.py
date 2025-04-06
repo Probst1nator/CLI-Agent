@@ -40,7 +40,7 @@ from py_methods.tooling import (
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_web_server import WebServer
-from py_classes.cls_tool_manager import ToolManager
+from py_tools.cls_tool_manager import ToolManager
 from py_classes.globals import g
 
 # Suppress TensorFlow logging
@@ -571,7 +571,7 @@ You must provide your reasoning first, followed by a tool_code block with the se
                             continue
 
                         try:
-                            result = await tool.run(tool_call)
+                            result = await tool.run(tool_call, context_chat)
                         except Exception as e:
                             LlmRouter.clear_unconfirmed_finetuning_data()
                             print(colored(f"Error executing tool {selected_tool}: {str(e)}", "red"))
@@ -652,56 +652,6 @@ You must provide your reasoning first, followed by a tool_code block with the se
         # save context once per turn
         if context_chat:
             context_chat.save_to_json()
-
-
-def run_bash_cmds(bash_blocks: List[str], args) -> Tuple[str, str]:
-    command_guard_prompt = f"The following command must follow these guidelines:\n1. After execution it must exit fully automatically.\n2. It must not modify the operating system in major ways, although it is allowed to install trusted apt packages and updated software.\nRespond only with 'Safe' or 'Unsafe'\n\nCommand: ",
-    safe_bash_blocks: List[str] = []
-    for bash_block in bash_blocks:
-        print(colored(bash_block, 'magenta'))
-        execute_actions_guard_response = LlmRouter.generate_completion(f"{command_guard_prompt}{bash_blocks}", ["llama-guard"])
-        
-        execute_actions_automatically: bool = not "unsafe" in execute_actions_guard_response.lower()
-        if "S8" in execute_actions_guard_response or "S7" in execute_actions_guard_response : # Ignore: S7 - Privacy, S8 - Intellectual Property
-            execute_actions_automatically = True
-            
-        if execute_actions_automatically:
-            safe_bash_blocks.append(bash_block)
-        else:
-            pass
-    
-    if len(safe_bash_blocks) > 0 and len(safe_bash_blocks) != len(bash_blocks):
-        bash_blocks = safe_bash_blocks
-        execute_actions_automatically = True
-    
-    if (args.auto is None and not execute_actions_automatically) or args.safe:
-        if args.voice or args.speak:
-            confirmation_response = "Do you want me to execute these steps? (Yes/no)"
-            print(colored(confirmation_response, 'yellow'))
-            text_to_speech(confirmation_response)
-            _user_input = listen_microphone(10, private_remote_wake_detection=args.private_remote_wake_detection)[0]
-        else:
-            _user_input = input(colored("Do you want me to execute these steps? (Y/n) ", 'yellow')).lower()
-        if not (_user_input == "" or _user_input == "y" or "yes" in _user_input or "sure" in _user_input or "ja" in _user_input):
-            bash_blocks = safe_bash_blocks
-    else:
-        if not execute_actions_automatically:
-            print(colored(f"Command will be executed in {args.auto} seconds, press Ctrl+C to abort.", 'yellow'))
-            try:
-                for remaining in range(args.auto, 0, -1):
-                    sys.stdout.write("\r" + colored(f"Executing in {remaining} seconds... ", 'yellow'))
-                    sys.stdout.flush()
-                    time.sleep(1)
-                sys.stdout.write("\n")  # Ensure we move to a new line after countdown
-            except KeyboardInterrupt:
-                print(colored("\nExecution aborted by the user.", 'red'))
-    return select_and_execute_commands(bash_blocks, args.auto is not None or execute_actions_automatically) 
-
-def extract_reply_content(tool_response: dict) -> str:
-    """Extract reply content from a tool response."""
-    if tool_response.get('tool') == 'reply' or tool_response.get('tool') == 'python':
-        return tool_response.get('reply', '')
-    return ''
 
 if __name__ == "__main__":
     asyncio.run(main())

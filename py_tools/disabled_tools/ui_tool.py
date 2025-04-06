@@ -13,7 +13,7 @@ import mss
 import mss.tools
 import io
 
-from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.globals import g
@@ -614,7 +614,7 @@ Your response must end with this exact format:
             print(colored(f"Error selecting relevant screen: {str(e)}", "red"))
             return None
 
-    async def run(self, params: Dict[str, Any]) -> ToolResponse:
+    async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
         """Execute the UI tool based on natural language intent."""
         if not self.validate_params(params):
             return self.format_response(
