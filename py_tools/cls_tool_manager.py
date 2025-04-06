@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from termcolor import colored
 
-from .cls_base_tool import BaseTool
+from py_tools.cls_base_tool import BaseTool
 
 class ToolManager:
     def __init__(self):
@@ -70,7 +70,7 @@ class ToolManager:
         Returns:
             str: Formatted prompt describing the specified tools.
         """
-        prompt = "Available tools:\n```\n"
+        prompt = "```\n"
         for tool_cls in self.tools.values():
             tool = tool_cls()
             if tool_names is None or tool.metadata.name in tool_names:
@@ -80,8 +80,11 @@ class ToolManager:
                 
                 # Extract method signature from the constructor string
                 constructor_lines = metadata.constructor.strip().split('\n')
+                
                 method_signature = ""
-                if constructor_lines:
+                if include_details:
+                    method_signature = constructor_lines
+                else:
                     # The first line should be the method signature (def run(...))
                     method_signature = constructor_lines[0].strip()
                     # Remove the "def " part to get just the method name and parameters
@@ -90,10 +93,7 @@ class ToolManager:
                 
                 prompt += f"```tool_code\n{metadata.name}.{method_signature}\n```\n"
                 
-                if include_details:
-                    prompt += f"Detailed description: {metadata.detailed_description}\n\n"
-                else:
-                    prompt += f"\n"
+                prompt += f"\n"
         prompt += "```"
         return prompt
 

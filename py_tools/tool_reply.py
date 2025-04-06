@@ -1,6 +1,7 @@
 from typing import Any, Dict
 
-from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_classes.cls_chat import Chat
 
 class ReplyTool(BaseTool):
     @property
@@ -27,7 +28,7 @@ def run(message: str) -> None:
 """
         )
 
-    async def run(self, params: Dict[str, Any]) -> ToolResponse:
+    async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
                 status="error",

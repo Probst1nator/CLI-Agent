@@ -111,11 +111,12 @@ class PyAiHost:
             # Wake word list
             wake_words: List[str] = [
                 # Single words
-                "computer", "nova",
+                "computer", "nova", "system",
                 # Full phrases 
                 "hey computer", "hey nova",
                 "ok computer", "ok nova",
-                "okay computer", "okay nova"
+                "okay computer", "okay nova",
+                "hey system", "okay system"
             ]
             
             # Create recognizer with correct sample rate

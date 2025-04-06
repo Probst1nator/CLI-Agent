@@ -1,9 +1,10 @@
 from typing import Any, Dict, List
 from py_classes.cls_tooling_web import WebTools
 
-from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_methods.tooling import extract_json
+from py_classes.cls_chat import Chat
 
 class DeepResearchTool(BaseTool):
     def __init__(self):
@@ -26,32 +27,32 @@ Perfect for:
 - Comparative studies""",
             constructor="""
 def run(
-    research_objective: str, 
+    query: str, 
     depth_level: str = "moderate"
 ) -> None:
     \"\"\"Conduct comprehensive research on a topic.
     
     Args:
-        research_objective: The detailed research query to investigate
+        query: A well defined query that requires multiple internet sources and deep analysis to answer reliably
         depth_level: Desired depth of research: 'basic', 'moderate', or 'comprehensive'
     \"\"\"
 """
         )
 
-    async def run(self, params: Dict[str, Any], preferred_models: List[str] = []) -> ToolResponse:
+    async def _run(self, params: Dict[str, Any], context_chat: Chat, preferred_models: List[str] = []) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
                 status="error",
-                summary="Missing required parameter: research_objective"
+                summary="Missing required parameter: query"
             )
 
         try:
-            research_objective = params["parameters"]["research_objective"]
+            query = params["parameters"]["query"]
             depth_level = params["parameters"].get("depth_level", "moderate")
             num_results = 3 if depth_level == "basic" else 4 if depth_level == "moderate" else 5
             
-            preliminary_research_objective = f"""You are an assistant tasked with authoring a query to gather preliminary information for a research project.
-The research objective is: {research_objective}
+            preliminary_research_query = f"""You are an assistant tasked with authoring a query to gather preliminary information for a research project.
+The research objective is: {query}
 Please author a query that searches for a condensed and comprehensive overview of the topic. Like a informed list or a report or similar, decide based on the topic.
 
 After thinking please provide a final json object with the following structure:
@@ -60,14 +61,14 @@ After thinking please provide a final json object with the following structure:
 }}
 the query should be concise and to the point, and should be no more than 10 words.
 """
-            preliminary_research_objective_response = LlmRouter.generate_completion(
-                preliminary_research_objective,
+            preliminary_research_query_response = LlmRouter.generate_completion(
+                preliminary_research_query,
                 preferred_models=preferred_models,
                 strength=AIStrengths.REASONING,
                 exclude_reasoning_tokens=True
             )
             
-            web_search_query = extract_json(preliminary_research_objective_response, required_keys=["web_search_query"])["web_search_query"]
+            web_search_query = extract_json(preliminary_research_query_response, required_keys=["web_search_query"])["web_search_query"]
             
             web_results = self.web_tools.search_brave(web_search_query, num_results=num_results, top_k=num_results*2)
             
@@ -78,7 +79,7 @@ the query should be concise and to the point, and should be no more than 10 word
                 )
 
             distil_insights_prompt = f"""You are a research assistant tasked with distilling insights and key information from a list of results from a search engine.
-The research objective is: "{research_objective}"
+The research objective is: "{query}"
 
 You have been provided with a list of results from a search engine that may be relevant to the research objective.
 Find the most important and relevant information from the results and distill it into a concise and informative summary for focusing the research.
@@ -97,7 +98,7 @@ Results to analyze:
             )
 
             research_prompt = f"""You are a research assistant tasked with authoring a research plan for a research project.
-The research objective is: "{research_objective}"
+The research objective is: "{query}"
 A prelimnary study has been conducted and the following insights have been distilled:
 {preliminary_insights}
 
@@ -119,7 +120,7 @@ RESEARCH ANALYSIS:
 
 Convert this into a JSON object with the following structure:
 {{
-  "query": "{research_objective}",
+  "query": "{query}",
   "research_steps": [
     {{
       "step_id": 1,
@@ -174,7 +175,7 @@ Please distill only the valuable contents from the following sources for the tas
                 )
                 research_results.append(step_results)
                 
-            final_research_summary_prompt = f"""You are part of a research team that is conducting research on the topic: {research_objective}
+            final_research_summary_prompt = f"""You are part of a research team that is conducting research on the topic: {query}
 The following steps were taken to gather more information:
 {research_steps_tasks}
 

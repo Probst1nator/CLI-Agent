@@ -5,8 +5,9 @@ import sys
 import time
 from termcolor import colored
 
-from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import LlmRouter
+from py_classes.cls_chat import Chat
 from py_methods.tooling import listen_microphone, text_to_speech
 from py_classes.globals import g
 
@@ -63,7 +64,7 @@ def run(command: str) -> None:
         
         return is_safe
 
-    async def run(self, params: Dict[str, Any]) -> ToolResponse:
+    async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
                 status="error",

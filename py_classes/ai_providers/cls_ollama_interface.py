@@ -57,10 +57,15 @@ class OllamaClient(ChatClientInterface):
         Returns:
             Tuple[Optional[ollama.Client], str]: [A valid client or None, found model_key].
         """
-        ollama_hosts = [os.getenv(env_var) for env_var in os.environ if env_var.startswith("OLLAMA_HOST_") and env_var.count('_') == 2]
-        auto_download_hosts = set(os.getenv(env_var) for env_var in os.environ if env_var.startswith("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS_"))
+        # Get hosts from comma-separated environment variables
+        ollama_hosts = os.getenv("OLLAMA_HOST", "").split(",")
+        auto_download_hosts = set(os.getenv("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS", "").split(","))
         
         for host in ollama_hosts:
+            host = host.strip()
+            if not host:
+                continue
+                
             if host not in OllamaClient.reached_hosts and host not in OllamaClient.unreachable_hosts:
                 if OllamaClient.check_host_reachability(host):
                     OllamaClient.reached_hosts.append(host)
@@ -210,6 +215,13 @@ class OllamaClient(ChatClientInterface):
             return None
         assert client is not None
         host: str = client._client.base_url.host
+
+        # Check if host is in OLLAMA_HOST_FORCE_FAST_MODELS list
+        force_fast_hosts = os.getenv("OLLAMA_HOST_FORCE_FAST_MODELS", "").split(",")
+        force_fast_hosts = [h.strip() for h in force_fast_hosts if h.strip()]
+        if host in force_fast_hosts:
+            print(f"Host {host} is in OLLAMA_HOST_FORCE_FAST_MODELS list. Using optimized settings.")
+            # Add your fast model optimizations here if needed
 
         try:
             if silent_reason:
