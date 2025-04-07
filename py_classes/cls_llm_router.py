@@ -17,6 +17,7 @@ from py_classes.ai_providers.cls_groq_interface import GroqAPI, TimeoutException
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
 from py_classes.globals import g
+from py_classes.cls_debug_utils import get_debug_title_prefix, DEBUG_TITLE_FORMAT
 import logging
 
 # Configure logger with proper settings to prevent INFO level messages from being displayed
@@ -32,19 +33,17 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.ERROR)
 logger.addHandler(console_handler)
 
-# Constant for debug title format - must match the format in cls_ai_provider_interface.py
-DEBUG_TITLE_FORMAT = "<{}> "
-
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
-    TOOLUSE = 8
-    OMNIMODAL = 7
+    TOOLUSE = 7
     UNCENSORED = 6
     REASONING = 5
     CODE = 4
     GUARD = 3
     GENERAL = 2
     FAST = 1
+    LOCAL = 8
+    VISION = 9
 
 class Llm:
     """
@@ -56,8 +55,6 @@ class Llm:
         provider: ChatClientInterface, 
         model_key: str, 
         pricing_in_dollar_per_1M_tokens: Optional[float], 
-        available_local: bool, 
-        has_vision: bool, 
         context_window: int, 
         strength: List[AIStrengths] = [], 
     ):
@@ -68,19 +65,24 @@ class Llm:
             provider (ChatClientInterface): The chat client interface for the LLM.
             model_key (str): Unique identifier for the model.
             pricing_in_dollar_per_1M_tokens (Optional[float]): Pricing information.
-            available_local (bool): Whether the model is available locally.
-            has_vision (bool): Whether the model has vision capabilities.
             context_window (int): The context window size of the model.
-            max_output (Optional[int]): Maximum output tokens.
             strength (AIStrengths): The strength category of the model.
         """
         self.provider = provider
         self.model_key = model_key
         self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
-        self.local = available_local
-        self.has_vision = has_vision
         self.context_window = context_window
         self.strength = strength
+    
+    @property
+    def local(self) -> bool:
+        """Returns whether the model is available locally."""
+        return any(s == AIStrengths.LOCAL for s in self.strength)
+    
+    @property
+    def has_vision(self) -> bool:
+        """Returns whether the model has vision capabilities."""
+        return any(s == AIStrengths.VISION for s in self.strength)
     
     @classmethod
     def get_available_llms(cls) -> List["Llm"]:
@@ -92,41 +94,41 @@ class Llm:
         """
         # Define and return a list of available LLM instances
         return [
-            # Llm(HumanAPI(), "human", None, True, True, 131072, 30000, [AIStrengths.STRONG]), # For testing
-            Llm(GroqAPI(), "meta-llama/llama-4-scout-17b-16e-instruct", None, False, False, 131072, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, False, False, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama3-70b-8192", None, False, False, 8192, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "qwen-2.5-coder-32b", None, False, False, 128000, [AIStrengths.CODE]),
-            Llm(GroqAPI(), "qwen-2.5-32b", None, False, False, 8192, [AIStrengths.FAST, AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.CODE]),
-            Llm(GroqAPI(), "llama3-8b-8192", None, False, False, 8192, [AIStrengths.FAST]),
-            Llm(GroqAPI(), "gemma2-9b-it", None, False, False, 8192, [AIStrengths.FAST]),
+            # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
+            Llm(GroqAPI(), "meta-llama/llama-4-scout-17b-16e-instruct", None, 131072, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, 8192, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama3-70b-8192", None, 8192, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "qwen-2.5-coder-32b", None, 128000, [AIStrengths.CODE]),
+            Llm(GroqAPI(), "qwen-2.5-32b", None, 8192, [AIStrengths.FAST, AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.CODE]),
+            Llm(GroqAPI(), "llama3-8b-8192", None, 8192, [AIStrengths.FAST]),
+            Llm(GroqAPI(), "gemma2-9b-it", None, 8192, [AIStrengths.FAST]),
             
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
-            Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, False, True, 32768, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL]),
-            Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, False, False, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, 32768, [AIStrengths.GENERAL, AIStrengths.VISION]),
+            Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
             
             
-            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, False, False, 200000, [AIStrengths.GENERAL, AIStrengths.OMNIMODAL, AIStrengths.CODE, AIStrengths.TOOLUSE]),
-            # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, False, False, 200000, [AIStrengths.FAST]),
+            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.TOOLUSE]),
+            # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, 200000, [AIStrengths.FAST]),
             
-            Llm(OllamaClient(), "gemma3:12b", None, True, True, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(OllamaClient(), "gemma3:4b", None, True, True, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            # Llm(OllamaClient(), "deepseek-r1:14b", None, True, False, 128000, [AIStrengths.REASONING]),
-            Llm(OllamaClient(), "deepseek-r1:8b", None, True, False, 128000, [AIStrengths.REASONING, AIStrengths.FAST]),
-            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, True, False, 131072, [AIStrengths.GENERAL, AIStrengths.CODE]),
-            Llm(OllamaClient(), "mistral-nemo:12b", None, True, False, 128000, [AIStrengths.GENERAL]),
-            Llm(OllamaClient(), "gemma3:27b", None, True, True, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(OllamaClient(), "mistral-small:22b", None, True, False, 128000, [AIStrengths.GENERAL]),
-            Llm(OllamaClient(), 'llama3.1:8b', None, True, False, 8192, [AIStrengths.GENERAL]),
-            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, True, False, 128000, [AIStrengths.UNCENSORED]),
-            Llm(OllamaClient(), "llama3.2:3b", None, True, False, 4096, [AIStrengths.FAST]),
+            Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            # Llm(OllamaClient(), "deepseek-r1:14b", None, 128000, [AIStrengths.REASONING, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "deepseek-r1:8b", None, 128000, [AIStrengths.REASONING, AIStrengths.FAST, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, 131072, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "mistral-small:22b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), 'llama3.1:8b', None, 8192, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, 128000, [AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "llama3.2:3b", None, 4096, [AIStrengths.FAST, AIStrengths.LOCAL]),
             
             # Guard models
-            Llm(GroqAPI(), "llama-guard-3-8b", None, False, False, 8192, [AIStrengths.GUARD]),
-            Llm(OllamaClient(), "llama-guard3:8b", None, True, False, 4096, [AIStrengths.GUARD]),
-            Llm(OllamaClient(), "llama-guard3:1b", None, True, False, 4096, [AIStrengths.GUARD]),
+            Llm(GroqAPI(), "llama-guard-3-8b", None, 8192, [AIStrengths.GUARD]),
+            Llm(OllamaClient(), "llama-guard3:8b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "llama-guard3:1b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
         ]
 
 
@@ -167,8 +169,8 @@ class LlmRouter:
         """Load model limits from disk if not already loaded."""
         if not self._model_limits_loaded:
             try:
-                if os.path.exists(g.DYNAMIC_MODEL_LIMITS_PATH):
-                    with open(g.DYNAMIC_MODEL_LIMITS_PATH, 'r') as f:
+                if os.path.exists(g.MODEL_TOKEN_LIMITS_PATH):
+                    with open(g.MODEL_TOKEN_LIMITS_PATH, 'r') as f:
                         self._model_limits = json.load(f)
                 self._model_limits_loaded = True
             except Exception as e:
@@ -292,7 +294,7 @@ class LlmRouter:
                 if allow_general:
                     return any(s.value == AIStrengths.GENERAL.value for s in model.strength)
                 return False
-        if model.local != local:
+        if local != model.local:
             return False
         return True
 
@@ -386,7 +388,7 @@ class LlmRouter:
         if not candidates and force_preferred_model:
             if force_local:
                 # return a dummy model to force Ollama to download it
-                return Llm(OllamaClient(), preferred_models[0], 0, True, True, 8192, [AIStrengths.GENERAL])
+                return Llm(OllamaClient(), preferred_models[0], 0, 8192, [AIStrengths.GENERAL, AIStrengths.LOCAL])
             print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
             return None
         
@@ -666,7 +668,7 @@ class LlmRouter:
             )
             
             # Save updated limits to disk
-            with open(g.DYNAMIC_MODEL_LIMITS_PATH, 'w') as f:
+            with open(g.MODEL_TOKEN_LIMITS_PATH, 'w') as f:
                 json.dump(self._model_limits, f, indent=4)
             
             # logger.info(f"Updated token limit for {model.model_key}: {token_count} tokens")
@@ -769,11 +771,6 @@ class LlmRouter:
             
         Returns:
             str: The formatted prefix string
-        
-        Note:
-            This function is duplicated in ChatClientInterface to avoid circular imports.
-            If you modify this function, be sure to update the other implementation as well.
-            The format should match DEBUG_TITLE_FORMAT constant.
         """
-        return DEBUG_TITLE_FORMAT.format(chat.debug_title) if hasattr(chat, 'debug_title') and chat.debug_title else ""
+        return get_debug_title_prefix(chat)
 

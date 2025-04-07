@@ -83,8 +83,12 @@ def run(command: str) -> None:
                 summary="Missing required parameter: 'command'"
             )
 
-        # LLM safety check
-        is_safe = self._check_command_safety(command, force_local=g.FORCE_LOCAL)
+        safe_commands = ["cat", "ls", "pwd", "clear", "cls", "grep", "sed", "awk", "find", "head", "tail", "wc", "sort", "uniq", "diff", "echo", "date", "whoami", "hostname", "uname", "df", "du", "ps", "top", "which", "whereis", "file", "pip", "apt install"]
+        is_safe = any(command.startswith(cmd) for cmd in safe_commands) and "&&" not in command
+            
+        if not is_safe:
+            # LLM safety check
+            is_safe = self._check_command_safety(command, force_local=g.FORCE_LOCAL)
         
         # Print command for visibility
         print(colored(command, 'magenta'))

@@ -18,6 +18,7 @@ import asyncio
 import re
 
 
+from py_classes.cls_base_tool import ToolResponse
 from py_methods.cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -436,7 +437,7 @@ You must provide your reasoning first, followed by a tool_code block with the se
         To implement this, we can use the python tool to create a simple script that utilizes Pygame for the game environment and a basic pathfinding algorithm for the AI player.
         ```tool_code
         python.run(title="Snake Game with AI Player", prompt="Implement a simple Snake game using Pygame with an AI player using a basic pathfinding algorithm.")
-        # TODO: If the code execution succeeded, reply to the user, if not, try again
+        # TODO: Ask the user for confirmation of the result and further instructions
         ```
     </ASSISTANT>
 </EXAMPLE>
@@ -466,8 +467,8 @@ You must provide your reasoning first, followed by a tool_code block with the se
         ```tool_code
         # Perform a web search to find the most relevant information
         web_search.run(queries=["latest technology trends 2023", "emerging tech innovations"])
-        # TODO: Python should be used to create a visualization of the trends after the web search is complete
-        # TODO: Reply to the user indicating that the trends have been visualized and where the visualization is located
+        # TODO: Use python to display a visualization of the found trends
+        # TODO: Ask the user for confirmation if the results were satisfactory and further instructions
         ```
     </ASSISTANT>
 </EXAMPLE>
@@ -582,24 +583,12 @@ You must provide your reasoning first, followed by a tool_code block with the se
                         try:
                             result = await tool.run(tool_call, context_chat)
                             
-                            # Add suggested followup tools to the response based on tool metadata
-                            tool_class = tool_manager.get_tool(selected_tool)
-                            result = tool_manager.add_followup_tool_to_response(result, tool_class)
-                            
                             # Process followup_tool if present in the response
-                            if result["status"] == "success" and "followup_tool" in result:
-                                followup_tools = result["followup_tool"]
+                            if result.get("followup_tools"):
+                                followup_tools = result["followup_tools"]
                                 # Format the list of suggested tools
-                                if followup_tools:
-                                    followup_tools_str = ", ".join(followup_tools)
-                                    print(colored(f"Suggested followup tools: {followup_tools_str}", "cyan"))
-                                    # We don't automatically execute the followup tools, just inform the LLM
-                                    # that they're available for the next step
-                                    if "summary" in result:
-                                        context_chat.add_message(
-                                            Role.USER, 
-                                            f"{selected_tool} executed successfully and suggests using the following tools next: {followup_tools_str}\n```execution_summary\n{result['summary']}\n```"
-                                        )
+                                followup_tools_str = ", ".join(followup_tools)
+                                print(colored(f"Suggested followup tools: {followup_tools_str}", "cyan"))
                             
                         except Exception as e:
                             LlmRouter.clear_unconfirmed_finetuning_data()
@@ -608,27 +597,35 @@ You must provide your reasoning first, followed by a tool_code block with the se
                                 traceback.print_exc()
                             continue
                         
+                        tool_summary = result["summary"] if "summary" in result else "No summary available"
                         # Process tool result
                         if result["status"] == "error":
-                            error_summary = result["summary"] if "summary" in result else "No summary available"
-                            print(colored(f"❌ Tool execution error: {error_summary}", "red"))
+                            print(colored(f"❌ Tool {selected_tool} execution error: {tool_summary}", "red"))
                             if web_server and web_server.chat:
-                                web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {error_summary}")
+                                web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {tool_summary}")
                             
-                            context_chat.add_message(Role.USER, "The tool call has failed with an error message. If you're unable to identify the error in your own tool call, consider if another tool is fit for the task. If not, consider using the reply tool to inform to the user with the error message." + error_summary)
+                            context_chat.add_message(Role.USER, f"The {selected_tool} tool call has failed with an error message. If you're unable to identify the error in your own tool call, consider if another tool is fit for the task. If not, consider using the reply tool to inform to the user with the error message." + tool_summary)
+                            continue
+                        
+                        if result["status"] == "partial_success":
+                            print(colored(f"⏳ Tool {selected_tool} execution partial success, summary: {tool_summary}", "red"))
+                            if web_server and web_server.chat:
+                                web_server.add_message_to_chat(Role.ASSISTANT, f"⏳ Tool execution partial success: {tool_summary}")
+                            
+                            context_chat.add_message(Role.USER, tool_summary)
                             continue
 
                         # Handle sequential tool results
-                        if selected_tool == "sequential" and result["status"] == "success":
+                        if result["status"] == "success" and selected_tool != "reply":
                             # Add the result summary to chat context
                             context_chat.add_message(
                                 Role.USER, 
-                                f"The sequential tool has been executed successfully." + ((f" Here is its summary:\n{result['summary']}") if 'summary' in result else 'No summary was included..'))
+                                f"✅ The {selected_tool} tool has been executed successfully." + ((f" Here is its summary:\n{result['summary']}") if 'summary' in result else 'No summary was included..'))
                             
                             if web_server and web_server.chat:
                                 web_server.add_message_to_chat(
                                     Role.ASSISTANT, 
-                                    f"✅ Operation completed:" + ((f"\n{result['summary']}") if 'summary' in result else 'No summary available')
+                                    f"✅ Tool {selected_tool} completed:" + ((f"\n{result['summary']}") if 'summary' in result else 'No summary available')
                                 )
                             continue
 
@@ -653,7 +650,7 @@ You must provide your reasoning first, followed by a tool_code block with the se
                         else:
                             if (result["status"] == "success" and "summary" in result):
                                 # Only add this message if we haven't already added it via followup_tool handling
-                                if "followup_tool" not in result:
+                                if "followup_tools" not in result:
                                     context_chat.add_message(Role.USER, f"{tool_call.get('tool', '')} executed successfully:\n```execution_summary\n{result['summary']}```")
                             print(colored(f"✅ {selected_tool.capitalize()} tool executed successfully", "green"))
                             # For non-reply tools, show success message

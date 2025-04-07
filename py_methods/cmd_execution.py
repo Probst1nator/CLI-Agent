@@ -26,11 +26,9 @@ def format_command_result(result: Dict[str, str]) -> str:
     Returns:
         str: Formatted result string.
     """
-    status = "✅ Success" if result["exit_code"] == 0 else "❌ Failed"
     truncation_note = "\n\nNote: Output was truncated." if result["truncated"] else ""
     
-    formatted_result = f"{status} (Exit code: {result['exit_code']})\n\n"
-    formatted_result += f"```\n$ {result['command']}\n{result['output']}\n```"
+    formatted_result = f"```\n$ {result['command']}\n{result['output']}\n```"
     formatted_result += truncation_note
     
     return formatted_result

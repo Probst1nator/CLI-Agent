@@ -38,7 +38,7 @@ def run(script_path: str, modification_prompt: str) -> None:
         modification_prompt: A description of the changes to make to the script.
     \"\"\"
 """,
-            followup_tools=["python_edit", "file_read"],
+            default_followup_tools=["python_edit", "read_file", "python_execute"],
             is_followup_only=True
         )
 
@@ -87,10 +87,6 @@ def run(script_path: str, modification_prompt: str) -> None:
             # Get script path from parameters or from context metadata
             parameters = params.get("parameters", {})
             script_path = parameters.get("script_path")
-            
-            # If script_path is not provided, try to get it from context metadata
-            if not script_path and hasattr(context_chat, "metadata") and context_chat.metadata:
-                script_path = context_chat.metadata.get("last_python_script_path")
                 
             if not script_path:
                 return self.format_response(
@@ -150,7 +146,6 @@ def run(script_path: str, modification_prompt: str) -> None:
             return self.format_response(
                 status=ToolStatus.SUCCESS,
                 summary=f"Modified and executed {script_path} {status_message}!\n{execution_message}",
-                followup_tools=self.metadata.followup_tools
             )
             
         except Exception as e:

@@ -1,7 +1,8 @@
 from .tool_reply import ReplyTool
 from .tool_python import PythonTool
 from .tool_python_edit import PythonEditTool
-from .tool_file_read import FileReadTool
+from .tool_python_execute import PythonExecuteTool
+from .tool_read_file import ReadFileTool
 from .tool_webSearch import WebSearchTool
 from .tool_bash import BashTool
 from .disabled_tools.tool_goodbye import GoodbyeTool
@@ -14,7 +15,8 @@ __all__ = [
     'ReplyTool',
     'PythonTool',
     'PythonEditTool',
-    'FileReadTool',
+    'PythonExecuteTool',
+    'ReadFileTool',
     'WebSearchTool',
     'BashTool',
     'GoodbyeTool',

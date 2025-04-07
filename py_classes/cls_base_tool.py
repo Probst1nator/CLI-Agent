@@ -15,7 +15,7 @@ class ToolResponse(TypedDict):
     status: ToolStatus  # SUCCESS | ERROR
     summary: str  # A descriptive summary of what happened, including any error details if status is "error"
     tool: str    # Added automatically by format_response
-    followup_tool: Optional[List[str]]  # Optional list of suggested follow-up tools
+    followup_tools: Optional[List[str]]  # Optional list of suggested follow-up tools
 
 @dataclass
 class ToolMetadata:
@@ -23,7 +23,7 @@ class ToolMetadata:
     description: str
     detailed_description: str
     constructor: str
-    followup_tools: List[str] = field(default_factory=list)
+    default_followup_tools: List[str] = field(default_factory=list)
     is_followup_only: bool = False  # If True, this tool is only visible when referenced as a followup tool
 
 class BaseTool(ABC):
@@ -58,13 +58,16 @@ class BaseTool(ABC):
         
         try:
             if effective_timeout <= 0:  # No timeout
-                return await self._run(params, context_chat)
+                result = await self._run(params, context_chat)
             else:
-                return await asyncio.wait_for(self._run(params, context_chat), timeout=effective_timeout)
+                result = await asyncio.wait_for(self._run(params, context_chat), timeout=effective_timeout)
+            result.update(followup_tools=self.metadata.default_followup_tools)
+            return result
+        
         except asyncio.TimeoutError:
             return self.format_response(
                 ToolStatus.ERROR, 
-                f"Tool execution timed out after {effective_timeout} seconds"
+                f"Tool execution timed out after {effective_timeout} seconds",
             )
 
     def validate_params(self, params: Dict[str, Any]) -> bool:
@@ -96,16 +99,12 @@ class BaseTool(ABC):
         Returns:
             ToolResponse: A consistent response format for all tools
         """
-        if status not in [ToolStatus.SUCCESS, ToolStatus.ERROR]:
-            raise ValueError("status must be either ToolStatus.SUCCESS or ToolStatus.ERROR")
             
         response: ToolResponse = {
             "status": status.value,
             "summary": summary,
-            "tool": self.metadata.name
+            "tool": self.metadata.name,
+            "followup_tools": list(set(self.metadata.default_followup_tools + (followup_tools if followup_tools else [])))
         }
-        
-        if followup_tools:
-            response["followup_tool"] = followup_tools
             
         return response 
