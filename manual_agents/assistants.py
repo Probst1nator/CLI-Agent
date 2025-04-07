@@ -21,7 +21,7 @@ from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_pptx_presentation import PptxPresentation
 from py_classes.cls_tooling_web import WebTools
-from py_methods.tooling import create_rag_prompt, extract_pdf_content, get_joined_pdf_contents, list_files_recursive, pdf_or_folder_to_database, run_python_script, split_string_into_chunks
+from py_methods.utils import create_rag_prompt, extract_pdf_content, get_joined_pdf_contents, list_files_recursive, pdf_or_folder_to_database, run_python_script, split_string_into_chunks
 from py_classes.globals import g
 
 

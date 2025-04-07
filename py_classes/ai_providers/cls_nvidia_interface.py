@@ -32,11 +32,12 @@ class NvidiaAPI(ChatClientInterface):
         Returns:
         Optional[str]: The generated response, or None if an error occurs.
         """
+        debug_print = ChatClientInterface.create_debug_printer(chat)
         try:
             if silent_reason:
-                print(f"NVIDIA-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
+                debug_print(f"NVIDIA-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
             else:
-                print(f"NVIDIA-Api: <{colored(model, 'green')}> is generating response...")
+                debug_print(f"NVIDIA-Api: <{colored(model, 'green')}> is generating response...", "green", force_print=True)
 
             stream = self.client.chat.completions.create(
                 model=model,
@@ -54,16 +55,18 @@ class NvidiaAPI(ChatClientInterface):
                 token = chunk.choices[0].delta.content
                 if token:
                     if not silent_reason:
-                        print(token_keeper.apply_color(token), end="")
+                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
                     full_response += token
 
             if not silent_reason:
-                print()
+                debug_print("", with_title=False)
 
             return full_response
 
         except Exception as e:
-            raise Exception(f"NVIDIA NeMo API error: {e}")
+            error_msg = f"NVIDIA NeMo API error: {e}"
+            debug_print(error_msg, "red", is_error=True)
+            raise Exception(error_msg)
 
     @staticmethod
     def transcribe_audio(audio_data, language: str = "", model: str = ""):

@@ -2,14 +2,28 @@ from typing import Any, Dict, List, Union, Tuple
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_tooling_web import WebTools
 
-from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse, ToolStatus
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
-from py_methods.tooling import extract_blocks
 import requests
 from pydantic import ValidationError
 import traceback
 import logging
 import re
+
+
+def extract_blocks(text: str) -> List[Tuple[str, str]]:
+    """
+    Extract code blocks from a string.
+    
+    Args:
+        text: The text to extract code blocks from
+        
+    Returns:
+        List of tuples (language, code)
+    """
+    pattern = r"```([a-zA-Z0-9_]*)\n(.*?)```"
+    matches = re.findall(pattern, text, re.DOTALL)
+    return matches
 
 
 def extract_relevance_action(text: str) -> Dict[str, Any]:
@@ -106,15 +120,23 @@ def run(queries: List[str]) -> None:
     async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
-                status="error",
-                summary="Missing required parameter: queries"
+                status=ToolStatus.ERROR,
+                summary="Invalid parameters for web search tool."
             )
-
+            
+        # Extract parameters
+        parameters = params.get("parameters", {})
+        queries = parameters.get("queries")
+        
+        if not queries:
+            return self.format_response(
+                status=ToolStatus.ERROR, 
+                summary="Missing required parameter: 'queries'"
+            )
+            
         try:
             # Extract preferred_models if it was passed via the run method
             preferred_models = params.pop("preferred_models", []) if "preferred_models" in params else []
-            queries: Union[List[str], str] = params["parameters"]["queries"]
-            
             # Handle both single string and list of strings
             if isinstance(queries, str):
                 queries = [queries]
@@ -144,7 +166,7 @@ def run(queries: List[str]) -> None:
                     failure_details = "\n".join([f"- Query '{q}': {reason}" for q, reason in failed_queries])
                     return self.format_response(
                         summary=f"Could not retrieve search results for any of the queries:\n{failure_details}",
-                        status="error",
+                        status=ToolStatus.ERROR,
                     )
 
                 # Format results
@@ -229,7 +251,7 @@ Your suggested queries should be more specific or use alternative terminology th
                     return await perform_search(relevance_action['new_queries'])
                 
                 # Return a clean response with the summary as a string
-                status = "success" if not failed_queries else "partial_success"
+                status = ToolStatus.SUCCESS if not failed_queries else ToolStatus.PARTIAL_SUCCESS
                 return self.format_response(
                     summary=summary,
                     status=status,
@@ -244,7 +266,7 @@ Your suggested queries should be more specific or use alternative terminology th
             logging.error(f"Validation error in web search: {error_detail}\n{traceback.format_exc()}")
             return self.format_response(
                 summary="Error validating search results. This is likely due to unexpected data format from the search API.",
-                status="error",
+                status=ToolStatus.ERROR,
             )
         except requests.RequestException as re:
             # Handle network/API errors
@@ -252,7 +274,7 @@ Your suggested queries should be more specific or use alternative terminology th
             logging.error(f"Request error in web search: {error_detail}")
             return self.format_response(
                 summary="Error connecting to search API. Please check your internet connection or try again later.",
-                status="error",
+                status=ToolStatus.ERROR,
             )
         except Exception as e:
             # Handle any other unexpected errors
@@ -260,5 +282,5 @@ Your suggested queries should be more specific or use alternative terminology th
             logging.error(f"Unexpected error in web search: {error_detail}\n{traceback.format_exc()}")
             return self.format_response(
                 summary=f"Error performing web search: {error_detail}",
-                status="error",
+                status=ToolStatus.ERROR,
             ) 

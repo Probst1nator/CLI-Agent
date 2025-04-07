@@ -1,11 +1,12 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 import json
 from termcolor import colored
 import re
 
-from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse, ToolStatus
 from py_classes.cls_chat import Role, Chat
 from py_classes.cls_llm_router import LlmRouter
+from py_classes.cls_tool_manager import ToolManager
 
 class SequentialTool(BaseTool):
     @staticmethod
@@ -96,9 +97,6 @@ def run(
             )
 
         try:
-            # Import here to avoid circular import
-            from py_classes.cls_tool_manager import ToolManager
-            
             # Initialize tool manager
             tool_manager = ToolManager()
             
@@ -122,10 +120,10 @@ def run(
             result = await tool.run(tool_params)
 
             # Check for errors
-            if result.get("status") == "error":
+            if result["status"] == "error":
                 return self.format_response(
-                    status="error",
-                    summary=f"Tool '{tool_name}' failed: {result.get('error')}"
+                    status=ToolStatus.ERROR,
+                    summary=f"Tool '{tool_name}' failed: {result.get('error', 'Unknown error')}"
                 )
 
             # Get subsequent intent
@@ -135,12 +133,12 @@ def run(
             result_summary = f"The {result['tool']} tool executed successfully with the following result: {result['summary']}\n\nNext: {subsequent_intent}"
 
             return self.format_response(
-                status="success",
+                status=ToolStatus.SUCCESS,
                 summary=result_summary
             )
 
         except Exception as e:
             return self.format_response(
-                status="error",
+                status=ToolStatus.ERROR,
                 summary=f"Error executing sequential tool: {str(e)}"
             )

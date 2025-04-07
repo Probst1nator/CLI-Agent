@@ -29,13 +29,14 @@ class OpenAIAPI(ChatClientInterface):
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
         """
+        debug_print = ChatClientInterface.create_debug_printer(chat)
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
             
             if silent_reason:
-                print(f"OpenAI-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
+                debug_print(f"OpenAI-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
             else:
-                print(f"OpenAI-Api: <{colored(model, 'green')}> is generating response...")
+                debug_print(f"OpenAI-Api: <{colored(model, 'green')}> is generating response...", "green", force_print=True)
 
             stream = client.chat.completions.create(
                 model=model,
@@ -50,29 +51,40 @@ class OpenAIAPI(ChatClientInterface):
                 token = chunk.choices[0].delta.content
                 if token:
                     if not silent_reason:
-                        print(token_keeper.apply_color(token), end="")
+                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
                     full_response += token
             if not silent_reason:
-                print()
+                debug_print("", with_title=False)
             return full_response
 
         except Exception as e:
-            raise Exception(f"OpenAI API error: {e}")
+            error_msg = f"OpenAI API error: {e}"
+            debug_print(error_msg, "red", is_error=True)
+            raise Exception(error_msg)
 
     @staticmethod
-    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1") -> tuple[str,str]:
+    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional[Chat] = None) -> tuple[str,str]:
         """
         Transcribes an audio file using the OpenAI Whisper API.
 
         Args:
             audio_data (sr.AudioData): The audio data object.
             model (str): The model identifier for Whisper.
+            language (str): The language of the audio.
+            chat (Optional[Chat]): The chat object for debug printing.
 
         Returns:
             tuple[str,str]: (transcribed text from the audio file, language)
         """
+        debug_print = None
+        if chat:
+            debug_print = ChatClientInterface.create_debug_printer(chat)
+            
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+            if debug_print:
+                debug_print(f"OpenAI-Api: Transcribing audio using <{colored(model, 'green')}>...", force_print=True)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file.write(audio_data.get_wav_data())
@@ -88,15 +100,25 @@ class OpenAIAPI(ChatClientInterface):
             
             no_speech_prob = response.segments[0]['no_speech_prob']
             if (no_speech_prob > 0.7):
+                if debug_print:
+                    debug_print("No speech detected", force_print=True)
                 return "", "english"
             
             language = response.language
             
+            if debug_print:
+                debug_print(f"Transcription complete. Detected language: {language}", "green", force_print=True)
+                
             return response.text, language
 
         except Exception as e:
-            raise Exception(f"OpenAI Whisper API error: {e}")
+            error_msg = f"OpenAI Whisper API error: {e}"
+            if debug_print:
+                debug_print(error_msg, "red", is_error=True)
+            else:
+                logger.error(error_msg)
+            raise Exception(error_msg)
 
         finally:
-            if os.path.exists(temp_audio_file_path):
+            if 'temp_audio_file_path' in locals() and os.path.exists(temp_audio_file_path):
                 os.remove(temp_audio_file_path)

@@ -1,9 +1,9 @@
 from typing import Any, Dict, List
 from py_classes.cls_tooling_web import WebTools
 
-from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
-from py_methods.tooling import extract_json
+from py_methods.utils import extract_json
 from py_classes.cls_chat import Chat
 
 class DeepResearchTool(BaseTool):

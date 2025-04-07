@@ -7,13 +7,19 @@ import json
 from termcolor import colored
 import re
 import time
+import asyncio
+import traceback
+from io import StringIO
 
-from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+# Add the project root directory to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse, ToolStatus
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_methods.cmd_execution import select_and_execute_commands
 from py_classes.globals import g
-from py_methods.tooling import extract_json
+from py_methods.utils import extract_json
 
 class PythonTool(BaseTool):
     @property
@@ -34,14 +40,15 @@ NOT ALLOWED:
             constructor="""
 def run(title: str, prompt: str) -> None:
     \"\"\"
-    This tool is used to implement and execute a python script.
+    This tool is will implement and execute a python script.
     The script will be implemented automatically and the result will be returned.
-    
+F
     Args:
         title: A title for the python script.
         prompt: A high level, textual description of the python script to execute.
     \"\"\"
-"""
+""",
+            followup_tools=["python_edit", "file_read"]
         )
 
     def _truncate_output(self, output: str, max_length: int = 1000, tail_length: int = 200) -> str:
@@ -97,15 +104,12 @@ def run(title: str, prompt: str) -> None:
 
 
     async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
-        """
-        Execute the Python tool with comprehensive error handling and script management.
+        if not self.validate_params(params):
+            return self.format_response(
+                status=ToolStatus.ERROR,
+                summary="Invalid parameters for python tool."
+            )
         
-        Args:
-            params: Dictionary containing the tool parameters
-            
-        Returns:
-            ToolResponse indicating success or failure with details
-        """
         try:
             # Validate and process requirements
             title = params["parameters"]["title"]
@@ -123,7 +127,7 @@ def run(title: str, prompt: str) -> None:
             script_path = os.path.join(script_dir, script_name)
             
             implement_chat = Chat()
-            implement_chat.add_message(Role.USER, "Please implement the following python script: " + prompt + "\nInclude a main guard and informative error handling.")
+            implement_chat.add_message(Role.USER, "Please implement the following python script: " + prompt + "\nInclude a main guard, informative error handling and prints to display the execution states of the script.")
             implementation = LlmRouter.generate_completion(implement_chat, strength=AIStrengths.CODE)
             
             # Clean response to ensure we only get code
@@ -143,13 +147,44 @@ def run(title: str, prompt: str) -> None:
             # Execute script
             execution_details, success = self.execute_script(script_path)
             
+            # Store the script path in the context chat for followup tools
+            context_chat.metadata = context_chat.metadata or {}
+            context_chat.metadata["last_python_script_path"] = script_path
+            
             return self.format_response(
-                status="success",
-                summary=f"""Script log: {execution_details}""" if execution_details else f"Script executed successfully"
+                status=ToolStatus.SUCCESS,
+                summary=f"{script_path} executed successfully!\n{'Returned:' + execution_details if execution_details else ''}",
+                followup_tools=self.metadata.followup_tools
             )
 
         except Exception as e:
+            error_traceback = traceback.format_exc()
             return self.format_response(
-                status="error",
-                summary=f"""Error in Python tool execution: {str(e)}"""
+                status=ToolStatus.ERROR,
+                summary=f"Error calling python tool, are the args valid?:\n{error_traceback}"
             )
+
+# Test code when script is run directly
+if __name__ == "__main__":
+    async def test_python_tool():
+        tool = PythonTool()
+        chat = Chat()  # Create an empty chat for the context
+        
+        # Example parameters
+        params = {
+            "parameters": {
+                "title": "Hello World",
+                "prompt": "Create a simple script that prints 'Hello, World!' and the current date/time."
+            }
+        }
+        
+        # Execute the tool
+        try:
+            response = await tool.run(params, chat)
+            print("Tool Response Status:", response["status"])
+            print("Tool Response Summary:", response["summary"])
+        except Exception as e:
+            print(f"Error testing PythonTool: {str(e)}")
+
+    # Run the async test function
+    asyncio.run(test_python_tool())

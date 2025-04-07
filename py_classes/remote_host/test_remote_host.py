@@ -14,7 +14,7 @@ from typing import Optional
 # Add parent directory to path to allow importing from py_classes
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
+from py_classes.cls_pyaihost_interface import PyAiHost
 import soundfile as sf
 
 def parse_args():
