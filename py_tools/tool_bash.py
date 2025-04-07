@@ -4,11 +4,13 @@ import re
 import sys
 import time
 from termcolor import colored
+import asyncio
+import os
+import traceback
 
-from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse, ToolStatus
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_chat import Chat
-from py_methods.tooling import listen_microphone, text_to_speech
 from py_classes.globals import g
 
 class BashTool(BaseTool):
@@ -67,11 +69,19 @@ def run(command: str) -> None:
     async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
         if not self.validate_params(params):
             return self.format_response(
-                status="error",
-                summary="Missing required parameter: command"
+                status=ToolStatus.ERROR,
+                summary="Invalid parameters for bash tool."
             )
-
-        command = params["parameters"]["command"]
+        
+        # Extract parameters
+        parameters = params.get("parameters", {})
+        command = parameters.get("command")
+        
+        if not command:
+            return self.format_response(
+                status=ToolStatus.ERROR,
+                summary="Missing required parameter: 'command'"
+            )
 
         # LLM safety check
         is_safe = self._check_command_safety(command, force_local=g.FORCE_LOCAL)
@@ -82,7 +92,7 @@ def run(command: str) -> None:
         # Handle unsafe commands
         if not is_safe:
             return self.format_response(
-                status="error",
+                status=ToolStatus.ERROR,
                 summary=f"Command '{command}' was flagged as potentially unsafe"
             )
 
@@ -103,12 +113,12 @@ def run(command: str) -> None:
                 output_summary += f"Errors: {result.stderr}"
                 
             return self.format_response(
-                status="success" if result.returncode == 0 else "error",
+                status=ToolStatus.SUCCESS if result.returncode == 0 else ToolStatus.ERROR,
                 summary=output_summary.strip()
             )
 
         except Exception as e:
             return self.format_response(
-                status="error",
-                summary=f"Error executing command '{command}': {str(e)}"
+                status=ToolStatus.ERROR,
+                summary=f"Error executing command: {str(e)}\n{traceback.format_exc()}"
             )

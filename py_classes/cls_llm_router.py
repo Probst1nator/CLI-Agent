@@ -13,14 +13,27 @@ from py_classes.cls_chat import Chat, Role
 from enum import Enum
 from py_classes.ai_providers.cls_anthropic_interface import AnthropicAPI
 from py_classes.cls_ai_provider_interface import ChatClientInterface
-from py_classes.ai_providers.cls_groq_interface import GroqAPI
+from py_classes.ai_providers.cls_groq_interface import GroqAPI, TimeoutException, RateLimitException
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
 from py_classes.globals import g
 import logging
 
-logging.basicConfig(level=logging.INFO)
+# Configure logger with proper settings to prevent INFO level messages from being displayed
 logger = logging.getLogger(__name__)
+
+# Remove any existing handlers and set up console handler to only show ERROR or higher
+for handler in logger.handlers[:]:
+    if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+        logger.removeHandler(handler)
+
+# Add a console handler that only shows ERROR level and above
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.ERROR)
+logger.addHandler(console_handler)
+
+# Constant for debug title format - must match the format in cls_ai_provider_interface.py
+DEBUG_TITLE_FORMAT = "<{}> "
 
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
@@ -502,6 +515,48 @@ class LlmRouter:
             if exclude_reasoning_tokens and "</think>" in response:
                 return response.split("</think>")[1]
             return response
+            
+        # Custom print function that prepends the chat debug title
+        def log_print(message: str, color: str = None, end: str = '\n', with_title: bool = True, is_error: bool = False, force_print: bool = False) -> None:
+            """
+            Print log information with chat title prefix and logging.
+            
+            Args:
+                message (str): The message to print
+                color (str, optional): Color for the message
+                end (str): End character
+                with_title (bool): Whether to include the chat title
+                is_error (bool): Whether this is an error message
+                force_print (bool): Force printing to console even for info messages
+            """
+            if with_title:
+                prefix = LlmRouter.get_debug_title_prefix(chat)
+                log_message = f"{prefix}{message}"
+                
+                # Log to appropriate logger level (ignoring color)
+                if is_error:
+                    logger.error(log_message)
+                    # For errors, always print to console
+                    if color:
+                        print(colored(log_message, color), end=end)
+                    else:
+                        print(log_message, end=end)
+                else:
+                    # For info level, log to logger
+                    logger.info(log_message)
+                    # Only print to console if forced
+                    if force_print:
+                        if color:
+                            print(colored(log_message, color), end=end)
+                        else:
+                            print(log_message, end=end)
+            else:
+                # For character-by-character printing, don't log to the logger
+                # But still print to console
+                if color:
+                    print(colored(message, color), end=end)
+                else:
+                    print(message, end=end)
         
         # Convert string input to Chat object if necessary
         if isinstance(chat, str):
@@ -533,22 +588,22 @@ class LlmRouter:
                 
                 # If no model is available, clear failed models and retry
                 if not model:
-                    print(colored(f"# # # Could not find valid model # # # RETRYING... # # #", "red"))
+                    log_print("# # # Could not find valid model # # # RETRYING... # # #", "red", is_error=True)
                     instance.failed_models.clear()
                     if preferred_models and isinstance(preferred_models[0], str):
                         model = instance.get_model(strength=strength, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
 
                 if re_print_prompt:
-                    print(colored(f"\n\nPROMPT: {chat.messages[-1][1]}", "blue"))
+                    log_print(f"\n\nPROMPT: {chat.messages[-1][1]}", "blue", force_print=True)
                 if use_cache:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                     if cached_completion:
                         if not silent_reason:
-                            print(colored(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}> <{colored(model.model_key, 'green')}>","blue"))
+                            log_print(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}> <{colored(model.model_key, 'green')}>", "blue", force_print=True)
                             for char in cached_completion:
-                                print(tooling.apply_color(char), end="")
+                                log_print(tooling.apply_color(char), end="", with_title=False)
                                 time.sleep(0) # better observable for the user
-                            print()
+                            log_print("", with_title=False)
                         return preprocess_response(cached_completion)
 
                 response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
@@ -572,14 +627,25 @@ class LlmRouter:
                         return None
                     instance.failed_models.add(model.model_key)
                     instance.retry_models.remove(model)
-                # Do not print Groq rate limit errors
-                if (not ("Groq" in str(e) and "rate_limit_exceeded" in str(e))):
+                
+                # Special handling for timeout exceptions and rate limit errors
+                if (isinstance(e, TimeoutException) or 
+                    isinstance(e, RateLimitException) or
+                    "request timed out" in str(e).lower() or 
+                    "timeout" in str(e).lower() or 
+                    "timed out" in str(e).lower() or
+                    "connection" in str(e).lower() or
+                    ("Groq" in str(e) and "rate_limit_exceeded" in str(e))):
+                    # Silently handle timeout errors and rate limits - just add to failed models and try the next one
                     if 'model' in locals() and model is not None:
-                        print(colored(f"generate_completion error with model {model.model_key}: {e}", "red"))
-                        logger.error(f"generate_completion error with model {model.model_key}: {e}")
-                    else:
-                        print(colored(f"generate_completion error: {e}", "red"))
-                        logger.error(f"generate_completion error: {e}")
+                        logger.info(f"Network/timeout/rate-limit issue with model {model.model_key}: {e}")
+                    continue
+                
+                # Display other errors
+                if 'model' in locals() and model is not None:
+                    log_print(f"\ngenerate_completion error with model {model.model_key}: {e}", "red", is_error=True)
+                else:
+                    log_print(f"generate_completion error: {e}", "red", is_error=True)
 
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """
@@ -605,7 +671,12 @@ class LlmRouter:
             
             # logger.info(f"Updated token limit for {model.model_key}: {token_count} tokens")
         except Exception as limit_error:
-            logger.error(f"Failed to save model token limit: {limit_error}")
+            # Create a simple local version of log_print for this method
+            def error_log(message: str):
+                logger.error(message)
+                print(colored(message, "red"))
+                
+            error_log(f"Failed to save model token limit: {limit_error}")
 
     @classmethod
     def _save_chat_completion_pair(cls, chat: Chat, response: str, model_key: str) -> None:
@@ -617,14 +688,26 @@ class LlmRouter:
             response (str): The model's response
             model_key (str): The key of the model that generated the response
         """
+        # Local logging function
+        def log(message: str, is_error: bool = False):
+            prefix = LlmRouter.get_debug_title_prefix(chat)
+            log_message = f"{prefix}{message}"
+            
+            if is_error:
+                logger.error(log_message)
+                print(colored(log_message, "red"))
+            else:
+                logger.info(log_message)
+                # Only print if it's a critical message users need to see
+                # In this case we don't print info messages at all
+                
         try:
             # Create the finetuning data directory if it doesn't exist
             os.makedirs(g.UNCONFIRMED_FINETUNING_PATH, exist_ok=True)
             
             # Create a filename with timestamp to avoid collisions
             timestamp = int(time.time())
-            cleaned_debug_title = chat.debug_title.replace(" ", "_")
-            filename = os.path.join(g.UNCONFIRMED_FINETUNING_PATH, f'completion_pair_{cleaned_debug_title}_{timestamp}.jsonl')
+            filename = os.path.join(g.UNCONFIRMED_FINETUNING_PATH, f'{timestamp}_completion_pair.jsonl')
             
             # Create the training example
             training_example = {
@@ -632,8 +715,7 @@ class LlmRouter:
                 "output": response,
                 "metadata": {
                     "model": model_key,
-                    "timestamp": timestamp,
-                    "debug_title": cleaned_debug_title
+                    "timestamp": timestamp
                 }
             }
             
@@ -641,9 +723,9 @@ class LlmRouter:
             with open(filename, 'a') as f:
                 f.write(json.dumps(training_example) + '\n')
                 
-            logger.info(f"Saved chat completion pair to {filename}")
+            log(f"Saved chat completion pair to {filename}")
         except Exception as e:
-            logger.error(f"Failed to save chat completion pair: {e}")
+            log(f"Failed to save chat completion pair: {e}", is_error=True)
     
     @classmethod
     def has_unconfirmed_data(cls) -> bool:
@@ -677,3 +759,21 @@ class LlmRouter:
         for file in os.listdir(g.UNCONFIRMED_FINETUNING_PATH):
             os.remove(os.path.join(g.UNCONFIRMED_FINETUNING_PATH, file))
         
+    @staticmethod
+    def get_debug_title_prefix(chat: Chat) -> str:
+        """
+        Get a formatted prefix string for debug messages that includes the chat's debug title if available.
+        
+        Args:
+            chat (Chat): The chat whose debug_title should be included
+            
+        Returns:
+            str: The formatted prefix string
+        
+        Note:
+            This function is duplicated in ChatClientInterface to avoid circular imports.
+            If you modify this function, be sure to update the other implementation as well.
+            The format should match DEBUG_TITLE_FORMAT constant.
+        """
+        return DEBUG_TITLE_FORMAT.format(chat.debug_title) if hasattr(chat, 'debug_title') and chat.debug_title else ""
+

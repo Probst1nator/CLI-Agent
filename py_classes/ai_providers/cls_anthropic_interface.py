@@ -26,14 +26,15 @@ class AnthropicAPI(ChatClientInterface):
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
         """
+        debug_print = ChatClientInterface.create_debug_printer(chat)
         try:
             client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=3.0, max_retries=2)
             
             
             if silent_reason:
-                print(f"Anthropic-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...")
+                debug_print(f"Anthropic-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
             else:
-                print(f"Anthropic-Api: <{colored(model, 'green')}> is generating response...")
+                debug_print(f"Anthropic-Api: <{colored(model, 'green')}> is generating response...", "green", force_print=True)
 
             l_chat = Chat()
             l_chat.messages = chat.messages
@@ -54,13 +55,15 @@ class AnthropicAPI(ChatClientInterface):
                 token_keeper = CustomColoring()
                 for token in stream.text_stream:
                     if not silent_reason:
-                        print(token_keeper.apply_color(token), end="")
+                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
                     full_response += token
                 if not silent_reason:
-                    print()
+                    debug_print("", with_title=False)
                 return full_response
         except Exception as e:
-            raise Exception(f"Anthropic API error: {e}")
+            error_msg = f"Anthropic API error: {e}"
+            debug_print(error_msg, "red", is_error=True)
+            raise Exception(error_msg)
 
     # @staticmethod
     # def count_tokens(text: str, model: str = "claude-3-5-sonnet-latest-20240620") -> int:

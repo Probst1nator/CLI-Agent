@@ -13,11 +13,11 @@ import mss
 import mss.tools
 import io
 
-from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.globals import g
-from py_methods.tooling import extract_blocks, extract_json
+from py_methods.utils import extract_blocks, extract_json
 
 # Import Omniparser
 import sys

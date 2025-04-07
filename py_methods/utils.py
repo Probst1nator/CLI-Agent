@@ -22,7 +22,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from py_classes.cls_chat import Chat, Role
-from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_llm_router import LlmRouter
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
@@ -302,7 +301,7 @@ def text_to_speech(text: str, enable_keyboard_interrupt: bool = True, speed: flo
     # print a loading message if PyAiHost is not yet imported
     # if not PyAiHost:
     #     print(f"Local: <{colored('PyAiHost', 'green')}> is initializing...")
-    from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
+    from py_classes.cls_pyaihost_interface import PyAiHost
     if text == "":
         print(colored("No text to convert to speech.", "red"))
         return
@@ -345,7 +344,7 @@ def listen_microphone(
     Returns:
     Tuple[str, str, bool|str]: (transcribed text from the audio, language, used wake word)
     """
-    from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
+    from py_classes.cls_pyaihost_interface import PyAiHost
     global r, source
     if not r:
         calibrate_microphone()
@@ -1139,7 +1138,7 @@ def clean_and_reduce_html(html: str) -> str:
 def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
     """
     Extract and parse a tool code call from text.
-    Handles the new format with tool_code blocks.
+    Handles the new format with tool_code blocks and variables.
     """
     try:
         # Extract code blocks with tool_code language tag
@@ -1153,6 +1152,21 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
                 todo_matches = re.finditer(todo_pattern, content, re.IGNORECASE | re.MULTILINE)
                 for todo_match in todo_matches:
                     todos.append(todo_match.group(1).strip())
+                
+                # Extract variable declarations
+                variables: Dict[str, str] = {}
+                var_pattern = r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*?)(?=$|\n)'
+                var_matches = re.finditer(var_pattern, content, re.MULTILINE)
+                for var_match in var_matches:
+                    var_name = var_match.group(1).strip()
+                    var_value = var_match.group(2).strip()
+                    # Clean up the value (remove quotes if it's a string)
+                    if (var_value.startswith('"') and var_value.endswith('"')) or \
+                       (var_value.startswith("'") and var_value.endswith("'")):
+                        var_value = var_value[1:-1]
+                    elif var_value in variables:  # Handle variable references in variable declarations
+                        var_value = variables[var_value]
+                    variables[var_name] = var_value
                 
                 # Find the tool name and start of parameters
                 tool_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*run\s*\('
@@ -1226,9 +1240,16 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
                 if start < len(params_str):
                     params.append(params_str[start:].strip())
                 
+                # Keep track of positional parameter index
+                pos_param_idx = 0
+                
                 # Process each parameter
                 for param in params:
-                    # Find the equals sign outside of strings
+                    param = param.strip()
+                    if not param:
+                        continue
+                        
+                    # Check if it's a keyword argument or positional
                     equals_pos = -1
                     in_string = False
                     string_char = None
@@ -1244,11 +1265,21 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
                         elif char == string_char and param[i-1] != '\\':
                             in_string = False
                     
+                    # Handle positional vs keyword arguments
                     if equals_pos == -1:
-                        continue
+                        # This is a positional parameter
+                        param_name = str(pos_param_idx)
+                        param_value_str = param
+                        pos_param_idx += 1
+                    else:
+                        # This is a keyword parameter
+                        param_name = param[:equals_pos].strip()
+                        param_value_str = param[equals_pos+1:].strip()
                     
-                    param_name = param[:equals_pos].strip()
-                    param_value_str = param[equals_pos+1:].strip()
+                    # Handle variable references in parameters
+                    if param_value_str in variables:
+                        result["parameters"][param_name] = variables[param_value_str]
+                        continue
                     
                     # Handle string values
                     if (param_value_str.startswith('"') and param_value_str.endswith('"')) or \
@@ -1272,6 +1303,17 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
                                 param_value = param_value_str
                                 
                         result["parameters"][param_name] = param_value
+                
+                # Convert positional parameters to a list if any found
+                if any(key.isdigit() for key in result["parameters"]):
+                    pos_params = []
+                    i = 0
+                    while str(i) in result["parameters"]:
+                        pos_params.append(result["parameters"][str(i)])
+                        del result["parameters"][str(i)]
+                        i += 1
+                    if pos_params:
+                        result["positional_parameters"] = pos_params
                 
                 return result
         

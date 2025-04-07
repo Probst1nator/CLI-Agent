@@ -5,7 +5,7 @@ import os
 import logging
 import tkinter as tk
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union, Any
 import threading
 import queue
 from termcolor import colored
@@ -31,6 +31,7 @@ class Chat:
         """
         self.messages: List[Tuple[Role, str]] = []
         self.base64_images: List[str] = []
+        self.metadata: Dict[str, Any] = {}  # Dictionary to store additional metadata
         self._window: Optional[tk.Tk] = None
         self._text_widget: Optional[tk.Text] = None
         self.debug_title: str = debug_title or instruction_message or "Unnamed Context"
@@ -285,30 +286,42 @@ class Chat:
             data_dict = json.load(file)
         return cls.from_dict(data_dict)
 
-    def _to_dict(self) -> List[Dict[str, str]]:
+    def _to_dict(self) -> Dict[str, Any]:
         """
         Converts the chat instance to a dictionary.
         
-        :return: A list of dictionaries representing the chat messages.
+        :return: A dictionary representing the chat instance including messages and metadata.
         """
-        return [
+        return {
+            "messages": [
                 {"role": role.value, "content": content}
                 for role, content in self.messages
-            ]
+            ],
+            "metadata": self.metadata
+        }
 
     @classmethod
-    def from_dict(cls, data_dict: List[Dict[str, str]]) -> "Chat":
+    def from_dict(cls, data_dict: Dict[str, Any]) -> "Chat":
         """
         Creates a Chat instance from a dictionary.
         
-        :param data_dict: A dictionary containing chat messages.
+        :param data_dict: A dictionary containing chat messages and metadata.
         :return: The created Chat instance.
         """
         chat_instance = cls()
-        for message in data_dict:
-            role = Role[message["role"].upper()]
-            content = message["content"]
-            chat_instance.add_message(role, content)
+        
+        # Add messages
+        if "messages" in data_dict:
+            messages = data_dict["messages"]
+            for message in messages:
+                role = Role[message["role"].upper()]
+                content = message["content"]
+                chat_instance.add_message(role, content)
+                
+        # Add metadata if present
+        if "metadata" in data_dict:
+            chat_instance.metadata = data_dict["metadata"]
+            
         return chat_instance
     
     def to_json(self) -> str:
@@ -450,6 +463,7 @@ class Chat:
         new_chat = Chat("Copy of " + self.debug_title)
         new_chat.messages = copy.deepcopy(self.messages)
         new_chat.base64_images = copy.deepcopy(self.base64_images)
+        new_chat.metadata = copy.deepcopy(self.metadata)
         return new_chat
     
     def join(self, chat: 'Chat') -> 'Chat':
@@ -469,6 +483,13 @@ class Chat:
             self.add_message(message_to_add[0], message_to_add[1])
             
         self.base64_images.extend(chat.base64_images)
+        
+        # Merge metadata, prioritizing values from the current chat instance
+        if hasattr(chat, 'metadata') and chat.metadata:
+            for key, value in chat.metadata.items():
+                if key not in self.metadata:
+                    self.metadata[key] = value
+        
         return self
 
     def replace_latest_user_message(self, new_content: str) -> "Chat":

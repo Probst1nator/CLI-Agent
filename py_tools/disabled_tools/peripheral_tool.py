@@ -3,7 +3,7 @@ import pyautogui
 import time
 from termcolor import colored
 
-from py_tools.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
+from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 
 class PeripheralTool(BaseTool):
     @property
