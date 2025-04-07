@@ -360,21 +360,23 @@ def listen_microphone(
             used_wake_word = PyAiHost.wait_for_wake_word(private_remote_wake_detection)
             print(colored("Listening closely...", "yellow"))
             PyAiHost.play_notification()
-            
-            start_time = time.time()
-            with source:
-                audio = r.listen(
-                    source, timeout=max_listening_duration, phrase_time_limit=max_listening_duration/2
-                )
-            listen_duration = time.time() - start_time
-            
-            PyAiHost.play_notification()
+            while True:
+                start_time = time.time()
+                with source:
+                    audio = r.listen(
+                        source, timeout=max_listening_duration, phrase_time_limit=max_listening_duration/2
+                    )
+                listen_duration = time.time() - start_time
+                
+                PyAiHost.play_notification()
 
-            # If we spent more than 90% of the max duration listening, the microphone might need recalibration
-            if listen_duration > max_listening_duration * 0.9:
-                print(colored("Warning: Listening took the full timeout duration. Recalibrating microphone...", "yellow"))
-                time.sleep(1)
-                calibrate_microphone(1)
+                if listen_duration > 0.5:
+                    break
+                
+                # If we spent more than 90% of the max duration listening, the microphone might need recalibration
+                if listen_duration > max_listening_duration * 0.9:
+                    r = None # Recalibrate the microphone
+                
 
             print(colored("Processing sounds...", "yellow"))
 
