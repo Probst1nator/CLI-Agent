@@ -112,7 +112,7 @@ class ToolManager:
         # Look at recently used tools to find suggested followups
         for tool_class in self.tool_history:
             tool_instance = tool_class()
-            followup_tools = tool_instance.metadata.followup_tools
+            followup_tools = tool_instance.metadata.default_followup_tools
             available_followups.update(followup_tools)
             
         return available_followups
@@ -185,7 +185,7 @@ class ToolManager:
         # Only add followup tools if the response was successful
         if tool_response["status"] == "success":
             tool_instance = tool()
-            followup_tools = tool_instance.metadata.followup_tools
+            followup_tools = tool_instance.metadata.default_followup_tools
             
             if followup_tools and len(followup_tools) > 0:
                 # Verify each tool exists and filter to only include valid tools
@@ -195,6 +195,6 @@ class ToolManager:
                         verified_tools.append(suggested_tool)
                 
                 if verified_tools:
-                    tool_response["followup_tool"] = verified_tools
+                    tool_response["followup_tools"] = verified_tools
         
         return tool_response 

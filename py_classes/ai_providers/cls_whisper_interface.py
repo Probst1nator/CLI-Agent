@@ -54,8 +54,6 @@ class WhisperInterface(AudioProviderInterface):
                 else:
                     raise TypeError("audio_data must be either sr.AudioData or numpy.ndarray")
             
-            print(f"Whisper: <{colored(model, 'green')}> is transcribing audio...")
-            
             # Transcribe the audio using our utility function
             transcribed_text, detected_language = utils_transcribe_audio(
                 audio_path=temp_audio_file_path,

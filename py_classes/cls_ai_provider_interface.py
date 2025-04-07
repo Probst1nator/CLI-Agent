@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from py_classes.cls_chat import Chat
+from py_classes.cls_debug_utils import get_debug_title_prefix, DEBUG_TITLE_FORMAT
 from termcolor import colored
 import logging
 
@@ -18,9 +19,6 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.ERROR)
 logger.addHandler(console_handler)
 
-# Constant for debug title format
-DEBUG_TITLE_FORMAT = "<{}> "
-
 class ChatClientInterface(ABC):
     @staticmethod
     def get_debug_title_prefix(chat: Chat) -> str:
@@ -32,16 +30,11 @@ class ChatClientInterface(ABC):
             
         Returns:
             str: The formatted prefix string
-        
-        Note:
-            This function is duplicated in LlmRouter to avoid circular imports.
-            If you modify this function, be sure to update the other implementation as well.
-            The format should match DEBUG_TITLE_FORMAT constant.
         """
-        return DEBUG_TITLE_FORMAT.format(chat.debug_title) if hasattr(chat, 'debug_title') and chat.debug_title else ""
+        return get_debug_title_prefix(chat)
     
     @staticmethod
-    def create_debug_printer(chat: Chat):
+    def create_debug_printer(chat: Optional[Chat] = None):
         """
         Creates a debug printer function that includes the chat's debug title in each print.
         Also logs messages to the logger with appropriate log levels.
@@ -64,7 +57,8 @@ class ChatClientInterface(ABC):
                 is_error (bool): Whether this is an error message
                 force_print (bool): Force printing to console even for info messages
             """
-            if with_title:
+
+            if with_title and chat:
                 prefix = ChatClientInterface.get_debug_title_prefix(chat)
                 log_message = f"{prefix}{message}"
                 

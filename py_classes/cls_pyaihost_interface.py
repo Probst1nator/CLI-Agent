@@ -12,19 +12,6 @@ import numpy as np
 from py_classes.globals import g
 from termcolor import colored
 
-# Import the utility functions
-from py_methods.utils_audio import (
-    initialize_wake_word,
-    wait_for_wake_word,
-    play_notification,
-    play_audio,
-    record_audio,
-    initialize_whisper_model,
-    transcribe_audio,
-    initialize_kokoro_pipeline,
-    text_to_speech
-)
-
 from py_classes.ai_providers.cls_whisper_interface import WhisperInterface
 
 logger = logging.getLogger(__name__)

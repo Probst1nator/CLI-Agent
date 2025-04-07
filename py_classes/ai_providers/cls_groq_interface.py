@@ -94,26 +94,24 @@ class GroqAPI(ChatClientInterface):
 
 
     @staticmethod
-    def transcribe_audio(filepath: str, model: str = "whisper-large-v3", language: str = "auto", silent_reason: str = False, chat: Optional[Chat] = None) -> Optional[Tuple[str, str]]:
+    def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional[Chat] = None) -> Optional[Tuple[str, str]]:
         """
         Transcribes an audio file using Groq's Whisper implementation.
         Args:
             filepath (str): The path to the audio file.
-            model (str): The Whisper model to use (default: "whisper-large-v3").
+            model (str): The Whisper model to use.
             language (str): The language of the audio (default: "auto" for auto-detection).
             silent_reason (str): Reason for silence if applicable.
             chat (Optional[Chat]): Chat object for debug printing with title.
         Returns:
             Optional[Tuple[str, str]]: A tuple containing the transcribed text and detected language, or None if an error occurs.
         """
+        debug_print = ChatClientInterface.create_debug_printer(chat)
+        
         # Check if the model is rate limited
         if rate_limit_tracker.is_rate_limited(model):
             remaining_time = rate_limit_tracker.get_remaining_time(model)
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
-            
-            debug_print = None
-            if chat:
-                debug_print = ChatClientInterface.create_debug_printer(chat)
             
             if not silent_reason and debug_print:
                 debug_print(f"Groq-Api: <{colored(model, 'yellow')}> is {colored(rate_limit_reason, 'yellow')}", force_print=True)
@@ -122,10 +120,6 @@ class GroqAPI(ChatClientInterface):
             raise RateLimitException(f"Model {model} is rate limited. Try again in {remaining_time:.1f} seconds")
         
         try:
-            debug_print = None
-            if chat:
-                debug_print = ChatClientInterface.create_debug_printer(chat)
-            
             client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=0)
             
             if not silent_reason:

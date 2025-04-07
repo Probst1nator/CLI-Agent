@@ -9,11 +9,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse, ToolStatus
 from py_classes.cls_chat import Chat
 
-class FileReadTool(BaseTool):
+class ReadFileTool(BaseTool):
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="file_read",
+            name="read_file",
             description="Read the contents of a file from a specified path.",
             detailed_description="""Use this tool when you need to:
 - Read the contents of a file
@@ -35,7 +35,7 @@ def run(file_path: str, max_lines: Optional[int] = None) -> None:
         max_lines: Optional limit on the number of lines to read. If None, reads the entire file.
     \"\"\"
 """,
-            followup_tools=["file_read"],
+            default_followup_tools=["read_file"],
             is_followup_only=True
         )
 
@@ -51,9 +51,10 @@ def run(file_path: str, max_lines: Optional[int] = None) -> None:
             parameters = params.get("parameters", {})
             file_path = parameters.get("file_path")
             
-            # If file_path is not provided, try to get the last Python script path from context metadata
-            if not file_path and hasattr(context_chat, "metadata") and context_chat.metadata:
-                file_path = context_chat.metadata.get("last_python_script_path")
+            if (".py" in file_path):
+                additional_followup_tools = ["python_edit", "python_execute"]
+            else:
+                additional_followup_tools = []
                 
             if not file_path:
                 return self.format_response(
@@ -99,7 +100,7 @@ def run(file_path: str, max_lines: Optional[int] = None) -> None:
                 return self.format_response(
                     status=ToolStatus.SUCCESS,
                     summary=f"Contents of {file_path}:\n\n{content}",
-                    followup_tools=self.metadata.followup_tools
+                    followup_tools=additional_followup_tools
                 )
             except UnicodeDecodeError:
                 return self.format_response(
@@ -118,8 +119,8 @@ def run(file_path: str, max_lines: Optional[int] = None) -> None:
 if __name__ == "__main__":
     import asyncio
     
-    async def test_file_read_tool():
-        tool = FileReadTool()
+    async def test_read_file_tool():
+        tool = ReadFileTool()
         chat = Chat()  # Create an empty chat for the context
         
         # Example parameters
@@ -139,4 +140,4 @@ if __name__ == "__main__":
             print(f"Error testing FileReadTool: {str(e)}")
 
     # Run the async test function
-    asyncio.run(test_file_read_tool()) 
+    asyncio.run(test_read_file_tool()) 

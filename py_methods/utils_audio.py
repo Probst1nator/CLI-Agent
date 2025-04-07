@@ -16,15 +16,9 @@ import torch
 import whisper
 from scipy import signal
 from termcolor import colored
-from vosk import Model, KaldiRecognizer
+from vosk import Model, KaldiRecognizer, SetLogLevel
 from dotenv import load_dotenv
 
-# Try to import kokoro if available
-try:
-    from kokoro import KPipeline
-    KOKORO_AVAILABLE = True
-except ImportError:
-    KOKORO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -42,18 +36,10 @@ def initialize_wake_word() -> None:
     global _vosk_model
     
     if not _vosk_model:
-        if not logger.isEnabledFor(logging.DEBUG):
-            # Temporarily redirect stderr to suppress Vosk initialization logs
-            stderr = sys.stderr
-            with open(os.devnull, 'w') as devnull:
-                sys.stderr = devnull
-                try:
-                    _vosk_model = Model(lang="en-us")  # Downloads small model automatically
-                finally:
-                    sys.stderr = stderr
-        else:
-            # In debug mode, show all logs
-            _vosk_model = Model(lang="en-us")  # Downloads small model automatically
+        # Disable Vosk logging completely
+        SetLogLevel(-1)
+        
+        _vosk_model = Model(lang="en-us")  # Downloads small model automatically
 
 
 def wait_for_wake_word() -> Optional[str]:
@@ -90,7 +76,6 @@ def wait_for_wake_word() -> Optional[str]:
         rec = KaldiRecognizer(_vosk_model, target_sample_rate)
         rec.SetWords(True)
         
-        print(f"<{colored('Vosk', 'green')}> is listening for wake word...")
         
         # Track last overflow message time to reduce spam
         last_overflow_time = time.time()
@@ -129,7 +114,7 @@ def wait_for_wake_word() -> Optional[str]:
         
         # Start input stream
         with sd.RawInputStream(**device_config, callback=audio_callback):
-            print("Listening for wake words...")
+            print(f"<{colored('Vosk', 'green')}> is listening for wake word...")
             
             while True:
                 # Non-blocking queue get with timeout
@@ -143,7 +128,7 @@ def wait_for_wake_word() -> Optional[str]:
                             text = result.get("text", "").lower().strip()
                             
                             if text:
-                                print(f"Detected: '{text}'")
+                                print(f"<{colored('Vosk', 'green')}> Detected: '{text}'")
                                 
                                 # Check for wake words (simple contains check)
                                 if text.count(" ") <= 4:  # Skip if too many words (likely not a wake word)
@@ -429,12 +414,6 @@ def initialize_kokoro_pipeline() -> bool:
         bool: True if initialization was successful, False otherwise
     """
     global _kokoro_pipeline
-    
-    if not KOKORO_AVAILABLE:
-        print("Kokoro is not installed. Please install it with: pip install kokoro>=0.3.4")
-        print("For Japanese support: pip install misaki[ja]")
-        print("For Chinese support: pip install misaki[zh]")
-        return False
     
     if _kokoro_pipeline is None:
         try:

@@ -14,8 +14,11 @@ class Globals:
     PROJ_ENV_FILE_PATH = os.path.join(PROJ_DIR_PATH, '.env')
     FORCE_LOCAL: bool = False
     
-    DYNAMIC_MODEL_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'dynamic_model_limits.json')
+    # Model limits
+    MODEL_TOKEN_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'model_token_limits.json')
     MODEL_RATE_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'model_rate_limits.json')
+    
+    # Finetuning
     UNCONFIRMED_FINETUNING_PATH = os.path.join(PROJ_TEMP_STORAGE_PATH, 'unconfirmed_finetuning_data')
     CONFIRMED_FINETUNING_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'confirmed_finetuning_data')
 

@@ -29,26 +29,19 @@ class PythonTool(BaseTool):
             description="Call this tool if you require to perform a calculation, implement visualizations or perform more complex tasks in a single python script. (NOT ALLOWED: Internet search, Api key requirements (use web_search tool instead))",
             detailed_description="""Use this tool when you need to:
 - Create visualizations or plots
-- Perform calculations
-Perfect for tasks like:
-- Requested visualizations
-- Statistical data visualization
-- Simple interactive applications (using matplotlib, pygame or pyglet)
-NOT ALLOWED:
-- Api key requirements
-- Internet search (use web_search tool instead)""",
+- Utilise advanced python libraries for data analysis, physics simulations, machine learning and mathematical computation or other""",
             constructor="""
 def run(title: str, prompt: str) -> None:
     \"\"\"
     This tool is will implement and execute a python script.
     The script will be implemented automatically and the result will be returned.
-F
+
     Args:
         title: A title for the python script.
         prompt: A high level, textual description of the python script to execute.
     \"\"\"
 """,
-            followup_tools=["python_edit", "file_read"]
+            default_followup_tools=["python_edit"]
         )
 
     def _truncate_output(self, output: str, max_length: int = 1000, tail_length: int = 200) -> str:
@@ -97,10 +90,12 @@ F
             detached=False
         )
         
-        if "error" in execution_summary.lower() or "error" in execution_details.lower():
-            return self._truncate_output(execution_details), False
+        truncated_execution_details = self._truncate_output(execution_details)
         
-        return self._truncate_output(execution_details), True
+        if "error" in execution_summary.lower() or "error" in execution_details.lower():
+            return  truncated_execution_details, False
+        
+        return truncated_execution_details, True
 
 
     async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
@@ -126,36 +121,63 @@ F
             script_name = f"{safe_base_name}_{timestamp}.py"
             script_path = os.path.join(script_dir, script_name)
             
+            implement_prompt = f"""Please implement the following python script: {prompt}
+Include a main guard, informative error handling and prints to display the execution states of the script. If the script needs to save anything to the disk, always use os.path.dirname(os.path.abspath(__file__)) as the root path."""
+            if any(keyword in prompt.lower() for keyword in ["api", "key"]):
+                implement_prompt += "\nThe description might indicate to use an API-key, please instead implement a solution that does not require an API-key and uses local ressources instead."
+            
             implement_chat = Chat()
-            implement_chat.add_message(Role.USER, "Please implement the following python script: " + prompt + "\nInclude a main guard, informative error handling and prints to display the execution states of the script.")
-            implementation = LlmRouter.generate_completion(implement_chat, strength=AIStrengths.CODE)
+            implement_chat.add_message(Role.USER, implement_prompt)
+            implementation_response = LlmRouter.generate_completion(implement_chat, strength=AIStrengths.CODE)
             
             # Clean response to ensure we only get code
-            if "```python" in implementation:
-                start_idx = implementation.find("```python") + 9
-                end_idx = implementation.find("```", start_idx)
+            if "```python" in implementation_response:
+                start_idx = implementation_response.find("```python") + 9
+                end_idx = implementation_response.find("```", start_idx)
                 if end_idx != -1:
-                    implementation = implementation[start_idx:end_idx]
+                    implementation = implementation_response[start_idx:end_idx]
                 else:
-                    implementation = implementation[start_idx:]
-            implementation = implementation.strip()
+                    implementation = implementation_response[start_idx:]
+            else:
+                return self.format_response(
+                    status=ToolStatus.ERROR,
+                    summary=f"The tool failed to generate a python script. Please rephrase the prompt and try again.",
+                )
             
             # Write implementation to file
             with open(script_path, "w") as f:
                 f.write(implementation)
             
+            # Count the number of python execution and pip install calls in the response
+            python_execution_call_count = len(re.findall(r"```bash\s*python", implementation_response))
+            pip_install_call_count = len(re.findall(r"```bash\s*pip", implementation_response))
+            
+            # If the response contains more bash commands than python execution commands, it is likely that the llm wants to execute an additional command
+            if (implementation_response.count("```bash") > python_execution_call_count + pip_install_call_count):
+                # Extract all bash commands from the implementation response
+                bash_blocks = re.findall(r"```bash(.*?)```", implementation_response, re.DOTALL)
+                additional_commands = "\n".join([block.strip() for block in bash_blocks])
+                return self.format_response(
+                    status=ToolStatus.PARTIAL_SUCCESS,
+                    summary=f"{script_path} has been saved but not executed. The tool is asking to execute the following commands first:\n```bash\n{additional_commands}\n```",
+                    followup_tools=["python_execute", "python_edit"]
+                )
+            
             # Execute script
             execution_details, success = self.execute_script(script_path)
             
-            # Store the script path in the context chat for followup tools
-            context_chat.metadata = context_chat.metadata or {}
-            context_chat.metadata["last_python_script_path"] = script_path
-            
-            return self.format_response(
-                status=ToolStatus.SUCCESS,
-                summary=f"{script_path} executed successfully!\n{'Returned:' + execution_details if execution_details else ''}",
-                followup_tools=self.metadata.followup_tools
-            )
+            if success:
+                return self.format_response(
+                    status=ToolStatus.SUCCESS,
+                    summary=f"{script_path} has been saved and executed successfully!\n{'Returned:' + execution_details if execution_details else ''}",
+                    followup_tools=["python_edit"]
+                )
+            else:
+                return self.format_response(
+                    status=ToolStatus.PARTIAL_SUCCESS,
+                    summary=f"{script_path} has been saved but executed unsuccessfully.\nYou can use the python_edit tool to edit the script and try again.\n{'Returned:' + execution_details if execution_details else ''}",
+                    followup_tools=["python_edit"]
+                )
 
         except Exception as e:
             error_traceback = traceback.format_exc()
