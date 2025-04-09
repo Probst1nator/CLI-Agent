@@ -1,16 +1,18 @@
 import tempfile
+import json
+import os
+import time
 from typing import Any, Dict, List, Optional
 from openai import OpenAI
 from termcolor import colored
-from py_classes.cls_chat import Chat
+from py_classes.cls_chat import Chat, Role
 from py_classes.cls_custom_coloring import CustomColoring
 import speech_recognition as sr
-import os
 from py_classes.globals import g
 
-from py_classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.unified_interfaces import AIProviderInterface
 
-class HumanAPI(ChatClientInterface):
+class HumanAPI(AIProviderInterface):
     """
     Implementation of the ChatClientInterface for the OpenAI API.
     """
@@ -30,7 +32,7 @@ class HumanAPI(ChatClientInterface):
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
         """
-        debug_print = ChatClientInterface.create_debug_printer(chat)
+        debug_print = AIProviderInterface.create_debug_printer(chat)
         try:
             debug_print(f"Human-Api: User is asked for a response...", "green", force_print=True)
             debug_print(colored(("# " * 20) + "CHAT BEGIN" + (" #" * 20), "yellow"), force_print=True)
@@ -73,7 +75,7 @@ class HumanAPI(ChatClientInterface):
         """
         debug_print = None
         if chat:
-            debug_print = ChatClientInterface.create_debug_printer(chat)
+            debug_print = AIProviderInterface.create_debug_printer(chat)
             
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))

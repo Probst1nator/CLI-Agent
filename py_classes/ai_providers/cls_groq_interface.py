@@ -4,7 +4,7 @@ from groq import Groq
 from termcolor import colored
 from py_classes.cls_custom_coloring import CustomColoring
 from py_classes.cls_chat import Chat
-from py_classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_rate_limit_tracker import rate_limit_tracker
 import socket
 import logging
@@ -20,24 +20,25 @@ class RateLimitException(Exception):
     """Exception raised when Groq API rate limits are exceeded."""
     pass
 
-class GroqAPI(ChatClientInterface):
+class GroqAPI(AIProviderInterface):
     """
-    Implementation of the ChatClientInterface for the Groq API.
+    Implementation of the AIProviderInterface for the Groq API.
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str, temperature: float = 0.7, silent_reason: str = False) -> Optional[str]:
+    def generate_response(chat: Chat, model: str, temperature: float = 0.7, tools: Optional[list] = None, silent_reason: str = "") -> Optional[str]:
         """
         Generates a response using the Groq API.
         Args:
             chat (Chat): The chat object containing messages.
             model (str): The model identifier.
             temperature (float): The temperature setting for the model.
+            tools: Optional list of tools to use (not used by Groq)
             silent_reason (str): Reason for silence if applicable.
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
         """
-        debug_print = ChatClientInterface.create_debug_printer(chat)
+        debug_print = AIProviderInterface.create_debug_printer(chat)
 
         # Check if the model is rate limited
         if rate_limit_tracker.is_rate_limited(model):
@@ -106,7 +107,7 @@ class GroqAPI(ChatClientInterface):
         Returns:
             Optional[Tuple[str, str]]: A tuple containing the transcribed text and detected language, or None if an error occurs.
         """
-        debug_print = ChatClientInterface.create_debug_printer(chat)
+        debug_print = AIProviderInterface.create_debug_printer(chat)
         
         # Check if the model is rate limited
         if rate_limit_tracker.is_rate_limited(model):

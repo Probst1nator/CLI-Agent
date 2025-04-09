@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Union, Tuple
 from py_classes.cls_chat import Chat, Role
-from py_classes.cls_tooling_web import WebTools
+from py_classes.utils.cls_utils_web import WebTools
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse, ToolStatus
 from py_classes.cls_llm_router import AIStrengths, LlmRouter
@@ -77,7 +77,7 @@ def extract_relevance_action(text: str) -> Dict[str, Any]:
         'action': 'return_summary'
     }
 
-class WebSearchTool(BaseTool):
+class SearchWebTool(BaseTool):
     def __init__(self):
         self.web_tools = WebTools()
 
@@ -96,7 +96,7 @@ class WebSearchTool(BaseTool):
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="web_search",
+            name="search_web",
             description="Search the web for current information using Brave Search",
             detailed_description="""Use this tool when you need to:
 - Research topics outside your knowledge
@@ -135,8 +135,6 @@ def run(queries: List[str]) -> None:
             )
             
         try:
-            # Extract preferred_models if it was passed via the run method
-            preferred_models = params.pop("preferred_models", []) if "preferred_models" in params else []
             # Handle both single string and list of strings
             if isinstance(queries, str):
                 queries = [queries]
@@ -202,7 +200,6 @@ Here are the search results to analyze:
 
                 summary = LlmRouter.generate_completion(
                     summarization_prompt,
-                    preferred_models=preferred_models,
                     strength=[AIStrengths.GENERAL],
                     exclude_reasoning_tokens=True
                 )
@@ -239,7 +236,6 @@ Your suggested queries should be more specific or use alternative terminology th
                 )
                 is_relevant_tool_response = LlmRouter.generate_completion(
                     is_relevant_chat,
-                    preferred_models=preferred_models,
                     strength=[AIStrengths.REASONING, AIStrengths.FAST],
                     exclude_reasoning_tokens=True
                 )

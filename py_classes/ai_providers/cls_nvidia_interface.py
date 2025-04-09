@@ -1,12 +1,13 @@
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+import logging
 from openai import OpenAI
 from termcolor import colored
 from py_classes.cls_chat import Chat
+from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_custom_coloring import CustomColoring
-from py_classes.cls_ai_provider_interface import ChatClientInterface
 
-class NvidiaAPI(ChatClientInterface):
+class NvidiaAPI(AIProviderInterface):
     """
     Implementation of the ChatClientInterface for the NVIDIA NeMo API.
     """
@@ -32,7 +33,7 @@ class NvidiaAPI(ChatClientInterface):
         Returns:
         Optional[str]: The generated response, or None if an error occurs.
         """
-        debug_print = ChatClientInterface.create_debug_printer(chat)
+        debug_print = AIProviderInterface.create_debug_printer(chat)
         try:
             if silent_reason:
                 debug_print(f"NVIDIA-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)

@@ -12,7 +12,7 @@ from py_classes.cls_custom_coloring import CustomColoring
 from py_classes.cls_chat import Chat, Role
 from enum import Enum
 from py_classes.ai_providers.cls_anthropic_interface import AnthropicAPI
-from py_classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.ai_providers.cls_groq_interface import GroqAPI, TimeoutException, RateLimitException
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
@@ -33,6 +33,11 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.ERROR)
 logger.addHandler(console_handler)
 
+# Custom exception for user interruption
+class UserInterruptedException(Exception):
+    """Exception raised when the user interrupts model generation (e.g., with Ctrl+C)."""
+    pass
+
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
     TOOLUSE = 7
@@ -52,7 +57,7 @@ class Llm:
 
     def __init__(
         self, 
-        provider: ChatClientInterface, 
+        provider: AIProviderInterface, 
         model_key: str, 
         pricing_in_dollar_per_1M_tokens: Optional[float], 
         context_window: int, 
@@ -73,6 +78,21 @@ class Llm:
         self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
         self.context_window = context_window
         self.strength = strength
+    
+    def __str__(self) -> str:
+        """
+        Returns a string representation of the LLM.
+        
+        Returns:
+            str: A formatted string with the LLM's attributes
+        """
+        provider_name = self.provider.__class__.__name__
+        pricing = f"${self.pricing_in_dollar_per_1M_tokens}/1M tokens" if self.pricing_in_dollar_per_1M_tokens else "Free"
+        strengths = ", ".join(s.name for s in self.strength) if self.strength else "None"
+        
+        return f"LLM(model={self.model_key}, provider={provider_name}, pricing={pricing}, " \
+               f"context_window={self.context_window}, strengths=[{strengths}], " \
+               f"local={self.local}, vision={self.has_vision})"
     
     @property
     def local(self) -> bool:
@@ -113,23 +133,29 @@ class Llm:
             Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.TOOLUSE]),
             # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, 200000, [AIStrengths.FAST]),
             
+            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL]),
+            
+            Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
             Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE, AIStrengths.LOCAL]),
             # Llm(OllamaClient(), "deepseek-r1:14b", None, 128000, [AIStrengths.REASONING, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "deepseek-r1:8b", None, 128000, [AIStrengths.REASONING, AIStrengths.FAST, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "qwen2.5-coder:7b-instruct", None, 131072, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "qwen2.5-coder:14b", None, 131072, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "qwen2.5-coder:7b", None, 131072, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "mistral-small:22b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), 'llama3.1:8b', None, 8192, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "mistral-small3.1:24b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
             Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, 128000, [AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "llama3.2:3b", None, 4096, [AIStrengths.FAST, AIStrengths.LOCAL]),
             
             # Guard models
             Llm(GroqAPI(), "llama-guard-3-8b", None, 8192, [AIStrengths.GUARD]),
             Llm(OllamaClient(), "llama-guard3:8b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "llama-guard3:1b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
         ]
+        
+        
 
 
 class LlmRouter:
@@ -367,8 +393,11 @@ class LlmRouter:
             Optional[Llm]: The next available Llm instance if available, otherwise None.
         """
         instance = cls()
-        force_fast_hosts = os.getenv("OLLAMA_HOST_FORCE_FAST_MODELS", "").split(",")
-        force_fast_hosts = [h.strip() for h in force_fast_hosts if h.strip()]
+        if (force_local):
+            force_fast_hosts = os.getenv("OLLAMA_HOST_FORCE_FAST_MODELS", "").split(",")
+            force_fast_hosts = [h.strip() for h in force_fast_hosts if h.strip()]
+        else:
+            force_fast_hosts = []
         
         # Debug print for large token counts
         if (chat.count_tokens() > 4000 and not force_free and not force_local):
@@ -446,7 +475,7 @@ class LlmRouter:
                     
                 # For non-fast Ollama models, check which host would be used
                 try:
-                    client, _ = model.provider.get_valid_client(model.model_key)
+                    client, _ = model.provider.get_valid_client(model.model_key, None, False)
                     if client:
                         host = client._client.base_url.host
                         # If host is not in force_fast_hosts, it's valid
@@ -601,14 +630,20 @@ class LlmRouter:
                     cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
                     if cached_completion:
                         if not silent_reason:
-                            log_print(f"Successfully fetched from cache instead of <{colored(model.provider.__module__, 'green')}> <{colored(model.model_key, 'green')}>", "blue", force_print=True)
+                            log_print(f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
                             for char in cached_completion:
                                 log_print(tooling.apply_color(char), end="", with_title=False)
                                 time.sleep(0) # better observable for the user
                             log_print("", with_title=False)
                         return preprocess_response(cached_completion)
 
-                response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
+                try:
+                    response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
+                except KeyboardInterrupt:
+                    # Explicitly catch Ctrl+C during model generation
+                    log_print("User interrupted model generation (Ctrl+C).", "yellow", is_error=True, force_print=True)
+                    raise UserInterruptedException("Model generation interrupted by user (Ctrl+C).")
+                
                 instance.last_used_model = model.model_key
                 instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
                 
@@ -619,9 +654,13 @@ class LlmRouter:
                 response = preprocess_response(response)
                 return start_response_with + response if include_start_response_str else response
 
+            except UserInterruptedException:
+                # Re-raise the specific user interruption exception
+                raise
             except Exception as e:
                 if "too large" in str(e):
                     # Save the model's maximum token limit
+                    print(colored(f"Too large request for {model.model_key}, saving token limit {chat.count_tokens()}", "yellow"))
                     instance._save_dynamic_token_limit_for_model(model, chat.count_tokens())
                 
                 if 'model' in locals() and model is not None:

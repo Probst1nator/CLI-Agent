@@ -12,7 +12,7 @@ class ToolManager:
     def __init__(self):
         # Get the absolute path of the project root directory (parent of py_classes)
         self.project_root = Path(__file__).parent.parent.absolute()
-        self.tools_directory = "py_tools"
+        self.tools_directory = "agentic_tools"
         self.tools_path = self.project_root / self.tools_directory
         self.default_tools: Dict[str, Type[BaseTool]] = {}
         self.followup_tools: Dict[str, Type[BaseTool]] = {}
@@ -34,7 +34,7 @@ class ToolManager:
 
             try:
                 print(colored(f"Loading tool from file: {file}", "cyan"))
-                # Convert path to module name (e.g., py_tools/my_tool.py -> py_tools.my_tool)
+                # Convert path to module name (e.g., agentic_tools/my_tool.py -> agentic_tools.my_tool)
                 module_name = f"{self.tools_directory}.{file.stem}"
                 module = importlib.import_module(module_name)
 

@@ -1,5 +1,5 @@
 
-from py_classes.cls_web_server import WebServer
+from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.cls_chat import Chat
 
 # Create and configure the server
