@@ -83,11 +83,24 @@ def run(file_path: str, read_start_line: int = 0, read_end_line: Optional[int] =
             
             # Read the file
             try:
+                if (not os.path.exists(file_path)):
+                    return self.format_response(
+                        status=ToolStatus.ERROR,
+                        summary=f"The file at path '{file_path}' does not exist."
+                    )
+                
                 with open(file_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
+                    
+                if (len(lines) == 0):
+                    return self.format_response(
+                        status=ToolStatus.SUCCESS,
+                        summary=f"The file at path '{file_path}' is empty."
+                    )
                 
                 start_index = 0
                 end_index = len(lines)
+                
 
                 # Process start line (defaults to 0 -> index 0)
                 start_index = max(0, read_start_line - 1) # Convert 1-based (or 0) to 0-based index
@@ -98,7 +111,7 @@ def run(file_path: str, read_start_line: int = 0, read_end_line: Optional[int] =
                 if start_index >= end_index:
                      return self.format_response(
                         status=ToolStatus.ERROR,
-                        summary=f"Invalid line range: start_line ({read_start_line}) must be less than end_line ({read_end_line})."
+                        summary=f"Invalid line range: read_start_line ({read_start_line}) must be less than read_end_line ({read_end_line})."
                     )
 
                 content_lines = lines[start_index:end_index]

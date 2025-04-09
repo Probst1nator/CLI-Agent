@@ -53,7 +53,6 @@ def run(command: str, mirror_output_to_user: bool = False) -> None:
             f"Command: {command}"
         )
         
-        print("🛡")
         safety_response = LlmRouter.generate_completion(
             command_guard_prompt, 
             strength=AIStrengths.GUARD,
@@ -90,10 +89,10 @@ def run(command: str, mirror_output_to_user: bool = False) -> None:
         safe_commands: List[str] = ["cat", "ls", "pwd", "clear", "cls", "grep", "sed", "awk", "find", "head", "tail", "wc", "sort", "uniq", "diff", "echo", "date", "whoami", "hostname", "uname", "df", "du", "ps", "top", "which", "whereis", "file", "pip", "apt install"]
         is_safe: bool = any(command.startswith(cmd) for cmd in safe_commands) and "&&" not in command
             
-        # Print command for visibility before safety check
-        print(colored(f"Proposed command: {command}", 'magenta'))
 
         if not is_safe:
+            # Print command for visibility before safety check
+            print(colored(f"🛡️ Proposed command: {command}", 'magenta'))
             # LLM safety check
             is_safe = self._check_command_safety(command, force_local=g.FORCE_LOCAL)
         
@@ -118,7 +117,7 @@ def run(command: str, mirror_output_to_user: bool = False) -> None:
         # Execute command
         try:
             # Re-print the command right before execution if it passed safety checks or confirmation
-            print(colored(f"Executing: {command}", 'magenta'))
+            print(colored(f"💻 Executing: {command}", 'magenta'))
             result = subprocess.run(
                 command,
                 shell=True,

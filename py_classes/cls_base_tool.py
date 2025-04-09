@@ -1,8 +1,17 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict, Type, TYPE_CHECKING, ForwardRef
 import asyncio
+import sys
+import os
+
+# Add the project root directory to path to be able to import utils
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Use TYPE_CHECKING for imports that are only used for type checking
+if TYPE_CHECKING:
+    from py_methods.utils import ToolCall, ToolCallParameters
 
 from py_classes.cls_chat import Chat
 
@@ -12,7 +21,7 @@ class ToolStatus(Enum):
     PARTIAL_SUCCESS = "partial_success"
 
 class ToolResponse(TypedDict):
-    status: ToolStatus  # SUCCESS | ERROR
+    status: str  # "success" | "error" | "partial_success"
     summary: str  # A descriptive summary of what happened, including any error details if status is "error"
     tool: str    # Added automatically by format_response
     followup_tools: Optional[List[str]]  # Optional list of suggested follow-up tools
@@ -25,6 +34,9 @@ class ToolMetadata:
     constructor: str
     default_followup_tools: List[str] = field(default_factory=list)
     is_followup_only: bool = False  # If True, this tool is only visible when referenced as a followup tool
+
+# Use a string for type annotation to avoid circular dependencies
+ToolCallType = ForwardRef('ToolCall')
 
 class BaseTool(ABC):
     @property

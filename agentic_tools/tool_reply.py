@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse, ToolStatus
 from py_classes.cls_chat import Chat
@@ -29,7 +29,9 @@ def run(message: str) -> None:
         )
 
     async def _run(self, params: Dict[str, Any], context_chat: Chat) -> ToolResponse:
-        if not self.validate_params(params):
+        method_params = params.get("parameters", {})
+        message = method_params.get("message", method_params.get("text", ""))
+        if not message:
             return self.format_response(
                 status=ToolStatus.ERROR,
                 summary="Missing required parameter: 'message'"
@@ -37,5 +39,5 @@ def run(message: str) -> None:
         
         return self.format_response(
             status=ToolStatus.SUCCESS,
-            summary=params["parameters"]["message"]
+            summary=message
         ) 

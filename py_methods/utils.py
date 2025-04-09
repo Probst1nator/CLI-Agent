@@ -6,7 +6,7 @@ import pickle
 import re
 import subprocess
 import tempfile
-from typing import Any, List, Literal, Optional, Tuple, Dict, Union
+from typing import Any, List, Literal, Optional, Tuple, Dict, Union, Set, cast, TypedDict
 import sqlite3
 import os
 from typing import List, Tuple
@@ -42,6 +42,25 @@ import tkinter as tk
 from PIL import ImageGrab, Image, ImageTk
 import os
 import base64
+
+# Define the typed structures for tool calls
+class ToolCallParameters(TypedDict, total=False):
+    """Type for tool call parameters with optional fields"""
+    message: Optional[str]
+    command: Optional[str]
+    file_path: Optional[str]
+    raw_content: Optional[str]
+    content_prompt: Optional[str]
+    queries: Optional[Union[str, List[str]]]
+    # Add other common parameters as needed
+
+
+class ToolCall(TypedDict):
+    """Type for tool calls"""
+    tool: str
+    reasoning: str
+    parameters: ToolCallParameters
+    positional_parameters: Optional[List[Any]]
 
 def fetch_search_results(query: str) -> List[str]:
     """
@@ -635,7 +654,7 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
-def extract_blocks(text: str, include_context: bool = False, context_lines: int = 5) -> List[Union[Tuple[str, str], Tuple[str, str, str]]]:
+def extract_blocks(text: str, include_context: bool = False) -> List[Union[Tuple[str, str], Tuple[str, str, str]]]:
     """
     Extract code blocks encased by ``` from a text and the first curly brace block.
     This function handles various edge cases, including:
@@ -649,16 +668,16 @@ def extract_blocks(text: str, include_context: bool = False, context_lines: int 
     Args:
     text (str): The input text containing code blocks.
     include_context (bool): Whether to include context/reasoning before the code block.
-    context_lines (int): Number of lines of context to include before each code block.
 
     Returns:
     List[Union[Tuple[str, str], Tuple[str, str, str]]]: A list of tuples.
     If include_context is False: [(language, content), ...] 
-    If include_context is True: [(language, content, context), ...]
+    If include_context is True: [(language, content, text_without_blocks), ...]
     If no language is specified, the type will be an empty string.
     'first{}' type contains the first curly brace block found.
     """
     blocks = []
+    text_without_blocks = text
     
     # Extract first {} block
     first_brace_pattern = r'\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}'
@@ -667,13 +686,11 @@ def extract_blocks(text: str, include_context: bool = False, context_lines: int 
         # Include the braces in the content
         brace_content = '{' + first_brace_match.group(1) + '}'
         if include_context:
-            # For braces, use content before the brace as context
+            # Remove the brace content from text_without_blocks
             start_pos = first_brace_match.start()
-            context_start = max(0, text[:start_pos].rfind('\n\n'))
-            if context_start == -1:
-                context_start = 0
-            context = text[context_start:start_pos].strip()
-            blocks.append(('first{}', brace_content, context))
+            end_pos = first_brace_match.end()
+            text_without_blocks = text_without_blocks[:start_pos] + text_without_blocks[end_pos:]
+            blocks.append(('first{}', brace_content, text_without_blocks))
         else:
             blocks.append(('first{}', brace_content))
     
@@ -681,47 +698,21 @@ def extract_blocks(text: str, include_context: bool = False, context_lines: int 
     code_pattern = r'```(\w*)\n([\s\S]*?)```'
     code_matches = list(re.finditer(code_pattern, text, re.MULTILINE))
     
-    if include_context:
-        # Split text into lines for context extraction
-        lines = text.split('\n')
+    # Create a copy of the text and remove all code blocks from it
+    text_without_blocks = text
+    for match in reversed(code_matches):  # Process in reverse to maintain correct positions
+        start_pos = match.start()
+        end_pos = match.end()
+        text_without_blocks = text_without_blocks[:start_pos] + text_without_blocks[end_pos:]
+    
+    # Process code blocks
+    for match in code_matches:
+        language = match.group(1).strip()
+        content = match.group(2).strip()
         
-        # Find line numbers for each code block start
-        code_block_line_numbers = []
-        for i, line in enumerate(lines):
-            if re.search(r'```\w*$', line):  # Match code block start markers
-                code_block_line_numbers.append(i)
-        
-        # Match line numbers with regex matches
-        if len(code_block_line_numbers) == len(code_matches):
-            for i, match in enumerate(code_matches):
-                language = match.group(1).strip()
-                content = match.group(2).strip()
-                
-                # Extract context (lines before the code block)
-                line_num = code_block_line_numbers[i]
-                start_line = max(0, line_num - context_lines)
-                context_lines_text = lines[start_line:line_num]
-                context = "\n".join(context_lines_text).strip()
-                
-                blocks.append((language, content, context))
+        if include_context:
+            blocks.append((language, content, text_without_blocks))
         else:
-            # Fallback if line numbers don't match regex matches
-            for match in code_matches:
-                language = match.group(1).strip()
-                content = match.group(2).strip()
-                
-                # Extract approximate context
-                start_pos = match.start()
-                prev_newlines = text[:start_pos].count('\n')
-                context_start = max(0, prev_newlines - context_lines)
-                context_text = "\n".join(lines[context_start:prev_newlines]).strip()
-                
-                blocks.append((language, content, context_text))
-    else:
-        # Original behavior without context
-        for match in code_matches:
-            language = match.group(1).strip()
-            content = match.group(2).strip()
             blocks.append((language, content))
     
     return blocks
@@ -1189,11 +1180,14 @@ def clean_and_reduce_html(html: str) -> str:
     return cleaned_html
 
 
-def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
+def extract_tool_code(text: str) -> Optional[ToolCall]:
     """
     Extract and parse a tool code call from text.
     Handles the new format with tool_code blocks and variables.
     If no tool_code block is found, attempts to find tool code patterns anyway.
+    
+    Returns:
+        Optional[ToolCall]: The parsed tool call or None if no valid tool call was found
     """
     try:
         # Extract code blocks with tool_code language tag
@@ -1307,13 +1301,14 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
             params_str = tool_code_content[params_start:params_end]
             
             # Create the base structure
-            result = {
+            result: ToolCall = {
                 "tool": tool_name,
+                "reasoning": "No specific reasoning provided.",
                 "parameters": {}
             }
             
             if todos:
-                result["todos"] = todos
+                result["todos"] = todos  # type: ignore
             
             # Split parameters at top-level commas
             params = []
@@ -1343,6 +1338,9 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
             
             # Keep track of positional parameter index
             pos_param_idx = 0
+            
+            # Create typed parameters object
+            parameters: ToolCallParameters = {}
             
             # Process each parameter
             for param in params:
@@ -1379,13 +1377,13 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
                 
                 # Handle variable references in parameters
                 if param_value_str in variables:
-                    result["parameters"][param_name] = variables[param_value_str]
+                    parameters[param_name] = variables[param_value_str]
                     continue
                 
                 # Handle string values
                 if (param_value_str.startswith('"') and param_value_str.endswith('"')) or \
                    (param_value_str.startswith("'") and param_value_str.endswith("'")):
-                    result["parameters"][param_name] = param_value_str[1:-1]
+                    parameters[param_name] = param_value_str[1:-1]
                 else:
                     # Try to convert to appropriate type
                     try:
@@ -1403,18 +1401,21 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
                         else:
                             param_value = param_value_str
                             
-                    result["parameters"][param_name] = param_value
+                    parameters[param_name] = param_value
+            
+            # Assign parameters to result
+            result["parameters"] = parameters
             
             # Convert positional parameters to a list if any found
-            if any(key.isdigit() for key in result["parameters"]):
-                pos_params = []
-                i = 0
-                while str(i) in result["parameters"]:
-                    pos_params.append(result["parameters"][str(i)])
-                    del result["parameters"][str(i)]
-                    i += 1
-                if pos_params:
-                    result["positional_parameters"] = pos_params
+            positional_params = []
+            i = 0
+            while str(i) in parameters:
+                positional_params.append(parameters[str(i)])
+                del parameters[str(i)]  # type: ignore
+                i += 1
+                
+            if positional_params:
+                result["positional_parameters"] = positional_params
             
             return result
         

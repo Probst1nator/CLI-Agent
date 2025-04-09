@@ -126,7 +126,7 @@ class ToolManager:
         Returns:
             str: Formatted prompt describing the specified tools.
         """
-        prompt = "```\n"
+        prompt = ""
         
         # Get all currently available tools
         available_tools = self.get_available_tools(include_followups=True)
@@ -163,7 +163,6 @@ class ToolManager:
             
             prompt += f"\n"
             
-        prompt += "```"
         return prompt
 
     def reload_tools(self) -> None:
