@@ -6,7 +6,7 @@ import os
 import select
 import time
 import traceback
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional, Union
 from pyfiglet import figlet_format
 from dotenv import load_dotenv
 from termcolor import colored
@@ -27,6 +27,7 @@ warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:
 warnings.filterwarnings("ignore", message="words count mismatch on*", module="phonemizer", category=UserWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
+
 from py_methods.utils import (
     extract_blocks,
     pdf_or_folder_to_database,
@@ -36,7 +37,9 @@ from py_methods.utils import (
     text_to_speech,
     update_cmd_collection,
     extract_json,
-    extract_tool_code
+    extract_tool_code,
+    ToolCall,
+    ToolCallParameters
 )
 from py_classes.cls_llm_router import AIStrengths, Llm, LlmRouter
 from py_classes.cls_chat import Chat, Role
@@ -132,6 +135,8 @@ def parse_cli_args() -> argparse.Namespace:
 async def main() -> None:
     print("Environment path: ", g.PROJ_ENV_FILE_PATH)
     load_dotenv(g.PROJ_ENV_FILE_PATH)
+    
+    print(colored("Starting CLI-Agent with typed ToolCall interface", "cyan"))
     
     args = parse_cli_args()
     print(args)
@@ -247,7 +252,7 @@ async def main() -> None:
             # Default voice handling
             user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
         else:
-            user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
+            user_input = input(colored("💬 Enter your request: ", 'blue', attrs=["bold"]))
         
         # USER INPUT HANDLING - BEGIN
 
@@ -303,6 +308,8 @@ async def main() -> None:
         
         if "--print_chat" in user_input:
             print(colored(f"# cli-agent: KeyBinding detected: Print chat history:", "green"))
+            os.system('clear')
+            print(colored("Chat history:", "green"))
             context_chat.print_chat()
             continue
         
@@ -352,6 +359,8 @@ async def main() -> None:
         
         while True:
             try:
+                if (remaining_todos):
+                    print(colored(f"📝 Remaining todos: {remaining_todos}", "yellow"))
                 # Check if we've hit the maximum number of consecutive actions
                 if action_counter >= MAX_ACTIONS:
                     # Ask user if to continue or not
@@ -368,8 +377,7 @@ async def main() -> None:
                 
                 # full_agent_prompt = get_agent_prompt(user_prompt, all_available_tools_str, guidance_head_prompt)
                 agent_base = f"""# SYSTEM INSTRUCTION
-You are an expert AI agent with real-time tool execution capabilities acting as a reliable assistant to the user. Your primary goal is to determine the optimal way to respond to user requests.
-"""
+You are an expert AI agent with real-time tool execution capabilities acting as a reliable assistant to the user. Your primary goal is to determine the optimal way to respond to user requests."""
 
                 agent_core = f"""
 ## AVAILABLE TOOLS
@@ -486,7 +494,7 @@ Created file at tech_trends_viz.py successfully! </USER>
                 
                 
                 if (len(remaining_todos) > 0):
-                    planned_todos_prompt = f"\n\nTODOs: {remaining_todos}\n\nPlease proceeed as planned."
+                    planned_todos_prompt = f"\n\nTODOs: {remaining_todos}\n\nPlease proceeed as needed."
                 else:
                     planned_todos_prompt = ""
                 
@@ -514,7 +522,7 @@ Created file at tech_trends_viz.py successfully! </USER>
                     break
 
                 # ! Parse tool selection response
-                agent_tool_calls: List[Dict[str, Any]] = []  # Initialize agent_tool_calls before try block
+                agent_tool_calls: List[ToolCall] = []  # Initialize agent_tool_calls before try block
                 try:
                     # First try to extract tool_code format
                     tool_code_result = extract_tool_code(tool_use_response)
@@ -531,6 +539,8 @@ Created file at tech_trends_viz.py successfully! </USER>
                             remaining_todos = tool_code_result["todos"]
                             
                         agent_tool_calls.append(tool_code_result)
+                    elif "```tool_code" in tool_use_response:
+                        raise Exception("Tool code block detected in response, but no valid tool call was found.")
                     else:
                         # Fallback, custom block handling for python and bash code blocks
                         block_results = extract_blocks(tool_use_response, include_context=True)
@@ -543,7 +553,7 @@ Created file at tech_trends_viz.py successfully! </USER>
                                     context = ""
                                 
                                 if block_type == "python":
-                                    tool_code_result = {
+                                    tool_code_result: ToolCall = {
                                         "tool": "write_file",
                                         "reasoning": context,
                                         "parameters": {
@@ -553,7 +563,7 @@ Created file at tech_trends_viz.py successfully! </USER>
                                     }
                                     agent_tool_calls.append(tool_code_result)
                                 elif block_type == "bash":
-                                    tool_code_result = {
+                                    tool_code_result: ToolCall = {
                                         "tool": "execute_bash",
                                         "reasoning": context,
                                         "parameters": {"command": content}
@@ -570,14 +580,15 @@ Created file at tech_trends_viz.py successfully! </USER>
                     continue
                 
                 if(len(agent_tool_calls) == 0):
-                    agent_tool_calls.append({
+                    default_tool: ToolCall = {
                         "tool": "reply",
                         "reasoning": "No specific reasoning provided.",
                         "parameters": {"message": tool_use_response}
-                    })
+                    }
+                    agent_tool_calls.append(default_tool)
 
 
-                print(colored(f"🛠️ Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
+                print(colored(f"🛠️  Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
                 
                 # Notify web interface about tool selection immediately
                 if web_server and web_server.chat:
@@ -596,7 +607,10 @@ Created file at tech_trends_viz.py successfully! </USER>
                     try:
                         selected_tool = tool_call.get('tool', '').strip()
                         reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
-                        print(colored(f"🧠Reasoning: {reasoning}", "cyan"))
+                        if ("\n" in reasoning):
+                            print(colored(f"🧠 Reasoning:\n{reasoning}", "cyan"))
+                        else:
+                            print(colored(f"🧠 Reasoning: {reasoning}", "cyan"))
 
                         try:
                             tool = tool_manager.get_tool(selected_tool)()
@@ -608,7 +622,7 @@ Created file at tech_trends_viz.py successfully! </USER>
                             continue
 
                         # Prepare parameters, handling positional ones
-                        run_params = tool_call.get('parameters', {})
+                        run_params: ToolCallParameters = tool_call.get('parameters', {})
                         positional_params = tool_call.get('positional_parameters')
                         
                         # --- Start: Map positional parameters --- 
@@ -623,10 +637,10 @@ Created file at tech_trends_viz.py successfully! </USER>
                         # --- End: Map positional parameters ---
                         
                         # Create a dictionary to pass to run, ensuring it contains the mapped parameters
-                        run_args = tool_call.copy() # Start with a copy of the original call
+                        run_args: ToolCall = tool_call.copy() # Start with a copy of the original call
                         run_args['parameters'] = run_params # Update with potentially modified params
-                        print(colored(f"🛠️ Using: {selected_tool}", "green"))
-                        print(colored(f"🛠️ Params: {run_args.get('parameters', {})}", "green"))
+                        print(colored(f"🛠️  Using: {selected_tool}", "green"))
+                        print(colored(f"🛠️  Params: {run_args.get('parameters', {})}", "green"))
                         
                         try:
                             result = await tool.run(run_args, context_chat)
@@ -668,7 +682,7 @@ Created file at tech_trends_viz.py successfully! </USER>
                             # Add the result summary to chat context
                             context_chat.add_message(
                                 Role.USER, 
-                                f"✅ The {selected_tool} tool has been executed successfully." + ((f" Here is its summary:\n{result['summary']}") if 'summary' in result else 'No summary was included..'))
+                                f"✅ The {selected_tool} tool has been executed successfully." + ((f" Here is its summary:\n<summary>\n{result['summary']}\n</summary>") if 'summary' in result else 'No summary was included..'))
                             
                             if web_server and web_server.chat:
                                 web_server.add_message_to_chat(
@@ -681,7 +695,7 @@ Created file at tech_trends_viz.py successfully! </USER>
                         
                         # Handle tool results
                         if selected_tool == "reply":
-                            print(colored(f"Reply: {result['summary']}", "cyan"))
+                            print(colored(f"🗣️  Reply: {result['summary']}", "cyan"))
                             if web_server and web_server.chat:
                                 web_server.add_message_to_chat(Role.ASSISTANT, result["summary"])
                             if args.voice or args.speak:
