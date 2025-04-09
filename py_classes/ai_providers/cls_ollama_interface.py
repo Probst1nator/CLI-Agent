@@ -6,9 +6,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import chromadb
 import ollama
 from termcolor import colored
-from py_classes.cls_chat import Chat
+from py_classes.cls_chat import Chat, Role
+from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_custom_coloring import CustomColoring
-from py_classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.cls_rate_limit_tracker import rate_limit_tracker
 import os
 import socket
 from dataclasses import asdict, dataclass, field
@@ -29,7 +30,7 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.ERROR)
 logger.addHandler(console_handler)
 
-class OllamaClient(ChatClientInterface):
+class OllamaClient(AIProviderInterface):
     """
     Implementation of the ChatClientInterface for the Ollama API.
     """
@@ -51,7 +52,7 @@ class OllamaClient(ChatClientInterface):
         try:
             debug_print = None
             if chat:
-                debug_print = ChatClientInterface.create_debug_printer(chat)
+                debug_print = AIProviderInterface.create_debug_printer(chat)
             
             hostname, port = host.split(':') if ':' in host else (host, 11434)
             if debug_print:
@@ -69,13 +70,14 @@ class OllamaClient(ChatClientInterface):
             return False
 
     @staticmethod
-    def get_valid_client(model_key: str, chat: Optional[Chat] = None) -> Tuple[ollama.Client|None, str]:
+    def get_valid_client(model_key: str, chat: Optional[Chat] = None, auto_download: bool = True) -> Tuple[ollama.Client|None, str]:
         """
         Returns a valid client for the given model, pulling the model if necessary on auto-download hosts.
         
         Args:
             model_key (str): The model to find a valid client for.
             chat (Optional[Chat]): Chat object for debug printing with title.
+            auto_download (bool): Whether to automatically download models if not found.
         
         Returns:
             Tuple[Optional[ollama.Client], str]: [A valid client or None, found model_key].
@@ -86,7 +88,7 @@ class OllamaClient(ChatClientInterface):
         
         debug_print = None
         if chat:
-            debug_print = ChatClientInterface.create_debug_printer(chat)
+            debug_print = AIProviderInterface.create_debug_printer(chat)
         
         for host in ollama_hosts:
             host = host.strip()
@@ -170,7 +172,7 @@ class OllamaClient(ChatClientInterface):
                     logger.debug("=== END MODEL PROCESSING ===\n")
                     if found_model_key:
                         return client, found_model_key 
-                    elif host in auto_download_hosts:
+                    elif auto_download and host in auto_download_hosts:
                         if debug_print:
                             debug_print(f"{host} is pulling {model_key}...", "yellow", force_print=True)
                         else:
@@ -207,10 +209,6 @@ class OllamaClient(ChatClientInterface):
                         print(f"Error checking models on host {host}: {e}")
                     OllamaClient.unreachable_hosts.append(host)
         
-        if debug_print:
-            debug_print(f"No valid client found for model {model_key}", "red", is_error=True)
-        else:
-            print(f"No valid client found for model {model_key}")
         return None, None
 
     @staticmethod
@@ -244,7 +242,7 @@ class OllamaClient(ChatClientInterface):
         if "mistral-small" in model_key:
             model_key = "mistral-small:22b-instruct-2409-q3_K_M"
         
-        debug_print = ChatClientInterface.create_debug_printer(chat)
+        debug_print = AIProviderInterface.create_debug_printer(chat)
         tooling = CustomColoring()
         logger.debug(json.dumps({"last_message": chat.messages[-1][1]}, indent=2))
 
@@ -306,7 +304,7 @@ class OllamaClient(ChatClientInterface):
         """
         debug_print = None
         if chat:
-            debug_print = ChatClientInterface.create_debug_printer(chat)
+            debug_print = AIProviderInterface.create_debug_printer(chat)
             
         if not host:
             client, model_key = OllamaClient.get_valid_client(model, chat)
@@ -356,7 +354,7 @@ class OllamaClient(ChatClientInterface):
 
         debug_print = None
         if chat:
-            debug_print = ChatClientInterface.create_debug_printer(chat)
+            debug_print = AIProviderInterface.create_debug_printer(chat)
 
         client, model_key = OllamaClient.get_valid_client(model, chat)
         if not client:

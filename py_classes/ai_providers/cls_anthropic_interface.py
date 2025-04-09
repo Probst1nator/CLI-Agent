@@ -1,13 +1,19 @@
+from anthropic import Anthropic, RateLimitError
 import os
-from typing import Optional
-from anthropic import Anthropic
-
+import time
+from typing import Dict, List, Optional, Any
 from termcolor import colored
-from py_classes.cls_custom_coloring import CustomColoring
-from py_classes.cls_chat import Chat, Role
-from py_classes.cls_ai_provider_interface import ChatClientInterface
+from py_classes.cls_chat import Chat
+from py_classes.unified_interfaces import AIProviderInterface
+import socket
+import json
+import logging
+import base64
 
-class AnthropicAPI(ChatClientInterface):
+from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_chat import Role
+
+class AnthropicAPI(AIProviderInterface):
     """
     Implementation of the ChatClientInterface for the Anthropic API.
     """
@@ -26,7 +32,7 @@ class AnthropicAPI(ChatClientInterface):
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
         """
-        debug_print = ChatClientInterface.create_debug_printer(chat)
+        debug_print = AIProviderInterface.create_debug_printer(chat)
         try:
             client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=3.0, max_retries=2)
             

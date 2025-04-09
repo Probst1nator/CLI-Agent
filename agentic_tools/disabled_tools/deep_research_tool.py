@@ -1,5 +1,5 @@
 from typing import Any, Dict, List
-from py_classes.cls_tooling_web import WebTools
+from py_classes.utils.cls_utils_web import WebTools
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse
 from py_classes.cls_llm_router import AIStrengths, LlmRouter

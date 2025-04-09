@@ -8,6 +8,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from py_classes.cls_base_tool import BaseTool, ToolMetadata, ToolResponse, ToolStatus
 from py_classes.cls_chat import Chat
+from py_classes.globals import g
+
 
 class ReadFileTool(BaseTool):
     @property
@@ -26,13 +28,14 @@ Perfect for:
 - Reading configuration files
 - Opening any text-based file on the system""",
             constructor="""
-def run(file_path: str, max_lines: Optional[int] = None) -> None:
+def run(file_path: str, read_start_line: int = 0, read_end_line: Optional[int] = None) -> None:
     \"\"\"
     Read the contents of a file from a specified path.
     
     Args:
         file_path: The path to the file to read.
-        max_lines: Optional limit on the number of lines to read. If None, reads the entire file.
+        read_start_line: Optional start line to read. If None, reads the entire file.
+        read_end_line: Optional end line to read. If None, reads the entire file.
     \"\"\"
 """,
             default_followup_tools=["read_file"],
@@ -50,21 +53,21 @@ def run(file_path: str, max_lines: Optional[int] = None) -> None:
             # Get file path from parameters or from context metadata
             parameters = params.get("parameters", {})
             file_path = parameters.get("file_path")
-            
-            if (".py" in file_path):
-                additional_followup_tools = ["python_edit", "python_execute"]
-            else:
-                additional_followup_tools = []
-                
+                            
             if not file_path:
                 return self.format_response(
                     status=ToolStatus.ERROR,
                     summary="No file_path provided and no previous Python script found in context."
                 )
                 
-            max_lines = parameters.get("max_lines")
+            # Remove max_lines, get start and end lines
+            read_start_line = parameters.get("read_start_line", 0) # Default to 0 if not provided
+            read_end_line = parameters.get("read_end_line")
             
             # Check if the file exists
+            if not os.path.exists(file_path):
+                file_path = os.path.join(g.AGENTS_SANDBOX_DIR, file_path)
+                
             if not os.path.exists(file_path):
                 return self.format_response(
                     status=ToolStatus.ERROR,
@@ -81,26 +84,40 @@ def run(file_path: str, max_lines: Optional[int] = None) -> None:
             # Read the file
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    if max_lines is not None:
-                        lines = []
-                        for i, line in enumerate(f):
-                            if i >= max_lines:
-                                break
-                            lines.append(line)
-                        content = ''.join(lines)
-                        if i >= max_lines:
-                            content += f"\n... (truncated, showing first {max_lines} lines)"
-                    else:
-                        content = f.read()
+                    lines = f.readlines()
                 
+                start_index = 0
+                end_index = len(lines)
+
+                # Process start line (defaults to 0 -> index 0)
+                start_index = max(0, read_start_line - 1) # Convert 1-based (or 0) to 0-based index
+                
+                if read_end_line is not None:
+                    end_index = min(len(lines), read_end_line) # End line is exclusive in slicing
+
+                if start_index >= end_index:
+                     return self.format_response(
+                        status=ToolStatus.ERROR,
+                        summary=f"Invalid line range: start_line ({read_start_line}) must be less than end_line ({read_end_line})."
+                    )
+
+                content_lines = lines[start_index:end_index]
+                content = "".join(content_lines)
+                
+                # Add information about slicing if applicable
+                summary_prefix = f"Contents of {file_path}"
+                # Show range unless it's the full file (start_index=0, end_index=len(lines))
+                if start_index != 0 or end_index != len(lines):
+                    summary_prefix += f" (lines {start_index + 1} to {end_index})"
+                summary_prefix += ":\n\n"
+
                 # If content is very large, truncate it
                 if len(content) > 10000:  # Limit to 10K characters
                     content = content[:10000] + "\n... (content truncated)"
                 
                 return self.format_response(
                     status=ToolStatus.SUCCESS,
-                    summary=f"Contents of {file_path}:\n\n{content}",
-                    followup_tools=additional_followup_tools
+                    summary=f"{summary_prefix}{content}"
                 )
             except UnicodeDecodeError:
                 return self.format_response(
@@ -127,7 +144,8 @@ if __name__ == "__main__":
         params = {
             "parameters": {
                 "file_path": __file__,  # Read this very file
-                "max_lines": 10
+                "read_start_line": 5,
+                "read_end_line": 15
             }
         }
         

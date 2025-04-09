@@ -131,8 +131,11 @@ Include a main guard, informative error handling and prints to display the execu
             implementation_response = LlmRouter.generate_completion(implement_chat, strength=AIStrengths.CODE)
             
             # Clean response to ensure we only get code
-            if "```python" in implementation_response:
-                start_idx = implementation_response.find("```python") + 9
+            if "```python" in implementation_response or implementation_response.count("```") >= 2:
+                if "```python" in implementation_response:
+                    start_idx = implementation_response.find("```python") + 9
+                else:
+                    start_idx = implementation_response.find("```", start_idx) + 4
                 end_idx = implementation_response.find("```", start_idx)
                 if end_idx != -1:
                     implementation = implementation_response[start_idx:end_idx]

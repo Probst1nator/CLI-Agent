@@ -1,10 +1,10 @@
 from .tool_reply import ReplyTool
-from .tool_python import PythonTool
-from .tool_python_edit import PythonEditTool
-from .tool_python_execute import PythonExecuteTool
+from .disabled_tools.tool_python import PythonTool
+from .disabled_tools.tool_python_edit import PythonEditTool
+from .disabled_tools.tool_python_execute import PythonExecuteTool
 from .tool_read_file import ReadFileTool
-from .tool_webSearch import WebSearchTool
-from .tool_bash import BashTool
+from .tool_search_web import SearchWebTool
+from .tool_execute_bash import ExecuteBashTool
 from .disabled_tools.tool_goodbye import GoodbyeTool
 # from .disabled_tools.sequential_tool import SequentialTool # Keep disabled tools commented if they were
 # from .disabled_tools.deep_research_tool import DeepResearchTool # Keep disabled tools commented if they were
@@ -17,8 +17,8 @@ __all__ = [
     'PythonEditTool',
     'PythonExecuteTool',
     'ReadFileTool',
-    'WebSearchTool',
-    'BashTool',
+    'SearchWebTool',
+    'ExecuteBashTool',
     'GoodbyeTool',
     'SequentialTool',
     'DeepResearchTool',

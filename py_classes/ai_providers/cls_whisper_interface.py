@@ -6,7 +6,7 @@ import numpy as np
 import speech_recognition as sr
 
 from termcolor import colored
-from py_classes.cls_audio_provider_interface import AudioProviderInterface
+from py_classes.unified_interfaces import AudioProviderInterface
 from py_classes.globals import g
 from py_methods.utils_audio import (
     initialize_whisper_model,

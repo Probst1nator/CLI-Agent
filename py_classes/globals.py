@@ -7,16 +7,22 @@ import logging
 
 class Globals:
     args: Optional[argparse.Namespace] = None
+    FORCE_LOCAL: bool = False
     
     PROJ_DIR_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     PROJ_PERSISTENT_STORAGE_PATH = os.path.join(PROJ_DIR_PATH, '.cliagent')
     PROJ_TEMP_STORAGE_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'temporary')
     PROJ_ENV_FILE_PATH = os.path.join(PROJ_DIR_PATH, '.env')
-    FORCE_LOCAL: bool = False
+    AGENTS_SANDBOX_DIR = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, "agents_sandbox")
+    os.makedirs(AGENTS_SANDBOX_DIR, exist_ok=True)
     
     # Model limits
-    MODEL_TOKEN_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'model_token_limits.json')
-    MODEL_RATE_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'model_rate_limits.json')
+    # Generate a daily model token limits file path with date suffix
+    import datetime
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    PROJ_MODEL_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'model_limits')
+    MODEL_TOKEN_LIMITS_PATH = os.path.join(PROJ_MODEL_LIMITS_PATH, f'{today}_model_token_limits.json')
+    MODEL_RATE_LIMITS_PATH = os.path.join(PROJ_MODEL_LIMITS_PATH, f'{today}_model_rate_limits.json')
     
     # Finetuning
     UNCONFIRMED_FINETUNING_PATH = os.path.join(PROJ_TEMP_STORAGE_PATH, 'unconfirmed_finetuning_data')

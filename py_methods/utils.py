@@ -6,7 +6,7 @@ import pickle
 import re
 import subprocess
 import tempfile
-from typing import Any, List, Literal, Optional, Tuple, Dict
+from typing import Any, List, Literal, Optional, Tuple, Dict, Union
 import sqlite3
 import os
 from typing import List, Tuple
@@ -635,7 +635,7 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
-def extract_blocks(text: str) -> List[Tuple[str, str]]:
+def extract_blocks(text: str, include_context: bool = False, context_lines: int = 5) -> List[Union[Tuple[str, str], Tuple[str, str, str]]]:
     """
     Extract code blocks encased by ``` from a text and the first curly brace block.
     This function handles various edge cases, including:
@@ -648,13 +648,17 @@ def extract_blocks(text: str) -> List[Tuple[str, str]]:
 
     Args:
     text (str): The input text containing code blocks.
+    include_context (bool): Whether to include context/reasoning before the code block.
+    context_lines (int): Number of lines of context to include before each code block.
 
     Returns:
-    List[Tuple[str, str]]: A list of tuples containing the block type (language) and the block content.
+    List[Union[Tuple[str, str], Tuple[str, str, str]]]: A list of tuples.
+    If include_context is False: [(language, content), ...] 
+    If include_context is True: [(language, content, context), ...]
     If no language is specified, the type will be an empty string.
     'first{}' type contains the first curly brace block found.
     """
-    blocks: List[Tuple[str, str]] = []
+    blocks = []
     
     # Extract first {} block
     first_brace_pattern = r'\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}'
@@ -662,16 +666,63 @@ def extract_blocks(text: str) -> List[Tuple[str, str]]:
     if first_brace_match:
         # Include the braces in the content
         brace_content = '{' + first_brace_match.group(1) + '}'
-        blocks.append(('first{}', brace_content))
+        if include_context:
+            # For braces, use content before the brace as context
+            start_pos = first_brace_match.start()
+            context_start = max(0, text[:start_pos].rfind('\n\n'))
+            if context_start == -1:
+                context_start = 0
+            context = text[context_start:start_pos].strip()
+            blocks.append(('first{}', brace_content, context))
+        else:
+            blocks.append(('first{}', brace_content))
     
-    # Extract code blocks
+    # Extract code blocks with their positions
     code_pattern = r'```(\w*)\n([\s\S]*?)```'
-    code_matches = re.finditer(code_pattern, text, re.MULTILINE)
+    code_matches = list(re.finditer(code_pattern, text, re.MULTILINE))
     
-    for match in code_matches:
-        language = match.group(1).strip()
-        content = match.group(2).strip()
-        blocks.append((language, content))
+    if include_context:
+        # Split text into lines for context extraction
+        lines = text.split('\n')
+        
+        # Find line numbers for each code block start
+        code_block_line_numbers = []
+        for i, line in enumerate(lines):
+            if re.search(r'```\w*$', line):  # Match code block start markers
+                code_block_line_numbers.append(i)
+        
+        # Match line numbers with regex matches
+        if len(code_block_line_numbers) == len(code_matches):
+            for i, match in enumerate(code_matches):
+                language = match.group(1).strip()
+                content = match.group(2).strip()
+                
+                # Extract context (lines before the code block)
+                line_num = code_block_line_numbers[i]
+                start_line = max(0, line_num - context_lines)
+                context_lines_text = lines[start_line:line_num]
+                context = "\n".join(context_lines_text).strip()
+                
+                blocks.append((language, content, context))
+        else:
+            # Fallback if line numbers don't match regex matches
+            for match in code_matches:
+                language = match.group(1).strip()
+                content = match.group(2).strip()
+                
+                # Extract approximate context
+                start_pos = match.start()
+                prev_newlines = text[:start_pos].count('\n')
+                context_start = max(0, prev_newlines - context_lines)
+                context_text = "\n".join(lines[context_start:prev_newlines]).strip()
+                
+                blocks.append((language, content, context_text))
+    else:
+        # Original behavior without context
+        for match in code_matches:
+            language = match.group(1).strip()
+            content = match.group(2).strip()
+            blocks.append((language, content))
     
     return blocks
 
@@ -1142,52 +1193,35 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
     """
     Extract and parse a tool code call from text.
     Handles the new format with tool_code blocks and variables.
+    If no tool_code block is found, attempts to find tool code patterns anyway.
     """
     try:
         # Extract code blocks with tool_code language tag
         blocks = extract_blocks(text)
+        tool_code_content = None
         
+        # First try to get content from tool_code blocks
         for block_type, content in blocks:
             if block_type.lower() == 'tool_code':
-                # Extract TODOs
-                todos: List[str] = []
-                todo_pattern = r'#\s*TODO:\s*(.*?)(?=$|\n)'
-                todo_matches = re.finditer(todo_pattern, content, re.IGNORECASE | re.MULTILINE)
-                for todo_match in todo_matches:
-                    todos.append(todo_match.group(1).strip())
-                
-                # Extract variable declarations
-                variables: Dict[str, str] = {}
-                var_pattern = r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*?)(?=$|\n)'
-                var_matches = re.finditer(var_pattern, content, re.MULTILINE)
-                for var_match in var_matches:
-                    var_name = var_match.group(1).strip()
-                    var_value = var_match.group(2).strip()
-                    # Clean up the value (remove quotes if it's a string)
-                    if (var_value.startswith('"') and var_value.endswith('"')) or \
-                       (var_value.startswith("'") and var_value.endswith("'")):
-                        var_value = var_value[1:-1]
-                    elif var_value in variables:  # Handle variable references in variable declarations
-                        var_value = variables[var_value]
-                    variables[var_name] = var_value
-                
-                # Find the tool name and start of parameters
-                tool_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*run\s*\('
-                tool_match = re.search(tool_pattern, content)
-                if not tool_match:
-                    continue
-                    
-                tool_name = tool_match.group(1)
-                params_start = tool_match.end()
-                
-                # Find the matching closing parenthesis
-                params_end = -1
-                paren_level = 1
+                tool_code_content = content
+                break
+        
+        # Fallback: If no tool_code block was found, check for tool code patterns in raw text
+        if tool_code_content is None:
+            # Look for a pattern like something.run(...) in the text
+            tool_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*run\s*\('
+            tool_match = re.search(tool_pattern, text)
+            if tool_match:
+                # Extract everything from the start of the match to a reasonable endpoint
+                start_idx = tool_match.start()
+                # Find a reasonable endpoint by looking for the closing parenthesis with proper nesting
+                end_idx = start_idx
+                paren_level = 0
                 in_string = False
                 string_char = None
                 
-                for i in range(params_start, len(content)):
-                    char = content[i]
+                for i in range(start_idx, len(text)):
+                    char = text[i]
                     
                     if not in_string:
                         if char == '"' or char == "'":
@@ -1198,127 +1232,191 @@ def extract_tool_code(text: str) -> Optional[Dict[str, Any]]:
                         elif char == ')':
                             paren_level -= 1
                             if paren_level == 0:
-                                params_end = i
+                                end_idx = i + 1  # Include the closing parenthesis
                                 break
-                    elif char == string_char and content[i-1] != '\\':
+                    elif char == string_char and (i == 0 or text[i-1] != '\\'):
                         in_string = False
                 
-                if params_end == -1:
+                if end_idx > start_idx:
+                    # Look for variable declarations before this
+                    var_section_start = max(0, text[:start_idx].rfind('\n\n'))
+                    if var_section_start == -1:
+                        var_section_start = 0
+                    
+                    # Include any variables declared before the tool code
+                    tool_code_content = text[var_section_start:end_idx].strip()
+        
+        if tool_code_content:
+            # Extract TODOs
+            todos: List[str] = []
+            todo_pattern = r'#\s*TODO:\s*(.*?)(?=$|\n)'
+            todo_matches = re.finditer(todo_pattern, tool_code_content, re.IGNORECASE | re.MULTILINE)
+            for todo_match in todo_matches:
+                todos.append(todo_match.group(1).strip())
+            
+            # Extract variable declarations
+            variables: Dict[str, str] = {}
+            var_pattern = r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*?)(?=$|\n)'
+            var_matches = re.finditer(var_pattern, tool_code_content, re.MULTILINE)
+            for var_match in var_matches:
+                var_name = var_match.group(1).strip()
+                var_value = var_match.group(2).strip()
+                # Clean up the value (remove quotes if it's a string)
+                if (var_value.startswith('"') and var_value.endswith('"')) or \
+                   (var_value.startswith("'") and var_value.endswith("'")):
+                    var_value = var_value[1:-1]
+                elif var_value in variables:  # Handle variable references in variable declarations
+                    var_value = variables[var_value]
+                variables[var_name] = var_value
+            
+            # Find the tool name and start of parameters
+            tool_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*run\s*\('
+            tool_match = re.search(tool_pattern, tool_code_content)
+            if not tool_match:
+                return None
+                
+            tool_name = tool_match.group(1)
+            params_start = tool_match.end()
+            
+            # Find the matching closing parenthesis
+            params_end = -1
+            paren_level = 1
+            in_string = False
+            string_char = None
+            
+            for i in range(params_start, len(tool_code_content)):
+                char = tool_code_content[i]
+                
+                if not in_string:
+                    if char == '"' or char == "'":
+                        in_string = True
+                        string_char = char
+                    elif char == '(':
+                        paren_level += 1
+                    elif char == ')':
+                        paren_level -= 1
+                        if paren_level == 0:
+                            params_end = i
+                            break
+                elif char == string_char and tool_code_content[i-1] != '\\':
+                    in_string = False
+            
+            if params_end == -1:
+                return None
+            
+            params_str = tool_code_content[params_start:params_end]
+            
+            # Create the base structure
+            result = {
+                "tool": tool_name,
+                "parameters": {}
+            }
+            
+            if todos:
+                result["todos"] = todos
+            
+            # Split parameters at top-level commas
+            params = []
+            start = 0
+            depth = 0
+            in_string = False
+            string_char = None
+            
+            for i, char in enumerate(params_str):
+                if not in_string:
+                    if char == '"' or char == "'":
+                        in_string = True
+                        string_char = char
+                    elif char in '([{':
+                        depth += 1
+                    elif char in ')]}':
+                        depth -= 1
+                    elif char == ',' and depth == 0:
+                        params.append(params_str[start:i].strip())
+                        start = i + 1
+                elif char == string_char and params_str[i-1] != '\\':
+                    in_string = False
+            
+            # Add the last parameter
+            if start < len(params_str):
+                params.append(params_str[start:].strip())
+            
+            # Keep track of positional parameter index
+            pos_param_idx = 0
+            
+            # Process each parameter
+            for param in params:
+                param = param.strip()
+                if not param:
                     continue
-                
-                params_str = content[params_start:params_end]
-                
-                # Create the base structure
-                result = {
-                    "tool": tool_name,
-                    "parameters": {}
-                }
-                
-                if todos:
-                    result["todos"] = todos
-                
-                # Split parameters at top-level commas
-                params = []
-                start = 0
-                depth = 0
+                    
+                # Check if it's a keyword argument or positional
+                equals_pos = -1
                 in_string = False
                 string_char = None
                 
-                for i, char in enumerate(params_str):
+                for i, char in enumerate(param):
                     if not in_string:
                         if char == '"' or char == "'":
                             in_string = True
                             string_char = char
-                        elif char in '([{':
-                            depth += 1
-                        elif char in ')]}':
-                            depth -= 1
-                        elif char == ',' and depth == 0:
-                            params.append(params_str[start:i].strip())
-                            start = i + 1
-                    elif char == string_char and params_str[i-1] != '\\':
+                        elif char == '=':
+                            equals_pos = i
+                            break
+                    elif char == string_char and param[i-1] != '\\':
                         in_string = False
                 
-                # Add the last parameter
-                if start < len(params_str):
-                    params.append(params_str[start:].strip())
+                # Handle positional vs keyword arguments
+                if equals_pos == -1:
+                    # This is a positional parameter
+                    param_name = str(pos_param_idx)
+                    param_value_str = param
+                    pos_param_idx += 1
+                else:
+                    # This is a keyword parameter
+                    param_name = param[:equals_pos].strip()
+                    param_value_str = param[equals_pos+1:].strip()
                 
-                # Keep track of positional parameter index
-                pos_param_idx = 0
+                # Handle variable references in parameters
+                if param_value_str in variables:
+                    result["parameters"][param_name] = variables[param_value_str]
+                    continue
                 
-                # Process each parameter
-                for param in params:
-                    param = param.strip()
-                    if not param:
-                        continue
-                        
-                    # Check if it's a keyword argument or positional
-                    equals_pos = -1
-                    in_string = False
-                    string_char = None
-                    
-                    for i, char in enumerate(param):
-                        if not in_string:
-                            if char == '"' or char == "'":
-                                in_string = True
-                                string_char = char
-                            elif char == '=':
-                                equals_pos = i
-                                break
-                        elif char == string_char and param[i-1] != '\\':
-                            in_string = False
-                    
-                    # Handle positional vs keyword arguments
-                    if equals_pos == -1:
-                        # This is a positional parameter
-                        param_name = str(pos_param_idx)
-                        param_value_str = param
-                        pos_param_idx += 1
-                    else:
-                        # This is a keyword parameter
-                        param_name = param[:equals_pos].strip()
-                        param_value_str = param[equals_pos+1:].strip()
-                    
-                    # Handle variable references in parameters
-                    if param_value_str in variables:
-                        result["parameters"][param_name] = variables[param_value_str]
-                        continue
-                    
-                    # Handle string values
-                    if (param_value_str.startswith('"') and param_value_str.endswith('"')) or \
-                       (param_value_str.startswith("'") and param_value_str.endswith("'")):
-                        result["parameters"][param_name] = param_value_str[1:-1]
-                    else:
-                        # Try to convert to appropriate type
-                        try:
-                            if '.' in param_value_str:
-                                param_value = float(param_value_str)
-                            else:
-                                param_value = int(param_value_str)
-                        except ValueError:
-                            if param_value_str.lower() == 'true':
-                                param_value = True
-                            elif param_value_str.lower() == 'false':
-                                param_value = False
-                            elif param_value_str.lower() == 'none':
-                                param_value = None
-                            else:
-                                param_value = param_value_str
-                                
-                        result["parameters"][param_name] = param_value
-                
-                # Convert positional parameters to a list if any found
-                if any(key.isdigit() for key in result["parameters"]):
-                    pos_params = []
-                    i = 0
-                    while str(i) in result["parameters"]:
-                        pos_params.append(result["parameters"][str(i)])
-                        del result["parameters"][str(i)]
-                        i += 1
-                    if pos_params:
-                        result["positional_parameters"] = pos_params
-                
-                return result
+                # Handle string values
+                if (param_value_str.startswith('"') and param_value_str.endswith('"')) or \
+                   (param_value_str.startswith("'") and param_value_str.endswith("'")):
+                    result["parameters"][param_name] = param_value_str[1:-1]
+                else:
+                    # Try to convert to appropriate type
+                    try:
+                        if '.' in param_value_str:
+                            param_value = float(param_value_str)
+                        else:
+                            param_value = int(param_value_str)
+                    except ValueError:
+                        if param_value_str.lower() == 'true':
+                            param_value = True
+                        elif param_value_str.lower() == 'false':
+                            param_value = False
+                        elif param_value_str.lower() == 'none':
+                            param_value = None
+                        else:
+                            param_value = param_value_str
+                            
+                    result["parameters"][param_name] = param_value
+            
+            # Convert positional parameters to a list if any found
+            if any(key.isdigit() for key in result["parameters"]):
+                pos_params = []
+                i = 0
+                while str(i) in result["parameters"]:
+                    pos_params.append(result["parameters"][str(i)])
+                    del result["parameters"][str(i)]
+                    i += 1
+                if pos_params:
+                    result["positional_parameters"] = pos_params
+            
+            return result
         
         return None
         

@@ -38,9 +38,9 @@ from py_methods.utils import (
     extract_json,
     extract_tool_code
 )
-from py_classes.cls_llm_router import AIStrengths, LlmRouter
+from py_classes.cls_llm_router import AIStrengths, Llm, LlmRouter
 from py_classes.cls_chat import Chat, Role
-from py_classes.cls_web_server import WebServer
+from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.cls_tool_manager import ToolManager
 from py_classes.globals import g
 
@@ -109,7 +109,7 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("--gui", action="store_true", default=False,
                         help="Open a web interface for the chat")
     parser.add_argument("--debug", action="store_true", default=False,
-                        help="Enable debug mode")
+                        help="Enable debug logs")
     parser.add_argument("--debug-chats", action="store_true", default=False,
                         help="Enable debug windows for chat contexts without full debug logging")
     parser.add_argument("--majority", action="store_true", default=False,
@@ -191,7 +191,7 @@ async def main() -> None:
     
     if args.c:
         context_chat = Chat.load_from_json()
-        context_chat.title = "Continued Conversation"
+        context_chat.title = "Main Context Chat"
     else:
         context_chat = Chat(debug_title="Main Context Chat")
     
@@ -204,39 +204,12 @@ async def main() -> None:
         last_response = context_chat.messages[-1][1]
         text_to_speech(last_response)
         print(colored(last_response, 'magenta'))
-
-    if args.edit and args.fixpy and args.presentation:
-        from manual_agents.assistants import python_error_agent, code_assistant, presentation_assistant
-        if args.edit != None: # code edit mode
-            pre_chosen_option = ""
-            if (args.auto):
-                pre_chosen_option = "1"
-            code_assistant(context_chat, args.edit, pre_chosen_option)    
-        
-        if args.fixpy != None:
-            python_error_agent(context_chat, args.fixpy)
-
-        if args.presentation != None:
-            presentation_assistant(args, context_chat, args.presentation)
-    
-    previous_model_key: str | None = None
     
     # Main loop
     while True:
-        
         # save the context_chat to a json file
         if context_chat:
             context_chat.save_to_json()
-        
-        # cli args regenerate last message
-        if args.regenerate:
-            args.regenerate = False
-            if context_chat and len(context_chat.messages) > 1:
-                if context_chat.messages[-1][0] == Role.USER:
-                    context_chat.messages.pop()
-                    user_input = context_chat.messages.pop()[1]
-                    print(colored(f"# cli-agent: Regenerating last response.", "green"))
-                    print(colored(user_input, "blue"))
         
         # screen capture
         if args.image:
@@ -274,18 +247,10 @@ async def main() -> None:
             # Default voice handling
             user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
         else:
-            # if LlmRouter.has_unconfirmed_data():  # Show rating info if there's unconfirmed data
-            #     print(colored("(Optional: Enter 1 to save or 2 to discard last response for training)", 'yellow', attrs=["dark"]))
             user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
-            # if LlmRouter.has_unconfirmed_data() and user_input.strip() in ['1', '2']:
-            #     if user_input.strip() == '1':
-            #         LlmRouter.confirm_finetuning_data()
-            #     else:
-            #         LlmRouter.clear_unconfirmed_finetuning_data()
-            #     print(colored("Response rated. What would you like to do next?", 'green'))
-            #     user_input = input(colored("Enter your request: ", 'blue', attrs=["bold"]))
         
         # USER INPUT HANDLING - BEGIN
+
         if user_input.endswith('--q'):
             print(colored("Exiting...", "red"))
             break
@@ -294,10 +259,11 @@ async def main() -> None:
             if len(context_chat.messages) < 2:
                 print(colored(f"# cli-agent: No chat history found, cannot regenerate last response.", "red"))
                 continue
-            context_chat.messages.pop()
-            user_input = context_chat.messages.pop()[1]
             print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
-        
+            if context_chat.messages[-1][0] == Role.USER:
+                context_chat.messages.pop()
+            context_chat.messages.pop()
+            
         if user_input.endswith("--l"):
             user_input = user_input[:-3]
             args.local = not args.local
@@ -317,7 +283,11 @@ async def main() -> None:
             continue
         
         if user_input.startswith("--llm"):
-            user_input = input(colored("Enter the llm to use (phi3.5:3.8b, claude3.5, gpt-4o), or leave empty for automatic: ", 'blue'))
+            available_llms = Llm.get_available_llms()
+            print(colored(f"Available LLMs:", "green"))
+            for llm in available_llms:
+                print(colored(f"{llm}".replace(" ", "\t"), "green"))
+            user_input = input(colored("Enter the llm to use or leave empty for automatic: ", 'blue'))
             if user_input:
                 args.llm = user_input
             else:
@@ -331,9 +301,10 @@ async def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
             continue
         
-        if "--debug" in user_input:
-            print(colored(f"# cli-agent: KeyBinding detected: Debug information:", "green"))
+        if "--print_chat" in user_input:
+            print(colored(f"# cli-agent: KeyBinding detected: Print chat history:", "green"))
             context_chat.print_chat()
+            continue
         
         if user_input.endswith("--m"):
             print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
@@ -348,8 +319,7 @@ async def main() -> None:
         if "--h" in user_input:
             user_input = user_input[:-3]
             print(figlet_format("cli-agent", font="slant"))
-            print(colored(f"""# cli-agent: KeyBinding detected: Display help message:
-# cli-agent: KeyBindings:
+            print(colored(f"""# cli-agent: KeyBindings:
 # cli-agent: --h: Shows this help message.
 # cli-agent: --r: Regenerates the last response.
 # cli-agent: --l: Toggles local llm host mode.
@@ -357,7 +327,7 @@ async def main() -> None:
 # cli-agent: --img: Take a screenshot.
 # cli-agent: --maj: Run the majority response assistant.
 # cli-agent: --llm: Set the language model to use. (Examples: "phi3.5:3.8b", "claude3.5", "gpt-4o")
-# cli-agent: --debug: Enable full debug mode with logging
+# cli-agent: --print_chat: Print the chat history.
 # cli-agent: --debug-chats: Enable debug windows for chat contexts only
 # cli-agent: Type 'quit' to exit the program.
 """, "yellow"))
@@ -414,12 +384,18 @@ First, reason through these steps:
 
 Then, provide a tool_code block with a single tool call and subsequent TODOs if necessary.
 The TODOs will help you retrain coherency throughout your operation in later turns.
+Ensure that from the TODOs alone you could pick up the operation again from where you left off, this requires you to always include plenty of context.
 1. Use the "reply" tool for direct answers requiring no real-time data or reliable computations
 2. Use any other tool(s) once or multiple times if you need to:
    - Search the web
    - Gather system information using bash
    - Create visualizations with python
    - Chain multiple operations in sequence to intelligently solve a task
+
+IMPORTANT: For multi-step TODOs, make them a coherent flowing text that implicitly includes the user's request:
+# TODO: Begin by creating [specific implementation] to address user's request
+# TODO: Then test the implementation to ensure it works properly
+# TODO: Finally respond to the user with results and next steps
 
 {f'''
 CONTEXT-AWARE BEHAVIOR:
@@ -434,10 +410,20 @@ You must provide your reasoning first, followed by a tool_code block with the se
 <EXAMPLE>
     <USER> Create a Snake game with AI player using Pygame and basic pathfinding. </USER>
     <ASSISTANT> The user wants a simple implementation of the classic Snake game using Python's Pygame library, with an AI player using a basic pathfinding algorithm. 
-        To implement this, we can use the python tool to create a simple script that utilizes Pygame for the game environment and a basic pathfinding algorithm for the AI player.
+        To implement this, I'll first create a Python script file with the necessary code, then execute it.
         ```tool_code
-        python.run(title="Snake Game with AI Player", prompt="Implement a simple Snake game using Pygame with an AI player using a basic pathfinding algorithm.")
-        # TODO: Ask the user for confirmation of the result and further instructions
+        write_file.run(file_path="snake_game.py", content_prompt="Create a Python script that implements a Snake game using Pygame with an AI player using a basic pathfinding algorithm. Include comments explaining the code and ensure it has a nice UI with score display.")
+        # TODO: Test the Snake game implementation by executing snake_game.py
+        # TODO: Fix any potential issues with the Snake game if needed
+        # TODO: Ask the user if they're satisfied with the Snake game implementation
+        ```
+    </ASSISTANT>
+    <USER> ✅ The write_file tool has been executed successfully. Here is its summary:
+Created file at snake_game.py successfully! </USER>
+    <ASSISTANT> Now I'll execute the script so the user can play the game:
+        ```tool_code
+        execute_bash.run(command="python3 snake_game.py", mirror_output_to_user=False)
+        # TODO: Ask the user if they're satisfied with the Snake game and if they need any adjustments
         ```
     </ASSISTANT>
 </EXAMPLE>
@@ -446,17 +432,9 @@ You must provide your reasoning first, followed by a tool_code block with the se
     <USER> What 3 processes are using the most internet bandwidth? </USER>
     <ASSISTANT> The user wants to know what 3 processes are using the most internet bandwidth.
         ```tool_code
-        # Construct a command in bash to find the 3 processes using the most internet bandwidth
-        bash.run(command="sudo nethogs -t | sort -k2 -r | head -n 3")
-        # TODO: Reply to the user with the found processes
-        ```
-    </ASSISTANT>
-    <USER> ❌ Tool execution error: Nethogs is not installed. </USER>
-    <ASSISTANT> Install nethogs and chain the failed command afterwards:
-        ```tool_code
-        # Install nethogs using the package manager and chain the previous command
-        bash.run(command="sudo apt-get install nethogs -y && sudo nethogs -t | sort -k2 -r | head -n 3")
-        # TODO: Reply to the user indicating that nethogs has been installed and listing the found processes
+        # Construct a command in bash to find the 3 processes using the most internet bandwidth and print the output directly to the user
+        execute_bash.run(command="sudo nethogs -t | sort -k2 -r | head -n 3", mirror_output_to_user=True)
+        # TODO: Explain the bandwidth usage results to the user and offer to provide more detailed information if needed
         ```
     </ASSISTANT>
 </EXAMPLE>
@@ -467,8 +445,26 @@ You must provide your reasoning first, followed by a tool_code block with the se
         ```tool_code
         # Perform a web search to find the most relevant information
         web_search.run(queries=["latest technology trends 2023", "emerging tech innovations"])
-        # TODO: Use python to display a visualization of the found trends
-        # TODO: Ask the user for confirmation if the results were satisfactory and further instructions
+        # TODO: Create a visualization script to present technology trends in an accessible format
+        # TODO: Execute the visualization script to generate the visual representation
+        # TODO: Check with the user if the technology trends visualization meets their needs
+        ```
+    </ASSISTANT>
+    <USER> ✅ The web_search tool has been executed successfully. Here is its summary:
+[Search results about latest technology trends and innovations] </USER>
+    <ASSISTANT> Now I'll create a visualization script based on the search results:
+        ```tool_code
+        write_file.run(file_path="tech_trends_viz.py", content_prompt="Create a Python script that visualizes the latest technology trends based on this data: [search results]. Use matplotlib or other visualization libraries to create a clear, informative chart or graph. Make sure to include labels, a title, and a legend if appropriate.")
+        # TODO: Run the visualization script to display the technology trends in a visually accessible format
+        # TODO: Confirm the visualization meets the user's need for a quick tech trends overview
+        ```
+    </ASSISTANT>
+    <USER> ✅ The write_file tool has been executed successfully. Here is its summary:
+Created file at tech_trends_viz.py successfully! </USER>
+    <ASSISTANT> Now I'll run the visualization script:
+        ```tool_code
+        execute_bash.run(command="python3 tech_trends_viz.py")
+        # TODO: Verify the technology trends visualization was successful and meets the user's need for a quick overview
         ```
     </ASSISTANT>
 </EXAMPLE>
@@ -489,12 +485,15 @@ You must provide your reasoning first, followed by a tool_code block with the se
                 context_chat.set_instruction_message(agent_instruction)
                 
                 
-                planned_todos_prompt = f"\n\nTODOs: {remaining_todos}\n\nPlease proceeed as planned."
+                if (len(remaining_todos) > 0):
+                    planned_todos_prompt = f"\n\nTODOs: {remaining_todos}\n\nPlease proceeed as planned."
+                else:
+                    planned_todos_prompt = ""
                 
                 # If the last message is not a user message, add the tools prompt and the todos prompt
-                if (context_chat[-1][0] != Role.USER):
+                if (context_chat.messages[-1][0] != Role.USER):
                     extended_user_input = user_input
-                    extended_user_input += "\n\nDo not respond to me directly, please pick one of the following tools instead:\n" + tool_manager.get_tools_prompt(include_details=False)
+                    extended_user_input += "\n\nDo not respond to me directly, pick one of the following tools instead:\n" + tool_manager.get_tools_prompt(include_details=False)
                     if (len(remaining_todos) > 0):
                         extended_user_input += planned_todos_prompt
                     context_chat.add_message(Role.USER, extended_user_input)
@@ -503,7 +502,7 @@ You must provide your reasoning first, followed by a tool_code block with the se
 
                 # Get tool selection response
                 try:
-                    # ! First tool call
+                    # ! Agent turn
                     tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], strength=AIStrengths.TOOLUSE)
                     context_chat.add_message(Role.ASSISTANT, tool_use_response)
                 except Exception as e:
@@ -532,6 +531,34 @@ You must provide your reasoning first, followed by a tool_code block with the se
                             remaining_todos = tool_code_result["todos"]
                             
                         agent_tool_calls.append(tool_code_result)
+                    else:
+                        # Fallback, custom block handling for python and bash code blocks
+                        block_results = extract_blocks(tool_use_response, include_context=True)
+                        if block_results:
+                            for block_data in block_results:
+                                if len(block_data) == 3:  # With context
+                                    block_type, content, context = block_data
+                                else:  # Without context (fallback)
+                                    block_type, content = block_data
+                                    context = ""
+                                
+                                if block_type == "python":
+                                    tool_code_result = {
+                                        "tool": "write_file",
+                                        "reasoning": context,
+                                        "parameters": {
+                                            "file_path": "unnamed_script.py",
+                                            "raw_content": content
+                                        }
+                                    }
+                                    agent_tool_calls.append(tool_code_result)
+                                elif block_type == "bash":
+                                    tool_code_result = {
+                                        "tool": "execute_bash",
+                                        "reasoning": context,
+                                        "parameters": {"command": content}
+                                    }
+                                    agent_tool_calls.append(tool_code_result)
 
                 except Exception as e:
                     LlmRouter.clear_unconfirmed_finetuning_data()
@@ -543,11 +570,14 @@ You must provide your reasoning first, followed by a tool_code block with the se
                     continue
                 
                 if(len(agent_tool_calls) == 0):
-                    print(colored("CRITICAL ERROR: No valid tool calls were found in your response, please verify the llm response.", "red"))
-                    context_chat.print_chat()
+                    agent_tool_calls.append({
+                        "tool": "reply",
+                        "reasoning": "No specific reasoning provided.",
+                        "parameters": {"message": tool_use_response}
+                    })
 
 
-                print(colored(f"Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
+                print(colored(f"🛠️ Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
                 
                 # Notify web interface about tool selection immediately
                 if web_server and web_server.chat:
@@ -566,10 +596,7 @@ You must provide your reasoning first, followed by a tool_code block with the se
                     try:
                         selected_tool = tool_call.get('tool', '').strip()
                         reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
-
-                        print(colored(f"Using tool: {selected_tool}", "green"))
-                        print(colored(f"Using params: {tool_call.get('parameters', '')}", "green"))
-                        print(colored(f"Reasoning: {reasoning}", "cyan"))
+                        print(colored(f"🧠Reasoning: {reasoning}", "cyan"))
 
                         try:
                             tool = tool_manager.get_tool(selected_tool)()
@@ -580,19 +607,40 @@ You must provide your reasoning first, followed by a tool_code block with the se
                             print(colored(f"Error initializing tool {selected_tool}: {str(e)}", "red"))
                             continue
 
+                        # Prepare parameters, handling positional ones
+                        run_params = tool_call.get('parameters', {})
+                        positional_params = tool_call.get('positional_parameters')
+                        
+                        # --- Start: Map positional parameters --- 
+                        if positional_params: # Only proceed if there are positional params
+                            if selected_tool == "reply":
+                                if "message" not in run_params:
+                                    run_params["message"] = positional_params[0]
+                            elif selected_tool == "execute_bash": # Add mapping for execute_bash
+                                if "command" not in run_params:
+                                    run_params["command"] = positional_params[0]
+                        # TODO: Add more general positional parameter mapping logic here if needed for other tools
+                        # --- End: Map positional parameters ---
+                        
+                        # Create a dictionary to pass to run, ensuring it contains the mapped parameters
+                        run_args = tool_call.copy() # Start with a copy of the original call
+                        run_args['parameters'] = run_params # Update with potentially modified params
+                        print(colored(f"🛠️ Using: {selected_tool}", "green"))
+                        print(colored(f"🛠️ Params: {run_args.get('parameters', {})}", "green"))
+                        
                         try:
-                            result = await tool.run(tool_call, context_chat)
+                            result = await tool.run(run_args, context_chat)
                             
                             # Process followup_tool if present in the response
                             if result.get("followup_tools"):
                                 followup_tools = result["followup_tools"]
                                 # Format the list of suggested tools
                                 followup_tools_str = ", ".join(followup_tools)
-                                print(colored(f"Suggested followup tools: {followup_tools_str}", "cyan"))
+                                print(colored(f"🔍 Suggested followup tools: {followup_tools_str}", "cyan"))
                             
                         except Exception as e:
                             LlmRouter.clear_unconfirmed_finetuning_data()
-                            print(colored(f"Error executing tool {selected_tool}: {str(e)}", "red"))
+                            print(colored(f"❌ Error executing tool {selected_tool}: {str(e)}", "red"))
                             if args.debug:
                                 traceback.print_exc()
                             continue
