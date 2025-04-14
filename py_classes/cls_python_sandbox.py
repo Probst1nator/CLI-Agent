@@ -76,6 +76,9 @@ class PythonSandbox:
         self.execute(f"from py_classes.globals import g")
         self.execute(f"g.FORCE_LOCAL = {self.force_local}")
         
+        # Import utils
+        self.execute("from utils import *")
+        
         # Print current path for debugging
         self.execute("print(f'Python sandbox initialized with working directory: {os.getcwd()}')")
         self.execute("print(f'Python path includes: {sys.path}')")
