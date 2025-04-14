@@ -7,8 +7,8 @@ import logging
 import builtins
 
 class Globals:
-    args: Optional[argparse.Namespace] = None
     FORCE_LOCAL: bool = False
+    DEBUG_CHATS: bool = False
     
     PROJ_DIR_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     PROJ_PERSISTENT_STORAGE_PATH = os.path.join(PROJ_DIR_PATH, '.cliagent')
@@ -87,7 +87,7 @@ def custom_print(*args: Any, **kwargs: Any) -> None:
     g.original_print(*args, **kwargs)
     
     # If web server is initialized and GUI mode is enabled, log to web interface
-    if g.web_server is not None and hasattr(g, 'args') and g.args and g.args.gui:
+    if g.web_server is not None:
         try:
             g.web_server.log_print(*args, **kwargs)
         except Exception:
