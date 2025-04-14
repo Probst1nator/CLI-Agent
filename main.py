@@ -16,6 +16,12 @@ import socket
 import warnings
 import asyncio
 import re
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import HSplit, Layout
+from prompt_toolkit.widgets import CheckboxList, Frame, Label, RadioList
+from prompt_toolkit.styles import Style
+from prompt_toolkit.formatted_text import HTML
 
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -74,45 +80,37 @@ def parse_cli_args() -> argparse.Namespace:
         description="AI CLI-Agent with backend options and more.",
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
-    
+
+    parser.add_argument("-h", "--help", action="store_true", default=False,
+                        help="Display this help")
     parser.add_argument("-a", "--auto", nargs='?', const=5, type=int, default=None,
                         help="""Automatically execute safe commands after specified delay in seconds. Unsafe commands still require confirmation.""", metavar="DELAY")
     parser.add_argument("-c", action="store_true", default=False,
                         help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-e", "--edit", nargs='?', const="", type=str, default=None, metavar="FILEPATH",
-                        help="Edit either the file at the specified path or the contents of the clipboard.")
-    parser.add_argument("-h", "--help", action="store_true", default=False,
-                        help="Display this help")
     parser.add_argument("-l", "--local", action="store_true", default=False,
                         help="Use the local Ollama backend for processing.")
-    parser.add_argument("-o", "--online", action="store_true", default=False,
-                        help="Use online backends for processing.")
     parser.add_argument("-m", "--message", type=str, default=None,
                         help="Enter your first message instantly.")
-    parser.add_argument("-p", "--presentation", nargs='?', const="", type=str, default=None, metavar="TOPIC",
-                        help="Interactively create a presentation.")    
     parser.add_argument("-r", "--regenerate", action="store_true", default=False,
                         help="Regenerate the last response.")
     parser.add_argument("-v", "--voice", action="store_true", default=False,
                         help="Enable microphone input and text-to-speech output.")
-    parser.add_argument("-spe", "--speak", action="store_true", default=False,
+    parser.add_argument("-s", "--speak", action="store_true", default=False,
                         help="Text-to-speech output.")
     parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot and generate a response based on the contents of the image.")
-    parser.add_argument("--llm", nargs='?', type=str, default="",
-                        help='Specify model to use. Supported backends: Groq, Ollama, OpenAI. \nDefault: "llama3.2:3b", Examples: ["llama3.2:3b", "llama3.1:8b", "claude3.5", "gpt-4o"]')
     parser.add_argument("--preload", action="store_true", default=False,
                         help="Preload systems like embeddings and other resources.")
     parser.add_argument("--gui", action="store_true", default=False,
                         help="Open a web interface for the chat")
-    parser.add_argument("--debug", action="store_true", default=False,
-                        help="Enable debug logs")
     parser.add_argument("--debug-chats", action="store_true", default=False,
                         help="Enable debug windows for chat contexts without full debug logging")
-    parser.add_argument("--majority", action="store_true", default=False,
-                        help="Use majority voting for responses")
     parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
                         help="Use private remote wake detection")
+    
+    parser.add_argument("--debug", action="store_true", default=False,
+                        help="Enable debug logs")
+    
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -124,6 +122,72 @@ def parse_cli_args() -> argparse.Namespace:
         exit(1)
     
     return args
+
+async def llm_selection(args: argparse.Namespace) -> None:
+    """
+    Handles the LLM selection process, supporting both auto and manual modes.
+    
+    Args:
+        args: The parsed command line arguments containing auto mode settings
+    """
+    # Show available LLMs using prompt_toolkit
+    available_llms = Llm.get_available_llms(exclude_guards=True)
+    
+    # Create styled LLM choices
+    llm_choices = []
+    # Add "Any but local" option at the top
+    llm_choices.append(("any_but_local", HTML('<provider>Any</provider> - <model>Any but local</model> - <pricing>Automatic selection</pricing>')))
+    
+    for llm in available_llms:
+        # Create HTML formatted text with colors
+        styled_text = HTML(
+            f'<provider>{llm.provider.__class__.__name__}</provider> - '
+            f'<model>{llm.model_key}</model> - '
+            f'<pricing>{f"${llm.pricing_in_dollar_per_1M_tokens}/1M tokens" if llm.pricing_in_dollar_per_1M_tokens else "Free"}</pricing> - '
+            f'<context>Context: {llm.context_window}</context>'
+        )
+        llm_choices.append((llm.model_key, styled_text))
+    
+    # Define the style
+    style = Style.from_dict({
+        'model': 'ansicyan',
+        'provider': 'ansigreen',
+        'pricing': 'ansiyellow',
+        'context': 'ansiblue',
+    })
+    
+    radio_list = RadioList(
+        values=llm_choices
+    )
+    bindings = KeyBindings()
+
+    @bindings.add("e")
+    def _execute(event) -> None:
+        app.exit(result=radio_list.current_value)
+
+    @bindings.add("a")
+    def _abort(event) -> None:
+        app.exit(result=None)
+
+    instructions = Label(text="Use arrow keys to select an LLM, press e to confirm or 'a' to abort")
+    root_container = HSplit([
+        Frame(title="Select an LLM to use", body=radio_list),
+        instructions
+    ])
+    layout = Layout(root_container)
+    app = Application(layout=layout, key_bindings=bindings, full_screen=False, style=style)
+    
+    # Use the current event loop instead of creating a new one
+    selected_llm = await app.run_async()
+    
+    if selected_llm == "any_but_local":
+        g.FORCE_LOCAL = False
+        args.local = False
+        args.llm = None
+        print(colored(f"# cli-agent: KeyBinding detected: Local mode disabled, using automatic LLM selection", "green"))
+    else:
+        args.llm = selected_llm
+        print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, LLM set to {args.llm}, type (--h) for info", "green"))
 
 def confirm_code_execution(args: argparse.Namespace) -> bool:
     """
@@ -165,13 +229,14 @@ async def main() -> None:
     
     args = parse_cli_args()
     print(args)
+
+    # Display all chat windows
+    if args.debug_chats:
+        g.DEBUG_CHATS = True
     
     # Override logging level if debug mode is enabled
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
-    
-    # Store args in globals
-    g.args = args
     
     # Initialize tool manager
     utils_manager = UtilsManager()
@@ -187,7 +252,7 @@ async def main() -> None:
         g.web_server = web_server  # Store in globals for print redirection
         web_server.start()  # Start with empty chat, will be updated later
     
-    if args.local or (os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online):
+    if args.local or (os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip()):
         args.local = True
         g.FORCE_LOCAL = True
     
@@ -240,25 +305,37 @@ She is being extremely cautious in file and system operations.
 {utils_manager.get_available_utils_info()}
 
 
-Now, lets check when and where we are.
-I am going to run some python to get some generally useful information, you can also run code like this.
+Now, I am going to run some python code to get some generally useful information, you can also run code in the same way.
+Let's start with the current working directory and the first 5 files in it:
 ``python
 import os
-import datetime
-import sys
-
 print(f"Current working directory: {{os.getcwd()}}")
 print(f"First files in current directory: {{os.listdir()[:5]}}")
-print(f"Local time: {{datetime.datetime.now()}}")
-print(f"Platform: {{sys.platform}}")
 ```
 <execution_output>
 Current working directory: {os.getcwd()}
 First files in current directory: {os.listdir()[:5]}
+</execution_output>
+
+Now, let's check the current time:
+```python
+import datetime
+print(f"Local time: {{datetime.datetime.now()}}")
+```
+<execution_output>
 Local time: {datetime.datetime.now()}
+</execution_output>
+
+Lastly, let's see the platform we are running on:
+```python
+import sys
+print(f"Platform: {{sys.platform}}")
+```
+<execution_output>
 Platform: {sys.platform}
 </execution_output>
-\n"""
+
+"""
         context_chat = Chat(debug_title="Main Context Chat")
         context_chat.set_instruction_message(inst)
         context_chat.add_message(Role.USER, kickstart_preprompt)
@@ -314,11 +391,7 @@ Platform: {sys.platform}
             user_input = input(colored("💬 Enter your request: ", 'blue', attrs=["bold"]))
         
         # USER INPUT HANDLING - BEGIN
-        if user_input.endswith('--q'):
-            print(colored("Exiting...", "red"))
-            break
-        
-        if user_input.endswith("--r") and context_chat:
+        if user_input.endswith("-r") or user_input.endswith("--r") and context_chat:
             if len(context_chat.messages) < 2:
                 print(colored(f"# cli-agent: No chat history found, cannot regenerate last response.", "red"))
                 continue
@@ -327,52 +400,33 @@ Platform: {sys.platform}
                 context_chat.messages.pop()
             context_chat.messages.pop()
             
-        if user_input.endswith("--l"):
+        if user_input.endswith("-l") or user_input.endswith("--l") or user_input.endswith("--llm") or user_input.endswith("--local"):
             user_input = user_input[:-3]
-            args.local = not args.local
-            g.FORCE_LOCAL = args.local
-            print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, type (--h) for info", "green"))
+            print(colored(f"# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
+            await llm_selection(args)
+            user_input = ""
             continue
         
-        if user_input.endswith("--auto"):
+        if user_input.endswith("-a") or user_input.endswith("--auto"):
             user_input = user_input[:-3]
             args.auto = not args.auto
-            print(colored(f"# cli-agent: KeyBinding detected: Auto mode toggled {args.auto}, type (--h) for info", "green"))
+            print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {args.auto}, type (--h) for info", "green"))
             continue
         
-        if user_input.endswith("--img"):
+        if user_input.endswith("-s") or user_input.endswith("--s") or user_input.endswith("--screenshot") :
             user_input = user_input[:-3]
-            print(colored(f"# cli-agent: KeyBinding detected: Starting ScreenCapture, type (--h) for info", "green"))
+            print(colored(f"# cli-agent: KeyBinding detected: Taking screenshot, type (--h) for info", "green"))
             args.image = True
             continue
         
-        if user_input.startswith("--llm"):
-            available_llms = Llm.get_available_llms()
-            print(colored(f"Available LLMs:", "green"))
-            for llm in available_llms:
-                print(colored(f"{llm}".replace(" ", "\t"), "green"))
-            user_input = input(colored("Enter the llm to use or leave empty for automatic: ", 'blue'))
-            if user_input:
-                args.llm = user_input
-            else:
-                args.llm = None
-            user_input = ""
-            print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
-            continue
-        
-        if user_input.endswith("--maj"):
-            args.majority = True    
-            print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
-            continue
-        
-        if "--print_chat" in user_input or "-p" in user_input or "--p" in user_input:
-            print(colored(f"# cli-agent: KeyBinding detected: Print chat history:", "green"))
+        if "-p" in user_input or "--p" in user_input:
+            print(colored(f"# cli-agent: KeyBinding detected: Printing chat history, type (--h) for info", "green"))
             os.system('clear')
             print(colored("Chat history:", "green"))
             context_chat.print_chat()
             continue
         
-        if user_input.endswith("--m"):
+        if user_input.endswith("-m") or user_input.endswith("--m"):
             print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
             lines = []
             while True:
@@ -382,32 +436,26 @@ Platform: {sys.platform}
                 lines.append(line)
             user_input = "\n".join(lines)
         
-        if "--h" in user_input:
+        if "-h" in user_input or "--h" in user_input:
             user_input = user_input[:-3]
             print(figlet_format("cli-agent", font="slant"))
             print(colored(f"""# cli-agent: KeyBindings:
-# cli-agent: --h: Shows this help message.
-# cli-agent: --r: Regenerates the last response.
-# cli-agent: --l: Toggles local llm host mode.
-# cli-agent: --auto: Toggles auto mode.
-# cli-agent: --img: Take a screenshot.
-# cli-agent: --maj: Run the majority response assistant.
-# cli-agent: --llm: Set the language model to use. (Examples: "phi3.5:3.8b", "claude3.5", "gpt-4o")
-# cli-agent: --print_chat: Print the chat history.
-# cli-agent: --debug-chats: Enable debug windows for chat contexts only
-# cli-agent: Python code execution is always enabled by default
-# cli-agent: Type 'quit' to exit the program.
+# cli-agent: -h: Show this help message
+# cli-agent: -r: Regenerate the last response
+# cli-agent: -l: Pick a different LLM
+# cli-agent: -a: Toggle auto mode
+# cli-agent: -s: Take a screenshot
+# cli-agent: -p: Print the raw chat history
 """, "yellow"))
             continue
         # USER INPUT HANDLING - END
         
 
-        
         # AGENTIC IN-TURN LOOP - BEGIN
         action_counter = 0  # Initialize counter for consecutive actions
         perform_exit: bool = False
         incomplete_assistant_text=""
-       
+
         context_chat.add_message(Role.USER, user_input)
         
         while True:
@@ -433,8 +481,6 @@ Platform: {sys.platform}
                 except Exception as e:
                     LlmRouter.clear_unconfirmed_finetuning_data()
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
-                    # if ("(Ctrl+C)" in str(e)):
-                    #     context_chat.messages.pop()
                     if args.debug:
                         traceback.print_exc()
                     break

@@ -77,7 +77,7 @@ class Llm:
         self.model_key = model_key
         self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
         self.context_window = context_window
-        self.strength = strength
+        self.strengths = strength
     
     def __str__(self) -> str:
         """
@@ -88,24 +88,23 @@ class Llm:
         """
         provider_name = self.provider.__class__.__name__
         pricing = f"${self.pricing_in_dollar_per_1M_tokens}/1M tokens" if self.pricing_in_dollar_per_1M_tokens else "Free"
-        strengths = ", ".join(s.name for s in self.strength) if self.strength else "None"
+        strengths = ", ".join(s.name for s in self.strengths) if self.strengths else "None"
         
-        return f"LLM(model={self.model_key}, provider={provider_name}, pricing={pricing}, " \
-               f"context_window={self.context_window}, strengths=[{strengths}], " \
-               f"local={self.local}, vision={self.has_vision})"
+        return f"LLM(provider={provider_name}, model={self.model_key}, pricing={pricing}, " \
+               f"context_window={self.context_window}, strengths=[{strengths}])"
     
     @property
     def local(self) -> bool:
         """Returns whether the model is available locally."""
-        return any(s == AIStrengths.LOCAL for s in self.strength)
+        return any(s == AIStrengths.LOCAL for s in self.strengths)
     
     @property
     def has_vision(self) -> bool:
         """Returns whether the model has vision capabilities."""
-        return any(s == AIStrengths.VISION for s in self.strength)
+        return any(s == AIStrengths.VISION for s in self.strengths)
     
     @classmethod
-    def get_available_llms(cls) -> List["Llm"]:
+    def get_available_llms(cls, exclude_guards: bool = False) -> List["Llm"]:
         """
         Get the list of available LLMs.
         
@@ -113,9 +112,9 @@ class Llm:
             List[Llm]: A list of Llm instances representing the available models.
         """
         # Define and return a list of available LLM instances
-        return [
+        llms = [
             # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
-            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, 8192, [AIStrengths.GENERAL, AIStrengths.CODE]),
+            # Llm(GroqAPI(), "llama-3.3-70b-specdec", None, 8192, [AIStrengths.GENERAL, AIStrengths.CODE]),
             Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE]),
             
             Llm(GroqAPI(), "qwen-2.5-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE]),
@@ -128,19 +127,18 @@ class Llm:
             Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, 32768, [AIStrengths.GENERAL, AIStrengths.VISION]),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.FAST, AIStrengths.CODE]),
             
+            Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE]),
+            Llm(AnthropicAPI(), "claude-3-5-haiku-20241022", 0.8, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.FAST]),
             
-            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, 200000, [AIStrengths.GENERAL, AIStrengths.CODE]),
-            # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, 200000, [AIStrengths.FAST]),
-            
+            Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
-            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
             Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
             Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST, AIStrengths.VISION]),
             
-            Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "deepcoder:14b", None, 131072, [AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "deepcoder:1.5b", None, 128000, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
             Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
@@ -151,6 +149,9 @@ class Llm:
             Llm(OllamaClient(), "llama-guard3:8b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "shieldgemma:2b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.FAST]),
         ]
+        if exclude_guards:
+            llms = [llm for llm in llms if not any(s == AIStrengths.GUARD for s in llm.strengths)]
+        return llms
         
         
 
@@ -310,12 +311,12 @@ class LlmRouter:
         
         if model.context_window < len(chat):
             return False
-        if strength and model.strength:
+        if strength and model.strengths:
             # Check if ALL of the required strengths are included in the model's strengths
-            if not all(s.value in [ms.value for ms in model.strength] for s in strength):
+            if not all(s.value in [ms.value for ms in model.strengths] for s in strength):
                 # Only check for GENERAL if allowed
                 if allow_general:
-                    return any(s.value == AIStrengths.GENERAL.value for s in model.strength)
+                    return any(s.value == AIStrengths.GENERAL.value for s in model.strengths)
                 return False
         if local != model.local:
             return False
