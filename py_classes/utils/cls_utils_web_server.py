@@ -13,6 +13,7 @@ from py_classes.globals import g
 import subprocess
 import os
 from multiprocessing import Process
+import builtins
 
 class WebServer:
     def __init__(self, port: int = 5000):
@@ -23,8 +24,11 @@ class WebServer:
         self.notification_thread: Optional[threading.Thread] = None
         self.notification_queue: queue.Queue = queue.Queue()
         self.server_ready = threading.Event()
+        # Create a queue for print statements
+        self.print_queue: queue.Queue = queue.Queue()
         self.setup_routes()  # Call setup_routes in initialization
         self._start_notification_thread()
+        self._start_print_thread()
         
     def _start_notification_thread(self):
         """Start a background thread to handle notifications"""
@@ -52,6 +56,37 @@ class WebServer:
                 
         self.notification_thread = threading.Thread(target=notification_worker, daemon=True)
         self.notification_thread.start()
+        
+    def _start_print_thread(self):
+        """Start a background thread to handle print messages"""
+        def print_worker():
+            while True:
+                try:
+                    content = self.print_queue.get()
+                    if content is None:  # Sentinel value to stop the thread
+                        break
+                    try:
+                        # Add as system message with a log indicator
+                        self.add_message_to_chat(Role.SYSTEM, f"📃 Log: {content}")
+                    except Exception:
+                        # Ignore any errors to keep the thread running
+                        pass
+                except Exception:
+                    # Ignore any other errors to keep the thread running
+                    pass
+                
+        self.print_thread = threading.Thread(target=print_worker, daemon=True)
+        self.print_thread.start()
+        
+    def log_print(self, *args, **kwargs):
+        """Log a print statement to the web interface"""
+        # Reconstruct the print arguments into a string, similar to how print works
+        sep = kwargs.get('sep', ' ')
+        end = kwargs.get('end', '\n')
+        content = sep.join(str(arg) for arg in args) + end
+        
+        # Add to queue for processing
+        self.print_queue.put(content.strip())
         
     def setup_routes(self):
         @self.app.route('/')
@@ -125,6 +160,14 @@ class WebServer:
         .message { margin: 10px; padding: 10px; border-radius: 5px; white-space: pre-wrap; }
         .user { background: #e3f2fd; margin-left: 20%; }
         .assistant { background: #f5f5f5; margin-right: 20%; }
+        .system { 
+            background: #f0f8ff; 
+            border-left: 4px solid #4682b4; 
+            font-family: monospace; 
+            font-size: 0.9em;
+            margin-right: 20%;
+            opacity: 0.85;
+        }
         .tool-call { 
             background: #fff3e0; 
             margin-right: 20%;
@@ -145,11 +188,33 @@ class WebServer:
             overflow-x: auto;
         }
         code { font-family: monospace; }
+        #toggle-logs {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 8px 15px;
+            background-color: #4682b4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .log-hidden .system {
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div id="chat-container"></div>
+    <button id="toggle-logs">Toggle Logs</button>
     <script>
+        let showLogs = true;
+        
+        document.getElementById('toggle-logs').addEventListener('click', function() {
+            showLogs = !showLogs;
+            document.body.classList.toggle('log-hidden', !showLogs);
+        });
+        
         function formatContent(content) {
             // Handle code blocks
             if (content.includes('```')) {
@@ -158,7 +223,18 @@ class WebServer:
                 for (var i = 1; i < parts.length; i++) {
                     if (i % 2 === 1) {
                         // This is a code block
-                        result += '<pre><code>' + parts[i] + '</code></pre>';
+                        var codeContent = parts[i];
+                        var language = '';
+                        
+                        // Check if there's a language specified
+                        if (codeContent.indexOf('\\n') > 0) {
+                            language = codeContent.substring(0, codeContent.indexOf('\\n')).trim();
+                            if (language) {
+                                codeContent = codeContent.substring(codeContent.indexOf('\\n')+1);
+                            }
+                        }
+                        
+                        result += '<pre><code>' + codeContent + '</code></pre>';
                     } else {
                         result += parts[i];
                     }
@@ -186,6 +262,9 @@ class WebServer:
             }
             
             document.getElementById('chat-container').appendChild(div);
+            
+            // Scroll to bottom
+            window.scrollTo(0, document.body.scrollHeight);
         }
 
         function loadMessages() {
@@ -214,13 +293,35 @@ class WebServer:
         # Save the app to a temporary file that gunicorn can import
         with open('app.py', 'w') as f:
             f.write('''
-from py_classes.cls_web_server import WebServer
+from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.cls_chat import Chat
+from py_classes.globals import g
+import builtins
 
 # Create and configure the server
 server = WebServer()
 server.chat = Chat.load_from_json()  # Load the chat from the saved JSON file
 app = server.app
+
+# Store the web server in globals for print redirection
+g.web_server = server
+
+# Patch the built-in print function to redirect to the web UI
+def custom_print(*args, **kwargs):
+    # Call the original print function
+    g.original_print(*args, **kwargs)
+    
+    # Also send to the web interface
+    try:
+        server.log_print(*args, **kwargs)
+    except Exception:
+        pass
+        
+# Replace the built-in print function
+builtins.print = custom_print
+
+# Print a test message to confirm the web UI is receiving logs
+print("Web server initialized successfully - all print() outputs will now appear in the web UI")
 ''')
         
         # Save current chat state so gunicorn can load it
@@ -240,6 +341,7 @@ app = server.app
         # Wait for server to be ready before opening browser
         if self.wait_for_server(timeout=5):
             self.server_ready.set()
+            print(f"Web UI is ready at http://localhost:{self.port} - all print() outputs will also appear in the web UI")
             # Open browser in a non-blocking way
             threading.Thread(
                 target=lambda: webbrowser.open(f'http://localhost:{self.port}'),
@@ -258,6 +360,9 @@ app = server.app
             self.notification_queue.put((None, None))  # Send sentinel value to stop the thread
             self.notification_thread.join(timeout=1)
             self.notification_thread = None
+        if hasattr(self, 'print_thread'):
+            self.print_queue.put(None)  # Send sentinel value to stop the thread
+            self.print_thread.join(timeout=1)
         if self.server_process:
             self.server_process.terminate()
             try:
@@ -284,5 +389,4 @@ app = server.app
 
     def _run_server(self):
         """Run the Flask server"""
-        self.app.run(host='127.0.0.1', port=self.port, debug=False, use_reloader=False) 
         self.app.run(host='127.0.0.1', port=self.port, debug=False, use_reloader=False) 

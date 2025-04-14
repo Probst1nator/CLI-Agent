@@ -42,6 +42,14 @@ class Chat:
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
     
+    def __len__(self) -> int:
+        """
+        Returns the total length of all string messages in the chat.
+        
+        :return: The total number of characters across all messages.
+        """
+        return sum(len(content) for _, content in self.messages)
+    
     def _create_debug_window(self):
         """Creates and runs the debug window in a separate thread."""
         def window_thread():
@@ -218,18 +226,13 @@ class Chat:
         else:
             raise TypeError("Invalid argument type.")
     
-    def __str__(self):
+    def __str__(self) -> str:
         """
         Returns a string representation of the chat messages.
         
-        :return: A JSON string of the chat messages.
+        :return: A JSON string of the chat messages and metadata.
         """
-        return json.dumps(
-            [
-                {"role": message[0].value, "content": message[1]}
-                for message in self.messages
-            ]
-        )
+        return self.to_json()
 
     def print_chat(self):
         """
@@ -453,6 +456,62 @@ class Chat:
             else:
                 result.append({"role": message[0].value, "content": message[1]})
         return result
+    
+    def to_gemma(self) -> str:
+        """
+        Converts chat messages to Gemma format.
+        
+        Format specification:
+        - Each turn begins with <start_of_turn> followed by the role (user or model)
+        - Each turn ends with <end_of_turn>
+        - The entire conversation begins with <bos>
+        - Images are embedded with <start_of_image> tags
+        
+        :return: The chat messages in Gemma format.
+        """
+        # Start with the <bos> tag
+        gemma_format = "<bos>"
+        
+        for role, content in self.messages:
+            # Skip system messages as they don't have a direct equivalent in Gemma format
+            if role == Role.SYSTEM:
+                continue
+                
+            # Map the role to Gemma's expected format
+            if role == Role.USER:
+                gemma_role = "user"
+            elif role == Role.ASSISTANT:
+                gemma_role = "model"
+            elif role == Role.IPYTHON:
+                # Handle IPython as part of the user message
+                # This might need adjustment based on your specific needs
+                gemma_role = "ipython"
+            else:
+                # Skip any unrecognized roles
+                continue
+            
+            # Start a new turn
+            gemma_format += f"<start_of_turn>{gemma_role}\n"
+            
+            # Process content, handling any possible images
+            processed_content = content
+            if role == Role.USER and self.base64_images and gemma_role == "user":
+                # If there are base64_images and this is a user message,
+                # we need to embed them using <start_of_image> tags
+                for i, image in enumerate(self.base64_images):
+                    # Look for image placeholders in the pattern "Image X: "
+                    image_placeholder = f"Image {chr(65+i)}: "
+                    if image_placeholder in processed_content:
+                        # Replace the placeholder with the image tag
+                        processed_content = processed_content.replace(
+                            image_placeholder, 
+                            f"Image {chr(65+i)}: <start_of_image>\n"
+                        )
+            
+            # Add the processed content and end the turn
+            gemma_format += f"{processed_content}<end_of_turn>\n"
+        
+        return gemma_format
 
     def deep_copy(self) -> 'Chat':
         """

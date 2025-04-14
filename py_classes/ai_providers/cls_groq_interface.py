@@ -1,5 +1,6 @@
 import os
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict, Any, Union
+from collections.abc import Callable
 from groq import Groq
 from termcolor import colored
 from py_classes.cls_custom_coloring import CustomColoring
@@ -26,73 +27,56 @@ class GroqAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str, temperature: float = 0.7, tools: Optional[list] = None, silent_reason: str = "") -> Optional[str]:
+    def generate_response(chat: Union[Chat, str], model_key: str, temperature: float = 0.7, silent_reason: str = "") -> Any:
         """
         Generates a response using the Groq API.
         Args:
-            chat (Chat): The chat object containing messages.
-            model (str): The model identifier.
+            chat (Union[Chat, str]): The chat object containing messages or a string prompt.
+            model_key (str): The model identifier.
             temperature (float): The temperature setting for the model.
-            tools: Optional list of tools to use (not used by Groq)
             silent_reason (str): Reason for silence if applicable.
         Returns:
-            Optional[str]: The generated response, or None if an error occurs.
+            Any: A stream object that yields response chunks.
         """
+        # Convert string to Chat object if needed
+        if isinstance(chat, str):
+            from py_classes.cls_chat import Chat, Role
+            chat_obj = Chat()
+            chat_obj.add_message(Role.USER, chat)
+            chat = chat_obj
+            
         debug_print = AIProviderInterface.create_debug_printer(chat)
 
         # Check if the model is rate limited
-        if rate_limit_tracker.is_rate_limited(model):
-            remaining_time = rate_limit_tracker.get_remaining_time(model)
+        if rate_limit_tracker.is_rate_limited(model_key):
+            remaining_time = rate_limit_tracker.get_remaining_time(model_key)
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
             
             if not silent_reason:
-                debug_print(f"Groq-Api: <{colored(model, 'yellow')}> is {colored(rate_limit_reason, 'yellow')}", force_print=True)
+                debug_print(f"Groq-Api: <{colored(model_key, 'yellow')}> is {colored(rate_limit_reason, 'yellow')}", force_print=True)
             
             # Raise a silent rate limit exception
-            raise RateLimitException(f"Model {model} is rate limited. Try again in {remaining_time:.1f} seconds")
+            raise RateLimitException(f"Model {model_key} is rate limited. Try again in {remaining_time:.1f} seconds")
 
         try:
-            client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=0)
-            chat_completion = client.chat.completions.create(
-                messages=chat.to_groq(), model=model, temperature=temperature, stream=True, stop="</s>"
-            )
+            client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+            
             if silent_reason:
-                debug_print(f"Groq-Api: <{colored(model, 'green')}> is {colored('silently ' + silent_reason, 'green')}", force_print=True)
+                debug_print(f"Groq-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
             else:
-                debug_print(f"Groq-Api: <{colored(model, 'green')}> is generating response...", "green", force_print=True)
-            full_response = ""
-            token_keeper = CustomColoring()
-            for chunk in chat_completion:
-                token = chunk.choices[0].delta.content
-                if token:
-                    full_response += token
-                    if not silent_reason:
-                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
-            if not silent_reason:
-                debug_print("", with_title=False)
-            return full_response
-        except (socket.timeout, socket.error, TimeoutError) as e:
-            # Handle timeout-related errors silently without printing
-            raise TimeoutException(f"❌ Request timed out: {e}")
-        except Exception as e:
-            # Check if this is a rate limit error (429)
-            error_str = str(e)
-            if "Error code: 429" in error_str or "rate_limit_exceeded" in error_str:
-                try:
-                    try_again_seconds = int(error_str.split("Please try again in")[1].split("ms")[0].strip()) / 1000
-                except (IndexError, ValueError):
-                    # If parsing fails, use a default value
-                    try_again_seconds = 60.0  # Default to 60 seconds if parsing fails
-                    logger.warning(f"Failed to parse rate limit wait time, using default of {try_again_seconds}s")
-                
-                # Update the rate limit tracker
-                rate_limit_tracker.update_rate_limit(model, try_again_seconds)
-                
-                # Handle rate limit errors silently
-                raise RateLimitException(f"❌ Rate limit exceeded: {e}")
-            # Handle other types of errors
-            raise Exception(f"Groq-Api error: {e}")
+                debug_print(f"Groq-Api: <{colored(model_key, 'green')}> is generating response...", "green", force_print=True)
 
+            return client.chat.completions.create(
+                model=model_key,
+                messages=chat.to_groq(),
+                temperature=temperature,
+                stream=True
+            )
+
+        except Exception as e:
+            error_msg = f"Groq API error: {e}"
+            debug_print(error_msg, "red", is_error=True)
+            raise Exception(error_msg)
 
     @staticmethod
     def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional[Chat] = None) -> Optional[Tuple[str, str]]:

@@ -1,7 +1,8 @@
 from anthropic import Anthropic, RateLimitError
 import os
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
+from collections.abc import Callable
 from termcolor import colored
 from py_classes.cls_chat import Chat
 from py_classes.unified_interfaces import AIProviderInterface
@@ -19,28 +20,34 @@ class AnthropicAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str = "claude-3-5-sonnet-latest", temperature: float = 0.7, silent_reason: str = False) -> Optional[str]:
+    def generate_response(chat: Union[Chat, str], model_key: str = "claude-3-5-sonnet-latest", temperature: float = 0.7, silent_reason: str = "") -> Any:
         """
         Generates a response using the Anthropic API.
 
         Args:
-            chat (Chat): The chat object containing messages.
-            model (str): The model identifier.
+            chat (Union[Chat, str]): The chat object containing messages or a string prompt.
+            model_key (str): The model identifier.
             temperature (float): The temperature setting for the model.
-            silent (bool): Whether to suppress print statements.
+            silent_reason (str): Reason for suppressing print statements.
 
         Returns:
-            Optional[str]: The generated response, or None if an error occurs.
+            Any: A stream object that yields response chunks.
         """
+        # Convert string to Chat object if needed
+        if isinstance(chat, str):
+            from py_classes.cls_chat import Chat, Role
+            chat_obj = Chat()
+            chat_obj.add_message(Role.USER, chat)
+            chat = chat_obj
+            
         debug_print = AIProviderInterface.create_debug_printer(chat)
         try:
             client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=3.0, max_retries=2)
             
-            
             if silent_reason:
-                debug_print(f"Anthropic-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
+                debug_print(f"Anthropic-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
             else:
-                debug_print(f"Anthropic-Api: <{colored(model, 'green')}> is generating response...", "green", force_print=True)
+                debug_print(f"Anthropic-Api: <{colored(model_key, 'green')}> is generating response...", "green", force_print=True)
 
             l_chat = Chat()
             l_chat.messages = chat.messages
@@ -50,22 +57,14 @@ class AnthropicAPI(AIProviderInterface):
                 system_message = l_chat.messages[0][1]
                 l_chat.messages = l_chat.messages[1:]
 
-            with client.messages.stream(
-                model=model,
+            return client.messages.stream(
+                model=model_key,
                 max_tokens=4096,
                 system=system_message,
                 messages=l_chat.to_groq(),
                 temperature=temperature,
-            ) as stream:
-                full_response = ""
-                token_keeper = CustomColoring()
-                for token in stream.text_stream:
-                    if not silent_reason:
-                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
-                    full_response += token
-                if not silent_reason:
-                    debug_print("", with_title=False)
-                return full_response
+            )
+
         except Exception as e:
             error_msg = f"Anthropic API error: {e}"
             debug_print(error_msg, "red", is_error=True)

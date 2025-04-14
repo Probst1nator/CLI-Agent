@@ -206,19 +206,19 @@ class RagTooling:
             # Transform the extractable information to a german presentation
             chat = Chat()
             chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n```\n{coherent_extraction}\n```")
-            high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"], force_local = force_local, force_free = True, silent_reason = True)
+            high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"], force_local = force_local, force_free = True, hidden_reason = True)
             chat.add_message(Role.ASSISTANT, high_level_extraction_analysis)
             chat.add_message(Role.USER, "Can you please summarize all details of the document in a coherent manner? The summary will be used to provide advice to students, this requires you to only provide facts that have plenty of context of topic and subject available. If such context is not present, always choose to skip unreliable or inaccurate information completely. Do not mention when you are ignoring content because of this.")
-            factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"], force_local = force_local, silent_reason = True, force_free = True)
+            factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"], force_local = force_local, hidden_reason = True, force_free = True)
             chat.add_message(Role.ASSISTANT, factual_summarization)
             praesentieren_prompt = "Please present the following information in a way that is easy to understand and in complete sentences. Begin directly with presenting.\n```\n" + factual_summarization + "\n```"
             chat.add_message(Role.USER, praesentieren_prompt)
-            presented_information = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"], force_local = force_local, silent_reason = True, force_free = True)
+            presented_information = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"], force_local = force_local, hidden_reason = True, force_free = True)
             chat.add_message(Role.ASSISTANT, presented_information)
             # Because we're working with a very small model it often breaks, this we'll try alernate models until we give up and skip the information
             # We need to try models similar to the production model for the resulting ontology to fit optimally
             # Todo: Still waiting for phi3.5-moe to become available on ollama or as gguf on huggingface
-            informations = LlmRouter.generate_completion(chat, preferred_models=[topology_model_key], force_local = force_local, silent_reason = False, force_free = True, force_preferred_model = False)
+            informations = LlmRouter.generate_completion(chat, preferred_models=[topology_model_key], force_local = force_local, hidden_reason = False, force_free = True, force_preferred_model = False)
             # Safe guards for any issues that might ocurr
             informations_valid: bool = informations and not len(informations)>2048
             if informations_valid:

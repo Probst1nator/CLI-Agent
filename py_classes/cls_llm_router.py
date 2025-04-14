@@ -1,10 +1,11 @@
+from collections.abc import Callable
 import hashlib
 import json
 import os
 from random import shuffle
 import shutil
 import time
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any, Union, Iterator
 from termcolor import colored
 from py_classes.ai_providers.cls_human_as_interface import HumanAPI
 from py_classes.ai_providers.cls_nvidia_interface import NvidiaAPI
@@ -40,7 +41,6 @@ class UserInterruptedException(Exception):
 
 class AIStrengths(Enum):
     """Enum class to represent AI model strengths."""
-    TOOLUSE = 7
     UNCENSORED = 6
     REASONING = 5
     CODE = 4
@@ -115,44 +115,41 @@ class Llm:
         # Define and return a list of available LLM instances
         return [
             # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
-            Llm(GroqAPI(), "meta-llama/llama-4-scout-17b-16e-instruct", None, 131072, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, 8192, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.FAST, AIStrengths.TOOLUSE]),
-            Llm(GroqAPI(), "llama3-70b-8192", None, 8192, [AIStrengths.GENERAL, AIStrengths.TOOLUSE]),
+            Llm(GroqAPI(), "llama-3.3-70b-specdec", None, 8192, [AIStrengths.GENERAL, AIStrengths.CODE]),
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE]),
+            
+            Llm(GroqAPI(), "qwen-2.5-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE]),
             Llm(GroqAPI(), "qwen-2.5-coder-32b", None, 128000, [AIStrengths.CODE]),
-            Llm(GroqAPI(), "qwen-2.5-32b", None, 8192, [AIStrengths.FAST, AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.CODE]),
-            Llm(GroqAPI(), "llama3-8b-8192", None, 8192, [AIStrengths.FAST]),
-            Llm(GroqAPI(), "gemma2-9b-it", None, 8192, [AIStrengths.FAST]),
             
             Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
+            
             Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, 32768, [AIStrengths.GENERAL, AIStrengths.VISION]),
-            Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.FAST, AIStrengths.CODE]),
             
             
-            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.TOOLUSE]),
+            Llm(AnthropicAPI(), "claude-3-5-sonnet-latest", 9, 200000, [AIStrengths.GENERAL, AIStrengths.CODE]),
             # Llm(AnthropicAPI(), "claude-3-haiku-20240307", 1, 200000, [AIStrengths.FAST]),
             
-            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
+            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST, AIStrengths.VISION]),
             
-            Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.TOOLUSE, AIStrengths.LOCAL]),
-            # Llm(OllamaClient(), "deepseek-r1:14b", None, 128000, [AIStrengths.REASONING, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "deepseek-r1:8b", None, 128000, [AIStrengths.REASONING, AIStrengths.FAST, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "qwen2.5-coder:14b", None, 131072, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "qwen2.5-coder:7b", None, 131072, [AIStrengths.GENERAL, AIStrengths.FAST, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "mistral-small3.1:24b", None, 128000, [AIStrengths.GENERAL, AIStrengths.TOOLUSE, AIStrengths.LOCAL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "MN-12B-Mag-Mell-Q4_K_M.gguf:latest", None, 128000, [AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "deepcoder:14b", None, 131072, [AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "deepcoder:1.5b", None, 128000, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
+            Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             
             # Guard models
             Llm(GroqAPI(), "llama-guard-3-8b", None, 8192, [AIStrengths.GUARD]),
             Llm(OllamaClient(), "llama-guard3:8b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "llama-guard3:1b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "shieldgemma:2b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.FAST]),
         ]
         
         
@@ -235,7 +232,7 @@ class LlmRouter:
             print(colored(f"Unexpected error loading cache: {e}", "red"))
             return {}
 
-    def _get_cached_completion(self, model_key: str, temperature: str, chat: Chat, images: List[str]) -> Optional[str]:
+    def _get_cached_completion(self, model_key: str, temperature: str, key: str, images: List[str]) -> Optional[str]:
         """
         Retrieve a cached completion if available.
         
@@ -249,15 +246,15 @@ class LlmRouter:
             Optional[str]: The cached completion string if available, otherwise None.
         """
         # Generate cache key and return cached completion if it exists
-        cache_key = self._generate_hash(model_key, temperature, chat.to_json(), images)
+        cache_key = self._generate_hash(model_key, temperature, key, images)
         return self.cache.get(cache_key)
 
-    def _update_cache(self, model_key: str, temperature: str, chat: Chat, images: List[str], completion: str) -> None:
+    def _update_cache(self, model_key: str, temperature: str, key: str, images: List[str], completion: str) -> None:
         """
         Update the cache with a new completion.
         """
         # Generate cache key
-        cache_key = self._generate_hash(model_key, temperature, chat.to_json(), images)
+        cache_key = self._generate_hash(model_key, temperature, key, images)
         
         # Update the in-memory cache
         self.cache[cache_key] = completion
@@ -308,10 +305,10 @@ class LlmRouter:
             
         if model.model_key in self._model_limits:
             token_limit = self._model_limits[model.model_key]
-            if chat.count_tokens() >= token_limit:
+            if len(chat) >= token_limit:
                 return False
         
-        if model.context_window < chat.count_tokens():
+        if model.context_window < len(chat):
             return False
         if strength and model.strength:
             # Check if ALL of the required strengths are included in the model's strengths
@@ -400,8 +397,8 @@ class LlmRouter:
             force_fast_hosts = []
         
         # Debug print for large token counts
-        if (chat.count_tokens() > 4000 and not force_free and not force_local):
-            print(colored("DEBUG: chat.count_tokens() returned: " + str(chat.count_tokens()), "yellow"))
+        if (len(chat) > 4000 and not force_free and not force_local):
+            print(colored("DEBUG: len(chat) returned: " + str(len(chat)), "yellow"))
         
         # Try models in order of preference
         candidates = []
@@ -494,23 +491,176 @@ class LlmRouter:
         return candidates[0] if candidates else None
     
     @classmethod
+    def _process_stream(
+        cls,
+        stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
+        debug_print: Callable,
+        token_keeper: CustomColoring,
+        hidden_reason: str,
+        callback: Optional[Callable] = None
+    ) -> str:
+        """
+        Process a stream of tokens from any provider.
+        
+        Args:
+            stream (Union[Iterator[Dict[str, Any]], Iterator[str], Any]): The stream object from the provider
+            debug_print (Callable): Function to print debug messages
+            token_keeper (CustomColoring): Token coloring utility
+            hidden_reason (str): Reason for hidden mode
+            callback (Optional[Callable]): Callback function for each token
+            
+        Returns:
+            str: The full response string
+        """
+        full_response = ""
+        
+        # Handle different stream types
+        if hasattr(stream, 'text_stream'):  # Anthropic
+            for token in stream.text_stream:
+                if token:
+                    full_response += token
+                    if not hidden_reason:
+                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
+                    if callback is not None:
+                        if callback(token):
+                            return full_response
+        elif hasattr(stream, 'choices'):  # OpenAI/NVIDIA
+            for chunk in stream:
+                if hasattr(chunk.choices[0].delta, 'content'):
+                    token = chunk.choices[0].delta.content
+                    if token:
+                        full_response += token
+                        if not hidden_reason:
+                            debug_print(token_keeper.apply_color(token), end="", with_title=False)
+                        if callback is not None:
+                            if callback(token):
+                                return full_response
+        else:  # Ollama/Groq
+            for chunk in stream:
+                if hasattr(chunk, 'choices'):  # Groq ChatCompletionChunk
+                    if hasattr(chunk.choices[0].delta, 'content'):
+                        token = chunk.choices[0].delta.content
+                    else:
+                        continue
+                elif isinstance(chunk, dict):  # Ollama dictionary chunks
+                    token = chunk.get('message', {}).get('content', '') or chunk.get('response', '')
+                elif hasattr(chunk, 'message'):  # Ollama response object
+                    if hasattr(chunk.message, 'content'):
+                        token = chunk.message.content
+                    else:
+                        continue
+                else:
+                    token = str(chunk)
+                if token:
+                    full_response += token
+                    if not hidden_reason:
+                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
+                    if callback is not None:
+                        if callback(token):
+                            return full_response
+        
+        if not full_response.endswith("\n"):
+            print()
+            
+        return full_response
+
+    @classmethod
+    def _process_cached_response(
+        cls,
+        cached_completion: str,
+        model: Llm,
+        debug_print: Callable,
+        tooling: CustomColoring,
+        hidden_reason: str,
+        callback: Optional[Callable] = None
+    ) -> str:
+        """
+        Process a cached response.
+        
+        Args:
+            cached_completion (str): The cached completion string
+            model (Llm): The model that generated the response
+            debug_print (Callable): Function to print debug messages
+            tooling (CustomColoring): Token coloring utility
+            hidden_reason (str): Reason for hidden mode
+            callback (Optional[Callable]): Callback function for each token
+            
+        Returns:
+            str: The processed response string
+        """
+        if not hidden_reason:
+            debug_print(f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
+            for char in cached_completion:
+                debug_print(tooling.apply_color(char), end="", with_title=False)
+                if callback:
+                    callback(char)
+                time.sleep(0)  # better observable for the user
+            debug_print("", with_title=False)
+        return cached_completion
+
+    @classmethod
+    def _handle_model_error(
+        cls,
+        e: Exception,
+        model: Optional[Llm],
+        instance: "LlmRouter",
+        chat: Chat,
+        log_print: Callable
+    ) -> None:
+        """
+        Handle errors that occur during model generation.
+        
+        Args:
+            e (Exception): The error that occurred
+            model (Optional[Llm]): The model that failed
+            instance (LlmRouter): The router instance
+            chat (Chat): The chat being processed
+            log_print (Callable): Function to print log messages
+        """
+        if "too large" in str(e):
+            # Save the model's maximum token limit
+            print(colored(f"Too large request for {model.model_key}, saving token limit {len(chat)}", "yellow"))
+            instance._save_dynamic_token_limit_for_model(model, len(chat))
+        
+        if model is not None:
+            if model.model_key in instance.failed_models:
+                return
+            instance.failed_models.add(model.model_key)
+            instance.retry_models.remove(model)
+        
+        # Special handling for timeout exceptions and rate limit errors
+        if (isinstance(e, TimeoutException) or 
+            isinstance(e, RateLimitException) or
+            "request timed out" in str(e).lower() or 
+            "timeout" in str(e).lower() or 
+            "timed out" in str(e).lower() or
+            "connection" in str(e).lower() or
+            ("Groq" in str(e) and "rate_limit_exceeded" in str(e))):
+            # Silently handle timeout errors and rate limits
+            if model is not None:
+                logger.info(f"Network/timeout/rate-limit issue with model {model.model_key}: {e}")
+            return
+        
+        # Display other errors
+        if model is not None:
+            log_print(f"\ngenerate_completion error with model {model.model_key}: {e}", "red", is_error=True)
+        else:
+            log_print(f"generate_completion error: {e}", "red", is_error=True)
+
+    @classmethod
     def generate_completion(
         cls,
         chat: Chat|str,
         preferred_models: List[str] | List[Llm] = [],
-        strength: List[AIStrengths] | AIStrengths = [],
-        start_response_with: str = "",
-        instruction: str = "",
+        strengths: List[AIStrengths] | AIStrengths = [],
         temperature: float = 0.7,
         base64_images: List[str] = [],
-        include_start_response_str: bool = True,
-        use_cache: bool = True,
         force_local: bool = False,
         force_free: bool = True,
         force_preferred_model: bool = False,
-        silent_reason: str = "",
-        re_print_prompt: bool = False,
-        exclude_reasoning_tokens: bool = False
+        hidden_reason: str = "",
+        exclude_reasoning_tokens: bool = False,
+        callback: Optional[Callable] = None
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -519,17 +669,14 @@ class LlmRouter:
             chat (Chat|str): The chat prompt or string.
             preferred_models (List[str]): List of preferred model keys.
             strength (List[AIStrengths] | AIStrengths): The required strengths of the model.
-            start_response_with (str): Initial string to start the response with.
-            instruction (str): Instruction for the chat.
             temperature (float): Temperature setting for the model.
             base64_images (List[str]): List of base64-encoded images.
-            include_start_response_str (bool): Whether to include the start response string.
-            use_cache (bool): Whether to use the cache.
             force_local (Optional[bool]): Whether to force local models only.
             force_free (bool): Whether to force free models only.
             force_preferred_model (bool): Whether to force using only preferred models.
-            silent_reason (str): Reason for silent mode.
-            re_print_prompt (bool): Whether to reprint the prompt.
+            hidden_reason (str): Reason for hidden mode.
+            exclude_reasoning_tokens (bool): Whether to exclude reasoning tokens.
+            callback (Optional[Callable]): A function to call with each chunk of streaming data.
 
         Returns:
             str: The generated completion string.
@@ -542,7 +689,7 @@ class LlmRouter:
         if g.FORCE_LOCAL:
             force_local = True
         
-        def preprocess_response(response: str) -> str:
+        def exclude_reasoning(response: str) -> str:
             if exclude_reasoning_tokens and "</think>" in response:
                 return response.split("</think>")[1]
             return response
@@ -589,13 +736,6 @@ class LlmRouter:
                 else:
                     print(message, end=end)
         
-        # Convert string input to Chat object if necessary
-        if isinstance(chat, str):
-            chat = Chat(instruction, debug_title="generate_completion() call").add_message(Role.USER, chat)
-        
-        if start_response_with:
-            chat.add_message(Role.ASSISTANT, start_response_with)
-        
         if base64_images:
             chat.base64_images = base64_images
         
@@ -603,14 +743,15 @@ class LlmRouter:
             preferred_models = []
             
         # FIX FOR BREAKING CHANGE: Ensure strength is a list
-        if not isinstance(strength, list):
-            strength = [strength] if strength else []
+        if not isinstance(strengths, list):
+            strengths = [strengths] if strengths else []
         
+        # Find llm and generate response, excepts on user interruption, or total failure
         while True:
             try:
                 if not preferred_models or (preferred_models and isinstance(preferred_models[0], str)):
                     # Get an appropriate model
-                    model = instance.get_model(strength=strength, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
+                    model = instance.get_model(strength=strengths, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
                 else:
                     for preferred_model in preferred_models:
                         if preferred_model.model_key not in instance.failed_models:
@@ -622,71 +763,41 @@ class LlmRouter:
                     log_print("# # # Could not find valid model # # # RETRYING... # # #", "red", is_error=True)
                     instance.failed_models.clear()
                     if preferred_models and isinstance(preferred_models[0], str):
-                        model = instance.get_model(strength=strength, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
+                        model = instance.get_model(strength=strengths, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
 
-                if re_print_prompt:
-                    log_print(f"\n\nPROMPT: {chat.messages[-1][1]}", "blue", force_print=True)
-                if use_cache:
-                    cached_completion = instance._get_cached_completion(model.model_key, str(temperature), chat, base64_images)
-                    if cached_completion:
-                        if not silent_reason:
-                            log_print(f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
-                            for char in cached_completion:
-                                log_print(tooling.apply_color(char), end="", with_title=False)
-                                time.sleep(0) # better observable for the user
-                            log_print("", with_title=False)
-                        return preprocess_response(cached_completion)
+                cached_completion = instance._get_cached_completion(model.model_key, str(temperature), str(chat), base64_images)
+                if cached_completion:
+                    return exclude_reasoning(cls._process_cached_response(
+                        cached_completion, model, log_print, tooling, hidden_reason, callback
+                    ))
 
                 try:
-                    response = model.provider.generate_response(chat, model.model_key, temperature, silent_reason)
+                    # Get the stream from the provider
+                    stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason)
+                    instance.last_used_model = model.model_key
+                    
+                    # Process the stream
+                    full_response = cls._process_stream(stream, log_print, CustomColoring(), hidden_reason, callback)
+                    
+                    # Cache the response
+                    instance._update_cache(model.model_key, str(temperature), str(chat), base64_images, full_response)
+                    
+                    # Save the chat completion pair if requested
+                    if not force_local:
+                        instance._save_chat_completion_pair(chat.to_openai(), full_response, model.model_key)
+                    
+                    return exclude_reasoning(full_response)
+
                 except KeyboardInterrupt:
                     # Explicitly catch Ctrl+C during model generation
                     log_print("User interrupted model generation (Ctrl+C).", "yellow", is_error=True, force_print=True)
                     raise UserInterruptedException("Model generation interrupted by user (Ctrl+C).")
                 
-                instance.last_used_model = model.model_key
-                instance._update_cache(model.model_key, str(temperature), chat, base64_images, response)
-                
-                # Save the chat completion pair if requested
-                if not force_local:
-                    instance._save_chat_completion_pair(chat, response, model.model_key)
-                
-                response = preprocess_response(response)
-                return start_response_with + response if include_start_response_str else response
-
             except UserInterruptedException:
                 # Re-raise the specific user interruption exception
                 raise
             except Exception as e:
-                if "too large" in str(e):
-                    # Save the model's maximum token limit
-                    print(colored(f"Too large request for {model.model_key}, saving token limit {chat.count_tokens()}", "yellow"))
-                    instance._save_dynamic_token_limit_for_model(model, chat.count_tokens())
-                
-                if 'model' in locals() and model is not None:
-                    if model.model_key in instance.failed_models:
-                        return None
-                    instance.failed_models.add(model.model_key)
-                    instance.retry_models.remove(model)
-                
-                # Special handling for timeout exceptions and rate limit errors
-                if (isinstance(e, TimeoutException) or 
-                    isinstance(e, RateLimitException) or
-                    "request timed out" in str(e).lower() or 
-                    "timeout" in str(e).lower() or 
-                    "timed out" in str(e).lower() or
-                    "connection" in str(e).lower() or
-                    ("Groq" in str(e) and "rate_limit_exceeded" in str(e))):
-                    # Silently handle timeout errors and rate limits - just add to failed models and try the next one
-                    if 'model' in locals() and model is not None:
-                        logger.info(f"Network/timeout/rate-limit issue with model {model.model_key}: {e}")
-                    continue
-                
-                # Display other errors
-                if 'model' in locals() and model is not None:
-                    log_print(f"\ngenerate_completion error with model {model.model_key}: {e}", "red", is_error=True)
-                else:
-                    log_print(f"generate_completion error: {e}", "red", is_error=True)
+                cls._handle_model_error(e, model, instance, chat, log_print)
 
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """
@@ -720,7 +831,7 @@ class LlmRouter:
             error_log(f"Failed to save model token limit: {limit_error}")
 
     @classmethod
-    def _save_chat_completion_pair(cls, chat: Chat, response: str, model_key: str) -> None:
+    def _save_chat_completion_pair(cls, chat_str: str, response: str, model_key: str) -> None:
         """
         Save a chat completion pair for finetuning.
         
@@ -729,19 +840,6 @@ class LlmRouter:
             response (str): The model's response
             model_key (str): The key of the model that generated the response
         """
-        # Local logging function
-        def log(message: str, is_error: bool = False):
-            prefix = LlmRouter.get_debug_title_prefix(chat)
-            log_message = f"{prefix}{message}"
-            
-            if is_error:
-                logger.error(log_message)
-                print(colored(log_message, "red"))
-            else:
-                logger.info(log_message)
-                # Only print if it's a critical message users need to see
-                # In this case we don't print info messages at all
-                
         try:
             # Create the finetuning data directory if it doesn't exist
             os.makedirs(g.UNCONFIRMED_FINETUNING_PATH, exist_ok=True)
@@ -752,7 +850,7 @@ class LlmRouter:
             
             # Create the training example
             training_example = {
-                "input": chat.to_openai(),  # Convert chat to OpenAI format
+                "input": chat_str,
                 "output": response,
                 "metadata": {
                     "model": model_key,
@@ -764,9 +862,10 @@ class LlmRouter:
             with open(filename, 'a') as f:
                 f.write(json.dumps(training_example) + '\n')
                 
-            log(f"Saved chat completion pair to {filename}")
+            logger.info(f"Saved chat completion pair to {filename}")
         except Exception as e:
-            log(f"Failed to save chat completion pair: {e}", is_error=True)
+            logger.error(f"Failed to save chat completion pair: {e}")
+            print(colored(f"Failed to save chat completion pair: {e}", "red"))
     
     @classmethod
     def has_unconfirmed_data(cls) -> bool:

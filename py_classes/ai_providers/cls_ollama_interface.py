@@ -3,6 +3,7 @@ from enum import Enum
 import json
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
+from collections.abc import Callable
 import chromadb
 import ollama
 from termcolor import colored
@@ -213,38 +214,26 @@ class OllamaClient(AIProviderInterface):
 
     @staticmethod
     def generate_response(
-        chat: Chat,
+        chat: Chat | str,
         model_key: str = "phi3.5:3.8b",
         temperature: Optional[float] = 0.75,
         silent_reason: str = ""
-    ) -> Optional[str]:
+    ) -> Any:
         """
         Generates a response using the Ollama API, with support for tool calling.
 
         Args:
-            chat (Chat): The chat object containing messages.
-            model (str): The model identifier (e.g., "phi3.5:3.8b", "llama3.1").
+            chat (Chat | str): The chat object containing messages or a string prompt.
+            model_key (str): The model identifier (e.g., "phi3.5:3.8b", "llama3.1").
             temperature (float): The temperature setting for the model.
-            silent (bool): Whether to suppress print statements.
-            tools (List[FunctionTool], optional): A list of tool definitions for the model to use.
+            silent_reason (str): If provided, suppresses output and shows this reason.
 
         Returns:
-            Optional[Union[str, List[ToolCall]]]: The generated response, or None if an error occurs.
+            Any: A stream object that yields response chunks.
         """
-        # options = ollama.Options()
-        # if "hermes" in model_key.lower():
-        #     options.update(stop=["<|end_of_text|>"])
-        # if temperature:
-        #     options.update(temperature=temperature)
-        # options.update(max_tokens=1500)
-        
-        # ! Hack to try lower ram usage
-        if "mistral-small" in model_key:
-            model_key = "mistral-small:22b-instruct-2409-q3_K_M"
         
         debug_print = AIProviderInterface.create_debug_printer(chat)
         tooling = CustomColoring()
-        logger.debug(json.dumps({"last_message": chat.messages[-1][1]}, indent=2))
 
         client: ollama.Client | None
         client, model_key = OllamaClient.get_valid_client(model_key, chat)
@@ -264,72 +253,20 @@ class OllamaClient(AIProviderInterface):
 
         try:
             if silent_reason:
-                debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to perform the action: <{colored(silent_reason, 'yellow')}>", force_print=True)
+                debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> for: <{colored(silent_reason, 'yellow')}>", force_print=True, with_title=False)
             else:
                 debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to generate a response...", "green", force_print=True)
             
-            response_stream = client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800, options={"num_predict": 32768})
-            full_response = ""
-            for line in response_stream:
-                next_string = line["message"]["content"]
-                full_response += next_string
-                if not silent_reason:
-                    debug_print(tooling.apply_color(next_string), end="", with_title=False)
-            if not silent_reason:
-                debug_print("", with_title=False)
-            logger.debug(json.dumps({"full_response": full_response}, indent=2))
-            if "instruction" in full_response.lower():
-                full_response = full_response.split("instruction")[0]
-            return full_response
+            is_chat = isinstance(chat, Chat)
+            if is_chat:
+                return client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800)
+            else:
+                return client.generate(model=model_key, prompt=chat, stream=True, keep_alive=1800)
 
         except Exception as e:
             error_msg = f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model_key, 'red')}>: {e}"
             debug_print(error_msg, "red", is_error=True)
             OllamaClient.unreachable_hosts.append(f"{host}{model_key}")
-            return None
-
-    @staticmethod
-    def generate_response_raw(prompt: str, model: str = "nuextract", host: str = None, chat: Optional[Chat] = None) -> Optional[Dict[str, Any]]:
-        """
-        Generates a raw response from the Ollama API.
-
-        Args:
-            prompt (str): The input prompt.
-            model (str): The model to use.
-            host (str, optional): The specific host to use. If None, uses the first validated host.
-            chat (Optional[Chat]): The chat object for debug printing.
-
-        Returns:
-            Optional[Dict[str, Any]]: The raw response from the API, or None if an error occurs.
-        """
-        debug_print = None
-        if chat:
-            debug_print = AIProviderInterface.create_debug_printer(chat)
-            
-        if not host:
-            client, model_key = OllamaClient.get_valid_client(model, chat)
-            if not client:
-                error_msg = "No validated Ollama hosts available"
-                if debug_print:
-                    debug_print(error_msg, "red", is_error=True)
-                else:
-                    logger.error(error_msg)
-                raise ValueError(error_msg)
-        else:
-            client = ollama.Client(host=f'http://{host}:11434')
-
-        try:
-            if debug_print:
-                debug_print(f"Ollama-Api: Generating raw response using model <{colored(model, 'green')}>...", force_print=True)
-                
-            response = client.generate(model=model, prompt=prompt, stream=False, keep_alive=1800)
-            return response
-        except Exception as e:
-            error_msg = f"Ollama-Api: Failed to generate raw response using <{host}> with model <{model}>: {e}"
-            if debug_print:
-                debug_print(error_msg, "red", is_error=True)
-            else:
-                logger.error(error_msg)
             return None
 
     @staticmethod

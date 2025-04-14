@@ -2,7 +2,7 @@ import tempfile
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable, Union
 from openai import OpenAI
 from termcolor import colored
 from py_classes.cls_chat import Chat, Role
@@ -18,20 +18,32 @@ class HumanAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, base64_images: List[str] = [], tools: Optional[List[Dict[str,Any]]] = None, model: str = "human", temperature=0.0, silent_reason: str = False ) -> Optional[str]:
+    def generate_response(
+        chat: Union[Chat, str], 
+        model_key: str = "human", 
+        temperature: float = 0.0, 
+        silent_reason: str = "", 
+        callback: Optional[Callable] = None
+    ) -> Optional[str]:
         """
-        Generates a response by prompting the human in front of the terminal .
+        Generates a response by prompting the human in front of the terminal.
 
         Args:
-            chat (Chat): The chat object containing messages.
-            base64_images (List[str]): The images as base64 strings
-            tools: (Optional[List[Dict[str,Any]]]) The tools available for use
-            model (str): Unused
-            temperature: (float): Unused 
-            silent (bool): Unused
+            chat (Union[Chat, str]): The chat object containing messages or a string prompt.
+            model_key (str): Unused
+            temperature (float): Unused 
+            silent_reason (str): Unused
+            callback (Callable, optional): A function to call with each chunk of input data.
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
         """
+        # Convert string to Chat object if needed
+        if isinstance(chat, str):
+            from py_classes.cls_chat import Chat, Role
+            chat_obj = Chat()
+            chat_obj.add_message(Role.USER, chat)
+            chat = chat_obj
+            
         debug_print = AIProviderInterface.create_debug_printer(chat)
         try:
             debug_print(f"Human-Api: User is asked for a response...", "green", force_print=True)
@@ -41,12 +53,17 @@ class HumanAPI(AIProviderInterface):
             
             debug_print(colored("# # # Enter your multiline response. Type '--f' on a new line when finished.", "blue"), force_print=True)
             lines = []
+            full_response = ""
             while True:
                 line = input()
                 if line == "--f":
                     break
                 lines.append(line)
-            full_response = "\n".join(lines)
+                full_response = "\n".join(lines)
+                
+                # Call the callback function if provided
+                if callback is not None:
+                    callback(full_response)
 
             token_keeper = CustomColoring()
             for character in full_response:

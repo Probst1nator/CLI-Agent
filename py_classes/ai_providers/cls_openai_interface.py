@@ -1,7 +1,8 @@
 import tempfile
 import os
 import time
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Union
+from collections.abc import Callable
 from openai import OpenAI
 from termcolor import colored
 import logging
@@ -17,47 +18,41 @@ class OpenAIAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model: str, temperature: float, tools: Optional[List[Dict[str, Any]]] = None, silent_reason: str = "") -> Optional[str]:
+    def generate_response(chat: Union[Chat, str], model_key: str, temperature: float, silent_reason: str = "") -> Any:
         """
         Generates a response using the OpenAI API.
         
         Args:
-            chat (Chat): The chat object containing messages.
-            model (str): The model identifier.
+            chat (Union[Chat, str]): The chat object containing messages or a string prompt.
+            model_key (str): The model identifier.
             temperature (float): The temperature setting for the model.
-            tools: Optional list of tools for function calling
             silent_reason (str): Whether to suppress print statements.
             
         Returns:
-            Optional[str]: The generated response, or None if an error occurs.
+            Any: A stream object that yields response chunks.
         """
+        # Convert string to Chat object if needed
+        if isinstance(chat, str):
+            from py_classes.cls_chat import Chat, Role
+            chat_obj = Chat()
+            chat_obj.add_message(Role.USER, chat)
+            chat = chat_obj
+            
         debug_print = AIProviderInterface.create_debug_printer(chat)
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
             
             if silent_reason:
-                debug_print(f"OpenAI-Api: <{colored(model, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
+                debug_print(f"OpenAI-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
             else:
-                debug_print(f"OpenAI-Api: <{colored(model, 'green')}> is generating response...", "green", force_print=True)
+                debug_print(f"OpenAI-Api: <{colored(model_key, 'green')}> is generating response...", "green", force_print=True)
 
-            stream = client.chat.completions.create(
-                model=model,
+            return client.chat.completions.create(
+                model=model_key,
                 messages=chat.to_openai(),
                 temperature=temperature,
                 stream=True
             )
-
-            full_response = ""
-            token_keeper = CustomColoring()
-            for chunk in stream:
-                token = chunk.choices[0].delta.content
-                if token:
-                    if not silent_reason:
-                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
-                    full_response += token
-            if not silent_reason:
-                debug_print("", with_title=False)
-            return full_response
 
         except Exception as e:
             error_msg = f"OpenAI API error: {e}"
