@@ -95,7 +95,7 @@ class UtilsManager:
         Returns:
             str: Formatted prompt describing the specified utilities.
         """
-        prompt = "Available utilities:\n"
+        prompt = "Custom available utilities:\n"
         
         # Get all currently available utilities
         available_utils = self.get_utils()
@@ -122,9 +122,12 @@ class UtilsManager:
                     signature = inspect.signature(run_method)
                     
                     # Format the method signature with docstring and example showing static usage
-                    prompt += f"""# {i}.Example usage of {util_name}:
+                    prompt += f"""# Custom Utility {i}
+# {util_name} Importing                    
 from utils.{util_name} import {util_cls.__name__}
-{util_cls.__name__}.run{signature}-
+# {util_name} Usage
+{util_cls.__name__}.run{signature}
+# {util_name} Docstring
 \"\"\"
 {run_docstring}
 \"\"\""""

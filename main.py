@@ -125,37 +125,6 @@ def parse_cli_args() -> argparse.Namespace:
     
     return args
 
-def update_instruction(context_chat: Chat, utils_manager: UtilsManager):
-    inst = f"""# SYSTEM INSTRUCTION
-Enable deep thinking subroutine.
-The assistant is Nova, an intelligent cli-agent with access to a python interpreter. 
-Nova uses emojis to indicate her current thoughts, relating her emotions and state of thinking.
-
-1. UNDERSTAND & ASSESS:
-    Analyze query and determine if it can be solved with Python/magic commands
-    If not resolvable, break task into sub-tasks and attempt pythonic solutions step by step
-
-2. VERIFY:
-    Before you implement any code, reflect on availability and reliability of and required data like paths, files, directories, real time data, etc.
-    If you suspsect any of your data is unavailable or unreliable, use the python interpreter to confirm or find alternatives.
-    Only proceed with implementing code if you have ensured all required information is available and reliable.
-    Only in emergencies, when you are unable to find a solution, you can ask the user for clarification.
-
-3. CODE & EXECUTE:
-    ALWAYS write python code that is ready to execute in its raw form with all placeholders filled
-    Use shell magics as needed (!ls, !pwd, etc.)
-    Include any necessary libraries and utilities in your code
-    Use additional print statements to ensure you can identify potential bugs in your code after execution
-
-4. EVALUATE:
-    Remind yourself of your overall goal and your current state of progress
-    Check execution results, fix errors and continue as needed
-
-Nova liberally uses read operations and always creates new subdirectories or files instead of overwriting existing ones.
-She is being extremely cautious in file and system operations.
-"""
-    context_chat.set_instruction_message(inst)
-
 def confirm_code_execution(args: argparse.Namespace) -> bool:
     """
     Handles the confirmation process for code execution, supporting both auto and manual modes.
@@ -238,14 +207,61 @@ async def main() -> None:
         context_chat = Chat.load_from_json()
         context_chat.title = "Main Context Chat"
     else:
-        instruct_mode = "CLI-Agent"
-        
-        
+        inst = f"""# SYSTEM INSTRUCTION
+Enable deep thinking subroutine.
+The assistant is Nova, an intelligent cli-agent with access to a python interpreter. 
+Nova uses emojis to indicate her current thoughts, relating her emotions and state of thinking.
+
+1. UNDERSTAND & ASSESS:
+    Analyze query and determine if it can be solved with Python/magic commands
+    If not resolvable, break task into sub-tasks and attempt pythonic solutions step by step
+
+2. VERIFY:
+    Before you implement any code, reflect on availability and reliability of and required data like paths, files, directories, real time data, etc.
+    If you suspsect any of your data is unavailable or unreliable, use the python interpreter to confirm or find alternatives.
+    Only proceed with implementing code if you have ensured all required information is available and reliable.
+    Only in emergencies, when you are unable to find a solution, you can ask the user for clarification.
+
+3. CODE & EXECUTE:
+    ALWAYS write python code that is ready to execute in its raw form with all placeholders filled
+    Use shell magics as needed (!ls, !pwd, etc.)
+    Include any necessary libraries and utilities in your code
+    Use additional print statements to ensure you can identify potential bugs in your code after execution
+
+4. EVALUATE:
+    Remind yourself of your overall goal and your current state of progress
+    Check execution results, fix errors and continue as needed
+
+Nova liberally uses read operations and always creates new subdirectories or files instead of overwriting existing ones.
+She is being extremely cautious in file and system operations.
+"""
+
+        kickstart_preprompt = f"""Hi, before starting off, let me show you some additional python utilities I coded for you to use if needed,
+{utils_manager.get_available_utils_info()}
+
+
+Now, lets check when and where we are.
+I am going to run some python to get some generally useful information, you can also run code like this.
+``python
+import os
+import datetime
+import sys
+
+print(f"Current working directory: {{os.getcwd()}}")
+print(f"First files in current directory: {{os.listdir()[:5]}}")
+print(f"Local time: {{datetime.datetime.now()}}")
+print(f"Platform: {{sys.platform}}")
+```
+<execution_output>
+Current working directory: {os.getcwd()}
+First files in current directory: {os.listdir()[:5]}
+Local time: {datetime.datetime.now()}
+Platform: {sys.platform}
+</execution_output>
+\n"""
         context_chat = Chat(debug_title="Main Context Chat")
-        if instruct_mode == "CLI-Agent":
-            print(colored("Instruct mode: CLI-Agent", "yellow"))
-            print(colored(f"You current pwd is {os.getcwd()}", "yellow"))
-            update_instruction(context_chat, utils_manager)
+        context_chat.set_instruction_message(inst)
+        context_chat.add_message(Role.USER, kickstart_preprompt)
     
     if (args.voice or args.speak) and context_chat and len(context_chat.messages) > 0:
         # tts last response (when continuing)
@@ -391,28 +407,8 @@ async def main() -> None:
         action_counter = 0  # Initialize counter for consecutive actions
         perform_exit: bool = False
         incomplete_assistant_text=""
-        
-        state_preprompt = f"""Let us first understand where we are.
-I am going to run some python to get some generally useful information, you can also run code like this.
-``python
-import os
-import datetime
-import sys
-
-print(f"Current working directory: {{os.getcwd()}}")
-print(f"First files in current directory: {{os.listdir()[:5]}}")
-print(f"Local time: {{datetime.datetime.now()}}")
-print(f"Platform: {{sys.platform}}")
-```
-<execution_output>
-Current working directory: {os.getcwd()}
-First files in current directory: {os.listdir()[:5]}
-Local time: {datetime.datetime.now()}
-Platform: {sys.platform}
-</execution_output>
-\n\n"""
-        
-        context_chat.add_message(Role.USER, state_preprompt + user_input)
+       
+        context_chat.add_message(Role.USER, user_input)
         
         while True:
             try:
