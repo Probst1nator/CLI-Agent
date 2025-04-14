@@ -1,9 +1,10 @@
 # File: globals.py
 import os
 import shutil
-from typing import List, Optional
+from typing import List, Optional, Any, Callable
 import argparse
 import logging
+import builtins
 
 class Globals:
     args: Optional[argparse.Namespace] = None
@@ -21,12 +22,19 @@ class Globals:
     import datetime
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     PROJ_MODEL_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'model_limits')
+    os.makedirs(PROJ_MODEL_LIMITS_PATH, exist_ok=True)
     MODEL_TOKEN_LIMITS_PATH = os.path.join(PROJ_MODEL_LIMITS_PATH, f'{today}_model_token_limits.json')
     MODEL_RATE_LIMITS_PATH = os.path.join(PROJ_MODEL_LIMITS_PATH, f'{today}_model_rate_limits.json')
     
     # Finetuning
     UNCONFIRMED_FINETUNING_PATH = os.path.join(PROJ_TEMP_STORAGE_PATH, 'unconfirmed_finetuning_data')
     CONFIRMED_FINETUNING_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'confirmed_finetuning_data')
+    
+    # Web server instance
+    web_server = None
+    
+    # Store the original print function
+    original_print: Callable = builtins.print
 
     os.makedirs(PROJ_PERSISTENT_STORAGE_PATH, exist_ok=True)
     
@@ -69,5 +77,25 @@ def configure_logging():
     
     logging.info("Logging configured")
 
+# Create a custom print function that also logs to web interface
+def custom_print(*args: Any, **kwargs: Any) -> None:
+    """
+    Custom print function that intercepts print calls and also sends them to the web interface.
+    This function preserves all functionality of the original print function.
+    """
+    # Call the original print function to preserve normal console output
+    g.original_print(*args, **kwargs)
+    
+    # If web server is initialized and GUI mode is enabled, log to web interface
+    if g.web_server is not None and hasattr(g, 'args') and g.args and g.args.gui:
+        try:
+            g.web_server.log_print(*args, **kwargs)
+        except Exception:
+            # In case of any error, fall back to the original print function
+            pass
+
 # Configure logging after Globals is instantiated
 configure_logging()
+
+# Only replace the print function after everything is set up
+builtins.print = custom_print

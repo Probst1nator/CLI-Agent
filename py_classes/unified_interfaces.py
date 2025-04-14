@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple, Union, Any
+from collections.abc import Callable
 import numpy as np
 import speech_recognition as sr
 import logging
@@ -203,21 +204,19 @@ class AIProviderInterface(BaseProviderInterface):
     """
     
     @abstractmethod
-    def generate_response(self, chat: 'Chat', model: str, temperature: float, 
-                         tools: Optional[List[Dict[str, Any]]] = None, 
-                         silent_reason: str = "") -> Optional[str]:
+    def generate_response(self, chat: Union['Chat', str], model_key: str, temperature: float, 
+                         silent_reason: str = "") -> Any:
         """
-        Generates a response based on the provided chat and model.
+        Generates a response stream based on the provided chat and model.
 
         Args:
-            chat: The chat object containing messages.
-            model: The model identifier.
+            chat: The chat object containing messages or a string prompt.
+            model_key: The model identifier.
             temperature: The temperature setting for the model.
-            tools: Optional list of tools to use for the generation.
             silent_reason: Reason for suppressing print statements.
 
         Returns:
-            Optional[str]: The generated response, or None if an error occurs.
+            Any: A stream object that yields response chunks.
         """
         pass
     

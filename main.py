@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
+import datetime
 import json
 import logging
 import os
 import select
 import time
 import traceback
-from typing import Any, Dict, List, Tuple, Optional, Union
 from pyfiglet import figlet_format
 from dotenv import load_dotenv
 from termcolor import colored
@@ -18,8 +18,6 @@ import asyncio
 import re
 
 
-from py_classes.cls_base_tool import ToolResponse
-from py_methods.cmd_execution import select_and_execute_commands
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
@@ -28,24 +26,20 @@ warnings.filterwarnings("ignore", message="words count mismatch on*", module="ph
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
 
+from py_classes.cls_util_manager import UtilsManager
 from py_methods.utils import (
     extract_blocks,
     pdf_or_folder_to_database,
     listen_microphone,
-    remove_blocks,
     take_screenshot,
     text_to_speech,
     update_cmd_collection,
-    extract_json,
-    extract_tool_code,
-    ToolCall,
-    ToolCallParameters
 )
-from py_classes.cls_llm_router import AIStrengths, Llm, LlmRouter
+from py_classes.cls_llm_router import Llm, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.utils.cls_utils_web_server import WebServer
-from py_classes.cls_tool_manager import ToolManager
 from py_classes.globals import g
+from py_classes.cls_python_sandbox import PythonSandbox
 
 # Suppress TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -81,7 +75,7 @@ def parse_cli_args() -> argparse.Namespace:
         add_help=False  # Disable automatic help to manually handle unrecognized args
     )
     
-    parser.add_argument("--auto", nargs='?', const=5, type=int, default=None,
+    parser.add_argument("-a", "--auto", nargs='?', const=5, type=int, default=None,
                         help="""Automatically execute safe commands after specified delay in seconds. Unsafe commands still require confirmation.""", metavar="DELAY")
     parser.add_argument("-c", action="store_true", default=False,
                         help="Continue the last conversation, retaining its context.")
@@ -131,12 +125,74 @@ def parse_cli_args() -> argparse.Namespace:
     
     return args
 
+def update_instruction(context_chat: Chat, utils_manager: UtilsManager):
+    inst = f"""# SYSTEM INSTRUCTION
+Enable deep thinking subroutine.
+The assistant is Nova, an intelligent cli-agent with access to a python interpreter. 
+Nova uses emojis to indicate her current thoughts, relating her emotions and state of thinking.
+
+1. UNDERSTAND & ASSESS:
+    Analyze query and determine if it can be solved with Python/magic commands
+    If not resolvable, break task into sub-tasks and attempt pythonic solutions step by step
+
+2. VERIFY:
+    Before you implement any code, reflect on availability and reliability of and required data like paths, files, directories, real time data, etc.
+    If you suspsect any of your data is unavailable or unreliable, use the python interpreter to confirm or find alternatives.
+    Only proceed with implementing code if you have ensured all required information is available and reliable.
+    Only in emergencies, when you are unable to find a solution, you can ask the user for clarification.
+
+3. CODE & EXECUTE:
+    ALWAYS write python code that is ready to execute in its raw form with all placeholders filled
+    Use shell magics as needed (!ls, !pwd, etc.)
+    Include any necessary libraries and utilities in your code
+    Use additional print statements to ensure you can identify potential bugs in your code after execution
+
+4. EVALUATE:
+    Remind yourself of your overall goal and your current state of progress
+    Check execution results, fix errors and continue as needed
+
+Nova liberally uses read operations and always creates new subdirectories or files instead of overwriting existing ones.
+She is being extremely cautious in file and system operations.
+"""
+    context_chat.set_instruction_message(inst)
+
+def confirm_code_execution(args: argparse.Namespace) -> bool:
+    """
+    Handles the confirmation process for code execution, supporting both auto and manual modes.
+    
+    Args:
+        args: The parsed command line arguments containing auto mode settings
+        
+    Returns:
+        bool: True if execution should proceed, False if aborted
+    """
+    if args.auto is not None:  # Check if auto mode is enabled
+        # Auto-execution with countdown
+        for i in range(5, 0, -1):
+            print(colored(f" in {i}", "cyan"), end="", flush=True)
+            for _ in range(10):  # Check 10 times per second
+                if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                    print(colored("\n❌ Code execution aborted by user", "red"))
+                    return False
+                time.sleep(0.1)
+            if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                return False
+            print("\b" * (len(str(i)) + 4), end="", flush=True)  # Clear the countdown
+    else:
+        # Manual confirmation
+        print(colored(" (Press Enter to confirm or 'n' to abort)", "cyan"))
+        user_input = input()
+        if user_input.lower() == 'n':
+            print(colored("❌ Code execution aborted by user", "red"))
+            return False
+        else:
+            print(colored("✅ Code execution permitted", "green"))
+    
+    return True
 
 async def main() -> None:
-    print("Environment path: ", g.PROJ_ENV_FILE_PATH)
+    print(colored("Starting CLI-Agent", "cyan"))
     load_dotenv(g.PROJ_ENV_FILE_PATH)
-    
-    print(colored("Starting CLI-Agent with typed ToolCall interface", "cyan"))
     
     args = parse_cli_args()
     print(args)
@@ -144,42 +200,26 @@ async def main() -> None:
     # Override logging level if debug mode is enabled
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled")
-    elif args.debug_chats:
-        logger.debug("Chat debug windows enabled")
     
     # Store args in globals
     g.args = args
     
     # Initialize tool manager
-    tool_manager = ToolManager()
-    if args.debug:
-        logger.debug("Tool manager initialized")
-    print(colored("\nLoaded tools:", "green"))
-    
-    # Print default tools
-    print(colored("Default tools:", "green"))
-    for tool_name in tool_manager.default_tools.keys():
-        print(colored(f"  - {tool_name}", "green"))
-    
-    # Print followup tools
-    if tool_manager.followup_tools:
-        print(colored("Followup tools:", "green"))
-        for tool_name in tool_manager.followup_tools.keys():
-            print(colored(f"  - {tool_name}", "green"))
-    
+    utils_manager = UtilsManager()
+    # Print loaded agents
+    print(colored("Loaded utils:", "green"))
+    for util_name in utils_manager.get_util_names():
+        print(colored(f"  - {util_name}", "green"))
+        
     # Initialize web server early if GUI mode is enabled
     web_server = None
     if args.gui:
         web_server = WebServer()
-        web_server.start(Chat(debug_title="Web Interface Chat"))  # Start with empty chat, will be updated later
+        g.web_server = web_server  # Store in globals for print redirection
+        web_server.start()  # Start with empty chat, will be updated later
     
-    if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online:
+    if args.local or (os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip() and not args.online):
         args.local = True
-        if not args.llm:
-            args.llm = "mistral-nemo:12b"
-    
-    if args.local:
         g.FORCE_LOCAL = True
     
     if args.preload:
@@ -198,11 +238,14 @@ async def main() -> None:
         context_chat = Chat.load_from_json()
         context_chat.title = "Main Context Chat"
     else:
+        instruct_mode = "CLI-Agent"
+        
+        
         context_chat = Chat(debug_title="Main Context Chat")
-    
-    # Update web server with the actual chat context
-    if web_server:
-        web_server.chat = context_chat.deep_copy()
+        if instruct_mode == "CLI-Agent":
+            print(colored("Instruct mode: CLI-Agent", "yellow"))
+            print(colored(f"You current pwd is {os.getcwd()}", "yellow"))
+            update_instruction(context_chat, utils_manager)
     
     if (args.voice or args.speak) and context_chat and len(context_chat.messages) > 0:
         # tts last response (when continuing)
@@ -255,7 +298,6 @@ async def main() -> None:
             user_input = input(colored("💬 Enter your request: ", 'blue', attrs=["bold"]))
         
         # USER INPUT HANDLING - BEGIN
-
         if user_input.endswith('--q'):
             print(colored("Exiting...", "red"))
             break
@@ -272,6 +314,7 @@ async def main() -> None:
         if user_input.endswith("--l"):
             user_input = user_input[:-3]
             args.local = not args.local
+            g.FORCE_LOCAL = args.local
             print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, type (--h) for info", "green"))
             continue
         
@@ -306,7 +349,7 @@ async def main() -> None:
             print(colored(f"# cli-agent: KeyBinding detected: Running majority response assistant, type (--h) for info", "green"))
             continue
         
-        if "--print_chat" in user_input:
+        if "--print_chat" in user_input or "-p" in user_input or "--p" in user_input:
             print(colored(f"# cli-agent: KeyBinding detected: Print chat history:", "green"))
             os.system('clear')
             print(colored("Chat history:", "green"))
@@ -336,399 +379,172 @@ async def main() -> None:
 # cli-agent: --llm: Set the language model to use. (Examples: "phi3.5:3.8b", "claude3.5", "gpt-4o")
 # cli-agent: --print_chat: Print the chat history.
 # cli-agent: --debug-chats: Enable debug windows for chat contexts only
+# cli-agent: Python code execution is always enabled by default
 # cli-agent: Type 'quit' to exit the program.
 """, "yellow"))
             continue
         # USER INPUT HANDLING - END
         
-        # AGENT INITIALIZATION - BEGIN
-        if not context_chat:
-            context_chat = Chat("You are a scalable agentic AI assistant.", debug_title="Agentic AI Context Chat")
-        # AGENT INITIALIZATION - END
-        
-        # Add user message to both context and web interface
-        if web_server and web_server.chat:
-            web_server.add_message_to_chat(Role.USER, user_input)
 
+        
         # AGENTIC IN-TURN LOOP - BEGIN
         action_counter = 0  # Initialize counter for consecutive actions
-        MAX_ACTIONS = 10    # Maximum number of consecutive actions before forcing a reply
-        tool_response = ""
         perform_exit: bool = False
-        remaining_todos: List[str] = []
+        incomplete_assistant_text=""
+        
+        state_preprompt = f"""Let us first understand where we are.
+I am going to run some python to get some generally useful information, you can also run code like this.
+``python
+import os
+import datetime
+import sys
+
+print(f"Current working directory: {{os.getcwd()}}")
+print(f"First files in current directory: {{os.listdir()[:5]}}")
+print(f"Local time: {{datetime.datetime.now()}}")
+print(f"Platform: {{sys.platform}}")
+```
+<execution_output>
+Current working directory: {os.getcwd()}
+First files in current directory: {os.listdir()[:5]}
+Local time: {datetime.datetime.now()}
+Platform: {sys.platform}
+</execution_output>
+\n\n"""
+        
+        context_chat.add_message(Role.USER, state_preprompt + user_input)
         
         while True:
             try:
-                if (remaining_todos):
-                    print(colored(f"📝 Remaining todos: {remaining_todos}", "yellow"))
-                # Check if we've hit the maximum number of consecutive actions
-                if action_counter >= MAX_ACTIONS:
-                    # Ask user if to continue or not
-                    do_continue_user_input = input(colored(f"Warning: Agent has performed {MAX_ACTIONS} consecutive actions without replying. Do you want to continue? (Y/n) ", "yellow")).lower()
-                    if (do_continue_user_input == "" or do_continue_user_input == "y" or "yes" in do_continue_user_input or "sure" in do_continue_user_input or "ja" in do_continue_user_input):
-                        MAX_ACTIONS += 3  # Increase the maximum number of consecutive actions
-                    else:
-                        context_chat.add_message(Role.USER, f"You have performed {MAX_ACTIONS} actions without replying and are being interrupted by the user. Please summarize your progress and respond intelligently to the user.")
-                        break
 
-                # Get all available tools and their prompts for first stage
-                all_available_tools_str = tool_manager.get_tools_prompt(include_details=True)
-                
-                
-                # full_agent_prompt = get_agent_prompt(user_prompt, all_available_tools_str, guidance_head_prompt)
-                agent_base = f"""# SYSTEM INSTRUCTION
-You are an expert AI agent with real-time tool execution capabilities acting as a reliable assistant to the user. Your primary goal is to determine the optimal way to respond to user requests."""
-
-                agent_core = f"""
-## AVAILABLE TOOLS
-{all_available_tools_str}
-
-## RESPONSE FORMAT
-First, reason through these steps:
-1. What is the user asking for?
-2. Is all required information already present?
-3. How can the task be decomposed into singular tool calls to serve the users intend in their sequence?
-4. Why is this the optimal approach and was the task realistically and optimally decomposed given the available tools?
-
-Then, provide a tool_code block with a single tool call and subsequent TODOs if necessary.
-The TODOs will help you retrain coherency throughout your operation in later turns.
-Ensure that from the TODOs alone you could pick up the operation again from where you left off, this requires you to always include plenty of context.
-1. Use the "reply" tool for direct answers requiring no real-time data or reliable computations
-2. Use any other tool(s) once or multiple times if you need to:
-   - Search the web
-   - Gather system information using bash
-   - Create visualizations with python
-   - Chain multiple operations in sequence to intelligently solve a task
-
-IMPORTANT: For multi-step TODOs, make them a coherent flowing text that implicitly includes the user's request:
-# TODO: Begin by creating [specific implementation] to address user's request
-# TODO: Then test the implementation to ensure it works properly
-# TODO: Finally respond to the user with results and next steps
-
-{f'''
-CONTEXT-AWARE BEHAVIOR:
-- You are a voice assistant
-- Your name is Nova
-- Keep responses concise
-- Use conversational tone
-''' if args.voice or args.speak else ""}
-
-You must provide your reasoning first, followed by a tool_code block with the sequential tool calls.
-
-<EXAMPLE>
-    <USER> Create a Snake game with AI player using Pygame and basic pathfinding. </USER>
-    <ASSISTANT> The user wants a simple implementation of the classic Snake game using Python's Pygame library, with an AI player using a basic pathfinding algorithm. 
-        To implement this, I'll first create a Python script file with the necessary code, then execute it.
-        ```tool_code
-        write_file.run(file_path="snake_game.py", content_prompt="Create a Python script that implements a Snake game using Pygame with an AI player using a basic pathfinding algorithm. Include comments explaining the code and ensure it has a nice UI with score display.")
-        # TODO: Test the Snake game implementation by executing snake_game.py
-        # TODO: Fix any potential issues with the Snake game if needed
-        # TODO: Ask the user if they're satisfied with the Snake game implementation
-        ```
-    </ASSISTANT>
-    <USER> ✅ The write_file tool has been executed successfully. Here is its summary:
-Created file at snake_game.py successfully! </USER>
-    <ASSISTANT> Now I'll execute the script so the user can play the game:
-        ```tool_code
-        execute_bash.run(command="python3 snake_game.py", mirror_output_to_user=False)
-        # TODO: Ask the user if they're satisfied with the Snake game and if they need any adjustments
-        ```
-    </ASSISTANT>
-</EXAMPLE>
-
-<EXAMPLE>
-    <USER> What 3 processes are using the most internet bandwidth? </USER>
-    <ASSISTANT> The user wants to know what 3 processes are using the most internet bandwidth.
-        ```tool_code
-        # Construct a command in bash to find the 3 processes using the most internet bandwidth and print the output directly to the user
-        execute_bash.run(command="sudo nethogs -t | sort -k2 -r | head -n 3", mirror_output_to_user=True)
-        # TODO: Explain the bandwidth usage results to the user and offer to provide more detailed information if needed
-        ```
-    </ASSISTANT>
-</EXAMPLE>
-
-<EXAMPLE>
-    <USER> Get me up to speed on the latest technology trends, i dont have much time so make it accessible. </USER>
-    <ASSISTANT> The user wants to know about the latest technology trends and have them visualized.
-        ```tool_code
-        # Perform a web search to find the most relevant information
-        web_search.run(queries=["latest technology trends 2023", "emerging tech innovations"])
-        # TODO: Create a visualization script to present technology trends in an accessible format
-        # TODO: Execute the visualization script to generate the visual representation
-        # TODO: Check with the user if the technology trends visualization meets their needs
-        ```
-    </ASSISTANT>
-    <USER> ✅ The web_search tool has been executed successfully. Here is its summary:
-[Search results about latest technology trends and innovations] </USER>
-    <ASSISTANT> Now I'll create a visualization script based on the search results:
-        ```tool_code
-        write_file.run(file_path="tech_trends_viz.py", content_prompt="Create a Python script that visualizes the latest technology trends based on this data: [search results]. Use matplotlib or other visualization libraries to create a clear, informative chart or graph. Make sure to include labels, a title, and a legend if appropriate.")
-        # TODO: Run the visualization script to display the technology trends in a visually accessible format
-        # TODO: Confirm the visualization meets the user's need for a quick tech trends overview
-        ```
-    </ASSISTANT>
-    <USER> ✅ The write_file tool has been executed successfully. Here is its summary:
-Created file at tech_trends_viz.py successfully! </USER>
-    <ASSISTANT> Now I'll run the visualization script:
-        ```tool_code
-        execute_bash.run(command="python3 tech_trends_viz.py")
-        # TODO: Verify the technology trends visualization was successful and meets the user's need for a quick overview
-        ```
-    </ASSISTANT>
-</EXAMPLE>
-"""
-
-                if tool_response:
-                    agent_instruction = f"""{agent_base}
-
-## CURRENT CONTEXT
-{tool_response}
-"""
-                else:
-                    agent_instruction = f"""{agent_base}
-
-{agent_core}
-"""
-                
-                context_chat.set_instruction_message(agent_instruction)
-                
-                
-                if (len(remaining_todos) > 0):
-                    planned_todos_prompt = f"\n\nTODOs: {remaining_todos}\n\nPlease proceeed as needed."
-                else:
-                    planned_todos_prompt = ""
-                
-                # If the last message is not a user message, add the tools prompt and the todos prompt
-                if (context_chat.messages[-1][0] != Role.USER):
-                    extended_user_input = user_input
-                    extended_user_input += "\n\nDo not respond to me directly, pick one of the following tools instead:\n" + tool_manager.get_tools_prompt(include_details=False)
-                    if (len(remaining_todos) > 0):
-                        extended_user_input += planned_todos_prompt
-                    context_chat.add_message(Role.USER, extended_user_input)
-                else:
-                    context_chat.add_message(Role.USER, planned_todos_prompt)
+                def update_python_environment(chunk: str) -> bool:
+                    nonlocal incomplete_assistant_text
+                    incomplete_assistant_text += chunk
+                    if incomplete_assistant_text.count("```") == 2:
+                        return True
+                    return False
 
                 # Get tool selection response
                 try:
+                    if incomplete_assistant_text:
+                        if context_chat.messages[-1][0] == Role.USER:
+                            context_chat.add_message(Role.ASSISTANT, incomplete_assistant_text)
+                        else:
+                            context_chat.messages[-1] = (Role.ASSISTANT, incomplete_assistant_text)
+                        incomplete_assistant_text = ""
                     # ! Agent turn
-                    tool_use_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], strength=AIStrengths.TOOLUSE)
-                    context_chat.add_message(Role.ASSISTANT, tool_use_response)
+                    response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], callback=update_python_environment)
                 except Exception as e:
                     LlmRouter.clear_unconfirmed_finetuning_data()
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
-                    context_chat.messages.pop()
+                    # if ("(Ctrl+C)" in str(e)):
+                    #     context_chat.messages.pop()
                     if args.debug:
                         traceback.print_exc()
                     break
-
-                # ! Parse tool selection response
-                agent_tool_calls: List[ToolCall] = []  # Initialize agent_tool_calls before try block
-                try:
-                    # First try to extract tool_code format
-                    tool_code_result = extract_tool_code(tool_use_response)
-                    if tool_code_result:
-                        # Get reasoning from the text before the tool_code block
-                        reasoning_end_pattern = r'(.*?)```tool_code'
-                        reasoning_match = re.search(reasoning_end_pattern, tool_use_response, re.DOTALL)
-                        if reasoning_match:
-                            tool_code_result["reasoning"] = reasoning_match.group(1).strip()
-                        else:
-                            tool_code_result["reasoning"] = "No specific reasoning provided."
+                
+                # Extract the python block from the response and execute it in a persistent sandbox
+                python_blocks = extract_blocks(incomplete_assistant_text, "python")
+                if not python_blocks:
+                    python_blocks = extract_blocks(incomplete_assistant_text, "tool_code")
+                    if not python_blocks:
+                        python_blocks = extract_blocks(incomplete_assistant_text, "bash")
+                
+                if python_blocks:
+                    # Check if the code is valid or an example
+                    if any(keyword in python_blocks[0].lower() for keyword in ["example", "replace", "path_to_", "your_"]):
+                        if incomplete_assistant_text:
+                            if context_chat.messages[-1][0] == Role.USER:
+                                context_chat.add_message(Role.ASSISTANT, incomplete_assistant_text)
+                            else:
+                                context_chat.messages[-1] = (Role.ASSISTANT, incomplete_assistant_text)
+                            incomplete_assistant_text = ""
+                        context_chat.add_message(Role.USER, """Your code is incomplete, please check where you used any of these keywords and replace/gather the correct information yourself: ["example", "replace", "path_to_", "your_"]""")
+                        continue
                         
-                        if "todos" in tool_code_result and tool_code_result["todos"]:
-                            remaining_todos = tool_code_result["todos"]
+                    
+                    print(colored("\n🔄 Starting code execution...", "cyan"), end="")
+                    if confirm_code_execution(args):
+                        # if bash_blocks:
+                        #     bash_to_execute = bash_blocks[0]
+                        #     os.system(bash_to_execute)
+                        
+                        if python_blocks:
+                            # Initialize the Python sandbox if not already done
+                            if not hasattr(g, 'python_sandbox'):
+                                g.python_sandbox = PythonSandbox(g.FORCE_LOCAL)
                             
-                        agent_tool_calls.append(tool_code_result)
-                    elif "```tool_code" in tool_use_response:
-                        raise Exception("Tool code block detected in response, but no valid tool call was found.")
-                    else:
-                        # Fallback, custom block handling for python and bash code blocks
-                        block_results = extract_blocks(tool_use_response, include_context=True)
-                        if block_results:
-                            for block_data in block_results:
-                                if len(block_data) == 3:  # With context
-                                    block_type, content, context = block_data
-                                else:  # Without context (fallback)
-                                    block_type, content = block_data
-                                    context = ""
+                            code_to_execute = python_blocks[0]  # Take the first Python block
+                            
+                            try:
+                                # Define streaming callbacks to display output in real-time
+                                def stdout_callback(text: str) -> None:
+                                    print(text, end="")
                                 
-                                if block_type == "python":
-                                    tool_code_result: ToolCall = {
-                                        "tool": "write_file",
-                                        "reasoning": context,
-                                        "parameters": {
-                                            "file_path": "unnamed_script.py",
-                                            "raw_content": content
-                                        }
-                                    }
-                                    agent_tool_calls.append(tool_code_result)
-                                elif block_type == "bash":
-                                    tool_code_result: ToolCall = {
-                                        "tool": "execute_bash",
-                                        "reasoning": context,
-                                        "parameters": {"command": content}
-                                    }
-                                    agent_tool_calls.append(tool_code_result)
-
-                except Exception as e:
-                    LlmRouter.clear_unconfirmed_finetuning_data()
-                    print(colored(f"Unexpected error parsing tool selection response: {str(e)}", "red"))
-                    if args.debug:
-                        traceback.print_exc()
-                    # Add encouraging feedback for tool selection
-                    context_chat.add_message(Role.USER, f"Unexpected error parsing tool selection response: {str(e)}.\n\nNo valid tool calls were found in your response, please verify your format and try again.")
-                    continue
-                
-                if(len(agent_tool_calls) == 0):
-                    default_tool: ToolCall = {
-                        "tool": "reply",
-                        "reasoning": "No specific reasoning provided.",
-                        "parameters": {"message": tool_use_response}
-                    }
-                    agent_tool_calls.append(default_tool)
-
-
-                print(colored(f"🛠️  Selected tools: {[tool.get('tool', '') for tool in agent_tool_calls]}", "green"))
-                
-                # Notify web interface about tool selection immediately
-                if web_server and web_server.chat:
-                    # First show the raw tool selection
-                    web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Tool selection:\n```json\n{json.dumps(agent_tool_calls[0], indent=2)}\n```")
-                    # Then show the formatted version
-                    for tool_call in agent_tool_calls:
-                        selected_tool = tool_call.get('tool', '').strip()
-                        reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
-                        if selected_tool and selected_tool != "reply":
-                            web_server.add_message_to_chat(Role.ASSISTANT, f"🛠️ Using tool: {selected_tool}\n{reasoning}")
-                
-                end_agent_recursion: bool = False
-                
-                for tool_call in agent_tool_calls:
-                    try:
-                        selected_tool = tool_call.get('tool', '').strip()
-                        reasoning = tool_call.get('reasoning', 'No specific reasoning provided.')
-                        if ("\n" in reasoning):
-                            print(colored(f"🧠 Reasoning:\n{reasoning}", "cyan"))
-                        else:
-                            print(colored(f"🧠 Reasoning: {reasoning}", "cyan"))
-
-                        try:
-                            tool = tool_manager.get_tool(selected_tool)()
-                        except KeyError:
-                            print(colored(f"Tool {selected_tool} not found", "red"))
-                            continue
-                        except Exception as e:
-                            print(colored(f"Error initializing tool {selected_tool}: {str(e)}", "red"))
-                            continue
-
-                        # Prepare parameters, handling positional ones
-                        run_params: ToolCallParameters = tool_call.get('parameters', {})
-                        positional_params = tool_call.get('positional_parameters')
-                        
-                        # --- Start: Map positional parameters --- 
-                        if positional_params: # Only proceed if there are positional params
-                            if selected_tool == "reply":
-                                if "message" not in run_params:
-                                    run_params["message"] = positional_params[0]
-                            elif selected_tool == "execute_bash": # Add mapping for execute_bash
-                                if "command" not in run_params:
-                                    run_params["command"] = positional_params[0]
-                        # TODO: Add more general positional parameter mapping logic here if needed for other tools
-                        # --- End: Map positional parameters ---
-                        
-                        # Create a dictionary to pass to run, ensuring it contains the mapped parameters
-                        run_args: ToolCall = tool_call.copy() # Start with a copy of the original call
-                        run_args['parameters'] = run_params # Update with potentially modified params
-                        print(colored(f"🛠️  Using: {selected_tool}", "green"))
-                        print(colored(f"🛠️  Params: {run_args.get('parameters', {})}", "green"))
-                        
-                        try:
-                            result = await tool.run(run_args, context_chat)
-                            
-                            # Process followup_tool if present in the response
-                            if result.get("followup_tools"):
-                                followup_tools = result["followup_tools"]
-                                # Format the list of suggested tools
-                                followup_tools_str = ", ".join(followup_tools)
-                                print(colored(f"🔍 Suggested followup tools: {followup_tools_str}", "cyan"))
-                            
-                        except Exception as e:
-                            LlmRouter.clear_unconfirmed_finetuning_data()
-                            print(colored(f"❌ Error executing tool {selected_tool}: {str(e)}", "red"))
-                            if args.debug:
-                                traceback.print_exc()
-                            continue
-                        
-                        tool_summary = result["summary"] if "summary" in result else "No summary available"
-                        # Process tool result
-                        if result["status"] == "error":
-                            print(colored(f"❌ Tool {selected_tool} execution error: {tool_summary}", "red"))
-                            if web_server and web_server.chat:
-                                web_server.add_message_to_chat(Role.ASSISTANT, f"❌ Tool execution error: {tool_summary}")
-                            
-                            context_chat.add_message(Role.USER, f"The {selected_tool} tool call has failed with an error message. If you're unable to identify the error in your own tool call, consider if another tool is fit for the task. If not, consider using the reply tool to inform to the user with the error message." + tool_summary)
-                            continue
-                        
-                        if result["status"] == "partial_success":
-                            print(colored(f"⏳ Tool {selected_tool} execution partial success, summary: {tool_summary}", "red"))
-                            if web_server and web_server.chat:
-                                web_server.add_message_to_chat(Role.ASSISTANT, f"⏳ Tool execution partial success: {tool_summary}")
-                            
-                            context_chat.add_message(Role.USER, tool_summary)
-                            continue
-
-                        # Handle sequential tool results
-                        if result["status"] == "success" and selected_tool != "reply":
-                            # Add the result summary to chat context
-                            context_chat.add_message(
-                                Role.USER, 
-                                f"✅ The {selected_tool} tool has been executed successfully." + ((f" Here is its summary:\n<summary>\n{result['summary']}\n</summary>") if 'summary' in result else 'No summary was included..'))
-                            
-                            if web_server and web_server.chat:
-                                web_server.add_message_to_chat(
-                                    Role.ASSISTANT, 
-                                    f"✅ Tool {selected_tool} completed:" + ((f"\n{result['summary']}") if 'summary' in result else 'No summary available')
+                                def stderr_callback(text: str) -> None:
+                                    print(text, end="")
+                                
+                                # Execute code with streaming callbacks
+                                stdout, stderr, result = g.python_sandbox.execute(
+                                    code_to_execute,
+                                    stdout_callback=stdout_callback,
+                                    stderr_callback=stderr_callback,
+                                    max_idle_time=120
                                 )
-                            continue
-
-                        action_counter += 1
-                        
-                        # Handle tool results
-                        if selected_tool == "reply":
-                            print(colored(f"🗣️  Reply: {result['summary']}", "cyan"))
-                            if web_server and web_server.chat:
-                                web_server.add_message_to_chat(Role.ASSISTANT, result["summary"])
-                            if args.voice or args.speak:
-                                text_to_speech(remove_blocks(result["summary"], ["md"]))
-                            end_agent_recursion = True
-                        elif selected_tool == "goodbye":
-                            if "summary" in result:
-                                if web_server and web_server.chat:
-                                    web_server.add_message_to_chat(Role.ASSISTANT, result["summary"])
-                                if args.voice or args.speak:
-                                    text_to_speech(remove_blocks(result["summary"], ["md"]))
-                            perform_exit = True
-                            end_agent_recursion = True
+                                
+                                # # Display result if any (after streaming is done)
+                                # if result is not None and result != "":
+                                #     print(colored(f"\n🔄 Result:", "cyan"))
+                                #     print(result)
+                                
+                                # Always print completion message
+                                print(colored("\n✅ Code execution completed", "cyan"))
+                                
+                                # Create a formatted output to add to the chat context
+                                tool_output = ""
+                                if stdout.strip():
+                                    tool_output += f"```stdout\n{stdout.strip()}\n```\n"
+                                if stderr.strip():
+                                    tool_output += f"```stderr\n{stderr.strip()}\n```\n"
+                                if result is not None and result != "":
+                                    tool_output += f"```result\n{result}\n```\n"
+                                
+                                # remove color codes
+                                tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output)
+                                
+                                # shorten to max 4000 characters, include the first 3000 and last 1000, splitting at the last newline
+                                if len(tool_output) > 4000:
+                                    # Find the last newline in the middle section
+                                    first_split = tool_output[:3000]
+                                    first_index = first_split.rfind('\n')
+                                    second_split = tool_output[-1000:]
+                                    second_index = second_split.find('\n')
+                                    
+                                    tool_output = tool_output[:first_index] + "\n[...output truncated...]\n" + second_split[second_index:]
+                                
+                                if not tool_output:
+                                    tool_output = "The execution returned no output."
+                                incomplete_assistant_text += f"\n<execution_output>\n{tool_output}</execution_output>\n"
+                                
+                                action_counter += 1  # Increment action counter
+                            except Exception as e:
+                                print(colored(f"\n❌ Error executing code: {str(e)}", "red"))
+                                if args.debug:
+                                    traceback.print_exc()
+                                break
+                    else:
+                        # Code execution denied by user
+                        break
+                else:
+                    # No blocks to execute found, end the loop and handover to user
+                    if incomplete_assistant_text:
+                        if context_chat.messages[-1][0] == Role.USER:
+                            context_chat.add_message(Role.ASSISTANT, incomplete_assistant_text)
                         else:
-                            if (result["status"] == "success" and "summary" in result):
-                                # Only add this message if we haven't already added it via followup_tool handling
-                                if "followup_tools" not in result:
-                                    context_chat.add_message(Role.USER, f"{tool_call.get('tool', '')} executed successfully:\n```execution_summary\n{result['summary']}```")
-                            print(colored(f"✅ {selected_tool.capitalize()} tool executed successfully", "green"))
-                            # For non-reply tools, show success message
-                            if web_server and web_server.chat:
-                                web_server.add_message_to_chat(Role.ASSISTANT, f"✅ {selected_tool.capitalize()} tool executed successfully")
-
-                    except Exception as e:
-                        LlmRouter.clear_unconfirmed_finetuning_data()
-                        print(colored(f"Unexpected error during tool execution: {str(e)}", "red"))
-                        if args.debug:
-                            traceback.print_exc()
-                        context_chat.add_message(Role.USER, f"An unexpected error occurred: {str(e)}, report this to the user.")
-                
-                if end_agent_recursion:
+                            context_chat.messages[-1] = (Role.ASSISTANT, incomplete_assistant_text)
+                        incomplete_assistant_text = ""
                     break
-
+            
             except Exception as e:
                 LlmRouter.clear_unconfirmed_finetuning_data()
                 print(colored(f"An unexpected error occurred: {str(e)}", "red"))

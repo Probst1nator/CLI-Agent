@@ -654,7 +654,34 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
-def extract_blocks(text: str, include_context: bool = False) -> List[Union[Tuple[str, str], Tuple[str, str, str]]]:
+def extract_blocks(text: str, language: Optional[str] = None) -> List[str]:
+    """
+    Extract code blocks of a specific language from text.
+    
+    Args:
+        text (str): The text to extract code blocks from.
+        language (Optional[str]): The specific language to extract (e.g., 'python'). 
+                                  If None, all code blocks are extracted.
+    
+    Returns:
+        List[str]: List of extracted code block contents. If language is specified,
+                  only blocks of that language are included.
+    """
+    pattern = r'```(?P<lang>\w*)\n(?P<content>.*?)```'
+    matches = re.finditer(pattern, text, re.DOTALL)
+    blocks = []
+    
+    for match in matches:
+        block_lang = match.group('lang').strip().lower()
+        content = match.group('content').strip()
+        
+        # If language is specified, only include blocks with that language
+        if language is None or (language.lower() == block_lang):
+            blocks.append(content)
+    
+    return blocks
+
+def extract_blocks_with_metadata(text: str, include_context: bool = False) -> List[Union[Tuple[str, str], Tuple[str, str, str]]]:
     """
     Extract code blocks encased by ``` from a text and the first curly brace block.
     This function handles various edge cases, including:
@@ -731,7 +758,7 @@ def extract_json(text: str, required_keys: Optional[List[str]] = None) -> Option
     """
     try:
         # First try to extract from code blocks
-        blocks = extract_blocks(text)
+        blocks = extract_blocks_with_metadata(text)
         
         def clean_json_content(content: str) -> str:
             """Helper function to clean JSON content before parsing."""
@@ -943,14 +970,14 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         # Transform the extractable information to a german presentation
         chat = Chat()
         chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n```\n{coherent_extraction}\n```")
-        high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, silent_reason = True)
+        high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, hidden_reason = True)
         chat.add_message(Role.ASSISTANT, high_level_extraction_analysis)
         chat.add_message(Role.USER, "Can you please summarize all details of the document in a coherent manner? The summary will be used to provide advice to students, this requires you to only provide facts that have plenty of context of topic and subject available. If such context is not present, always choose to skip unreliable or inaccurate information completely. Do not mention when you are ignoring content because of this.")
-        factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, silent_reason = True, force_free = True)
+        factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, hidden_reason = True, force_free = True)
         chat.add_message(Role.ASSISTANT, factual_summarization)
         praesentieren_prompt = "Bitte präsentiere die Informationen in dem Dokument in einer Weise, die für Studenten leicht verständlich ist. Verwende einfache Sprache und ganze Sätze, um die Informationen zu vermitteln. Verwende Neologismen wenn angemessen. Beginne deine Antwort bitte direkt mit dem präsentieren."
         chat.add_message(Role.USER, praesentieren_prompt)
-        raw_informationen = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"] + preferred_models, force_local = force_local, silent_reason = True, force_free = True)
+        raw_informationen = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"] + preferred_models, force_local = force_local, hidden_reason = True, force_free = True)
         
         # Transform the used ontology to the production model
         chat = Chat("You bist ein hilfreicher KI-Assistent der Friedrich-Alexander-Universität.")
@@ -960,7 +987,7 @@ def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, pre
         # We need to try models similar to the production model for the resulting onology to fit optimally
         # Todo: Still waiting for phi3.5-moe to become available on ollama or as gguf on huggingface
         for model_key in ["phi3.5", "phi3:mini-4k", "phi3:medium-4k", "llava-phi3"]:
-            informationen = LlmRouter.generate_completion(chat, preferred_models=[model_key], force_local = force_local, silent_reason = True, force_free = True, force_preferred_model = True)
+            informationen = LlmRouter.generate_completion(chat, preferred_models=[model_key], force_local = force_local, hidden_reason = True, force_free = True, force_preferred_model = True)
             if not informationen:
                 break
             # Safe guard for any issues that might ocurr
@@ -1191,7 +1218,7 @@ def extract_tool_code(text: str) -> Optional[ToolCall]:
     """
     try:
         # Extract code blocks with tool_code language tag
-        blocks = extract_blocks(text)
+        blocks = extract_blocks_with_metadata(text)
         tool_code_content = None
         
         # First try to get content from tool_code blocks
