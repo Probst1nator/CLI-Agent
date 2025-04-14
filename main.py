@@ -83,7 +83,7 @@ def parse_cli_args() -> argparse.Namespace:
 
     parser.add_argument("-h", "--help", action="store_true", default=False,
                         help="Display this help")
-    parser.add_argument("-a", "--auto", nargs='?', const=5, type=int, default=None,
+    parser.add_argument("-a", "--auto", nargs='?', type=bool, default=False,
                         help="""Automatically execute safe commands after specified delay in seconds. Unsafe commands still require confirmation.""", metavar="DELAY")
     parser.add_argument("-c", action="store_true", default=False,
                         help="Continue the last conversation, retaining its context.")
@@ -99,6 +99,9 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Text-to-speech output.")
     parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot and generate a response based on the contents of the image.")
+    
+    parser.add_argument("--llm", type=str, default=None,
+                        help="Specify the LLM to use.")
     parser.add_argument("--preload", action="store_true", default=False,
                         help="Preload systems like embeddings and other resources.")
     parser.add_argument("--gui", action="store_true", default=False,
@@ -181,13 +184,13 @@ async def llm_selection(args: argparse.Namespace) -> None:
     selected_llm = await app.run_async()
     
     if selected_llm == "any_but_local":
-        g.FORCE_LOCAL = False
-        args.local = False
+        g.FORCE_LOCAL = True
+        args.local = True
         args.llm = None
-        print(colored(f"# cli-agent: KeyBinding detected: Local mode disabled, using automatic LLM selection", "green"))
+        print(colored(f"# cli-agent: KeyBinding detected: Local mode enabled", "green"))
     else:
         args.llm = selected_llm
-        print(colored(f"# cli-agent: KeyBinding detected: Local toggled {args.local}, LLM set to {args.llm}, type (--h) for info", "green"))
+        print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
 
 def confirm_code_execution(args: argparse.Namespace) -> bool:
     """
@@ -199,7 +202,7 @@ def confirm_code_execution(args: argparse.Namespace) -> bool:
     Returns:
         bool: True if execution should proceed, False if aborted
     """
-    if args.auto is not None:  # Check if auto mode is enabled
+    if args.auto:  # Check if auto mode is enabled
         # Auto-execution with countdown
         for i in range(5, 0, -1):
             print(colored(f" in {i}", "cyan"), end="", flush=True)
@@ -439,14 +442,16 @@ Platform: {sys.platform}
         if "-h" in user_input or "--h" in user_input:
             user_input = user_input[:-3]
             print(figlet_format("cli-agent", font="slant"))
-            print(colored(f"""# cli-agent: KeyBindings:
-# cli-agent: -h: Show this help message
-# cli-agent: -r: Regenerate the last response
-# cli-agent: -l: Pick a different LLM
-# cli-agent: -a: Toggle auto mode
-# cli-agent: -s: Take a screenshot
-# cli-agent: -p: Print the raw chat history
-""", "yellow"))
+            print(colored("# KeyBindings:", "yellow"))
+            print(colored("# -h: Show this help message", "yellow"))
+            print(colored("# -r: Regenerate the last response", "yellow"))
+            print(colored(f"# -l: Pick a different LLM ", "yellow"), end="")
+            print(colored(f"(Current: {args.llm})", "cyan"))
+            print(colored(f"# -a: Toggle automatic code execution ", "yellow"), end="")
+            print(colored(f"(Current: {args.auto})", "cyan"))
+            print(colored("# -s: Take a screenshot", "yellow"))
+            print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
+            print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
             continue
         # USER INPUT HANDLING - END
         
