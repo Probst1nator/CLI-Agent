@@ -216,7 +216,7 @@ class OllamaClient(AIProviderInterface):
     def generate_response(
         chat: Chat | str,
         model_key: str = "phi3.5:3.8b",
-        temperature: Optional[float] = 0.75,
+        temperature: Optional[float] = None,
         silent_reason: str = ""
     ) -> Any:
         """
@@ -225,7 +225,7 @@ class OllamaClient(AIProviderInterface):
         Args:
             chat (Chat | str): The chat object containing messages or a string prompt.
             model_key (str): The model identifier (e.g., "phi3.5:3.8b", "llama3.1").
-            temperature (float): The temperature setting for the model.
+            temperature (Optional[float]): The temperature setting for the model.
             silent_reason (str): If provided, suppresses output and shows this reason.
 
         Returns:
@@ -244,24 +244,22 @@ class OllamaClient(AIProviderInterface):
         assert client is not None
         host: str = client._client.base_url.host
 
-        # Check if host is in OLLAMA_HOST_FORCE_FAST_MODELS list
-        force_fast_hosts = os.getenv("OLLAMA_HOST_FORCE_FAST_MODELS", "").split(",")
-        force_fast_hosts = [h.strip() for h in force_fast_hosts if h.strip()]
-        if host in force_fast_hosts:
-            debug_print(f"Host {host} is in OLLAMA_HOST_FORCE_FAST_MODELS list. Using optimized settings.", force_print=True)
-            # Add your fast model optimizations here if needed
+        # Create options dictionary with temperature
+        options = {}
+        if temperature is not None:
+            options["temperature"] = temperature
 
         try:
             if silent_reason:
-                debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> for: <{colored(silent_reason, 'yellow')}>", force_print=True, with_title=False)
+                debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> for: <{colored(silent_reason, 'yellow')}> at temperature {temperature}", force_print=True, with_title=False)
             else:
-                debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> to generate a response...", "green", force_print=True)
+                debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> at temperature {temperature} to generate a response...", "green", force_print=True)
             
             is_chat = isinstance(chat, Chat)
             if is_chat:
-                return client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800)
+                return client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800, options=options)
             else:
-                return client.generate(model=model_key, prompt=chat, stream=True, keep_alive=1800)
+                return client.generate(model=model_key, prompt=chat, stream=True, keep_alive=1800, options=options)
 
         except Exception as e:
             error_msg = f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model_key, 'red')}>: {e}"

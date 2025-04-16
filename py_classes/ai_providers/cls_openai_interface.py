@@ -18,14 +18,13 @@ class OpenAIAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Union[Chat, str], model_key: str, temperature: float, silent_reason: str = "") -> Any:
+    def generate_response(chat: Union[Chat, str], model_key: str, silent_reason: str = "") -> Any:
         """
         Generates a response using the OpenAI API.
         
         Args:
             chat (Union[Chat, str]): The chat object containing messages or a string prompt.
             model_key (str): The model identifier.
-            temperature (float): The temperature setting for the model.
             silent_reason (str): Whether to suppress print statements.
             
         Returns:
@@ -50,7 +49,6 @@ class OpenAIAPI(AIProviderInterface):
             return client.chat.completions.create(
                 model=model_key,
                 messages=chat.to_openai(),
-                temperature=temperature,
                 stream=True
             )
 
@@ -112,8 +110,6 @@ class OpenAIAPI(AIProviderInterface):
             error_msg = f"OpenAI Whisper API error: {e}"
             if debug_print:
                 debug_print(error_msg, "red", is_error=True)
-            else:
-                logger.error(error_msg)
             raise Exception(error_msg)
 
         finally:

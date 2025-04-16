@@ -7,6 +7,7 @@ import os
 import select
 import time
 import traceback
+from typing import List
 from pyfiglet import figlet_format
 from dotenv import load_dotenv
 from termcolor import colored
@@ -41,11 +42,12 @@ from py_methods.utils import (
     text_to_speech,
     update_cmd_collection,
 )
-from py_classes.cls_llm_router import Llm, LlmRouter
+from py_classes.cls_llm_router import AIStrengths, Llm, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.globals import g
 from py_classes.cls_python_sandbox import PythonSandbox
+from py_classes.cls_custom_coloring import CustomColoring
 
 # Suppress TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -99,6 +101,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Text-to-speech output.")
     parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot and generate a response based on the contents of the image.")
+    parser.add_argument("-mct","--mct", action="store_true", default=False,
+                        help="Enable Monte Carlo Tree Search for acting.")
     
     parser.add_argument("--llm", type=str, default=None,
                         help="Specify the LLM to use.")
@@ -268,12 +272,14 @@ async def main() -> None:
         print(colored("Preloading complete.", "green"))
         exit(0)
     
+    ai_strengths = [AIStrengths.BALANCED]
     user_input: str = ""
-    context_chat: Chat
+    context_chat: Chat = Chat(debug_title="Main Context Chat")
+    if args.mct:
+        context_chat.debug_title = "MCTs Branching - Main Context Chat"
     
     if args.c:
         context_chat = Chat.load_from_json()
-        context_chat.title = "Main Context Chat"
     else:
         inst = f"""# SYSTEM INSTRUCTION
 Enable deep thinking subroutine.
@@ -301,7 +307,7 @@ Nova uses emojis to indicate her current thoughts, relating her emotions and sta
     Check execution results, fix errors and continue as needed
 
 Nova liberally uses read operations and always creates new subdirectories or files instead of overwriting existing ones.
-She is being extremely cautious in file and system operations.
+She is being extremely cautious in file and system operations other than reading.
 """
 
         kickstart_preprompt = f"""Hi, before starting off, let me show you some additional python utilities I coded for you to use if needed,
@@ -339,7 +345,6 @@ Platform: {sys.platform}
 </execution_output>
 
 """
-        context_chat = Chat(debug_title="Main Context Chat")
         context_chat.set_instruction_message(inst)
         context_chat.add_message(Role.USER, kickstart_preprompt)
     
@@ -393,15 +398,16 @@ Platform: {sys.platform}
         else:
             user_input = input(colored("💬 Enter your request: ", 'blue', attrs=["bold"]))
         
+        assert context_chat.messages[-1][0] == Role.USER
+        
         # USER INPUT HANDLING - BEGIN
         if user_input.endswith("-r") or user_input.endswith("--r") and context_chat:
             if len(context_chat.messages) < 2:
                 print(colored(f"# cli-agent: No chat history found, cannot regenerate last response.", "red"))
                 continue
             print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
-            if context_chat.messages[-1][0] == Role.USER:
-                context_chat.messages.pop()
             context_chat.messages.pop()
+            user_input = ""
             
         if user_input.endswith("-l") or user_input.endswith("--l") or user_input.endswith("--llm") or user_input.endswith("--local"):
             user_input = user_input[:-3]
@@ -414,6 +420,10 @@ Platform: {sys.platform}
             user_input = user_input[:-3]
             args.auto = not args.auto
             print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {args.auto}, type (--h) for info", "green"))
+            continue
+        if user_input.endswith("--mct") or user_input.endswith("-mct"):
+            user_input = user_input[:-4]
+            print(colored(f"# cli-agent: KeyBinding detected: Monte Carlo Tree Search toggled {args.mct}, type (--h) for info", "green"))
             continue
         
         if user_input.endswith("-s") or user_input.endswith("--s") or user_input.endswith("--screenshot") :
@@ -454,12 +464,14 @@ Platform: {sys.platform}
             print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
             continue
         # USER INPUT HANDLING - END
-        
+
 
         # AGENTIC IN-TURN LOOP - BEGIN
         action_counter = 0  # Initialize counter for consecutive actions
+        mct_branches: list[str] = []
         perform_exit: bool = False
-        incomplete_assistant_text=""
+        response_buffer=""
+        assistant_response = ""
 
         context_chat.add_message(Role.USER, user_input)
         
@@ -467,22 +479,32 @@ Platform: {sys.platform}
             try:
 
                 def update_python_environment(chunk: str) -> bool:
-                    nonlocal incomplete_assistant_text
-                    incomplete_assistant_text += chunk
-                    if incomplete_assistant_text.count("```") == 2:
+                    nonlocal response_buffer
+                    response_buffer += chunk
+                    if response_buffer.count("```") == 2:
+                        response_buffer = ""
                         return True
                     return False
 
                 # Get tool selection response
                 try:
-                    if incomplete_assistant_text:
+                    if assistant_response:
                         if context_chat.messages[-1][0] == Role.USER:
-                            context_chat.add_message(Role.ASSISTANT, incomplete_assistant_text)
+                            context_chat.add_message(Role.ASSISTANT, assistant_response)
                         else:
-                            context_chat.messages[-1] = (Role.ASSISTANT, incomplete_assistant_text)
-                        incomplete_assistant_text = ""
+                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
                     # ! Agent turn
-                    response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], callback=update_python_environment)
+                    mct_branches = []
+                    while True:
+                        if args.mct:
+                            temperature = 0.85
+                        else:
+                            temperature = None
+                        assistant_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], temperature=temperature, generation_stream_callback=update_python_environment, strengths=ai_strengths)
+                        mct_branches.append(assistant_response)
+                        if not args.mct or len(mct_branches) >= 3:
+                            break
+
                 except Exception as e:
                     LlmRouter.clear_unconfirmed_finetuning_data()
                     print(colored(f"Error generating tool selection response: {str(e)}", "red"))
@@ -490,22 +512,56 @@ Platform: {sys.platform}
                         traceback.print_exc()
                     break
                 
-                # Extract the python block from the response and execute it in a persistent sandbox
-                python_blocks = extract_blocks(incomplete_assistant_text, "python")
-                if not python_blocks:
-                    python_blocks = extract_blocks(incomplete_assistant_text, "tool_code")
+                def extract_pythonToolcode(text: str) -> list[str]:
+                    # Extract the python block from the response and execute it in a persistent sandbox
+                    python_blocks = extract_blocks(text, "python")
                     if not python_blocks:
-                        python_blocks = extract_blocks(incomplete_assistant_text, "bash")
+                        python_blocks = extract_blocks(text, "tool_code")
+                        if not python_blocks:
+                            python_blocks = extract_blocks(text, "bash")
+                    return python_blocks
+                
+                python_blocks: List[str] = []
+                for mct_branch in mct_branches:
+                    python_blocks.extend(extract_pythonToolcode(mct_branch)[0])
                 
                 if python_blocks:
-                    # Check if the code is valid or an example
-                    if any(keyword in python_blocks[0].lower() for keyword in ["example", "replace", "path_to_", "your_"]):
-                        if incomplete_assistant_text:
-                            if context_chat.messages[-1][0] == Role.USER:
-                                context_chat.add_message(Role.ASSISTANT, incomplete_assistant_text)
+                    if args.mct:
+                        try:
+                            mct_determine_branch_chat = Chat(
+                                instruction_message=f"You are a code improver- You will be given a users request and suggested code implementations for this request, your task is to combine the best parts of each implementation into a single fully functional implementation.", 
+                                debug_title="MCT Response Search"
+                            )
+                            mct_branch_synthesis_prompt = "".join(f"# {i}. Suggested Implementation: {response}\n" for i, response in enumerate(mct_branches))
+                            mct_branch_synthesis_prompt += f"# User Request: {user_input}\n\nCan you evaluate how each implementation addresses the user request? Please provide a final implementation that addresses the user request best."
+                            mct_determine_branch_chat.add_message(Role.USER, mct_branch_synthesis_prompt)
+                            for assistant_response in mct_branches:
+                                mct_determine_branch_chat.add_message(Role.ASSISTANT, assistant_response)
+                            
+                            assistant_response = LlmRouter.generate_completion(mct_determine_branch_chat, [args.llm if args.llm else ""], force_local=True, generation_stream_callback=update_python_environment)
+                            
+                            # Extract Python blocks after showing the response
+                            new_python_blocks = extract_pythonToolcode(assistant_response)
+                            if new_python_blocks:
+                                python_blocks = new_python_blocks
                             else:
-                                context_chat.messages[-1] = (Role.ASSISTANT, incomplete_assistant_text)
-                            incomplete_assistant_text = ""
+                                print(colored("\n⚠️ No executable code found in synthesized response. Using original code.", "yellow"))
+                            
+                        except Exception as e:
+                            print(colored(f"Error with MCT-branching: {str(e)}", "red"))
+                            if args.debug:
+                                traceback.print_exc()
+                            # Continue with the original implementation
+                            print(colored("\n⚠️ Falling back to original implementation.", "yellow"))
+                    
+                    # Check if the code is valid or an example
+                    if python_blocks and any(keyword in python_blocks[0].lower() for keyword in ["example", "replace", "path_to_", "your_"]):
+                        if assistant_response:
+                            if context_chat.messages[-1][0] == Role.USER:
+                                context_chat.add_message(Role.ASSISTANT, assistant_response)
+                            else:
+                                context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
+                            assistant_response = ""
                         context_chat.add_message(Role.USER, """Your code is incomplete, please check where you used any of these keywords and replace/gather the correct information yourself: ["example", "replace", "path_to_", "your_"]""")
                         continue
                         
@@ -571,7 +627,7 @@ Platform: {sys.platform}
                                 
                                 if not tool_output:
                                     tool_output = "The execution returned no output."
-                                incomplete_assistant_text += f"\n<execution_output>\n{tool_output}</execution_output>\n"
+                                assistant_response += f"\n<execution_output>\n{tool_output}</execution_output>\n"
                                 
                                 action_counter += 1  # Increment action counter
                             except Exception as e:
@@ -584,12 +640,12 @@ Platform: {sys.platform}
                         break
                 else:
                     # No blocks to execute found, end the loop and handover to user
-                    if incomplete_assistant_text:
+                    if assistant_response:
                         if context_chat.messages[-1][0] == Role.USER:
-                            context_chat.add_message(Role.ASSISTANT, incomplete_assistant_text)
+                            context_chat.add_message(Role.ASSISTANT, assistant_response)
                         else:
-                            context_chat.messages[-1] = (Role.ASSISTANT, incomplete_assistant_text)
-                        incomplete_assistant_text = ""
+                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
+                        assistant_response = ""
                     break
             
             except Exception as e:
