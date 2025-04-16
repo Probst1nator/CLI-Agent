@@ -6,6 +6,8 @@ import speech_recognition as sr
 import logging
 from termcolor import colored
 
+from py_classes.cls_chat import Chat
+
 # Configure logger with a NullHandler by default
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -33,7 +35,7 @@ class BaseProviderInterface(ABC):
         logger.setLevel(level)
         
     @staticmethod
-    def get_debug_title_prefix(chat: 'Chat') -> str:
+    def get_debug_title_prefix(chat: Optional['Chat']) -> str:
         """
         Get a formatted prefix string for debug messages that includes the chat's debug title if available.
         
@@ -204,7 +206,7 @@ class AIProviderInterface(BaseProviderInterface):
     """
     
     @abstractmethod
-    def generate_response(self, chat: Union['Chat', str], model_key: str, temperature: float, 
+    def generate_response(self, chat: Union['Chat', str], model_key: str,
                          silent_reason: str = "") -> Any:
         """
         Generates a response stream based on the provided chat and model.
