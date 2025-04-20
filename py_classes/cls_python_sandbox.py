@@ -19,14 +19,14 @@ class PythonSandbox:
     This provides process isolation and maintains state across multiple executions.
     """
     
-    def __init__(self, force_local: bool = False) -> None:
+    def __init__(self) -> None:
         """
         Initialize the Python sandbox with a Jupyter kernel.
         
         Args:
             cwd: Optional current working directory to use for resolving relative paths
         """
-        self.force_local = force_local
+        self.force_local = g.FORCE_LOCAL
         self.ensure_kernel_available()
         self.cwd = g.AGENTS_SANDBOX_DIR
         self._start_kernel()

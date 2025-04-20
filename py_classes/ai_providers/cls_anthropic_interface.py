@@ -45,9 +45,11 @@ class AnthropicAPI(AIProviderInterface):
             client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=3.0, max_retries=2)
             
             if silent_reason:
-                debug_print(f"Anthropic-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
+                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                debug_print(f"Anthropic-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
             else:
-                debug_print(f"Anthropic-Api: <{colored(model_key, 'green')}> is generating response...", "green", force_print=True)
+                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                debug_print(f"Anthropic-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
 
             l_chat = Chat()
             l_chat.messages = chat.messages

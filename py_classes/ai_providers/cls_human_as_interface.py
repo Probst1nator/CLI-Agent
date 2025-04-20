@@ -98,7 +98,7 @@ class HumanAPI(AIProviderInterface):
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
             if debug_print:
-                debug_print(f"Human-Api: Using OpenAI to transcribe audio using <{colored(model, 'green')}>...", force_print=True)
+                debug_print(f"Human-Api: Using OpenAI to transcribe audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file.write(audio_data.get_wav_data())
