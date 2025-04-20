@@ -18,13 +18,14 @@ class OpenAIAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Union[Chat, str], model_key: str, silent_reason: str = "") -> Any:
+    def generate_response(chat: Union[Chat, str], model_key: str, temperature: float = 0.7, silent_reason: str = "") -> Any:
         """
         Generates a response using the OpenAI API.
         
         Args:
             chat (Union[Chat, str]): The chat object containing messages or a string prompt.
             model_key (str): The model identifier.
+            temperature (float): The temperature setting for the model. Default is 0.7.
             silent_reason (str): Whether to suppress print statements.
             
         Returns:
@@ -42,13 +43,16 @@ class OpenAIAPI(AIProviderInterface):
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
             
             if silent_reason:
-                debug_print(f"OpenAI-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
+                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                debug_print(f"OpenAI-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
             else:
-                debug_print(f"OpenAI-Api: <{colored(model_key, 'green')}> is generating response...", "green", force_print=True)
+                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                debug_print(f"OpenAI-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
 
             return client.chat.completions.create(
                 model=model_key,
                 messages=chat.to_openai(),
+                temperature=temperature,
                 stream=True
             )
 
@@ -79,7 +83,7 @@ class OpenAIAPI(AIProviderInterface):
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
             if debug_print:
-                debug_print(f"OpenAI-Api: Transcribing audio using <{colored(model, 'green')}>...", force_print=True)
+                debug_print(f"OpenAI-Api: Transcribing audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file.write(audio_data.get_wav_data())

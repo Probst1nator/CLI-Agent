@@ -53,7 +53,7 @@ class GroqAPI(AIProviderInterface):
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
             
             if not silent_reason:
-                debug_print(f"Groq-Api: <{colored(model_key, 'yellow')}> is {colored(rate_limit_reason, 'yellow')}", force_print=True)
+                debug_print(f"Groq-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True)
             
             # Raise a silent rate limit exception
             raise RateLimitException(f"Model {model_key} is rate limited. Try again in {remaining_time:.1f} seconds")
@@ -62,9 +62,11 @@ class GroqAPI(AIProviderInterface):
             client = Groq(api_key=os.getenv('GROQ_API_KEY'))
             
             if silent_reason:
-                debug_print(f"Groq-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
+                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                debug_print(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
             else:
-                debug_print(f"Groq-Api: <{colored(model_key, 'green')}> is generating response...", "green", force_print=True)
+                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                debug_print(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
 
             return client.chat.completions.create(
                 model=model_key,
@@ -99,7 +101,7 @@ class GroqAPI(AIProviderInterface):
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
             
             if not silent_reason and debug_print:
-                debug_print(f"Groq-Api: <{colored(model, 'yellow')}> is {colored(rate_limit_reason, 'yellow')}", force_print=True)
+                debug_print(f"Groq-Api: {colored('<', 'yellow')}{colored(model, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True)
             
             # Raise a silent rate limit exception
             raise RateLimitException(f"Model {model} is rate limited. Try again in {remaining_time:.1f} seconds")
@@ -108,7 +110,7 @@ class GroqAPI(AIProviderInterface):
             client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=0)
             
             if not silent_reason:
-                debug_print(f"Groq-Api: Transcribing audio using <{colored(model, 'green')}>...", force_print=True)
+                debug_print(f"Groq-Api: Transcribing audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True)
             
             with open(filepath, "rb") as file:
                 transcription = client.audio.transcriptions.create(

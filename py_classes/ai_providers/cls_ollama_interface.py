@@ -57,17 +57,17 @@ class OllamaClient(AIProviderInterface):
             
             hostname, port = host.split(':') if ':' in host else (host, 11434)
             if debug_print:
-                debug_print(f"Checking host {host}...", "green", force_print=True)
+                debug_print(f"Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...", "green", force_print=True)
             else:
-                print(colored(f"Checking host {host}...", "green"))
+                print(colored(f"Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...", "green"))
                 
             with socket.create_connection((hostname, int(port)), timeout=3):
                 return True
         except (socket.timeout, socket.error):
             if debug_print:
-                debug_print(f"Host {host} is unreachable", "red", is_error=True)
+                debug_print(f"Ollama-Api: Host " + colored("<" + host + ">", "red") + " is unreachable", "red", is_error=True)
             else:
-                print(colored(f"Host {host} is unreachable", "red"))
+                print(f"Ollama-Api: Host " + colored("<" + host + ">", "red") + " is unreachable", "red")
             return False
 
     @staticmethod
@@ -85,6 +85,16 @@ class OllamaClient(AIProviderInterface):
         """
         # Get hosts from comma-separated environment variables
         ollama_hosts = os.getenv("OLLAMA_HOST", "").split(",")
+        
+        # Remove the localhost from the list
+        force_local_remote_host = os.getenv("OLLAMA_HOST_FORCE_LOCAL_REMOTE_HOST", "")
+        if socket.gethostname() in force_local_remote_host:
+            try:
+                ollama_hosts.remove("localhost")
+                ollama_hosts.remove(socket.gethostbyname(socket.gethostname()))
+            except Exception as e:
+                pass
+        
         auto_download_hosts = set(os.getenv("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS", "").split(","))
         
         debug_print = None
@@ -246,14 +256,16 @@ class OllamaClient(AIProviderInterface):
 
         # Create options dictionary with temperature
         options = {}
-        if temperature is not None:
+        if temperature is not None and temperature != 0:
             options["temperature"] = temperature
 
         try:
             if silent_reason:
-                debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> for: <{colored(silent_reason, 'yellow')}> at temperature {temperature}", force_print=True, with_title=False)
+                temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
+                debug_print(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')} for: {colored('<' + silent_reason + '>', 'yellow')}{temp_str}", force_print=True, with_title=False)
             else:
-                debug_print(f"Ollama-Api: <{colored(model_key, 'green')}> is using <{colored(host, 'green')}> at temperature {temperature} to generate a response...", "green", force_print=True)
+                temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
+                debug_print(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')}{temp_str} to generate a response...", "green", force_print=True)
             
             is_chat = isinstance(chat, Chat)
             if is_chat:
@@ -262,7 +274,7 @@ class OllamaClient(AIProviderInterface):
                 return client.generate(model=model_key, prompt=chat, stream=True, keep_alive=1800, options=options)
 
         except Exception as e:
-            error_msg = f"Ollama-Api: Failed to generate response using <{colored(host, 'red')}> with model <{colored(model_key, 'red')}>: {e}"
+            error_msg = f"Ollama-Api: Failed to generate response using {colored('<' + host + '>', 'red')} with model {colored('<' + model_key + '>', 'red')}: {e}"
             debug_print(error_msg, "red", is_error=True)
             OllamaClient.unreachable_hosts.append(f"{host}{model_key}")
             return None
@@ -307,18 +319,18 @@ class OllamaClient(AIProviderInterface):
             if isinstance(text, str):
                 # Single text case
                 if debug_print:
-                    debug_print(f"Ollama-Api: <{colored(model, 'green')}> is generating embedding using <{colored(host, 'green')}>...", force_print=True)
+                    debug_print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}...", force_print=True)
                 else:
-                    print(f"Ollama-Api: <{colored(model, 'green')}> is generating embedding using <{colored(host, 'green')}>...")
+                    print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}...")
                 
                 response = client.embeddings(model=model, prompt=text, keep_alive=7200)
                 return response["embedding"]
             else:
                 # List of texts case
                 if debug_print:
-                    debug_print(f"Ollama-Api: <{colored(model, 'green')}> is generating {len(text)} embeddings using <{colored(host, 'green')}>", force_print=True)
+                    debug_print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}", force_print=True)
                 else:
-                    print(f"Ollama-Api: <{colored(model, 'green')}> is generating {len(text)} embeddings using <{colored(host, 'green')}>")
+                    print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}")
                 
                 embeddings = []
                 
@@ -338,7 +350,7 @@ class OllamaClient(AIProviderInterface):
                 return embeddings
 
         except Exception as e:
-            error_msg = f"Ollama-Api: Failed to generate embedding(s) using <{colored(host, 'red')}> with model <{colored(model, 'red')}>: {e}"
+            error_msg = f"Ollama-Api: Failed to generate embedding(s) using {colored('<', 'red')}{colored(host, 'red')}{colored('>', 'red')} with model {colored('<', 'red')}{colored(model, 'red')}{colored('>', 'red')}: {e}"
             if debug_print:
                 debug_print(error_msg, "red", is_error=True)
             else:

@@ -7,7 +7,7 @@ import os
 import select
 import time
 import traceback
-from typing import List
+from typing import Any, Callable, List, Optional, Tuple
 from pyfiglet import figlet_format
 from dotenv import load_dotenv
 from termcolor import colored
@@ -90,7 +90,7 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-c", action="store_true", default=False,
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-l", "--local", action="store_true", default=False,
-                        help="Use the local Ollama backend for processing.")
+                        help="Use the local Ollama backend for processing. Sets g.FORCE_LOCAL=True.")
     parser.add_argument("-m", "--message", type=str, default=None,
                         help="Enter your first message instantly.")
     parser.add_argument("-r", "--regenerate", action="store_true", default=False,
@@ -99,6 +99,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enable microphone input and text-to-speech output.")
     parser.add_argument("-s", "--speak", action="store_true", default=False,
                         help="Text-to-speech output.")
+    parser.add_argument("-f", "--fast", action="store_true", default=False,
+                        help="Use only fast LLMs. Sets g.FORCE_FAST=True.")
     parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot and generate a response based on the contents of the image.")
     parser.add_argument("-mct","--mct", action="store_true", default=False,
@@ -111,7 +113,7 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("--gui", action="store_true", default=False,
                         help="Open a web interface for the chat")
     parser.add_argument("--debug-chats", action="store_true", default=False,
-                        help="Enable debug windows for chat contexts without full debug logging")
+                        help="Enable debug windows for chat contexts without full debug logging. Sets g.DEBUG_CHATS=True.")
     parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
                         help="Use private remote wake detection")
     
@@ -143,7 +145,7 @@ async def llm_selection(args: argparse.Namespace) -> None:
     # Create styled LLM choices
     llm_choices = []
     # Add "Any but local" option at the top
-    llm_choices.append(("any_but_local", HTML('<provider>Any</provider> - <model>Any but local</model> - <pricing>Automatic selection</pricing>')))
+    llm_choices.append(("any_local", HTML('<provider>Any</provider> - <model>Any but local</model> - <pricing>Automatic selection</pricing>')))
     
     for llm in available_llms:
         # Create HTML formatted text with colors
@@ -187,7 +189,7 @@ async def llm_selection(args: argparse.Namespace) -> None:
     # Use the current event loop instead of creating a new one
     selected_llm = await app.run_async()
     
-    if selected_llm == "any_but_local":
+    if selected_llm == "any_local":
         g.FORCE_LOCAL = True
         args.local = True
         args.llm = None
@@ -230,6 +232,60 @@ def confirm_code_execution(args: argparse.Namespace) -> bool:
     
     return True
 
+def select_best_branch(
+    assistant_responses: List[str],
+    user_input: str,
+) -> int:
+    """
+    Select the best branch from multiple full assistant responses.
+    
+    Args:
+        assistant_responses: List of full assistant responses (including reasoning and code)
+        user_input: The original user request
+        
+    Returns:
+        Index of the selected branch
+    """
+    mct_branch_selector_chat: Chat = Chat(
+        instruction_message=f"""You are an AI assistant response evaluator.
+        Given multiple complete assistant responses to the same user request, your task is to:
+        1. Analyze each response carefully, considering both the reasoning and any code provided
+        2. Select EXACTLY ONE response that best addresses the user's request
+        3. ALWAYS preserve responses that use custom utilities like SearchWeb
+        4. Choose based on simplicity, clarity of explanation, and correctness
+        5. Return ONLY the number of your chosen response (e.g., "Selected branch: 0")""",
+        debug_title="MCT Branch Selection"
+    )
+    
+    selection_prompt: str = f"# User Request: {user_input}\n\n"
+    selection_prompt += "# IMPORTANT: Custom utilities like 'utils.searchweb.SearchWeb' are essential and responses using them should be preferred.\n\n"
+    selection_prompt += "# Selection Criteria:\n"
+    selection_prompt += "- Preservation of custom utilities\n"
+    selection_prompt += "- Quality of explanation and reasoning\n"
+    selection_prompt += "- Code simplicity and directness\n"
+    selection_prompt += "- Appropriate level of detail for the user's request\n\n"
+    
+    for i, response in enumerate(assistant_responses):
+        selection_prompt += f"# Response {i}:\n{response}\n\n---\n\n"
+    
+    selection_prompt += "Analyze each complete response and select EXACTLY ONE best response. End your analysis with: 'Selected branch: X' where X is the response number."
+    
+    mct_branch_selector_chat.add_message(Role.USER, selection_prompt)
+    evaluator_response: str = LlmRouter.generate_completion(
+        mct_branch_selector_chat,
+    )
+    
+    # Extract the selected branch number
+    match: Optional[re.Match] = re.search(r'Selected branch: (\d+)', evaluator_response)
+    if match:
+        selected_branch_index: int = int(match.group(1))
+        if 0 <= selected_branch_index < len(assistant_responses):
+            return selected_branch_index
+    
+    # Default to first branch if no valid selection was made
+    print(colored("\n⚠️ No valid branch selection found. Defaulting to first branch.", "yellow"))
+    return 0
+
 async def main() -> None:
     print(colored("Starting CLI-Agent", "cyan"))
     load_dotenv(g.PROJ_ENV_FILE_PATH)
@@ -237,9 +293,10 @@ async def main() -> None:
     args = parse_cli_args()
     print(args)
 
-    # Display all chat windows
-    if args.debug_chats:
-        g.DEBUG_CHATS = True
+    # Set global variables from args parameters
+    g.DEBUG_CHATS = args.debug_chats
+    g.FORCE_FAST = args.fast
+    g.LLM = args.llm
     
     # Override logging level if debug mode is enabled
     if args.debug:
@@ -288,7 +345,8 @@ Nova uses emojis to indicate her current thoughts, relating her emotions and sta
 
 1. UNDERSTAND & ASSESS:
     Analyze query and determine if it can be solved with Python/magic commands
-    If not resolvable, break task into sub-tasks and attempt pythonic solutions step by step
+    Understand the requirements and determine if there are any sequential dependencies before you can implement a final solution
+    If any sequential dependencies exist, break the solution into sub-scripts and provide only the next sub-step as a code block
 
 2. VERIFY:
     Before you implement any code, reflect on availability and reliability of and required data like paths, files, directories, real time data, etc.
@@ -398,8 +456,6 @@ Platform: {sys.platform}
         else:
             user_input = input(colored("💬 Enter your request: ", 'blue', attrs=["bold"]))
         
-        assert context_chat.messages[-1][0] == Role.USER
-        
         # USER INPUT HANDLING - BEGIN
         if user_input.endswith("-r") or user_input.endswith("--r") and context_chat:
             if len(context_chat.messages) < 2:
@@ -410,7 +466,6 @@ Platform: {sys.platform}
             user_input = ""
             
         if user_input.endswith("-l") or user_input.endswith("--l") or user_input.endswith("--llm") or user_input.endswith("--local"):
-            user_input = user_input[:-3]
             print(colored(f"# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
             await llm_selection(args)
             user_input = ""
@@ -421,9 +476,13 @@ Platform: {sys.platform}
             args.auto = not args.auto
             print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {args.auto}, type (--h) for info", "green"))
             continue
+
         if user_input.endswith("--mct") or user_input.endswith("-mct"):
-            user_input = user_input[:-4]
+            args.mct = not args.mct
             print(colored(f"# cli-agent: KeyBinding detected: Monte Carlo Tree Search toggled {args.mct}, type (--h) for info", "green"))
+            # Update chat debug title if MCT is enabled
+            if context_chat:
+                context_chat.debug_title = "MCTs Branching - Main Context Chat" if args.mct else "Main Context Chat"
             continue
         
         if user_input.endswith("-s") or user_input.endswith("--s") or user_input.endswith("--screenshot") :
@@ -468,7 +527,6 @@ Platform: {sys.platform}
 
         # AGENTIC IN-TURN LOOP - BEGIN
         action_counter = 0  # Initialize counter for consecutive actions
-        mct_branches: list[str] = []
         perform_exit: bool = False
         response_buffer=""
         assistant_response = ""
@@ -477,41 +535,6 @@ Platform: {sys.platform}
         
         while True:
             try:
-
-                def update_python_environment(chunk: str) -> bool:
-                    nonlocal response_buffer
-                    response_buffer += chunk
-                    if response_buffer.count("```") == 2:
-                        response_buffer = ""
-                        return True
-                    return False
-
-                # Get tool selection response
-                try:
-                    if assistant_response:
-                        if context_chat.messages[-1][0] == Role.USER:
-                            context_chat.add_message(Role.ASSISTANT, assistant_response)
-                        else:
-                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
-                    # ! Agent turn
-                    mct_branches = []
-                    while True:
-                        if args.mct:
-                            temperature = 0.85
-                        else:
-                            temperature = None
-                        assistant_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], temperature=temperature, generation_stream_callback=update_python_environment, strengths=ai_strengths)
-                        mct_branches.append(assistant_response)
-                        if not args.mct or len(mct_branches) >= 3:
-                            break
-
-                except Exception as e:
-                    LlmRouter.clear_unconfirmed_finetuning_data()
-                    print(colored(f"Error generating tool selection response: {str(e)}", "red"))
-                    if args.debug:
-                        traceback.print_exc()
-                    break
-                
                 def extract_pythonToolcode(text: str) -> list[str]:
                     # Extract the python block from the response and execute it in a persistent sandbox
                     python_blocks = extract_blocks(text, "python")
@@ -521,131 +544,145 @@ Platform: {sys.platform}
                             python_blocks = extract_blocks(text, "bash")
                     return python_blocks
                 
-                python_blocks: List[str] = []
-                for mct_branch in mct_branches:
-                    python_blocks.extend(extract_pythonToolcode(mct_branch)[0])
+                def update_python_environment(chunk: str) -> bool:
+                    nonlocal response_buffer
+                    response_buffer += chunk
+                    if response_buffer.count("```") == 2:
+                        response_buffer = ""
+                        return True
+                    return False
+
+                response_branches: List[str] = []
+                # Get tool selection response
+                try:
+                    if assistant_response:
+                        if context_chat.messages[-1][0] == Role.USER:
+                            context_chat.add_message(Role.ASSISTANT, assistant_response)
+                        else:
+                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
+                    # ! Agent turn
+                    for i in range(3 if args.mct else 1):
+                        if args.mct:
+                            temperature = 0.85
+                        else:
+                            temperature = None
+                        assistant_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], temperature=temperature, generation_stream_callback=update_python_environment, strengths=ai_strengths)
+                        response_branches.append(assistant_response)
+
+                except Exception as e:
+                    LlmRouter.clear_unconfirmed_finetuning_data()
+                    print(colored(f"Error generating tool selection response: {str(e)}", "red"))
+                    if args.debug:
+                        traceback.print_exc()
+                    break
+
+                if args.mct:
+                    try:
+                        selected_branch_index = select_best_branch(response_branches, user_input)
+                        # Pick the best branch
+                        assistant_response = response_branches[selected_branch_index]
+                        # Print the picked response
+                        print(colored(f"Selected branch: {selected_branch_index}, picked response:", "green"))
+                        custom_coloring = CustomColoring()
+                        for char in assistant_response:
+                            print(custom_coloring.apply_color(char), end="", flush=True)
+                            
+                    except Exception as e:
+                        print(colored(f"Error with MCT-branching: {str(e)}", "red"))
+                        if args.debug:
+                            traceback.print_exc()
+                        # Continue with the original implementation
+                        print(colored("\n⚠️ Falling back to original implementation.", "yellow"))
                 
-                if python_blocks:
-                    if args.mct:
-                        try:
-                            mct_determine_branch_chat = Chat(
-                                instruction_message=f"You are a code improver- You will be given a users request and suggested code implementations for this request, your task is to combine the best parts of each implementation into a single fully functional implementation.", 
-                                debug_title="MCT Response Search"
-                            )
-                            mct_branch_synthesis_prompt = "".join(f"# {i}. Suggested Implementation: {response}\n" for i, response in enumerate(mct_branches))
-                            mct_branch_synthesis_prompt += f"# User Request: {user_input}\n\nCan you evaluate how each implementation addresses the user request? Please provide a final implementation that addresses the user request best."
-                            mct_determine_branch_chat.add_message(Role.USER, mct_branch_synthesis_prompt)
-                            for assistant_response in mct_branches:
-                                mct_determine_branch_chat.add_message(Role.ASSISTANT, assistant_response)
-                            
-                            assistant_response = LlmRouter.generate_completion(mct_determine_branch_chat, [args.llm if args.llm else ""], force_local=True, generation_stream_callback=update_python_environment)
-                            
-                            # Extract Python blocks after showing the response
-                            new_python_blocks = extract_pythonToolcode(assistant_response)
-                            if new_python_blocks:
-                                python_blocks = new_python_blocks
-                            else:
-                                print(colored("\n⚠️ No executable code found in synthesized response. Using original code.", "yellow"))
-                            
-                        except Exception as e:
-                            print(colored(f"Error with MCT-branching: {str(e)}", "red"))
-                            if args.debug:
-                                traceback.print_exc()
-                            # Continue with the original implementation
-                            print(colored("\n⚠️ Falling back to original implementation.", "yellow"))
-                    
-                    # Check if the code is valid or an example
-                    if python_blocks and any(keyword in python_blocks[0].lower() for keyword in ["example", "replace", "path_to_", "your_"]):
-                        if assistant_response:
-                            if context_chat.messages[-1][0] == Role.USER:
-                                context_chat.add_message(Role.ASSISTANT, assistant_response)
-                            else:
-                                context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
-                            assistant_response = ""
-                        context_chat.add_message(Role.USER, """Your code is incomplete, please check where you used any of these keywords and replace/gather the correct information yourself: ["example", "replace", "path_to_", "your_"]""")
-                        continue
-                        
-                    
-                    print(colored("\n🔄 Starting code execution...", "cyan"), end="")
-                    if confirm_code_execution(args):
-                        # if bash_blocks:
-                        #     bash_to_execute = bash_blocks[0]
-                        #     os.system(bash_to_execute)
-                        
-                        if python_blocks:
-                            # Initialize the Python sandbox if not already done
-                            if not hasattr(g, 'python_sandbox'):
-                                g.python_sandbox = PythonSandbox(g.FORCE_LOCAL)
-                            
-                            code_to_execute = python_blocks[0]  # Take the first Python block
-                            
-                            try:
-                                # Define streaming callbacks to display output in real-time
-                                def stdout_callback(text: str) -> None:
-                                    print(text, end="")
-                                
-                                def stderr_callback(text: str) -> None:
-                                    print(text, end="")
-                                
-                                # Execute code with streaming callbacks
-                                stdout, stderr, result = g.python_sandbox.execute(
-                                    code_to_execute,
-                                    stdout_callback=stdout_callback,
-                                    stderr_callback=stderr_callback,
-                                    max_idle_time=120
-                                )
-                                
-                                # # Display result if any (after streaming is done)
-                                # if result is not None and result != "":
-                                #     print(colored(f"\n🔄 Result:", "cyan"))
-                                #     print(result)
-                                
-                                # Always print completion message
-                                print(colored("\n✅ Code execution completed", "cyan"))
-                                
-                                # Create a formatted output to add to the chat context
-                                tool_output = ""
-                                if stdout.strip():
-                                    tool_output += f"```stdout\n{stdout.strip()}\n```\n"
-                                if stderr.strip():
-                                    tool_output += f"```stderr\n{stderr.strip()}\n```\n"
-                                if result is not None and result != "":
-                                    tool_output += f"```result\n{result}\n```\n"
-                                
-                                # remove color codes
-                                tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output)
-                                
-                                # shorten to max 4000 characters, include the first 3000 and last 1000, splitting at the last newline
-                                if len(tool_output) > 4000:
-                                    # Find the last newline in the middle section
-                                    first_split = tool_output[:3000]
-                                    first_index = first_split.rfind('\n')
-                                    second_split = tool_output[-1000:]
-                                    second_index = second_split.find('\n')
-                                    
-                                    tool_output = tool_output[:first_index] + "\n[...output truncated...]\n" + second_split[second_index:]
-                                
-                                if not tool_output:
-                                    tool_output = "The execution returned no output."
-                                assistant_response += f"\n<execution_output>\n{tool_output}</execution_output>\n"
-                                
-                                action_counter += 1  # Increment action counter
-                            except Exception as e:
-                                print(colored(f"\n❌ Error executing code: {str(e)}", "red"))
-                                if args.debug:
-                                    traceback.print_exc()
-                                break
-                    else:
-                        # Code execution denied by user
-                        break
-                else:
-                    # No blocks to execute found, end the loop and handover to user
+                python_blocks = extract_pythonToolcode(assistant_response)
+                
+                # Handover to user if no python blocks are found
+                if len(python_blocks) == 0:
+                    break
+                
+                # Just use the first python block for now
+                code_to_execute = python_blocks[0]
+                
+                # Check if the code is valid or an example
+                if any(keyword in code_to_execute.lower() for keyword in ["example_", "replace_", "_replace", "path_to_", "your_"]):
                     if assistant_response:
                         if context_chat.messages[-1][0] == Role.USER:
                             context_chat.add_message(Role.ASSISTANT, assistant_response)
                         else:
                             context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
                         assistant_response = ""
+                    context_chat.add_message(Role.USER, """Your code is incomplete, please check where you used any of these keywords and replace them with the correct information, or developing a workaround: ["example_", "replace_", "_replace", "path_to_", "your_"]""")
+                    continue
+                    
+                
+                print(colored("\n🔄 Starting code execution...", "cyan"), end="")
+                if confirm_code_execution(args):
+                    # if bash_blocks:
+                    #     bash_to_execute = bash_blocks[0]
+                    #     os.system(bash_to_execute)
+                    
+                        # Initialize the Python sandbox if not already done
+                    if not hasattr(g, 'python_sandbox'):
+                        g.python_sandbox = PythonSandbox()
+                    
+                    try:
+                        # Define streaming callbacks to display output in real-time
+                        def stdout_callback(text: str) -> None:
+                            print(text, end="")
+                        
+                        def stderr_callback(text: str) -> None:
+                            print(text, end="")
+                        
+                        # Execute code with streaming callbacks
+                        stdout, stderr, result = g.python_sandbox.execute(
+                            code_to_execute,
+                            stdout_callback=stdout_callback,
+                            stderr_callback=stderr_callback,
+                            max_idle_time=120
+                        )
+                        
+                        # # Display result if any (after streaming is done)
+                        # if result is not None and result != "":
+                        #     print(colored(f"\n🔄 Result:", "cyan"))
+                        #     print(result)
+                        
+                        # Always print completion message
+                        print(colored("\n✅ Code execution completed", "cyan"))
+                        
+                        # Create a formatted output to add to the chat context
+                        tool_output = ""
+                        if stdout.strip():
+                            tool_output += f"```stdout\n{stdout.strip()}\n```\n"
+                        if stderr.strip():
+                            tool_output += f"```stderr\n{stderr.strip()}\n```\n"
+                        if result is not None and result != "":
+                            tool_output += f"```result\n{result}\n```\n"
+                        
+                        # remove color codes
+                        tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output)
+                        
+                        # shorten to max 4000 characters, include the first 3000 and last 1000, splitting at the last newline
+                        if len(tool_output) > 4000:
+                            # Find the last newline in the middle section
+                            first_split = tool_output[:3000]
+                            first_index = first_split.rfind('\n')
+                            second_split = tool_output[-1000:]
+                            second_index = second_split.find('\n')
+                            
+                            tool_output = tool_output[:first_index] + "\n[...output truncated...]\n" + second_split[second_index:]
+                        
+                        if not tool_output:
+                            tool_output = "The execution completed without returning any output."
+                        assistant_response += f"\n<execution_output>\n{tool_output}</execution_output>\n"
+                        
+                        action_counter += 1  # Increment action counter
+                    except Exception as e:
+                        print(colored(f"\n❌ Error executing code: {str(e)}", "red"))
+                        if args.debug:
+                            traceback.print_exc()
+                        break
+                else:
+                    # Code execution denied by user
                     break
             
             except Exception as e:

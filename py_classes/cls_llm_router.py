@@ -4,6 +4,7 @@ import json
 import os
 from random import shuffle
 import shutil
+import socket
 import time
 from typing import Dict, List, Optional, Set, Any, Union, Iterator
 from termcolor import colored
@@ -390,12 +391,7 @@ class LlmRouter:
             Optional[Llm]: The next available Llm instance if available, otherwise None.
         """
         instance = cls()
-        # if (force_local):
-        #     force_fast_hosts = os.getenv("OLLAMA_HOST_FORCE_FAST_MODELS", "").split(",")
-        #     force_fast_hosts = [h.strip() for h in force_fast_hosts if h.strip()]
-        # else:
-        #     force_fast_hosts = []
-        
+
         # Debug print for large token counts
         if (len(chat) > 4000 and not force_free and not force_local):
             print(colored("DEBUG: len(chat) returned: " + str(len(chat)), "yellow"))
@@ -655,8 +651,18 @@ class LlmRouter:
         tooling = CustomColoring()
         cls.call_counter += 1
         
-        if g.FORCE_LOCAL:
-            force_local = True
+        # Check global force flags
+        force_local = force_local or g.FORCE_LOCAL
+        
+        # Handle fast models preference
+        if g.FORCE_FAST and AIStrengths.FAST not in strengths:
+            if isinstance(strengths, list):
+                strengths.append(AIStrengths.FAST)
+            else:
+                strengths = [strengths, AIStrengths.FAST] if strengths else [AIStrengths.FAST]
+        
+        if g.LLM:
+            preferred_models = [g.LLM]
         
         def exclude_reasoning(response: str) -> str:
             if exclude_reasoning_tokens and ("</think>" in response or "</thinking>" in response):

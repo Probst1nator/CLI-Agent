@@ -44,9 +44,11 @@ class NvidiaAPI(AIProviderInterface):
         debug_print = AIProviderInterface.create_debug_printer(chat)
         try:
             if silent_reason:
-                debug_print(f"NVIDIA-Api: <{colored(model_key, 'green')}> is {colored('silently', 'green')} generating response...", force_print=True)
+                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                debug_print(f"NVIDIA-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
             else:
-                debug_print(f"NVIDIA-Api: <{colored(model_key, 'green')}> is generating response...", "green", force_print=True)
+                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                debug_print(f"NVIDIA-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
 
             return self.client.chat.completions.create(
                 model=model_key,
