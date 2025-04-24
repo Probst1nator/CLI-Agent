@@ -138,34 +138,74 @@ def read_from_terminal(num_lines: int, file_path: str = "/tmp/terminal_output.tx
 
 
 class ScreenCapture:
+    """
+    A class for capturing screenshots with interactive region selection.
+    
+    This class provides functionality to:
+    1. Capture the full screen
+    2. Display the captured image in a tkinter window
+    3. Allow the user to draw a rectangle to select a region
+    4. Capture and save the selected region
+    5. Return the captured images as base64-encoded strings
+    """
+    
     def __init__(self) -> None:
         """
         Initialize the ScreenCapture class with paths to save images and start the capture process.
         """
+        # Create directory for storing screenshots
         self.user_cli_agent_dir = os.path.expanduser('~/.local/share') + "/cli-agent"
         os.makedirs(self.user_cli_agent_dir, exist_ok=True)
         
+        # Define paths for storing the full screen and captured region images
         self.fullscreen_image_path = os.path.join(self.user_cli_agent_dir, "fullscreen.png")
         self.captured_region_path = os.path.join(self.user_cli_agent_dir, "captured_region.png")
         
+        # Capture the full screen first
         self.capture_fullscreen()
 
+        # Set up the tkinter window for region selection
         self.root = tk.Tk()
         self.root.title("Draw Rectangle to Capture Region")
         self.root.attributes('-fullscreen', True)
+        
+        # Add an escape key binding to exit
+        self.root.bind("<Escape>", self.on_escape)
+        
+        # Add a help label
+        help_text = "Click and drag to select a region. Press ESC to cancel."
+        help_label = tk.Label(self.root, text=help_text, bg='black', fg='white', font=('Arial', 14))
+        help_label.pack(side=tk.BOTTOM, fill=tk.X)
 
+        # Load the captured fullscreen image
         self.image = Image.open(self.fullscreen_image_path)
         self.tk_image = ImageTk.PhotoImage(self.image)
 
+        # Create a canvas to display the image and handle drawing
         self.canvas = tk.Canvas(self.root, cursor="cross", bg='black')
         self.canvas.pack(fill=tk.BOTH, expand=tk.YES)
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
 
+        # Bind mouse events to handlers
         self.canvas.bind("<ButtonPress-1>", self.on_button_press)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_button_release)
 
+        # Flag to track if a region was successfully captured
+        self.region_captured = False
+        
+        # Start the tkinter main loop
         self.root.mainloop()
+    
+    def on_escape(self, event: tk.Event) -> None:
+        """
+        Handle escape key press to exit without capturing.
+        
+        Args:
+            event (tk.Event): The event object.
+        """
+        print(colored("Screenshot selection cancelled.", "yellow"))
+        self.root.destroy()
 
     def on_button_press(self, event: tk.Event) -> None:
         """
@@ -196,7 +236,19 @@ class ScreenCapture:
             event (tk.Event): The event object.
         """
         end_x, end_y = (event.x, event.y)
-        self.capture_region(self.start_x, self.start_y, end_x, end_y)
+        
+        # Ensure the coordinates are in the correct order (start < end)
+        start_x, end_x = min(self.start_x, end_x), max(self.start_x, end_x)
+        start_y, end_y = min(self.start_y, end_y), max(self.start_y, end_y)
+        
+        # Check if the selected region is too small
+        if (end_x - start_x < 10) or (end_y - start_y < 10):
+            print(colored("Selected region is too small. Please try again.", "yellow"))
+            self.canvas.delete(self.rect)
+            return
+            
+        self.capture_region(start_x, start_y, end_x, end_y)
+        self.region_captured = True
         self.root.destroy()
 
     def capture_region(self, start_x: int, start_y: int, end_x: int, end_y: int) -> None:
@@ -215,11 +267,44 @@ class ScreenCapture:
 
     def capture_fullscreen(self) -> None:
         """
-        Capture and save the entire screen.
+        Capture and save the entire screen including all displays.
         """
-        screen = ImageGrab.grab()
-        screen.save(self.fullscreen_image_path)
-        print(f"Fullscreen captured and saved as '{self.fullscreen_image_path}'")
+        try:
+            # Use the all_screens=True parameter to capture all monitors
+            screen = ImageGrab.grab(all_screens=True)
+            screen.save(self.fullscreen_image_path)
+            print(f"All displays captured and saved as '{self.fullscreen_image_path}'")
+        except TypeError:
+            # Fallback for older PIL versions that don't support all_screens
+            print(colored("Your PIL version doesn't support multi-monitor capture. Trying alternative method...", "yellow"))
+            try:
+                # Try to use mss library as a fallback if it's available
+                import mss
+                with mss.mss() as sct:
+                    # Capture all monitors and combine them
+                    monitors = sct.monitors[1:]  # Skip the "all-in-one" monitor (index 0)
+                    if not monitors:
+                        monitors = [sct.monitors[0]]  # Use the all-in-one monitor if no individual monitors
+                    
+                    # Create a combined image from all monitors
+                    total_width = max(monitor["left"] + monitor["width"] for monitor in monitors)
+                    total_height = max(monitor["top"] + monitor["height"] for monitor in monitors)
+                    
+                    combined_screen = Image.new("RGB", (total_width, total_height))
+                    
+                    # Capture each monitor and paste into the combined image
+                    for monitor in monitors:
+                        monitor_img = Image.frombytes("RGB", (monitor["width"], monitor["height"]), 
+                                                    sct.grab(monitor).rgb)
+                        combined_screen.paste(monitor_img, (monitor["left"], monitor["top"]))
+                    
+                    combined_screen.save(self.fullscreen_image_path)
+                    print(f"All displays captured (using mss) and saved as '{self.fullscreen_image_path}'")
+            except ImportError:
+                # Fallback to standard ImageGrab if mss is not available
+                screen = ImageGrab.grab()
+                screen.save(self.fullscreen_image_path)
+                print(colored("Multi-monitor capture not available. Captured primary display only.", "yellow"))
 
     def return_fullscreen_image(self) -> str:
         """
@@ -237,11 +322,18 @@ class ScreenCapture:
         Return the base64-encoded captured region image.
         
         Returns:
-            str: Base64-encoded captured region image.
+            str: Base64-encoded captured region image or empty string if no region was captured.
         """
-        with open(self.captured_region_path, "rb") as region_file:
-            captured_region_image = base64.b64encode(region_file.read()).decode("utf-8")
-        return captured_region_image
+        if not self.region_captured:
+            return ""
+            
+        try:
+            with open(self.captured_region_path, "rb") as region_file:
+                captured_region_image = base64.b64encode(region_file.read()).decode("utf-8")
+            return captured_region_image
+        except FileNotFoundError:
+            print(colored(f"Warning: Captured region file not found at {self.captured_region_path}", "yellow"))
+            return ""
 
 
 def search_files_for_term(search_term: str) -> List[Tuple[str, str]]:

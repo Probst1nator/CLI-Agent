@@ -5,12 +5,18 @@ from typing import List, Optional, Any, Callable
 import argparse
 import logging
 import builtins
+from enum import Enum, auto
+
+from py_classes.enum_ai_strengths import AIStrengths
+
 
 class Globals:
     FORCE_LOCAL: bool = False
     FORCE_FAST: bool = False
     DEBUG_CHATS: bool = False
+    USE_SANDBOX: bool = False
     LLM: Optional[str] = None
+    LLM_STRENGTHS: List[AIStrengths] = []
     PROJ_DIR_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     PROJ_PERSISTENT_STORAGE_PATH = os.path.join(PROJ_DIR_PATH, '.cliagent')
     PROJ_TEMP_STORAGE_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'temporary')

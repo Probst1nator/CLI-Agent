@@ -1,5 +1,6 @@
 from py_classes.cls_chat import Chat, Role
-from py_classes.cls_llm_router import AIStrengths, LlmRouter
+from py_classes.cls_llm_router import LlmRouter
+from py_classes.enum_ai_strengths import AIStrengths
 from py_classes.cls_util_base import UtilBase
 from typing import Any, Dict, List, Optional, Tuple
 import logging

@@ -445,18 +445,92 @@ class Chat:
 
     def to_groq(self) -> List[Dict[str, str]]:
         """
-        Formats the chat messages for Groq API consumption.
+        Converts the chat to a list of dictionaries for use with the Groq API.
         
-        :return: The formatted messages as a list of dictionaries.
+        Returns:
+            List[Dict[str, str]]: The chat messages formatted for Groq's API.
         """
-        result = []
-        for i, message in enumerate(self.messages):
-            if message[0].value == "ipython" and i > 0:
-                result[-1]["content"] += f"\n\n{message[1]}"
+        groq_messages = []
+        
+        for role, content in self.messages:
+            if role == Role.SYSTEM:
+                groq_messages.append({"role": "system", "content": content})
+            elif role == Role.USER:
+                groq_messages.append({"role": "user", "content": content})
+            elif role == Role.ASSISTANT:
+                groq_messages.append({"role": "assistant", "content": content})
             else:
-                result.append({"role": message[0].value, "content": message[1]})
-        return result
+                # For any other role, treat as a user message
+                groq_messages.append({"role": "user", "content": content})
+                
+        return groq_messages
     
+    def to_gemini(self, base64_images: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        Converts the chat to a list of dictionaries for use with the Google Gemini API.
+        
+        Args:
+            base64_images: Optional list of base64-encoded images to include in the message.
+            
+        Returns:
+            List[Dict[str, Any]]: The chat messages formatted for Gemini's API.
+        """
+        gemini_messages = []
+        current_role = None
+        current_parts = []
+        
+        # Use local base64_images if provided, otherwise use self.base64_images
+        images_to_include = base64_images if base64_images is not None else self.base64_images
+        
+        for role, content in self.messages:
+            gemini_role = None
+            if role == Role.SYSTEM:
+                gemini_role = "system"  # For older models, will be fixed if needed
+            elif role == Role.USER:
+                gemini_role = "user"
+            elif role == Role.ASSISTANT:
+                gemini_role = "model"  # Changed from "assistant" to "model" for Gemini
+            else:
+                # Handle unknown roles as user
+                gemini_role = "user"
+            
+            # If role changes or this is the first message, create a new message
+            if gemini_role != current_role and current_parts:
+                gemini_messages.append({
+                    "role": current_role,
+                    "parts": current_parts
+                })
+                current_parts = []
+            
+            # Set the current role
+            current_role = gemini_role
+            
+            # Add content to parts
+            part = {"text": content}
+            current_parts.append(part)
+            
+            # Handle images for user messages
+            if role == Role.USER and images_to_include and gemini_role == "user":
+                # If there are base64_images and this is a user message,
+                # add them as inline parts
+                for image in images_to_include:
+                    current_parts.append({
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": image
+                        }
+                    })
+                images_to_include = []  # Clear images after adding them
+        
+        # Add the last message if there's any content
+        if current_parts:
+            gemini_messages.append({
+                "role": current_role,
+                "parts": current_parts
+            })
+        
+        return gemini_messages
+
     def to_gemma(self) -> str:
         """
         Converts chat messages to Gemma format.

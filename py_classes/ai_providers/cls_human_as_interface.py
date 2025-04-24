@@ -2,15 +2,18 @@ import tempfile
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional, Callable, Union
+from typing import Any, Dict, List, Optional, Callable, Union, TYPE_CHECKING
 from openai import OpenAI
 from termcolor import colored
-from py_classes.cls_chat import Chat, Role
-from py_classes.cls_custom_coloring import CustomColoring
 import speech_recognition as sr
 from py_classes.globals import g
+from py_classes.cls_custom_coloring import CustomColoring
 
 from py_classes.unified_interfaces import AIProviderInterface
+
+# Only used for type annotations, not actual imports
+if TYPE_CHECKING:
+    from py_classes.cls_chat import Chat, Role
 
 class HumanAPI(AIProviderInterface):
     """
@@ -19,7 +22,7 @@ class HumanAPI(AIProviderInterface):
 
     @staticmethod
     def generate_response(
-        chat: Union[Chat, str], 
+        chat: Union['Chat', str], 
         model_key: str = "human", 
         temperature: float = 0.0, 
         silent_reason: str = "", 
@@ -37,9 +40,11 @@ class HumanAPI(AIProviderInterface):
         Returns:
             Optional[str]: The generated response, or None if an error occurs.
         """
+        # Defer import to avoid circular dependency
+        from py_classes.cls_chat import Chat, Role
+        
         # Convert string to Chat object if needed
         if isinstance(chat, str):
-            from py_classes.cls_chat import Chat, Role
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
@@ -77,7 +82,7 @@ class HumanAPI(AIProviderInterface):
             raise Exception(error_msg)
 
     @staticmethod
-    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional[Chat] = None) -> tuple[str,str]:
+    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional['Chat'] = None) -> tuple[str,str]:
         """
         Transcribes an audio file using the OpenAI Whisper API.
 
@@ -127,10 +132,7 @@ class HumanAPI(AIProviderInterface):
 
         except Exception as e:
             error_msg = f"OpenAI Whisper API error: {e}"
-            if debug_print:
-                debug_print(error_msg, "red", is_error=True)
-            else:
-                logger.error(error_msg)
+            debug_print(error_msg, "red", is_error=True)
             raise Exception(error_msg)
 
         finally:
