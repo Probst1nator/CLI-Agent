@@ -1,14 +1,19 @@
 import os
-from typing import Optional, Tuple, List, Dict, Any, Union
+from typing import Optional, Tuple, List, Dict, Any, Union, TYPE_CHECKING
 from collections.abc import Callable
 from groq import Groq
 from termcolor import colored
 from py_classes.cls_custom_coloring import CustomColoring
-from py_classes.cls_chat import Chat
+# Defer actual import to avoid circular dependency
+# from py_classes.cls_chat import Chat
 from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_rate_limit_tracker import rate_limit_tracker
 import socket
 import logging
+
+# Only used for type annotations
+if TYPE_CHECKING:
+    from py_classes.cls_chat import Chat, Role
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +32,7 @@ class GroqAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Union[Chat, str], model_key: str, temperature: float = 0.7, silent_reason: str = "") -> Any:
+    def generate_response(chat: Union['Chat', str], model_key: str, temperature: float = 0, silent_reason: str = "") -> Any:
         """
         Generates a response using the Groq API.
         Args:
@@ -38,9 +43,11 @@ class GroqAPI(AIProviderInterface):
         Returns:
             Any: A stream object that yields response chunks.
         """
+        # Import here to avoid circular dependency
+        from py_classes.cls_chat import Chat, Role
+        
         # Convert string to Chat object if needed
         if isinstance(chat, str):
-            from py_classes.cls_chat import Chat, Role
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
@@ -62,10 +69,10 @@ class GroqAPI(AIProviderInterface):
             client = Groq(api_key=os.getenv('GROQ_API_KEY'))
             
             if silent_reason:
-                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
                 debug_print(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
             else:
-                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+                temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
                 debug_print(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
 
             return client.chat.completions.create(
@@ -81,7 +88,7 @@ class GroqAPI(AIProviderInterface):
             raise Exception(error_msg)
 
     @staticmethod
-    def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional[Chat] = None) -> Optional[Tuple[str, str]]:
+    def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional['Chat'] = None) -> Optional[Tuple[str, str]]:
         """
         Transcribes an audio file using Groq's Whisper implementation.
         Args:

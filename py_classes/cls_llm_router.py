@@ -12,12 +12,13 @@ from py_classes.ai_providers.cls_human_as_interface import HumanAPI
 from py_classes.ai_providers.cls_nvidia_interface import NvidiaAPI
 from py_classes.cls_custom_coloring import CustomColoring
 from py_classes.cls_chat import Chat, Role
-from enum import Enum
 from py_classes.ai_providers.cls_anthropic_interface import AnthropicAPI
+from py_classes.enum_ai_strengths import AIStrengths
 from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.ai_providers.cls_groq_interface import GroqAPI, TimeoutException, RateLimitException
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
+from py_classes.ai_providers.cls_google_interface import GoogleAPI
 from py_classes.globals import g
 from py_classes.cls_debug_utils import get_debug_title_prefix, DEBUG_TITLE_FORMAT
 import logging
@@ -40,17 +41,6 @@ class UserInterruptedException(Exception):
     """Exception raised when the user interrupts model generation (e.g., with Ctrl+C)."""
     pass
 
-class AIStrengths(Enum):
-    """Enum class to represent AI model strengths."""
-    UNCENSORED = 6
-    REASONING = 5
-    CODE = 4
-    GUARD = 3
-    GENERAL = 2
-    FAST = 1
-    LOCAL = 8
-    VISION = 9
-    BALANCED = 10
 class Llm:
     """
     Class representing a Language Model (LLM) with its properties and capabilities.
@@ -118,25 +108,20 @@ class Llm:
             # Llm(GroqAPI(), "llama-3.3-70b-specdec", None, 8192, [AIStrengths.GENERAL, AIStrengths.CODE]),
             Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE]),
             
-            Llm(GroqAPI(), "qwen-2.5-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE]),
-            Llm(GroqAPI(), "qwen-2.5-coder-32b", None, 128000, [AIStrengths.CODE]),
-            
             Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
-            Llm(GroqAPI(), "deepseek-r1-distill-qwen-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
             Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
             
-            Llm(GroqAPI(), "llama-3.2-90b-vision-preview", None, 32768, [AIStrengths.GENERAL, AIStrengths.VISION]),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.FAST, AIStrengths.CODE]),
             
             Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE]),
-            Llm(AnthropicAPI(), "claude-3-5-haiku-20241022", 0.8, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.FAST]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", 0.15, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.BALANCED]),
             
-            Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             
-            Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION, AIStrengths.BALANCED]),
             Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION, AIStrengths.BALANCED]),
             
             Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
@@ -402,8 +387,8 @@ class LlmRouter:
         # First try to find preferred model with exact capabilities
         for model_key in preferred_models:
             if (model_key not in instance.failed_models) and model_key:
-                model = next((model for model in instance.retry_models if model_key in model.model_key and (force_local == False or force_local == model.local) and (has_vision == False or has_vision == model.has_vision)), None)
-                if model and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=False):
+                model = next((model for model in instance.retry_models if model_key in model.model_key and (has_vision == False or has_vision == model.has_vision)), None)
+                if model and instance.model_capable_check(model, chat, strengths, model.local, False, has_vision, allow_general=False):
                     candidate_models.append(model)
 
         # If no preferred candidates and force_preferred_model is True
@@ -499,6 +484,20 @@ class LlmRouter:
                         if callback is not None:
                             if callback(token):
                                 return full_response
+        elif hasattr(stream, '__iter__') and hasattr(next(iter(stream), None), 'text'):  # Google Gemini
+            try:
+                for chunk in stream:
+                    if hasattr(chunk, 'text'):
+                        token = chunk.text
+                        if token:
+                            full_response += token
+                            if not hidden_reason:
+                                debug_print(token_keeper.apply_color(token), end="", with_title=False)
+                            if callback is not None:
+                                if callback(token):
+                                    return full_response
+            except StopIteration:
+                pass  # End of stream
         else:  # Ollama/Groq
             for chunk in stream:
                 if hasattr(chunk, 'choices'):  # Groq ChatCompletionChunk
@@ -663,6 +662,9 @@ class LlmRouter:
         
         if g.LLM:
             preferred_models = [g.LLM]
+            
+        if g.LLM_STRENGTHS:
+            strengths.extend(g.LLM_STRENGTHS)
         
         def exclude_reasoning(response: str) -> str:
             if exclude_reasoning_tokens and ("</think>" in response or "</thinking>" in response):
@@ -719,9 +721,6 @@ class LlmRouter:
         if base64_images:
             chat.base64_images = base64_images
         
-        if not preferred_models or preferred_models == [""] or preferred_models == [None]:
-            preferred_models = []
-            
         # FIX FOR BREAKING CHANGE: Ensure strength is a list
         if not isinstance(strengths, list):
             strengths = [strengths] if strengths else []

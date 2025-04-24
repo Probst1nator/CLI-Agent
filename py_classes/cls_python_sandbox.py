@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import sys
 import tempfile
@@ -26,15 +27,17 @@ class PythonSandbox:
         Args:
             cwd: Optional current working directory to use for resolving relative paths
         """
-        self.force_local = g.FORCE_LOCAL
         self.ensure_kernel_available()
-        self.cwd = g.AGENTS_SANDBOX_DIR
+        if g.USE_SANDBOX:
+            self.cwd = g.AGENTS_SANDBOX_DIR
+        else:
+            self.cwd = os.getcwd()
         self._start_kernel()
         self._execution_timeout = False
         self._last_output_time = None
         
     def ensure_kernel_available(self) -> None:
-        """Ensure the Python kernel is available."""
+        """Ensure the Python kernel is available and install required dependencies."""
         ksm = KernelSpecManager()
         if 'python3' not in ksm.find_kernel_specs():
             logger.warning("Python3 kernel not found. Attempting to install it.")
@@ -45,6 +48,19 @@ class PythonSandbox:
             except Exception as e:
                 logger.error(f"Failed to install Python3 kernel: {str(e)}")
                 raise RuntimeError("Cannot initialize Python sandbox: Python3 kernel not available")
+        
+        # Install additional packages during sandbox initialization
+        try:
+            # Check if ipywidgets is installed by importing it
+            import importlib.util
+            if importlib.util.find_spec('ipywidgets') is None:
+                logger.info("Installing ipywidgets...")
+                import subprocess
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "ipywidgets"])
+                logger.info("Successfully installed ipywidgets.")
+        except Exception as e:
+            # Just log the error but don't fail - this is not critical
+            logger.warning(f"Failed to install ipywidgets: {str(e)}. Some warnings may appear.")
     
     def _start_kernel(self) -> None:
         """Start a new Jupyter kernel."""
@@ -62,7 +78,12 @@ class PythonSandbox:
         
         # Execute initialization code and set working directory
         self.execute("import sys, os, json, io, traceback")
-        # self.execute(f"os.chdir('{self.cwd}')")
+        self.execute(f"os.chdir('{self.cwd}')")
+        self.execute("print(f'Python sandbox initialized with working directory: {os.getcwd()}')")
+        
+        # Suppress tqdm warnings about ipywidgets
+        self.execute("import warnings")
+        self.execute("warnings.filterwarnings('ignore', category=UserWarning, module='tqdm')")
         
         # Add project directories to Python path to access project modules
         self.execute(f"sys.path.append('{g.PROJ_DIR_PATH}')")  # Add main project dir
@@ -74,13 +95,14 @@ class PythonSandbox:
         self.execute("home_dir = str(pathlib.Path.home())")  # Make home dir available
         
         self.execute(f"from py_classes.globals import g")
-        self.execute(f"g.FORCE_LOCAL = {self.force_local}")
+        self.execute(f"g.FORCE_LOCAL = {g.FORCE_LOCAL}")
+        self.execute(f"g.LLM = {g.LLM}")
+        self.execute(f"g.LLM_STRENGTHS = {g.LLM_STRENGTHS}")
         
         # Import utils
         self.execute("from utils import *")
         
         # Print current path for debugging
-        self.execute("print(f'Python sandbox initialized with working directory: {os.getcwd()}')")
         self.execute("print(f'Python path includes: {sys.path}')")
     
     def _timeout_handler(self) -> None:

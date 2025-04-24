@@ -26,3 +26,5 @@ __pycache__/
 **.sqlite3
 
 **test_
+
+run_screen_grabber.sh

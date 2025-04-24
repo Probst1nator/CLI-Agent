@@ -87,7 +87,7 @@ class OllamaClient(AIProviderInterface):
         ollama_hosts = os.getenv("OLLAMA_HOST", "").split(",")
         
         # Remove the localhost from the list
-        force_local_remote_host = os.getenv("OLLAMA_HOST_FORCE_LOCAL_REMOTE_HOST", "")
+        force_local_remote_host = os.getenv("FORCE_REMOTE_HOST_FOR_HOSTNAME", "")
         if socket.gethostname() in force_local_remote_host:
             try:
                 ollama_hosts.remove("localhost")
@@ -265,7 +265,7 @@ class OllamaClient(AIProviderInterface):
                 debug_print(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')} for: {colored('<' + silent_reason + '>', 'yellow')}{temp_str}", force_print=True, with_title=False)
             else:
                 temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-                debug_print(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')}{temp_str} to generate a response...", "green", force_print=True)
+                debug_print(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')}{temp_str} to generate a response...", force_print=True)
             
             is_chat = isinstance(chat, Chat)
             if is_chat:

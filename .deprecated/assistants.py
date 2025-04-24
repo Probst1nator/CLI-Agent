@@ -124,9 +124,9 @@ def code_assistant(context_chat: Chat, file_path: str = "", pre_chosen_option: s
                 
         if pre_chosen_option == "1":
             # Automatic mode: Generate code overview and prepare prompt for docstring addition
-            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_models=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], force_free=True, use_reasoning=False)
+            abstract_code_overview = LlmRouter.generate_completion("Please explain the below code step by step, provide a short abstract overview of its stages.\n\n" + snippets_to_process[0],  preferred_models=["llama-3.1-405b-reasoning", LlmRouter.last_used_model, "llama-3.1-70b-versatile"], use_reasoning=False)
             if len(abstract_code_overview)/4 >= 2048:
-                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_models=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], force_free=True, use_reasoning=False)
+                abstract_code_overview = LlmRouter.generate_completion(f"Summarize this code analysis, retaining the most important features and minimal details:\n{abstract_code_overview}",  preferred_models=[LlmRouter.last_used_model, "llama-3.1-70b-versatile"], use_reasoning=False)
             next_prompt = "Augment the below code snippet with docstrings focusing on a concise overview of usage and parameters, alos add explanatory comments where the code seems highly complex. Do not include empty newlines in your docstrings. Retain all original comments, modifying them slightly only if essential. It is crucial that you do not modify the code's logic or structure; present it in full."
             next_prompt += f"\nTo help you get started, here's an handwritten overview of the code: \n{abstract_code_overview}"
             pre_chosen_option = ""

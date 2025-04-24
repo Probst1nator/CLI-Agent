@@ -23,6 +23,9 @@ from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import CheckboxList, Frame, Label, RadioList
 from prompt_toolkit.styles import Style
 from prompt_toolkit.formatted_text import HTML
+import base64
+import tempfile
+import subprocess
 
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -41,13 +44,17 @@ from py_methods.utils import (
     take_screenshot,
     text_to_speech,
     update_cmd_collection,
+    ScreenCapture,
 )
-from py_classes.cls_llm_router import AIStrengths, Llm, LlmRouter
+from py_classes.enum_ai_strengths import AIStrengths
+from py_classes.cls_llm_router import Llm, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.globals import g
 from py_classes.cls_python_sandbox import PythonSandbox
 from py_classes.cls_custom_coloring import CustomColoring
+from utils.imagetotext import ImageToText
+
 
 # Suppress TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -85,14 +92,14 @@ def parse_cli_args() -> argparse.Namespace:
 
     parser.add_argument("-h", "--help", action="store_true", default=False,
                         help="Display this help")
-    parser.add_argument("-a", "--auto", nargs='?', type=bool, default=False,
-                        help="""Automatically execute safe commands after specified delay in seconds. Unsafe commands still require confirmation.""", metavar="DELAY")
+    parser.add_argument("-a", "--auto", action="store_true", default=False,
+                        help="Automatically execute safe commands...")
     parser.add_argument("-c", action="store_true", default=False,
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-l", "--local", action="store_true", default=False,
                         help="Use the local Ollama backend for processing. Sets g.FORCE_LOCAL=True.")
-    parser.add_argument("-m", "--message", type=str, default=None,
-                        help="Enter your first message instantly.")
+    parser.add_argument("-m", "--message", type=str, default=None, nargs='+',
+                        help="Enter one or more messages to process in sequence. Multiple messages can be passed like: -m 'first message' 'second message'")
     parser.add_argument("-r", "--regenerate", action="store_true", default=False,
                         help="Regenerate the last response.")
     parser.add_argument("-v", "--voice", action="store_true", default=False,
@@ -101,17 +108,23 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Text-to-speech output.")
     parser.add_argument("-f", "--fast", action="store_true", default=False,
                         help="Use only fast LLMs. Sets g.FORCE_FAST=True.")
+    parser.add_argument("-strong", "--strong", action="store_true", default=False,
+                        help="Use strong LLMs (slow!)")
     parser.add_argument("-img", "--image", action="store_true", default=False,
-                        help="Take a screenshot and generate a response based on the contents of the image.")
+                        help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
     parser.add_argument("-mct","--mct", action="store_true", default=False,
                         help="Enable Monte Carlo Tree Search for acting.")
+    parser.add_argument("-sbx", "--sandbox", action="store_true", default=False,
+                        help="Use weakly sandboxed python execution. Sets g.USE_SANDBOX=True.")
     
-    parser.add_argument("--llm", type=str, default=None,
-                        help="Specify the LLM to use.")
+    parser.add_argument("-llm", "--llm", type=str, default=None,
+                        help="Specify the LLM model key to use (e.g., 'gpt-4', 'gemini-pro').")
     parser.add_argument("--preload", action="store_true", default=False,
                         help="Preload systems like embeddings and other resources.")
     parser.add_argument("--gui", action="store_true", default=False,
                         help="Open a web interface for the chat")
+    parser.add_argument("--minimized", action="store_true", default=False,
+                        help="Start the application in a minimized state")
     parser.add_argument("--debug-chats", action="store_true", default=False,
                         help="Enable debug windows for chat contexts without full debug logging. Sets g.DEBUG_CHATS=True.")
     parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
@@ -187,18 +200,27 @@ async def llm_selection(args: argparse.Namespace) -> None:
     app = Application(layout=layout, key_bindings=bindings, full_screen=False, style=style)
     
     # Use the current event loop instead of creating a new one
-    selected_llm = await app.run_async()
-    
-    if selected_llm == "any_local":
-        g.FORCE_LOCAL = True
-        args.local = True
-        args.llm = None
-        print(colored(f"# cli-agent: KeyBinding detected: Local mode enabled", "green"))
-    else:
-        args.llm = selected_llm
-        print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
+    try:
+        selected_llm = await app.run_async()
+        
+        if selected_llm == "any_local":
+            g.FORCE_LOCAL = True
+            args.local = True
+            args.llm = None
+            print(colored(f"# cli-agent: KeyBinding detected: Local mode enabled", "green"))
+        elif selected_llm is not None:
+            args.llm = selected_llm
+            print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
+        else:
+            print(colored(f"# cli-agent: LLM selection cancelled", "yellow"))
+    except asyncio.CancelledError:
+        print(colored(f"# cli-agent: LLM selection was interrupted", "yellow"))
+    except Exception as e:
+        print(colored(f"# cli-agent: Error during LLM selection: {str(e)}", "red"))
+        if args.debug:
+            traceback.print_exc()
 
-def confirm_code_execution(args: argparse.Namespace) -> bool:
+def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bool:
     """
     Handles the confirmation process for code execution, supporting both auto and manual modes.
     
@@ -209,17 +231,20 @@ def confirm_code_execution(args: argparse.Namespace) -> bool:
         bool: True if execution should proceed, False if aborted
     """
     if args.auto:  # Check if auto mode is enabled
-        # Auto-execution with countdown
-        for i in range(5, 0, -1):
-            print(colored(f" in {i}", "cyan"), end="", flush=True)
-            for _ in range(10):  # Check 10 times per second
-                if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                    print(colored("\n❌ Code execution aborted by user", "red"))
-                    return False
-                time.sleep(0.1)
-            if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                return False
-            print("\b" * (len(str(i)) + 4), end="", flush=True)  # Clear the countdown
+        # Auto execution guard
+        execution_guard_chat: Chat = Chat(
+            instruction_message="You are a helpful assistant that checks if a automatically generated code is safe to be executed, without any potential negative side effects such as file deletions, system failures or other. You always first think about the code and then answer with 'yes' or 'no'.",
+            debug_title="Auto Execution Guard"
+        )
+        
+        execution_guard_chat.add_message(Role.USER, f"Can we execute this automatically generated code safely? Please think and end your response with 'yes' or 'no'.\n```python\n{code_to_execute}\n```")
+        safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, hidden_reason="Auto-execution guard")
+        if safe_to_execute.lower().strip().endswith('yes'):
+            print(colored("✅ Code execution permitted", "green"))
+            return True
+        else:
+            print(colored("❌ Code execution aborted by auto-execution guard", "red"))
+            return False
     else:
         # Manual confirmation
         print(colored(" (Press Enter to confirm or 'n' to abort)", "cyan"))
@@ -286,59 +311,401 @@ def select_best_branch(
     print(colored("\n⚠️ No valid branch selection found. Defaulting to first branch.", "yellow"))
     return 0
 
-async def main() -> None:
-    print(colored("Starting CLI-Agent", "cyan"))
-    load_dotenv(g.PROJ_ENV_FILE_PATH)
-    
-    args = parse_cli_args()
-    print(args)
+def handle_multiline_input() -> str:
+    """Handles multiline input from the user."""
+    print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
+    lines = []
+    while True:
+        try:
+            line = input()
+            if line == "--f":
+                break
+            lines.append(line)
+        except EOFError: # Handle Ctrl+D
+            break
+    return "\n".join(lines)
 
-    # Set global variables from args parameters
-    g.DEBUG_CHATS = args.debug_chats
-    g.FORCE_FAST = args.fast
-    g.LLM = args.llm
-    
-    # Override logging level if debug mode is enabled
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
-    
-    # Initialize tool manager
-    utils_manager = UtilsManager()
-    # Print loaded agents
-    print(colored("Loaded utils:", "green"))
-    for util_name in utils_manager.get_util_names():
-        print(colored(f"  - {util_name}", "green"))
+async def get_user_input_with_bindings(
+    args: argparse.Namespace,
+    context_chat: Optional[Chat], # Allow None for robustness
+    prompt: str = colored("💬 Enter your request: ", 'blue', attrs=["bold"])
+) -> Tuple[Optional[str], Optional[asyncio.Task]]:
+    """
+    Gets user input, handling special keybindings.
+
+    Returns:
+        A tuple containing:
+        - The user's input string (if it's not a binding).
+        - An optional asyncio.Task if an async action (like llm_selection) was triggered.
+        Returns (None, None) if a binding was handled that requires skipping the current turn.
+        Returns ("exit", None) to signal program termination.
+    """
+    while True:
+        try:
+            user_input = input(prompt)
+        except EOFError: # Handle Ctrl+D as exit
+            print(colored("\nExiting due to Ctrl+D.", "yellow"))
+            return "exit", None # Signal exit
+        except KeyboardInterrupt: # Handle Ctrl+C as exit
+            print(colored("\nExiting due to Ctrl+C.", "yellow"))
+            return "exit", None # Signal exit
+
+        async_task: Optional[asyncio.Task] = None
+
+        # USER INPUT HANDLING - BEGIN
+        if user_input.endswith("-r") or user_input.endswith("--r"):
+            if not context_chat or len(context_chat.messages) < 2:
+                print(colored("# cli-agent: No chat history found, cannot regenerate last response.", "red"))
+                continue # Ask for input again
+            print(colored("# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
+            context_chat.messages.pop() # Remove last AI response
+            if context_chat.messages and context_chat.messages[-1][0] == Role.USER:
+                # If the last message is now USER, we pop it to effectively retry
+                last_user_message = context_chat.messages.pop()[1]
+                return last_user_message, None # Return the last user message to process it again
+            else:
+                # If history is empty or last message is ASSISTANT, just indicate regeneration
+                return "", None # Return empty string to signal regeneration without specific input
+
+        elif user_input.endswith("-l") or user_input.endswith("--l") or user_input.endswith("--llm") or user_input.endswith("--local"):
+            print(colored("# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
+            async_task = asyncio.create_task(llm_selection(args))
+            return None, async_task # Return task to be awaited in main loop
+
+        elif user_input.endswith("-a") or user_input.endswith("--auto"):
+            args.auto = not args.auto
+            print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {'on' if args.auto else 'off'}, type (--h) for info", "green"))
+            continue # Ask for input again
+
+        elif user_input.endswith("--mct") or user_input.endswith("-mct"):
+            args.mct = not args.mct
+            print(colored(f"# cli-agent: KeyBinding detected: Monte Carlo Tree Search toggled {'on' if args.mct else 'off'}, type (--h) for info", "green"))
+            if context_chat:
+                context_chat.debug_title = "MCTs Branching - Main Context Chat" if args.mct else "Main Context Chat"
+            continue # Ask for input again
+
+        elif user_input.endswith("-strong") or user_input.endswith("--strong"):
+            args.strong = not args.strong
+            g.FORCE_FAST = False # Strong overrides fast
+            print(colored(f"# cli-agent: KeyBinding detected: Strong LLM mode toggled {'on' if args.strong else 'off'}, type (--h) for info", "green"))
+            continue # Ask for input again
+
+        elif user_input.endswith("-f") or user_input.endswith("--fast"):
+            args.fast = not args.fast
+            g.FORCE_STRONG = False # Fast overrides strong
+            print(colored(f"# cli-agent: KeyBinding detected: Fast LLM mode toggled {'on' if args.fast else 'off'}, type (--h) for info", "green"))
+            continue
+
+        elif user_input.endswith("-s") or user_input.endswith("--s") or user_input.endswith("--screenshot"):
+            print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
+            args.image = True # Signal main loop to take screenshot
+            return "", None # Return empty to trigger screenshot logic
+
+        elif "-p" in user_input or "--p" in user_input:
+            print(colored("# cli-agent: KeyBinding detected: Printing chat history, type (--h) for info", "green"))
+            os.system('clear')
+            print(colored("Chat history:", "green"))
+            if context_chat:
+                context_chat.print_chat()
+            else:
+                print(colored("No chat history available.", "yellow"))
+            continue # Ask for input again
+
+        elif user_input.endswith("-m") or user_input.endswith("--m"):
+            return handle_multiline_input(), None # Get multiline input
         
-    # Initialize web server early if GUI mode is enabled
-    web_server = None
-    if args.gui:
-        web_server = WebServer()
-        g.web_server = web_server  # Store in globals for print redirection
-        web_server.start()  # Start with empty chat, will be updated later
-    
-    if args.local or (os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip()):
-        args.local = True
-        g.FORCE_LOCAL = True
-    
-    if args.preload:
-        print(colored("Preloading resources...", "green"))
-        print(colored("Generating atuin-command-history embeddings...", "green"))
-        update_cmd_collection()
-        print(colored("Generating pdf embeddings for cli-agent directory...", "green"))
-        pdf_or_folder_to_database(g.PROJ_DIR_PATH)
-        print(colored("Preloading complete.", "green"))
-        exit(0)
-    
-    ai_strengths = [AIStrengths.BALANCED]
-    user_input: str = ""
-    context_chat: Chat = Chat(debug_title="Main Context Chat")
-    if args.mct:
-        context_chat.debug_title = "MCTs Branching - Main Context Chat"
-    
-    if args.c:
-        context_chat = Chat.load_from_json()
+        elif "-img" in user_input or "--img" in user_input:
+            args.image = True
+            return "", None
+
+        elif "-h" in user_input or "--h" in user_input:
+            print(figlet_format("cli-agent", font="slant"))
+            print(colored("# KeyBindings:", "yellow"))
+            print(colored("# -h: Show this help message", "yellow"))
+            print(colored("# -r: Regenerate the last response", "yellow"))
+            print(colored(f"# -l: Pick a different LLM ", "yellow"), end="")
+            print(colored(f"(Current: {args.llm})", "cyan"))
+            print(colored(f"# -a: Toggle automatic code execution ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.auto else 'off'})", "cyan"))
+            print(colored(f"# -f: Toggle using only fast LLMs ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.fast else 'off'})", "cyan"))
+            print(colored(f"# -strong: Toggle using only strong LLMs ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.strong else 'off'})", "cyan"))
+            print(colored("# -s: Take a screenshot using Spectacle (with automatic fallbacks if not available)", "yellow"))
+            print(colored(f"# -mct: Toggle Monte Carlo Tree Search ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.mct else 'off'})", "cyan"))
+            print(colored("# -m: Enter multiline input (end with '--f' on a new line)", "yellow"))
+            print(colored("# --message: Pass messages via CLI (-m 'msg1' 'msg2')", "yellow"))
+            print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
+            if context_chat:
+                print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
+            else:
+                print(colored("(No chat history)", "cyan"))
+            print(colored("# --minimized: Start the application in a minimized state", "yellow"))
+            # Add other CLI args help here if needed
+            continue # Ask for input again
+        # USER INPUT HANDLING - END
+
+        # No binding matched, return the input
+        return user_input, None
+
+# --- New Screenshot Handling Function ---
+async def handle_screenshot_capture(args: argparse.Namespace, context_chat: Optional[Chat]) -> Tuple[List[str], List[str]]:
+    """
+    Handles the screenshot capture process, including Spectacle, fallbacks, saving, and context update.
+    Retries up to 3 times if no image is captured.
+
+    Args:
+        args: Command line arguments.
+        context_chat: The chat context to potentially add messages to.
+
+    Returns:
+        A tuple containing:
+        - List of base64 encoded image strings.
+        - List of paths where screenshots were saved.
+    """
+    base64_images: List[str] = []
+    screenshots_paths: List[str] = []
+    max_attempts = 3
+
+    for attempt in range(1, max_attempts + 1):
+        base64_images = [] # Reset for each attempt
+
+        try:
+            # Use Spectacle for region capture as the primary method
+            print(colored("Attempting screenshot capture with Spectacle (region selection)...", "green"))
+
+            # Create temp file path for spectacle to save the screenshot
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                temp_filename = temp_file.name
+
+            # Call spectacle to capture a region (-r flag)
+            # -b: no border, -n: no notification, -o: output file
+            subprocess.run(['spectacle', '-rbno', temp_filename], check=True)
+
+            # Check if the file exists and has content
+            if os.path.exists(temp_filename) and os.path.getsize(temp_filename) > 0:
+                # Read the screenshot file
+                with open(temp_filename, 'rb') as image_file:
+                    png_data = image_file.read()
+
+                # Convert to base64 and add to list
+                base64_img = base64.b64encode(png_data).decode('utf-8')
+                base64_images = [base64_img]
+                print(colored(f"Screenshot captured with Spectacle successfully.", "green"))
+
+            else:
+                print(colored(f"No screenshot was captured with Spectacle or operation was cancelled on attempt {attempt}.", "yellow"))
+
+            # Cleanup temp file
+            if os.path.exists(temp_filename):
+                os.unlink(temp_filename)
+
+        except subprocess.CalledProcessError:
+            print(colored(f"Spectacle command failed or not found on attempt {attempt}. Is it installed?", "red"))
+            print(colored("Falling back to alternative screenshot method...", "yellow"))
+            # Fallback to built-in screenshot method
+            try:
+                print(colored("Trying built-in screenshot capture (interactive region)...", "cyan"))
+                screen_capture = ScreenCapture()
+                captured_image = screen_capture.return_captured_region_image()
+                if captured_image:
+                    base64_images = [captured_image]
+                    print(colored(f"Screenshot region captured successfully.", "green"))
+                else:
+                    # Fallback to application window capture
+                    print(colored("Region selection was canceled. Falling back to window capture...", "yellow"))
+                    window_title = "Firefox"  # Default window title
+                    print(colored(f"Capturing window titled '", "green") + colored(f"{window_title}", "yellow") + colored("'. Press Enter for default, or type a new title and press Enter.", 'green'))
+                    try:
+                        # Use select for non-blocking input check
+                        print(f"You have 3 seconds to enter a new window title (attempt {attempt})...")
+                        rlist, _, _ = select.select([sys.stdin], [], [], 3)
+                        if rlist:
+                            # Clear potential leftover characters if needed (less critical here)
+                            new_title = sys.stdin.readline().strip()
+                            if new_title: # Use new title only if user entered something
+                                window_title = new_title
+                                print(colored(f"Using window title: '{window_title}'", "cyan"))
+                            else:
+                                print(colored(f"Using default window title: '{window_title}'", "cyan"))
+                        else:
+                            print(colored(f"Using default window title: '{window_title}'", "cyan"))
+
+                    except Exception as input_e: # Catch potential errors during input
+                        print(colored(f"Error during title input: {input_e}. Using default.", "yellow"))
+
+                    base64_images = take_screenshot(window_title)
+                    if not base64_images:
+                        print(colored(f"No windows with title containing '{window_title}' found on attempt {attempt}.", "red"))
+                    else:
+                         print(colored(f"Window screenshot captured successfully.", "green"))
+
+            except ImportError:
+                print(colored("Fallback screenshot library (e.g., mss, Pillow) not found. Please install dependencies.", "red"))
+                # No point retrying if library is missing
+                break
+            except Exception as e:
+                print(colored(f"Error during fallback screenshot capture on attempt {attempt}: {str(e)}", "red"))
+                if args.debug: traceback.print_exc()
+
+        except Exception as e:
+            print(colored(f"An unexpected error occurred during screenshot capture attempt {attempt}: {str(e)}", "red"))
+            if args.debug: traceback.print_exc()
+
+        # If images were captured in this attempt, break the loop
+        if base64_images:
+            break
+
+        # If this was not the last attempt and no images were captured, wait briefly before retrying
+        if attempt < max_attempts and not base64_images:
+            print(colored(f"Screenshot capture failed on attempt {attempt}. Retrying...", "yellow"))
+            await asyncio.sleep(1) # Optional: brief pause before retry
+
+    # After the loop (or break), process the results
+    if base64_images:
+        images_dir = os.path.join(g.AGENTS_SANDBOX_DIR, "screenshots")
+        os.makedirs(images_dir, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        for i, base64_img in enumerate(base64_images):
+            try:
+                img_data = base64.b64decode(base64_img)
+                img_path = os.path.join(images_dir, f"screenshot_{timestamp}_{i+1}.png")
+                screenshots_paths.append(img_path)
+                with open(img_path, "wb") as img_file:
+                    img_file.write(img_data)
+                print(colored(f"Screenshot saved to {img_path}", "green"))
+            except Exception as e:
+                print(colored(f"Error saving screenshot {i+1}: {str(e)}", "red"))
+
+        # Add context message about saved screenshots
+        if screenshots_paths and context_chat:
+            screenshots_list = "\n".join([f"Screenshot {i+1}: {path}" for i, path in enumerate(screenshots_paths)])
+            # Use repr() for the list itself in the python code context
+            screenshots_section = f"""
+I've attached some screenshots. Here are their paths:
+```python
+screenshots_paths = {screenshots_paths!r}
+for i, screenshot_path in enumerate(screenshots_paths):
+    print(f"Screenshot {{i+1}}: {{screenshot_path}}")
+```
+<execution_output>
+{screenshots_list}
+</execution_output>
+"""
+            context_chat.add_message(Role.USER, screenshots_section)
+        elif not screenshots_paths:
+            print(colored("Failed to save any captured images.", "yellow"))
+
     else:
-        inst = f"""# SYSTEM INSTRUCTION
+        print(colored("No images were captured.", "red"))
+
+    return base64_images, screenshots_paths
+# --- End New Screenshot Handling Function ---
+
+async def main() -> None:
+    try:
+        print(colored("Starting CLI-Agent", "cyan"))
+        load_dotenv(g.PROJ_ENV_FILE_PATH)
+        
+        args = parse_cli_args()
+        print(args)
+
+        # Override logging level if debug mode is enabled
+        if args.debug:
+            logging.getLogger().setLevel(logging.DEBUG)
+        
+        # Override local arg by .env
+        if (os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip()):
+            args.local = True
+        
+        # Use sandboxed python execution
+        if args.sandbox:
+            g.USE_SANDBOX = True
+        
+        # Minimize window if requested
+        if args.minimized:
+            try:
+                # Get the PID of the current process
+                pid = os.getpid()
+                # Try to minimize the window using xdotool (if available)
+                try:
+                    subprocess.run(
+                        ["xdotool", "search", "--pid", str(pid), "windowminimize"],
+                        stderr=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        check=False
+                    )
+                    print(colored("Application started in minimized state using xdotool", "cyan"))
+                except FileNotFoundError:
+                    # Fallback to wmctrl if xdotool is not available
+                    # Get the window ID using wmctrl
+                    wmctrl_process = subprocess.Popen(
+                        ["wmctrl", "-l", "-p"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    output, _ = wmctrl_process.communicate()
+                    
+                    # Look for the window with our PID
+                    for line in output.splitlines():
+                        if str(pid) in line:
+                            window_id = line.split()[0]
+                            # Minimize the window
+                            subprocess.run(
+                                ["wmctrl", "-i", "-r", window_id, "-b", "add,hidden"],
+                                stderr=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL,
+                                check=False
+                            )
+                            print(colored("Application started in minimized state using wmctrl", "cyan"))
+                            break
+            except Exception as e:
+                if args.debug:
+                    print(colored(f"Failed to minimize window: {str(e)}", "yellow"))
+        
+        # Initialize tool manager
+        utils_manager = UtilsManager()
+        # Print loaded agents
+        print(colored("Loaded utils:", "green"))
+        for util_name in utils_manager.get_util_names():
+            print(colored(f"  - {util_name}", "green"))
+        
+        # Initialize screenshots_paths list to manage screenshot paths across iterations if needed
+        # Though typically reset each loop unless messages are queued.
+        saved_screenshots_paths: List[str] = []
+        
+        # Initialize web server early if GUI mode is enabled
+        web_server = None
+        if args.gui:
+            web_server = WebServer()
+            g.web_server = web_server  # Store in globals for print redirection
+            web_server.start()  # Start with empty chat, will be updated later
+        
+        
+        if args.preload:
+            print(colored("Preloading resources...", "green"))
+            print(colored("Generating atuin-command-history embeddings...", "green"))
+            update_cmd_collection()
+            print(colored("Generating pdf embeddings for cli-agent directory...", "green"))
+            pdf_or_folder_to_database(g.PROJ_DIR_PATH)
+            print(colored("Preloading complete.", "green"))
+            exit(0)
+        
+        context_chat: Optional[Chat] = None
+        if args.c:
+            try:
+                context_chat = Chat.load_from_json()
+                print(colored("Continuing previous chat.", "green"))
+            except FileNotFoundError:
+                print(colored("No previous chat found to continue. Starting a new chat.", "yellow"))
+                context_chat = None # Ensure it's None if load fails
+
+        if context_chat is None:
+            context_chat = Chat(debug_title="Main Context Chat")
+            inst = f"""# SYSTEM INSTRUCTION
 Enable deep thinking subroutine.
 The assistant is Nova, an intelligent cli-agent with access to a python interpreter. 
 Nova uses emojis to indicate her current thoughts, relating her emotions and state of thinking.
@@ -368,7 +735,7 @@ Nova liberally uses read operations and always creates new subdirectories or fil
 She is being extremely cautious in file and system operations other than reading.
 """
 
-        kickstart_preprompt = f"""Hi, before starting off, let me show you some additional python utilities I coded for you to use if needed,
+            kickstart_preprompt = f"""Hi, before starting off, let me show you some additional python utilities I coded for you to use if needed,
 {utils_manager.get_available_utils_info()}
 
 
@@ -401,304 +768,406 @@ print(f"Platform: {{sys.platform}}")
 <execution_output>
 Platform: {sys.platform}
 </execution_output>
-
 """
-        context_chat.set_instruction_message(inst)
-        context_chat.add_message(Role.USER, kickstart_preprompt)
-    
-    if (args.voice or args.speak) and context_chat and len(context_chat.messages) > 0:
-        # tts last response (when continuing)
-        last_response = context_chat.messages[-1][1]
-        text_to_speech(last_response)
-        print(colored(last_response, 'magenta'))
-    
-    # Main loop
-    while True:
-        # save the context_chat to a json file
-        if context_chat:
-            context_chat.save_to_json()
-        
-        # screen capture
-        if args.image:
-            args.image = False
-            window_title = "Firefox" # Default window title
-            print(colored(f"Capturing screenshots of '", "green") + colored(f"{window_title}", "yellow") + colored("' press any key to enter another title.", 'green'))
-            try:
-                for remaining in range(3, 0, -1):
-                    sys.stdout.write("\r" + colored(f"Proceeding in {remaining} seconds... ", 'yellow'))
-                    sys.stdout.flush()
-                    time.sleep(1)
-                    if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                        raise KeyboardInterrupt
-                sys.stdout.write("\n")
-            except KeyboardInterrupt:
-                window_title = input(colored("\nEnter the title of the window you want to capture: ", 'blue'))
-                
-            base64_images = take_screenshot(window_title)
-            if not base64_images:
-                print(colored(f"# cli-agent: No images were returned.", "red"))
-                continue
-            for i, base64_image in enumerate(base64_images):
-                print(colored(f"# cli-agent: Converting Image ({i}/{len(base64_images)}) into words...", "green"))
-                image_response_str = LlmRouter.generate_completion("Put words to the contents of the image for a blind user.", base64_images=[base64_image])
-                prompt_context_augmentation += f'\n\n```vision_{i}\n{image_response_str}\n```'
-        
-        if LlmRouter.has_unconfirmed_data():
-            LlmRouter.confirm_finetuning_data()
-        
-        # get user input from various sources
-        if args.message:
-            user_input = args.message
-            args.message = None
-        elif args.voice:
-            # Default voice handling
-            user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
-        else:
-            user_input = input(colored("💬 Enter your request: ", 'blue', attrs=["bold"]))
-        
-        # USER INPUT HANDLING - BEGIN
-        if user_input.endswith("-r") or user_input.endswith("--r") and context_chat:
-            if len(context_chat.messages) < 2:
-                print(colored(f"# cli-agent: No chat history found, cannot regenerate last response.", "red"))
-                continue
-            print(colored(f"# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
-            context_chat.messages.pop()
-            user_input = ""
-            
-        if user_input.endswith("-l") or user_input.endswith("--l") or user_input.endswith("--llm") or user_input.endswith("--local"):
-            print(colored(f"# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
-            await llm_selection(args)
-            user_input = ""
-            continue
-        
-        if user_input.endswith("-a") or user_input.endswith("--auto"):
-            user_input = user_input[:-3]
-            args.auto = not args.auto
-            print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {args.auto}, type (--h) for info", "green"))
-            continue
 
-        if user_input.endswith("--mct") or user_input.endswith("-mct"):
-            args.mct = not args.mct
-            print(colored(f"# cli-agent: KeyBinding detected: Monte Carlo Tree Search toggled {args.mct}, type (--h) for info", "green"))
-            # Update chat debug title if MCT is enabled
-            if context_chat:
-                context_chat.debug_title = "MCTs Branching - Main Context Chat" if args.mct else "Main Context Chat"
-            continue
+            context_chat.set_instruction_message(inst)
+            context_chat.add_message(Role.USER, kickstart_preprompt)
+
         
-        if user_input.endswith("-s") or user_input.endswith("--s") or user_input.endswith("--screenshot") :
-            user_input = user_input[:-3]
-            print(colored(f"# cli-agent: KeyBinding detected: Taking screenshot, type (--h) for info", "green"))
-            args.image = True
-            continue
-        
-        if "-p" in user_input or "--p" in user_input:
-            print(colored(f"# cli-agent: KeyBinding detected: Printing chat history, type (--h) for info", "green"))
-            os.system('clear')
-            print(colored("Chat history:", "green"))
-            context_chat.print_chat()
-            continue
-        
-        if user_input.endswith("-m") or user_input.endswith("--m"):
-            print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
-            lines = []
-            while True:
-                line = input()
-                if line == "--f":
-                    break
-                lines.append(line)
-            user_input = "\n".join(lines)
-        
-        if "-h" in user_input or "--h" in user_input:
-            user_input = user_input[:-3]
-            print(figlet_format("cli-agent", font="slant"))
-            print(colored("# KeyBindings:", "yellow"))
-            print(colored("# -h: Show this help message", "yellow"))
-            print(colored("# -r: Regenerate the last response", "yellow"))
-            print(colored(f"# -l: Pick a different LLM ", "yellow"), end="")
-            print(colored(f"(Current: {args.llm})", "cyan"))
-            print(colored(f"# -a: Toggle automatic code execution ", "yellow"), end="")
-            print(colored(f"(Current: {args.auto})", "cyan"))
-            print(colored("# -s: Take a screenshot", "yellow"))
-            print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
-            print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
-            continue
-        # USER INPUT HANDLING - END
+        if args.mct and context_chat:
+            context_chat.debug_title = "MCTs Branching - Main Context Chat"
+
+        if (args.voice or args.speak) and context_chat and len(context_chat.messages) > 1: # Check length > 1
+            # tts last response (when continuing or after initial prompt)
+            if context_chat.messages[-1][0] == Role.ASSISTANT:
+                last_response = context_chat.messages[-1][1]
+                text_to_speech(last_response)
+                print(colored(last_response, 'magenta'))
 
 
-        # AGENTIC IN-TURN LOOP - BEGIN
-        action_counter = 0  # Initialize counter for consecutive actions
-        perform_exit: bool = False
-        response_buffer=""
-        assistant_response = ""
 
-        context_chat.add_message(Role.USER, user_input)
-        
+        # Main loop
         while True:
-            try:
-                def extract_pythonToolcode(text: str) -> list[str]:
-                    # Extract the python block from the response and execute it in a persistent sandbox
-                    python_blocks = extract_blocks(text, "python")
-                    if not python_blocks:
-                        python_blocks = extract_blocks(text, "tool_code")
-                        if not python_blocks:
-                            python_blocks = extract_blocks(text, "bash")
-                    return python_blocks
-                
-                def update_python_environment(chunk: str) -> bool:
-                    nonlocal response_buffer
-                    response_buffer += chunk
-                    if response_buffer.count("```") == 2:
-                        response_buffer = ""
-                        return True
-                    return False
+            # Reset main loop variables
+            user_input: Optional[str] = None
+            async_task_to_await: Optional[asyncio.Task] = None
+            g.LLM_STRENGTHS = [] if args.strong else [AIStrengths.BALANCED]
+            g.FORCE_LOCAL = args.local
+            g.DEBUG_CHATS = args.debug_chats
+            g.FORCE_FAST = args.fast
+            g.LLM = args.llm
+            base64_images: List[str] = [] # Initialize here unconditionally
 
-                response_branches: List[str] = []
-                # Get tool selection response
+            # Reset screenshot paths for this turn unless messages requiring them are queued
+            if not args.message:
+                saved_screenshots_paths = [] # Reset screenshot paths for the new user request
+                
+            # autosaving
+            if context_chat:
+                context_chat.save_to_json()
+
+            # screen capture (triggered by args.image, potentially set by get_user_input_with_bindings)
+            if args.image:
+                args.image = False # Reset flag
+                # Call the new handler function
+                base64_images, saved_screenshots_paths = await handle_screenshot_capture(args, context_chat)
+                if not base64_images:
+                    print(colored("# cli-agent: No screenshot was captured or saved after multiple attempts.", "yellow"))
+                    continue # Skip to next iteration if screenshot capture failed
+                print(colored("Screenshot preprocesssing for context...", "green"))
+                context_chat.add_message(Role.USER, f"""I am inquiring about a screenshot let's have a look at it.
+```python
+image_path = '{saved_screenshots_paths[0]}'
+description = ImageToText.run(image_path, "Describe the screenshot in detail, focusing on any text, images, or notable features.")
+print(f"Screenshot description: {{description}}")
+```
+<execution_output>
+Screenshot description: {ImageToText.run(saved_screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
+</execution_output>
+Perfect, use this description as needed for the next steps.""")
+
+            if LlmRouter.has_unconfirmed_data():
+                LlmRouter.confirm_finetuning_data()
+
+            # get user input from various sources if not already set (e.g., after screenshot)
+            if args.message:
+                # Handle multiple messages from command-line arguments
+                if isinstance(args.message, list) and len(args.message) > 0:
+                    # Get the first message and remove it from the list
+                    user_input = args.message[0]
+                    args.message = args.message[1:] if len(args.message) > 1 else None
+                    print(colored(f"💬 Processing message: {user_input}", 'blue', attrs=["bold"]))
+                    if args.message:
+                        # If there are more messages, show how many remain
+                        print(colored(f"💬 ({len(args.message)} more message(s) queued)", 'blue'))
+                else:
+                    # Handle single message or empty list case (should ideally not happen if list check is done)
+                    user_input = args.message[0] if isinstance(args.message, list) else args.message
+                    args.message = None
+            elif args.voice:
+                # Default voice handling
+                user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
+            else:
+                # Get input via the new wrapper function
+                user_input, async_task_to_await = await get_user_input_with_bindings(args, context_chat)
+                if async_task_to_await:
+                    try:
+                        await async_task_to_await
+                    except Exception as e:
+                        print(colored(f"# cli-agent: Error during async task execution (e.g., LLM selection): {str(e)}", "red"))
+                    continue # Handle async action like LLM selection
+                if user_input is None: # Binding handled that skips turn (e.g. help shown or screenshot capture)
+                    continue
+
+            # AGENTIC IN-TURN LOOP - BEGIN
+
+            action_counter = 0  # Initialize counter for consecutive actions
+            response_buffer=""
+            assistant_response = ""
+
+            # Only add user input if it's not empty (e.g. after -r or -s binding resulted in "")
+            if user_input and context_chat: # Check context_chat exists
+                context_chat.add_message(Role.USER, user_input)
+
+            # --- Start Agentic Inner Loop ---
+            while True:
                 try:
-                    if assistant_response:
+                    def extract_pythonToolcode(text: str) -> list[str]:
+                        # Extract the python block from the response and execute it in a persistent sandbox
+                        # Prioritize python, then tool_code, then bash
+                        python_blocks = extract_blocks(text, "python")
+                        if not python_blocks:
+                            python_blocks = extract_blocks(text, "tool_code")
+                            if not python_blocks:
+                                python_blocks = extract_blocks(text, "bash")
+                        return python_blocks
+
+                    def update_python_environment(chunk: str) -> bool:
+                        nonlocal response_buffer
+                        for char in chunk:
+                            response_buffer += char
+                            if response_buffer.count("```") == 2:
+                                response_buffer = ""
+                                return True
+                        return False
+
+
+                    response_branches: List[str] = []
+                    # Get tool selection response
+                    try:
+                        # Ensure last message is assistant before generating new one if needed
+                        if assistant_response:
+                            if context_chat.messages[-1][0] == Role.USER:
+                                context_chat.add_message(Role.ASSISTANT, assistant_response)
+                            else:
+                                context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
+                            assistant_response = "" # Clear buffer after adding
+
+                        # ! Agent turn
+                        for i in range(3 if args.mct else 1):
+                            response_buffer = "" # Reset buffer for each branch
+                            
+                            temperature = 0.85 if args.mct else 0
+                            current_branch_response = LlmRouter.generate_completion(
+                                context_chat,
+                                [args.llm if args.llm else ""],
+                                temperature=temperature,
+                                base64_images=base64_images,
+                                generation_stream_callback=update_python_environment,
+                                strengths=g.LLM_STRENGTHS
+                            )
+                            response_branches.append(current_branch_response)
+                        
+                        base64_images = [] # Clear images after use
+
+
+                    except Exception as e:
+                        LlmRouter.clear_unconfirmed_finetuning_data()
+                        print(colored(f"Error generating response: {str(e)}", "red"))
+                        if args.debug:
+                            traceback.print_exc()
+                        break # Break inner loop
+
+                    # --- MCT Branch Selection ---
+                    if args.mct:
+                        try:
+                            selected_branch_index = select_best_branch(response_branches, user_input or "") # Use last user input
+                            assistant_response = response_branches[selected_branch_index]
+                            print(colored(f"Selected branch: {selected_branch_index}", "green"))
+                            
+                            # Print the selected branch if we're in MCT mode (since we don't stream MCT branches)
+                            custom_coloring = CustomColoring()
+                            for char in assistant_response:
+                                print(custom_coloring.apply_color(char), end="", flush=True)
+                            print() # Add newline
+                        except Exception as e:
+                            print(colored(f"Error during MCT branch selection: {str(e)}", "red"))
+                            if args.debug: traceback.print_exc()
+                            print(colored("\n⚠️ Defaulting to first branch.", "yellow"))
+                            assistant_response = response_branches[0]
+                            
+                            # Print the default branch
+                            custom_coloring = CustomColoring()
+                            for char in assistant_response:
+                                print(custom_coloring.apply_color(char), end="", flush=True)
+                            print() # Add newline
+                    else:
+                        assistant_response = response_branches[0]
+                        
+                        # Only print the response if we didn't use streaming (for MCT)
+                        if args.mct:
+                            custom_coloring = CustomColoring()
+                            for char in assistant_response:
+                                print(custom_coloring.apply_color(char), end="", flush=True)
+                            print() # Add newline
+
+                    # We already printed the assistant response either through streaming or after MCT selection
+                    # So we don't need to print it again here
+
+                    # --- Code Extraction and Execution ---
+                    python_blocks = extract_pythonToolcode(assistant_response)
+
+                    # Handover to user if no python blocks are found
+                    if len(python_blocks) == 0:
+                        # No code found, assistant response is final for this turn
+                        if context_chat.messages[-1][0] == Role.USER:
+                            context_chat.add_message(Role.ASSISTANT, assistant_response)
+                        else: # Update last assistant message (e.g. after regen)
+                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
+                        assistant_response = "" # Clear buffer as it's been added/printed
+                        break # Break inner loop to get next user input
+
+
+                    # Just use the first python block for now
+                    code_to_execute = python_blocks[0]
+
+                    # Check if the code is valid or an example
+                    if any(keyword in code_to_execute.lower() for keyword in ["example_", "replace_", "_replace", "path_to_", "your_"]):
+                        print(colored("\n⚠️ Assistant provided incomplete code. Asking for clarification...", "yellow"))
+                        # Add the problematic response to context
                         if context_chat.messages[-1][0] == Role.USER:
                             context_chat.add_message(Role.ASSISTANT, assistant_response)
                         else:
                             context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
-                    # ! Agent turn
-                    for i in range(3 if args.mct else 1):
-                        if args.mct:
-                            temperature = 0.85
-                        else:
-                            temperature = None
-                        assistant_response = LlmRouter.generate_completion(context_chat, [args.llm if args.llm else ""], temperature=temperature, generation_stream_callback=update_python_environment, strengths=ai_strengths)
-                        response_branches.append(assistant_response)
+                        # Add user message asking for fix
+                        context_chat.add_message(Role.USER, """Your code seems incomplete or contains placeholders like 'example_', 'replace_', 'path_to_', or 'your_'. Please review the code, replace the placeholders with actual values or logic, and provide the complete, executable code.""")
+                        assistant_response = "" # Clear response buffer
+                        continue # Continue inner loop to get corrected code
+
+
+                    if confirm_code_execution(args, code_to_execute):
+                        print(colored("\n🔄 Executing code...", "cyan"))
+                        # Initialize the Python sandbox if not already done
+                        if not hasattr(g, 'python_sandbox') or g.python_sandbox is None:
+                            g.python_sandbox = PythonSandbox()
+
+
+                        try:
+                            # Define streaming callbacks to display output in real-time
+                            stdout_buffer = ""
+                            stderr_buffer = ""
+                            def stdout_callback(text: str) -> None:
+                                nonlocal stdout_buffer
+                                print(text, end="") # Print directly to console
+                                stdout_buffer += text
+
+                            def stderr_callback(text: str) -> None:
+                                nonlocal stderr_buffer
+                                print(colored(text, "red"), end="") # Print errors in red
+                                stderr_buffer += text
+
+                            # Execute code with streaming callbacks
+                            # Ensure sandbox exists before execution
+                            if not g.python_sandbox:
+                                raise RuntimeError("Python sandbox is not initialized.")
+
+                            stdout, stderr, result = g.python_sandbox.execute(
+                                code_to_execute,
+                                stdout_callback=stdout_callback,
+                                stderr_callback=stderr_callback,
+                                max_idle_time=120
+                            )
+                            # Execution output is already printed by callbacks
+                            # stdout = stdout_buffer # Use buffered output if needed elsewhere
+                            # stderr = stderr_buffer
+
+                            print(colored("\n✅ Code execution completed.", "cyan"))
+
+                            # Create a formatted output to add to the chat context
+                            tool_output = ""
+                            # Use the final captured stdout/stderr which might differ slightly if callbacks missed something
+                            if stdout and stdout.strip():
+                                tool_output += f"```stdout\n{stdout.strip()}\n```\n"
+                            if stderr and stderr.strip():
+                                tool_output += f"```stderr\n{stderr.strip()}\n```\n"
+                            # Include result if it's meaningful (not None and not empty)
+                            if result is not None and str(result).strip() != "":
+                                tool_output += f"```result\n{result}\n```\n"
+
+                            # remove color codes
+                            tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output)
+
+                            # shorten to max 4000 characters, include the first 3000 and last 1000, splitting at the last newline
+                            if len(tool_output) > 4000:
+                                try:
+                                    # Find the last newline in the first 3000 chars
+                                    first_part = tool_output[:3000]
+                                    first_index = first_part.rindex('\n') if '\n' in first_part else 3000
+                                    # Find the first newline in the last 1000 chars (relative to the start of last_part)
+                                    last_part = tool_output[-1000:]
+                                    # Need to find newline relative to start of last_part, then adjust index relative to tool_output
+                                    newline_in_last_part = last_part.find('\n') # Find first newline
+                                    # Calculate the index relative to the full string where the truncated part starts
+                                    split_index_in_full = len(tool_output) - 1000 + newline_in_last_part if newline_in_last_part != -1 else len(tool_output) - 1000
+
+                                    tool_output = tool_output[:first_index] + "\n[...output truncated...]\n" + tool_output[split_index_in_full+1:] # +1 to exclude the newline itself
+
+                                except ValueError: # Handle cases where newline isn't found
+                                     tool_output = tool_output[:3000] + "\n[...output truncated...]" + tool_output[-1000:]
+
+
+                            if not tool_output.strip():
+                                tool_output = "<execution_output>\nThe execution completed without returning any output.\n</execution_output>"
+                            else:
+                                tool_output = f"<execution_output>\n{tool_output.strip()}\n</execution_output>"
+
+
+                            # Append execution output to the assistant's response FOR THE CONTEXT
+                            assistant_response_with_output = assistant_response + f"\n{tool_output}"
+
+                            # Add the complete turn (Assistant response + execution) to context
+                            if context_chat.messages[-1][0] == Role.USER:
+                                context_chat.add_message(Role.ASSISTANT, assistant_response_with_output)
+                            else: # Update last assistant message
+                                context_chat.messages[-1] = (Role.ASSISTANT, assistant_response_with_output)
+
+                            assistant_response = "" # Clear buffer as it's been processed
+
+                            action_counter += 1  # Increment action counter
+                            # Decide whether to continue or break inner loop
+                            # Simple: assume one code execution per turn is enough. Break inner loop.
+                            continue # Break inner loop after successful execution, continue to next agent turn
+
+                        except Exception as e:
+                            print(colored(f"\n❌ Error executing code: {str(e)}", "red"))
+                            if args.debug:
+                                traceback.print_exc()
+                            # Add error to context before breaking
+                            error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
+                            assistant_response_with_error = assistant_response + f"\n{error_output}"
+                            if context_chat.messages[-1][0] == Role.USER:
+                                context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
+                            else: # Update last assistant message
+                                context_chat.messages[-1] = (Role.ASSISTANT, assistant_response_with_error)
+                            assistant_response = "" # Clear buffer
+                            break # Break inner loop on execution error
+                    else:
+                        # Code execution denied by user
+                        print(colored(" Execution cancelled by user.", "yellow"))
+                         # Add assistant's plan and cancellation notice to chat history
+                        cancellation_notice = "<execution_output>\nCode execution cancelled by user.\n</execution_output>"
+                        assistant_response_with_cancellation = assistant_response + f"\n{cancellation_notice}"
+                        if context_chat.messages[-1][0] == Role.USER:
+                            context_chat.add_message(Role.ASSISTANT, assistant_response_with_cancellation)
+                        else: # Update last assistant message
+                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response_with_cancellation)
+                        assistant_response = "" # Clear buffer
+                        break # Break inner loop
 
                 except Exception as e:
                     LlmRouter.clear_unconfirmed_finetuning_data()
-                    print(colored(f"Error generating tool selection response: {str(e)}", "red"))
+                    print(colored(f"An unexpected error occurred in the agent loop: {str(e)}", "red"))
                     if args.debug:
                         traceback.print_exc()
-                    break
+                    # Attempt to add error context before breaking
+                    try:
+                         error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
+                         assistant_response_with_error = assistant_response + f"\n{error_output}" # Append to potentially partial response
+                         if context_chat and context_chat.messages[-1][0] == Role.USER:
+                              context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
+                         elif context_chat: # Update last assistant message
+                              context_chat.messages[-1] = (Role.ASSISTANT, assistant_response_with_error)
+                    except Exception as context_e:
+                         print(colored(f"Failed to add error to context: {context_e}", "red"))
+                    assistant_response = "" # Clear buffer
+                    break # Break inner loop
+            # --- End Agentic Inner Loop ---
 
-                if args.mct:
-                    try:
-                        selected_branch_index = select_best_branch(response_branches, user_input)
-                        # Pick the best branch
-                        assistant_response = response_branches[selected_branch_index]
-                        # Print the picked response
-                        print(colored(f"Selected branch: {selected_branch_index}, picked response:", "green"))
-                        custom_coloring = CustomColoring()
-                        for char in assistant_response:
-                            print(custom_coloring.apply_color(char), end="", flush=True)
-                            
-                    except Exception as e:
-                        print(colored(f"Error with MCT-branching: {str(e)}", "red"))
-                        if args.debug:
-                            traceback.print_exc()
-                        # Continue with the original implementation
-                        print(colored("\n⚠️ Falling back to original implementation.", "yellow"))
-                
-                python_blocks = extract_pythonToolcode(assistant_response)
-                
-                # Handover to user if no python blocks are found
-                if len(python_blocks) == 0:
-                    break
-                
-                # Just use the first python block for now
-                code_to_execute = python_blocks[0]
-                
-                # Check if the code is valid or an example
-                if any(keyword in code_to_execute.lower() for keyword in ["example_", "replace_", "_replace", "path_to_", "your_"]):
-                    if assistant_response:
-                        if context_chat.messages[-1][0] == Role.USER:
-                            context_chat.add_message(Role.ASSISTANT, assistant_response)
-                        else:
-                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
-                        assistant_response = ""
-                    context_chat.add_message(Role.USER, """Your code is incomplete, please check where you used any of these keywords and replace them with the correct information, or developing a workaround: ["example_", "replace_", "_replace", "path_to_", "your_"]""")
-                    continue
-                    
-                
-                print(colored("\n🔄 Starting code execution...", "cyan"), end="")
-                if confirm_code_execution(args):
-                    # if bash_blocks:
-                    #     bash_to_execute = bash_blocks[0]
-                    #     os.system(bash_to_execute)
-                    
-                        # Initialize the Python sandbox if not already done
-                    if not hasattr(g, 'python_sandbox'):
-                        g.python_sandbox = PythonSandbox()
-                    
-                    try:
-                        # Define streaming callbacks to display output in real-time
-                        def stdout_callback(text: str) -> None:
-                            print(text, end="")
-                        
-                        def stderr_callback(text: str) -> None:
-                            print(text, end="")
-                        
-                        # Execute code with streaming callbacks
-                        stdout, stderr, result = g.python_sandbox.execute(
-                            code_to_execute,
-                            stdout_callback=stdout_callback,
-                            stderr_callback=stderr_callback,
-                            max_idle_time=120
-                        )
-                        
-                        # # Display result if any (after streaming is done)
-                        # if result is not None and result != "":
-                        #     print(colored(f"\n🔄 Result:", "cyan"))
-                        #     print(result)
-                        
-                        # Always print completion message
-                        print(colored("\n✅ Code execution completed", "cyan"))
-                        
-                        # Create a formatted output to add to the chat context
-                        tool_output = ""
-                        if stdout.strip():
-                            tool_output += f"```stdout\n{stdout.strip()}\n```\n"
-                        if stderr.strip():
-                            tool_output += f"```stderr\n{stderr.strip()}\n```\n"
-                        if result is not None and result != "":
-                            tool_output += f"```result\n{result}\n```\n"
-                        
-                        # remove color codes
-                        tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output)
-                        
-                        # shorten to max 4000 characters, include the first 3000 and last 1000, splitting at the last newline
-                        if len(tool_output) > 4000:
-                            # Find the last newline in the middle section
-                            first_split = tool_output[:3000]
-                            first_index = first_split.rfind('\n')
-                            second_split = tool_output[-1000:]
-                            second_index = second_split.find('\n')
-                            
-                            tool_output = tool_output[:first_index] + "\n[...output truncated...]\n" + second_split[second_index:]
-                        
-                        if not tool_output:
-                            tool_output = "The execution completed without returning any output."
-                        assistant_response += f"\n<execution_output>\n{tool_output}</execution_output>\n"
-                        
-                        action_counter += 1  # Increment action counter
-                    except Exception as e:
-                        print(colored(f"\n❌ Error executing code: {str(e)}", "red"))
-                        if args.debug:
-                            traceback.print_exc()
-                        break
-                else:
-                    # Code execution denied by user
-                    break
-            
-            except Exception as e:
-                LlmRouter.clear_unconfirmed_finetuning_data()
-                print(colored(f"An unexpected error occurred: {str(e)}", "red"))
-                if args.debug:
-                    traceback.print_exc()
-                break
-        # AGENTIC TOOL USE - END
-        
-        if perform_exit:
-            exit(0)
-        
-        # save context once per turn
-        if context_chat:
-            context_chat.save_to_json()
+
+            # After the inner loop finishes (either by break or naturally because no code was generated)
+            # The assistant_response buffer should ideally be empty here if it was processed and added to context.
+            # If the loop broke *before* processing the final response (e.g. no code generated), it might still be populated.
+            # However, the printing now happens *before* execution check, so this check might be redundant.
+            # Let's ensure the last message in context is printed if needed.
+            if context_chat and context_chat.messages and context_chat.messages[-1][0] == Role.ASSISTANT:
+                 last_msg_content = context_chat.messages[-1][1]
+                 # Check if it was already printed (might be complex to track reliably)
+                 # Simple approach: If the inner loop broke without execution, the response wasn't followed by output.
+                 # It was likely printed just before the 'extract_pythonToolcode' check.
+
+            # save context once per turn (moved outside inner loop)
+            if context_chat:
+                context_chat.save_to_json()
+
+        # End of outer while loop (Main loop)
+        print(colored("\nCLI-Agent is shutting down.", "cyan"))
+
+
+    except asyncio.CancelledError:
+        print(colored("\nCLI-Agent was interrupted. Shutting down gracefully...", "yellow"))
+    except KeyboardInterrupt:
+        print(colored("\nCLI-Agent was interrupted by user. Shutting down...", "yellow"))
+    except Exception as e:
+        print(colored(f"\nCLI-Agent encountered an error: {str(e)}", "red"))
+        if args.debug:
+            traceback.print_exc()
+        return
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print(colored("\nCLI-Agent was interrupted by user. Shutting down...", "yellow"))
+    except Exception as e:
+        print(colored(f"\nCLI-Agent encountered an error: {str(e)}", "red"))
+        traceback.print_exc()
