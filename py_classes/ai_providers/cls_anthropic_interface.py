@@ -11,7 +11,7 @@ import json
 import logging
 import base64
 
-from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Role
 
 class AnthropicAPI(AIProviderInterface):

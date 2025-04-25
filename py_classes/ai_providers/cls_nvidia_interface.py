@@ -6,7 +6,7 @@ from openai import OpenAI
 from termcolor import colored
 from py_classes.cls_chat import Chat
 from py_classes.unified_interfaces import AIProviderInterface
-from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_text_stream_painter import TextStreamPainter
 
 class NvidiaAPI(AIProviderInterface):
     """

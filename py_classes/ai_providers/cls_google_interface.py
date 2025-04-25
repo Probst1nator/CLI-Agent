@@ -8,7 +8,7 @@ from termcolor import colored
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, TooManyRequests
 from google.generativeai.types import GenerateContentResponse
-from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_rate_limit_tracker import rate_limit_tracker
@@ -162,7 +162,7 @@ class GoogleAPI(AIProviderInterface):
                 debug_print(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
             else:
                 temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-                debug_print(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
+                debug_print(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", force_print=True)
             
             # Generate streaming response
             response = model.generate_content(

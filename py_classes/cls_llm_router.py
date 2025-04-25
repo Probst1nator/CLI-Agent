@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Set, Any, Union, Iterator
 from termcolor import colored
 from py_classes.ai_providers.cls_human_as_interface import HumanAPI
 from py_classes.ai_providers.cls_nvidia_interface import NvidiaAPI
-from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Chat, Role
 from py_classes.ai_providers.cls_anthropic_interface import AnthropicAPI
 from py_classes.enum_ai_strengths import AIStrengths
@@ -106,27 +106,28 @@ class Llm:
         llms = [
             # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
             # Llm(GroqAPI(), "llama-3.3-70b-specdec", None, 8192, [AIStrengths.GENERAL, AIStrengths.CODE]),
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE]),
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
-            Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING]),
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE]),
+            Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE]),
             
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.FAST, AIStrengths.CODE]),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.FAST, AIStrengths.CODE, AIStrengths.ONLINE]),
             
-            Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE]),
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", 0.15, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.BALANCED]),
+            Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
+            # Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", 0.15, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.BALANCED, AIStrengths.ONLINE]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.BALANCED, AIStrengths.ONLINE]),
             
-            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             
-            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
             Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION, AIStrengths.BALANCED]),
             
             Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.BALANCED]),
+            Llm(OllamaClient(), "deepcoder:14b", None, 131072, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
+            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
             Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
             Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST, AIStrengths.VISION]),
-            Llm(OllamaClient(), "deepcoder:14b", None, 131072, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             Llm(OllamaClient(), "deepcoder:1.5b", None, 128000, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
             Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
@@ -444,7 +445,7 @@ class LlmRouter:
         cls,
         stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
         debug_print: Callable,
-        token_keeper: CustomColoring,
+        token_stream_painter: TextStreamPainter,
         hidden_reason: str,
         callback: Optional[Callable] = None
     ) -> str:
@@ -454,7 +455,7 @@ class LlmRouter:
         Args:
             stream (Union[Iterator[Dict[str, Any]], Iterator[str], Any]): The stream object from the provider
             debug_print (Callable): Function to print debug messages
-            token_keeper (CustomColoring): Token coloring utility
+            token_stream_painter (TextStreamPainter): Token coloring utility
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
             
@@ -463,28 +464,34 @@ class LlmRouter:
         """
         full_response = ""
         
+        
         # Handle different stream types
-        if hasattr(stream, 'text_stream'):  # Anthropic
+        # ! Anthropic
+        if hasattr(stream, 'text_stream'):  
             for token in stream.text_stream:
                 if token:
                     full_response += token
                     if not hidden_reason:
-                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
+                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
                     if callback is not None:
-                        if callback(token):
-                            return full_response
-        elif hasattr(stream, 'choices'):  # OpenAI/NVIDIA
+                        finished_response = callback(token)
+                        if finished_response and isinstance(finished_response, str):
+                            return finished_response
+        # ! OpenAI/NVIDIA
+        elif hasattr(stream, 'choices'):  
             for chunk in stream:
                 if hasattr(chunk.choices[0].delta, 'content'):
                     token = chunk.choices[0].delta.content
                     if token:
                         full_response += token
                         if not hidden_reason:
-                            debug_print(token_keeper.apply_color(token), end="", with_title=False)
+                            debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
                         if callback is not None:
-                            if callback(token):
-                                return full_response
-        elif hasattr(stream, '__iter__') and hasattr(next(iter(stream), None), 'text'):  # Google Gemini
+                            finished_response = callback(token)
+                            if finished_response and isinstance(finished_response, str):
+                                return finished_response
+        # ! Google Gemini
+        elif hasattr(stream, '__iter__') and hasattr(next(iter(stream), None), 'text'):  
             try:
                 for chunk in stream:
                     if hasattr(chunk, 'text'):
@@ -492,13 +499,15 @@ class LlmRouter:
                         if token:
                             full_response += token
                             if not hidden_reason:
-                                debug_print(token_keeper.apply_color(token), end="", with_title=False)
+                                debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
                             if callback is not None:
-                                if callback(token):
-                                    return full_response
+                                finished_response = callback(token)
+                                if finished_response and isinstance(finished_response, str):
+                                    return finished_response
             except StopIteration:
                 pass  # End of stream
-        else:  # Ollama/Groq
+        # ! Ollama/Groq
+        else:  
             for chunk in stream:
                 if hasattr(chunk, 'choices'):  # Groq ChatCompletionChunk
                     if hasattr(chunk.choices[0].delta, 'content'):
@@ -517,10 +526,11 @@ class LlmRouter:
                 if token:
                     full_response += token
                     if not hidden_reason:
-                        debug_print(token_keeper.apply_color(token), end="", with_title=False)
+                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
                     if callback is not None:
-                        if callback(token):
-                            return full_response
+                        finished_response = callback(token)
+                        if finished_response and isinstance(finished_response, str):
+                            return finished_response
         
         if not full_response.endswith("\n"):
             print()
@@ -533,7 +543,7 @@ class LlmRouter:
         cached_completion: str,
         model: Llm,
         debug_print: Callable,
-        tooling: CustomColoring,
+        tooling: TextStreamPainter,
         hidden_reason: str,
         callback: Optional[Callable] = None
     ) -> str:
@@ -544,7 +554,7 @@ class LlmRouter:
             cached_completion (str): The cached completion string
             model (Llm): The model that generated the response
             debug_print (Callable): Function to print debug messages
-            tooling (CustomColoring): Token coloring utility
+            tooling (TextStreamPainter): Token coloring utility
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
             
@@ -556,7 +566,9 @@ class LlmRouter:
             for char in cached_completion:
                 debug_print(tooling.apply_color(char), end="", with_title=False)
                 if callback:
-                    callback(char)
+                    finished_response = callback(char)
+                    if finished_response and isinstance(finished_response, str):
+                        return finished_response
                 time.sleep(0)  # better observable for the user
             debug_print("", with_title=False)
         return cached_completion
@@ -615,7 +627,7 @@ class LlmRouter:
         cls,
         chat: Chat|str,
         preferred_models: List[str] | List[Llm] = [],
-        strengths: List[AIStrengths] | AIStrengths = [],
+        strengths: List[AIStrengths] = [],
         temperature: float = 0,
         base64_images: List[str] = [],
         force_local: bool = False,
@@ -635,7 +647,7 @@ class LlmRouter:
             strength (List[AIStrengths] | AIStrengths): The required strengths of the model.
             temperature (float): Temperature setting for the model.
             base64_images (List[str]): List of base64-encoded images.
-            force_local (Optional[bool]): Whether to force local models only.
+            force_local (bool): Whether to force local models only.
             force_free (bool): Whether to force free models only.
             force_preferred_model (bool): Whether to force using only preferred models.
             hidden_reason (str): Reason for hidden mode.
@@ -647,24 +659,26 @@ class LlmRouter:
         """
         instance = cls()
         instance.failed_models.clear()
-        tooling = CustomColoring()
+        tooling = TextStreamPainter()
         cls.call_counter += 1
         
         # Check global force flags
-        force_local = force_local or g.FORCE_LOCAL
-        
-        # Handle fast models preference
-        if g.FORCE_FAST and AIStrengths.FAST not in strengths:
-            if isinstance(strengths, list):
-                strengths.append(AIStrengths.FAST)
-            else:
-                strengths = [strengths, AIStrengths.FAST] if strengths else [AIStrengths.FAST]
-        
         if g.LLM:
             preferred_models = [g.LLM]
-            
+        if g.FORCE_FAST:
+            strengths.append(AIStrengths.FAST)
         if g.LLM_STRENGTHS:
             strengths.extend(g.LLM_STRENGTHS)
+        if g.FORCE_ONLINE:
+            strengths = [s for s in strengths if s != AIStrengths.LOCAL]
+            strengths.append(AIStrengths.ONLINE)
+            # ! force_free = False
+        
+        # Local has higher priority than online
+        if g.FORCE_LOCAL:
+            force_local = True
+            strengths = [s for s in strengths if s != AIStrengths.ONLINE]
+            strengths.append(AIStrengths.LOCAL)
         
         def exclude_reasoning(response: str) -> str:
             if exclude_reasoning_tokens and ("</think>" in response or "</thinking>" in response):
@@ -761,7 +775,7 @@ class LlmRouter:
                         instance.last_used_model = model.model_key
                         
                         # Process the stream
-                        full_response = cls._process_stream(stream, log_print, CustomColoring(), hidden_reason, generation_stream_callback)
+                        full_response = cls._process_stream(stream, log_print, TextStreamPainter(), hidden_reason, generation_stream_callback)
                         if (not full_response.endswith("\n") and not hidden_reason):
                             print()
                         if (not follows_condition_callback or follows_condition_callback(full_response)):

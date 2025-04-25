@@ -155,7 +155,7 @@ class Chat:
         if content and role:
             if self.messages and self.messages[-1][0] == role:
                 # If the last message has the same role, append the new content
-                self.messages[-1] = (role, self.messages[-1][1] + '\n' + content)
+                self.messages[-1] = (role, self.messages[-1][1] + content)
             else:
                 # Otherwise, add a new message
                 self.messages.append((role, content))

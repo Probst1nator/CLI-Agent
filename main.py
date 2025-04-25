@@ -52,7 +52,7 @@ from py_classes.cls_chat import Chat, Role
 from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.globals import g
 from py_classes.cls_python_sandbox import PythonSandbox
-from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_text_stream_painter import TextStreamPainter
 from utils.imagetotext import ImageToText
 
 
@@ -116,6 +116,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enable Monte Carlo Tree Search for acting.")
     parser.add_argument("-sbx", "--sandbox", action="store_true", default=False,
                         help="Use weakly sandboxed python execution. Sets g.USE_SANDBOX=True.")
+    parser.add_argument("-o", "--online", action="store_true", default=False,
+                        help="Force use of cloud AI.")
     
     parser.add_argument("-llm", "--llm", type=str, default=None,
                         help="Specify the LLM model key to use (e.g., 'gpt-4', 'gemini-pro').")
@@ -343,12 +345,9 @@ async def get_user_input_with_bindings(
     while True:
         try:
             user_input = input(prompt)
-        except EOFError: # Handle Ctrl+D as exit
-            print(colored("\nExiting due to Ctrl+D.", "yellow"))
-            return "exit", None # Signal exit
         except KeyboardInterrupt: # Handle Ctrl+C as exit
-            print(colored("\nExiting due to Ctrl+C.", "yellow"))
-            return "exit", None # Signal exit
+            print(colored("\n# cli-agent: Exiting due to Ctrl+C.", "yellow"))
+            exit()
 
         async_task: Optional[asyncio.Task] = None
 
@@ -414,9 +413,15 @@ async def get_user_input_with_bindings(
         elif user_input.endswith("-m") or user_input.endswith("--m"):
             return handle_multiline_input(), None # Get multiline input
         
+        elif user_input.endswith("-o") or user_input.endswith("--o") or user_input.endswith("-online") or user_input.endswith("--online"):
+            args.online = not args.online
+            print(colored(f"# cli-agent: KeyBinding detected: Online mode toggled {'on' if args.online else 'off'}, type (--h) for info", "green"))
+            continue
+        
         elif "-img" in user_input or "--img" in user_input:
+            print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
             args.image = True
-            return "", None
+            continue
 
         elif "-h" in user_input or "--h" in user_input:
             print(figlet_format("cli-agent", font="slant"))
@@ -466,7 +471,7 @@ async def handle_screenshot_capture(args: argparse.Namespace, context_chat: Opti
     """
     base64_images: List[str] = []
     screenshots_paths: List[str] = []
-    max_attempts = 3
+    max_attempts = 2
 
     for attempt in range(1, max_attempts + 1):
         base64_images = [] # Reset for each attempt
@@ -608,6 +613,9 @@ async def main() -> None:
     try:
         print(colored("Starting CLI-Agent", "cyan"))
         load_dotenv(g.PROJ_ENV_FILE_PATH)
+        
+        # Initialize the Python sandbox
+        python_sandbox = PythonSandbox()
         
         args = parse_cli_args()
         print(args)
@@ -796,6 +804,7 @@ Platform: {sys.platform}
             g.DEBUG_CHATS = args.debug_chats
             g.FORCE_FAST = args.fast
             g.LLM = args.llm
+            g.FORCE_ONLINE = args.online
             base64_images: List[str] = [] # Initialize here unconditionally
 
             # Reset screenshot paths for this turn unless messages requiring them are queued
@@ -805,29 +814,6 @@ Platform: {sys.platform}
             # autosaving
             if context_chat:
                 context_chat.save_to_json()
-
-            # screen capture (triggered by args.image, potentially set by get_user_input_with_bindings)
-            if args.image:
-                args.image = False # Reset flag
-                # Call the new handler function
-                base64_images, saved_screenshots_paths = await handle_screenshot_capture(args, context_chat)
-                if not base64_images:
-                    print(colored("# cli-agent: No screenshot was captured or saved after multiple attempts.", "yellow"))
-                    continue # Skip to next iteration if screenshot capture failed
-                print(colored("Screenshot preprocesssing for context...", "green"))
-                context_chat.add_message(Role.USER, f"""I am inquiring about a screenshot let's have a look at it.
-```python
-image_path = '{saved_screenshots_paths[0]}'
-description = ImageToText.run(image_path, "Describe the screenshot in detail, focusing on any text, images, or notable features.")
-print(f"Screenshot description: {{description}}")
-```
-<execution_output>
-Screenshot description: {ImageToText.run(saved_screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
-</execution_output>
-Perfect, use this description as needed for the next steps.""")
-
-            if LlmRouter.has_unconfirmed_data():
-                LlmRouter.confirm_finetuning_data()
 
             # get user input from various sources if not already set (e.g., after screenshot)
             if args.message:
@@ -859,6 +845,31 @@ Perfect, use this description as needed for the next steps.""")
                 if user_input is None: # Binding handled that skips turn (e.g. help shown or screenshot capture)
                     continue
 
+            # screen capture (triggered by args.image, potentially set by get_user_input_with_bindings)
+            if args.image:
+                args.image = False # Reset flag
+                # Call the new handler function
+                base64_images, saved_screenshots_paths = await handle_screenshot_capture(args, context_chat)
+                if not base64_images:
+                    print(colored("# cli-agent: No screenshot was captured or saved after multiple attempts.", "yellow"))
+                    if isinstance(args.message, list) and len(args.message) > 0: # ! Detect if this is a workflow, if the screenshot capture failed, empty the message queue and go to user_input
+                        args.message = None
+                    continue
+                print(colored("Screenshot preprocesssing for context...", "green"))
+                context_chat.add_message(Role.USER, f"""I am inquiring about a screenshot let's have a look at it.
+```python
+image_path = '{saved_screenshots_paths[0]}'
+description = ImageToText.run(image_path, "Describe the screenshot in detail, focusing on any text, images, or notable features.")
+print(f"Screenshot description: {{description}}")
+```
+<execution_output>
+Screenshot description: {ImageToText.run(saved_screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
+</execution_output>
+Perfect, use this description as needed for the next steps.""")
+
+            if LlmRouter.has_unconfirmed_data():
+                LlmRouter.confirm_finetuning_data()
+
             # AGENTIC IN-TURN LOOP - BEGIN
 
             action_counter = 0  # Initialize counter for consecutive actions
@@ -882,14 +893,15 @@ Perfect, use this description as needed for the next steps.""")
                                 python_blocks = extract_blocks(text, "bash")
                         return python_blocks
 
-                    def update_python_environment(chunk: str) -> bool:
+                    def update_python_environment(chunk: str) -> str:
                         nonlocal response_buffer
                         for char in chunk:
                             response_buffer += char
                             if response_buffer.count("```") == 2:
+                                final_response = response_buffer
                                 response_buffer = ""
-                                return True
-                        return False
+                                return final_response
+                        return None
 
 
                     response_branches: List[str] = []
@@ -936,9 +948,9 @@ Perfect, use this description as needed for the next steps.""")
                             print(colored(f"Selected branch: {selected_branch_index}", "green"))
                             
                             # Print the selected branch if we're in MCT mode (since we don't stream MCT branches)
-                            custom_coloring = CustomColoring()
+                            text_stream_painter = TextStreamPainter()
                             for char in assistant_response:
-                                print(custom_coloring.apply_color(char), end="", flush=True)
+                                print(text_stream_painter.apply_color(char), end="", flush=True)
                             print() # Add newline
                         except Exception as e:
                             print(colored(f"Error during MCT branch selection: {str(e)}", "red"))
@@ -947,18 +959,18 @@ Perfect, use this description as needed for the next steps.""")
                             assistant_response = response_branches[0]
                             
                             # Print the default branch
-                            custom_coloring = CustomColoring()
+                            text_stream_painter = TextStreamPainter()
                             for char in assistant_response:
-                                print(custom_coloring.apply_color(char), end="", flush=True)
+                                print(text_stream_painter.apply_color(char), end="", flush=True)
                             print() # Add newline
                     else:
                         assistant_response = response_branches[0]
                         
                         # Only print the response if we didn't use streaming (for MCT)
                         if args.mct:
-                            custom_coloring = CustomColoring()
+                            text_stream_painter = TextStreamPainter()
                             for char in assistant_response:
-                                print(custom_coloring.apply_color(char), end="", flush=True)
+                                print(text_stream_painter.apply_color(char), end="", flush=True)
                             print() # Add newline
 
                     # We already printed the assistant response either through streaming or after MCT selection
@@ -997,11 +1009,6 @@ Perfect, use this description as needed for the next steps.""")
 
                     if confirm_code_execution(args, code_to_execute):
                         print(colored("\n🔄 Executing code...", "cyan"))
-                        # Initialize the Python sandbox if not already done
-                        if not hasattr(g, 'python_sandbox') or g.python_sandbox is None:
-                            g.python_sandbox = PythonSandbox()
-
-
                         try:
                             # Define streaming callbacks to display output in real-time
                             stdout_buffer = ""
@@ -1017,19 +1024,12 @@ Perfect, use this description as needed for the next steps.""")
                                 stderr_buffer += text
 
                             # Execute code with streaming callbacks
-                            # Ensure sandbox exists before execution
-                            if not g.python_sandbox:
-                                raise RuntimeError("Python sandbox is not initialized.")
-
-                            stdout, stderr, result = g.python_sandbox.execute(
+                            stdout, stderr, result = python_sandbox.execute(
                                 code_to_execute,
                                 stdout_callback=stdout_callback,
                                 stderr_callback=stderr_callback,
                                 max_idle_time=120
                             )
-                            # Execution output is already printed by callbacks
-                            # stdout = stdout_buffer # Use buffered output if needed elsewhere
-                            # stderr = stderr_buffer
 
                             print(colored("\n✅ Code execution completed.", "cyan"))
 
@@ -1063,7 +1063,7 @@ Perfect, use this description as needed for the next steps.""")
                                     tool_output = tool_output[:first_index] + "\n[...output truncated...]\n" + tool_output[split_index_in_full+1:] # +1 to exclude the newline itself
 
                                 except ValueError: # Handle cases where newline isn't found
-                                     tool_output = tool_output[:3000] + "\n[...output truncated...]" + tool_output[-1000:]
+                                    tool_output = tool_output[:3000] + "\n[...output truncated...]" + tool_output[-1000:]
 
 
                             if not tool_output.strip():
@@ -1073,13 +1073,10 @@ Perfect, use this description as needed for the next steps.""")
 
 
                             # Append execution output to the assistant's response FOR THE CONTEXT
-                            assistant_response_with_output = assistant_response + f"\n{tool_output}"
+                            assistant_response_with_output = f"{assistant_response}\n{tool_output}"
 
                             # Add the complete turn (Assistant response + execution) to context
-                            if context_chat.messages[-1][0] == Role.USER:
-                                context_chat.add_message(Role.ASSISTANT, assistant_response_with_output)
-                            else: # Update last assistant message
-                                context_chat.messages[-1] = (Role.ASSISTANT, assistant_response_with_output)
+                            context_chat.add_message(Role.ASSISTANT, assistant_response_with_output)
 
                             assistant_response = "" # Clear buffer as it's been processed
 
@@ -1094,23 +1091,17 @@ Perfect, use this description as needed for the next steps.""")
                                 traceback.print_exc()
                             # Add error to context before breaking
                             error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
-                            assistant_response_with_error = assistant_response + f"\n{error_output}"
-                            if context_chat.messages[-1][0] == Role.USER:
-                                context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
-                            else: # Update last assistant message
-                                context_chat.messages[-1] = (Role.ASSISTANT, assistant_response_with_error)
+                            assistant_response_with_error = f"{assistant_response}\n{error_output}"
+                            context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
                             assistant_response = "" # Clear buffer
                             break # Break inner loop on execution error
                     else:
                         # Code execution denied by user
                         print(colored(" Execution cancelled by user.", "yellow"))
-                         # Add assistant's plan and cancellation notice to chat history
+                        # Add assistant's plan and cancellation notice to chat history
                         cancellation_notice = "<execution_output>\nCode execution cancelled by user.\n</execution_output>"
                         assistant_response_with_cancellation = assistant_response + f"\n{cancellation_notice}"
-                        if context_chat.messages[-1][0] == Role.USER:
-                            context_chat.add_message(Role.ASSISTANT, assistant_response_with_cancellation)
-                        else: # Update last assistant message
-                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response_with_cancellation)
+                        context_chat.add_message(Role.ASSISTANT, assistant_response_with_cancellation)
                         assistant_response = "" # Clear buffer
                         break # Break inner loop
 
@@ -1121,29 +1112,15 @@ Perfect, use this description as needed for the next steps.""")
                         traceback.print_exc()
                     # Attempt to add error context before breaking
                     try:
-                         error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
-                         assistant_response_with_error = assistant_response + f"\n{error_output}" # Append to potentially partial response
-                         if context_chat and context_chat.messages[-1][0] == Role.USER:
-                              context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
-                         elif context_chat: # Update last assistant message
-                              context_chat.messages[-1] = (Role.ASSISTANT, assistant_response_with_error)
+                        error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
+                        assistant_response_with_error = assistant_response + f"\n{error_output}" # Append to potentially partial response
+                        context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
                     except Exception as context_e:
-                         print(colored(f"Failed to add error to context: {context_e}", "red"))
+                        print(colored(f"Failed to add error to context: {context_e}", "red"))
                     assistant_response = "" # Clear buffer
                     break # Break inner loop
-            # --- End Agentic Inner Loop ---
-
-
-            # After the inner loop finishes (either by break or naturally because no code was generated)
-            # The assistant_response buffer should ideally be empty here if it was processed and added to context.
-            # If the loop broke *before* processing the final response (e.g. no code generated), it might still be populated.
-            # However, the printing now happens *before* execution check, so this check might be redundant.
-            # Let's ensure the last message in context is printed if needed.
-            if context_chat and context_chat.messages and context_chat.messages[-1][0] == Role.ASSISTANT:
-                 last_msg_content = context_chat.messages[-1][1]
-                 # Check if it was already printed (might be complex to track reliably)
-                 # Simple approach: If the inner loop broke without execution, the response wasn't followed by output.
-                 # It was likely printed just before the 'extract_pythonToolcode' check.
+                
+            # --- End of Agentic Inner Loop ---
 
             # save context once per turn (moved outside inner loop)
             if context_chat:
@@ -1159,9 +1136,7 @@ Perfect, use this description as needed for the next steps.""")
         print(colored("\nCLI-Agent was interrupted by user. Shutting down...", "yellow"))
     except Exception as e:
         print(colored(f"\nCLI-Agent encountered an error: {str(e)}", "red"))
-        if args.debug:
-            traceback.print_exc()
-        return
+        traceback.print_exc()
 
 if __name__ == "__main__":
     try:

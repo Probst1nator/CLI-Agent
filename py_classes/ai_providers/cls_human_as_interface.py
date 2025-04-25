@@ -7,7 +7,7 @@ from openai import OpenAI
 from termcolor import colored
 import speech_recognition as sr
 from py_classes.globals import g
-from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_text_stream_painter import TextStreamPainter
 
 from py_classes.unified_interfaces import AIProviderInterface
 
@@ -70,9 +70,9 @@ class HumanAPI(AIProviderInterface):
                 if callback is not None:
                     callback(full_response)
 
-            token_keeper = CustomColoring()
+            token_stream_painter = TextStreamPainter()
             for character in full_response:
-                debug_print(token_keeper.apply_color(character), end="", with_title=False)
+                debug_print(token_stream_painter.apply_color(character), end="", with_title=False)
             debug_print("", with_title=False)
             return full_response
 
