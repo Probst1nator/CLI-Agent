@@ -26,5 +26,6 @@ __pycache__/
 **.sqlite3
 
 **test_
+*.deprecated
 
 run_screen_grabber.sh

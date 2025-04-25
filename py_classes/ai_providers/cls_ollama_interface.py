@@ -9,7 +9,7 @@ import ollama
 from termcolor import colored
 from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
-from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_rate_limit_tracker import rate_limit_tracker
 import os
 import socket
@@ -243,7 +243,7 @@ class OllamaClient(AIProviderInterface):
         """
         
         debug_print = AIProviderInterface.create_debug_printer(chat)
-        tooling = CustomColoring()
+        tooling = TextStreamPainter()
 
         client: ollama.Client | None
         client, model_key = OllamaClient.get_valid_client(model_key, chat)

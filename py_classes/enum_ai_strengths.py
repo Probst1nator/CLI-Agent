@@ -11,5 +11,6 @@ class AIStrengths(Enum):
     GENERAL = 2
     FAST = 1
     LOCAL = 8
-    VISION = 9
-    BALANCED = 10
+    ONLINE = 9
+    VISION = 10
+    BALANCED = 11

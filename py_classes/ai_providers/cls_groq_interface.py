@@ -3,7 +3,7 @@ from typing import Optional, Tuple, List, Dict, Any, Union, TYPE_CHECKING
 from collections.abc import Callable
 from groq import Groq
 from termcolor import colored
-from py_classes.cls_custom_coloring import CustomColoring
+from py_classes.cls_text_stream_painter import TextStreamPainter
 # Defer actual import to avoid circular dependency
 # from py_classes.cls_chat import Chat
 from py_classes.unified_interfaces import AIProviderInterface
