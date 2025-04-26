@@ -26,7 +26,7 @@ from prompt_toolkit.formatted_text import HTML
 import base64
 import tempfile
 import subprocess
-
+import importlib.util
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -36,16 +36,16 @@ warnings.filterwarnings("ignore", message="words count mismatch on*", module="ph
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
 
-from py_classes.cls_util_manager import UtilsManager
 from py_methods.utils import (
     extract_blocks,
     pdf_or_folder_to_database,
     listen_microphone,
     take_screenshot,
-    text_to_speech,
     update_cmd_collection,
     ScreenCapture,
 )
+from py_methods import utils_audio
+from py_classes.cls_util_manager import UtilsManager
 from py_classes.enum_ai_strengths import AIStrengths
 from py_classes.cls_llm_router import Llm, LlmRouter
 from py_classes.cls_chat import Chat, Role
@@ -53,8 +53,9 @@ from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.globals import g
 from py_classes.cls_python_sandbox import PythonSandbox
 from py_classes.cls_text_stream_painter import TextStreamPainter
-from utils.imagetotext import ImageToText
 
+# Fix the import by using a relative or absolute import path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Suppress TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -68,6 +69,19 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Import the ImageToText class directly
+import importlib.util
+import os
+
+# Dynamically import the ImageToText class
+spec = importlib.util.spec_from_file_location(
+    "imagetotext", 
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils", "imagetotext.py")
+)
+imagetotext_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(imagetotext_module)
+ImageToText = imagetotext_module.ImageToText
 
 def get_local_ip():
     try:
@@ -245,6 +259,9 @@ def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bo
             print(colored("✅ Code execution permitted", "green"))
             return True
         else:
+            text_stream_painter = TextStreamPainter()
+            for char in safe_to_execute:
+                print(text_stream_painter.apply_color(char), end="")
             print(colored("❌ Code execution aborted by auto-execution guard", "red"))
             return False
     else:
@@ -329,9 +346,9 @@ def handle_multiline_input() -> str:
 
 async def get_user_input_with_bindings(
     args: argparse.Namespace,
-    context_chat: Optional[Chat], # Allow None for robustness
+    context_chat: Chat,
     prompt: str = colored("💬 Enter your request: ", 'blue', attrs=["bold"])
-) -> Tuple[Optional[str], Optional[asyncio.Task]]:
+) -> bool:
     """
     Gets user input, handling special keybindings.
 
@@ -339,8 +356,7 @@ async def get_user_input_with_bindings(
         A tuple containing:
         - The user's input string (if it's not a binding).
         - An optional asyncio.Task if an async action (like llm_selection) was triggered.
-        Returns (None, None) if a binding was handled that requires skipping the current turn.
-        Returns ("exit", None) to signal program termination.
+        Returns None if a binding was handled that requires skipping the current turn.
     """
     while True:
         try:
@@ -349,8 +365,6 @@ async def get_user_input_with_bindings(
             print(colored("\n# cli-agent: Exiting due to Ctrl+C.", "yellow"))
             exit()
 
-        async_task: Optional[asyncio.Task] = None
-
         # USER INPUT HANDLING - BEGIN
         if user_input.endswith("-r") or user_input.endswith("--r"):
             if not context_chat or len(context_chat.messages) < 2:
@@ -358,18 +372,12 @@ async def get_user_input_with_bindings(
                 continue # Ask for input again
             print(colored("# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
             context_chat.messages.pop() # Remove last AI response
-            if context_chat.messages and context_chat.messages[-1][0] == Role.USER:
-                # If the last message is now USER, we pop it to effectively retry
-                last_user_message = context_chat.messages.pop()[1]
-                return last_user_message, None # Return the last user message to process it again
-            else:
-                # If history is empty or last message is ASSISTANT, just indicate regeneration
-                return "", None # Return empty string to signal regeneration without specific input
+            return ""
 
         elif user_input.endswith("-l") or user_input.endswith("--l") or user_input.endswith("--llm") or user_input.endswith("--local"):
             print(colored("# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
-            async_task = asyncio.create_task(llm_selection(args))
-            return None, async_task # Return task to be awaited in main loop
+            await llm_selection(args)
+            return ""
 
         elif user_input.endswith("-a") or user_input.endswith("--auto"):
             args.auto = not args.auto
@@ -394,11 +402,21 @@ async def get_user_input_with_bindings(
             g.FORCE_STRONG = False # Fast overrides strong
             print(colored(f"# cli-agent: KeyBinding detected: Fast LLM mode toggled {'on' if args.fast else 'off'}, type (--h) for info", "green"))
             continue
+        
+        elif user_input.endswith("-v") or user_input.endswith("--v"):
+            args.voice = not args.voice
+            print(colored(f"# cli-agent: KeyBinding detected: Voice mode toggled {'on' if args.voice else 'off'}, type (--h) for info", "green"))
+            continue
+        
+        elif user_input.endswith("-speak") or user_input.endswith("--speak"):
+            args.speak = not args.speak
+            print(colored(f"# cli-agent: KeyBinding detected: Text-to-speech mode toggled {'on' if args.speak else 'off'}, type (--h) for info", "green"))
+            continue
 
-        elif user_input.endswith("-s") or user_input.endswith("--s") or user_input.endswith("--screenshot"):
+        elif user_input.endswith("-img") or user_input.endswith("--img") or user_input.endswith("-screenshot") or user_input.endswith("--screenshot"):
             print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
             args.image = True # Signal main loop to take screenshot
-            return "", None # Return empty to trigger screenshot logic
+            return "" # Return empty to trigger screenshot logic
 
         elif "-p" in user_input or "--p" in user_input:
             print(colored("# cli-agent: KeyBinding detected: Printing chat history, type (--h) for info", "green"))
@@ -434,9 +452,13 @@ async def get_user_input_with_bindings(
             print(colored(f"(Current: {'on' if args.auto else 'off'})", "cyan"))
             print(colored(f"# -f: Toggle using only fast LLMs ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.fast else 'off'})", "cyan"))
+            print(colored(f"# -v: Toggle voice mode ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.voice else 'off'})", "cyan"))
+            print(colored(f"# -speak: Toggle text-to-speech ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.speak else 'off'})", "cyan"))
             print(colored(f"# -strong: Toggle using only strong LLMs ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.strong else 'off'})", "cyan"))
-            print(colored("# -s: Take a screenshot using Spectacle (with automatic fallbacks if not available)", "yellow"))
+            print(colored("# -img: Take a screenshot using Spectacle (with automatic fallbacks if not available)", "yellow"))
             print(colored(f"# -mct: Toggle Monte Carlo Tree Search ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.mct else 'off'})", "cyan"))
             print(colored("# -m: Enter multiline input (end with '--f' on a new line)", "yellow"))
@@ -785,15 +807,6 @@ Platform: {sys.platform}
         if args.mct and context_chat:
             context_chat.debug_title = "MCTs Branching - Main Context Chat"
 
-        if (args.voice or args.speak) and context_chat and len(context_chat.messages) > 1: # Check length > 1
-            # tts last response (when continuing or after initial prompt)
-            if context_chat.messages[-1][0] == Role.ASSISTANT:
-                last_response = context_chat.messages[-1][1]
-                text_to_speech(last_response)
-                print(colored(last_response, 'magenta'))
-
-
-
         # Main loop
         while True:
             # Reset main loop variables
@@ -835,14 +848,8 @@ Platform: {sys.platform}
                 user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
             else:
                 # Get input via the new wrapper function
-                user_input, async_task_to_await = await get_user_input_with_bindings(args, context_chat)
-                if async_task_to_await:
-                    try:
-                        await async_task_to_await
-                    except Exception as e:
-                        print(colored(f"# cli-agent: Error during async task execution (e.g., LLM selection): {str(e)}", "red"))
-                    continue # Handle async action like LLM selection
-                if user_input is None: # Binding handled that skips turn (e.g. help shown or screenshot capture)
+                hotkey_used = await get_user_input_with_bindings(args, context_chat)
+                if hotkey_used:
                     continue
 
             # screen capture (triggered by args.image, potentially set by get_user_input_with_bindings)
@@ -875,6 +882,7 @@ Perfect, use this description as needed for the next steps.""")
             action_counter = 0  # Initialize counter for consecutive actions
             response_buffer=""
             assistant_response = ""
+            text_stream_painter = TextStreamPainter()
 
             # Only add user input if it's not empty (e.g. after -r or -s binding resulted in "")
             if user_input and context_chat: # Check context_chat exists
@@ -893,10 +901,12 @@ Perfect, use this description as needed for the next steps.""")
                                 python_blocks = extract_blocks(text, "bash")
                         return python_blocks
 
-                    def update_python_environment(chunk: str) -> str:
+                    def update_python_environment(chunk: str, print_char: bool = True) -> str:
                         nonlocal response_buffer
                         for char in chunk:
                             response_buffer += char
+                            if print_char:
+                                print(text_stream_painter.apply_color(char), end="", flush=True)
                             if response_buffer.count("```") == 2:
                                 final_response = response_buffer
                                 response_buffer = ""
@@ -964,15 +974,16 @@ Perfect, use this description as needed for the next steps.""")
                                 print(text_stream_painter.apply_color(char), end="", flush=True)
                             print() # Add newline
                     else:
+                        # non mct case
                         assistant_response = response_branches[0]
                         
-                        # Only print the response if we didn't use streaming (for MCT)
-                        if args.mct:
-                            text_stream_painter = TextStreamPainter()
-                            for char in assistant_response:
-                                print(text_stream_painter.apply_color(char), end="", flush=True)
-                            print() # Add newline
-
+                    # # Only print the response if we didn't use streaming (for MCT)
+                    # if args.mct:
+                    #     text_stream_painter = TextStreamPainter()
+                    #     for char in assistant_response:
+                    #         print(text_stream_painter.apply_color(char), end="", flush=True)
+                    #     print() # Add newline
+                    
                     # We already printed the assistant response either through streaming or after MCT selection
                     # So we don't need to print it again here
 
@@ -988,7 +999,13 @@ Perfect, use this description as needed for the next steps.""")
                             context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
                         assistant_response = "" # Clear buffer as it's been added/printed
                         break # Break inner loop to get next user input
-
+                    
+                    if (args.voice or args.speak):
+                        # remove all code blocks from the assistant response
+                        verbal_text = re.sub(r'```[^`]*```', '', assistant_response)
+                        if (len(python_blocks) > 0):
+                            verbal_text += f"I've implemented the code, let's execute it."
+                        utils_audio.text_to_speech(verbal_text)
 
                     # Just use the first python block for now
                     code_to_execute = python_blocks[0]

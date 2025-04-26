@@ -417,7 +417,7 @@ def initialize_kokoro_pipeline() -> bool:
     
     if _kokoro_pipeline is None:
         try:
-            print(f"<{colored('Kokoro', 'green')}> initializing pipeline...")
+            print(f"<{colored('Kokoro - Local TTS', 'green')}> initializing pipeline...")
             from kokoro import KPipeline
             _kokoro_pipeline = KPipeline(lang_code="b")
             return True
@@ -459,7 +459,7 @@ def text_to_speech(
         if not 0.1 <= speed <= 3.0:
             raise ValueError("Speed must be between 0.1 and 3.0")
 
-        print(f"<{colored('Kokoro', 'green')}> is synthesizing speech...")
+        print(f"<{colored('Kokoro - Local TTS', 'green')}> is synthesizing speech...")
         
         output_files = []
         generator = _kokoro_pipeline(

@@ -9,12 +9,10 @@ from termcolor import colored
 from py_classes.unified_interfaces import AudioProviderInterface
 from py_classes.globals import g
 from py_methods.utils_audio import (
-    initialize_whisper_model,
     transcribe_audio as utils_transcribe_audio,
     play_notification,
     play_audio,
-    record_audio,
-    text_to_speech
+    record_audio
 )
 
 class WhisperInterface(AudioProviderInterface):
@@ -134,35 +132,6 @@ class WhisperInterface(AudioProviderInterface):
             # Clean up the temporary file
             if 'temp_audio_file_path' in locals() and os.path.exists(temp_audio_file_path):
                 os.remove(temp_audio_file_path)
-    
-    def speak(
-        self,
-        text: str,
-        voice: str = 'af_heart',
-        speed: float = 1.0,
-        output_path: Optional[str] = None,
-        play: bool = True
-    ) -> Union[List[str], None]:
-        """
-        Convert text to speech and optionally play it or save to file.
-        
-        Args:
-            text: The text to convert to speech
-            voice: Voice ID to use. Defaults to 'af_heart'.
-            speed: Speech speed multiplier. Defaults to 1.0.
-            output_path: Base path for output files. Will append index if multiple segments.
-            play: Whether to play the audio. Defaults to True.
-            
-        Returns:
-            Union[List[str], None]: List of generated audio file paths if output_path is provided, None otherwise
-        """
-        return text_to_speech(
-            text=text,
-            voice=voice,
-            speed=speed,
-            output_path=output_path,
-            play=play
-        )
     
     def play_notification_sound(self) -> None:
         """Play a notification sound to indicate when to start speaking."""

@@ -445,7 +445,6 @@ class LlmRouter:
         cls,
         stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
         debug_print: Callable,
-        token_stream_painter: TextStreamPainter,
         hidden_reason: str,
         callback: Optional[Callable] = None
     ) -> str:
@@ -455,7 +454,6 @@ class LlmRouter:
         Args:
             stream (Union[Iterator[Dict[str, Any]], Iterator[str], Any]): The stream object from the provider
             debug_print (Callable): Function to print debug messages
-            token_stream_painter (TextStreamPainter): Token coloring utility
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
             
@@ -463,7 +461,8 @@ class LlmRouter:
             str: The full response string
         """
         full_response = ""
-        
+        finished_response = ""
+        token_stream_painter = TextStreamPainter()
         
         # Handle different stream types
         # ! Anthropic
@@ -471,12 +470,12 @@ class LlmRouter:
             for token in stream.text_stream:
                 if token:
                     full_response += token
-                    if not hidden_reason:
-                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
                     if callback is not None:
-                        finished_response = callback(token)
+                        finished_response = callback(token, hidden_reason)
                         if finished_response and isinstance(finished_response, str):
-                            return finished_response
+                            break
+                    elif not hidden_reason:
+                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
         # ! OpenAI/NVIDIA
         elif hasattr(stream, 'choices'):  
             for chunk in stream:
@@ -484,12 +483,12 @@ class LlmRouter:
                     token = chunk.choices[0].delta.content
                     if token:
                         full_response += token
-                        if not hidden_reason:
-                            debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
                         if callback is not None:
                             finished_response = callback(token)
                             if finished_response and isinstance(finished_response, str):
-                                return finished_response
+                                break
+                    elif not hidden_reason:
+                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
         # ! Google Gemini
         elif hasattr(stream, '__iter__') and hasattr(next(iter(stream), None), 'text'):  
             try:
@@ -498,12 +497,12 @@ class LlmRouter:
                         token = chunk.text
                         if token:
                             full_response += token
-                            if not hidden_reason:
-                                debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
                             if callback is not None:
                                 finished_response = callback(token)
                                 if finished_response and isinstance(finished_response, str):
-                                    return finished_response
+                                    break
+                            elif not hidden_reason:
+                                debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
             except StopIteration:
                 pass  # End of stream
         # ! Ollama/Groq
@@ -525,16 +524,16 @@ class LlmRouter:
                     token = str(chunk)
                 if token:
                     full_response += token
-                    if not hidden_reason:
-                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
                     if callback is not None:
                         finished_response = callback(token)
                         if finished_response and isinstance(finished_response, str):
-                            return finished_response
-        
-        if not full_response.endswith("\n"):
-            print()
+                            break
+                    elif not hidden_reason:
+                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
             
+        if finished_response:
+            return finished_response
+        
         return full_response
 
     @classmethod
@@ -543,7 +542,7 @@ class LlmRouter:
         cached_completion: str,
         model: Llm,
         debug_print: Callable,
-        tooling: TextStreamPainter,
+        text_stream_painter: TextStreamPainter,
         hidden_reason: str,
         callback: Optional[Callable] = None
     ) -> str:
@@ -564,11 +563,12 @@ class LlmRouter:
         if not hidden_reason:
             debug_print(f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
             for char in cached_completion:
-                debug_print(tooling.apply_color(char), end="", with_title=False)
                 if callback:
-                    finished_response = callback(char)
+                    finished_response = callback(char, not hidden_reason)
                     if finished_response and isinstance(finished_response, str):
                         return finished_response
+                elif not hidden_reason:
+                    debug_print(text_stream_painter.apply_color(char), end="", with_title=False)
                 time.sleep(0)  # better observable for the user
             debug_print("", with_title=False)
         return cached_completion
@@ -768,20 +768,15 @@ class LlmRouter:
                         ))
 
                 try:
-                    while True:
-                        # Get the stream from the provider
-                        stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason)
-                        
-                        instance.last_used_model = model.model_key
-                        
-                        # Process the stream
-                        full_response = cls._process_stream(stream, log_print, TextStreamPainter(), hidden_reason, generation_stream_callback)
-                        if (not full_response.endswith("\n") and not hidden_reason):
-                            print()
-                        if (not follows_condition_callback or follows_condition_callback(full_response)):
-                            break
-                        else:
-                            temperature += 0.1
+                    # Get the stream from the provider
+                    stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason)
+                    
+                    instance.last_used_model = model.model_key
+                    
+                    # Process the stream
+                    full_response = cls._process_stream(stream, log_print, hidden_reason, generation_stream_callback)
+                    if (not full_response.endswith("\n") and not hidden_reason):
+                        print()
                     
                     if enable_caching:
                         # Cache the response

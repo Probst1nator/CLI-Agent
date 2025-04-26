@@ -13,6 +13,7 @@ from py_classes.globals import g
 from termcolor import colored
 
 from py_classes.ai_providers.cls_whisper_interface import WhisperInterface
+from py_methods import utils_audio
 
 logger = logging.getLogger(__name__)
 
@@ -202,35 +203,6 @@ class PyAiHost:
             model=whisper_model_key
         )
 
-    @classmethod
-    def text_to_speech(
-        cls,
-        text: str,
-        voice: str = 'af_heart',
-        speed: float = 1.0,
-        output_path: Optional[str] = None,
-        play: bool = True,
-        split_pattern: str = r'\n+'
-    ) -> Union[List[str], None]:
-        """
-        DEPRECATED: This method is deprecated.
-        
-        Convert text to speech using Kokoro TTS model.
-        """
-        warnings.warn(
-            "PyAiHost is deprecated. Use WhisperInterface directly instead.",
-            DeprecationWarning, stacklevel=2
-        )
-        # Ignore split_pattern which isn't in the new interface (handled internally)
-        return cls._get_whisper_interface().speak(
-            text=text,
-            voice=voice,
-            speed=speed,
-            output_path=output_path,
-            play=play
-        )
-
-
 if __name__ == "__main__":
     print("\n=== Starting Voice Interaction Test with deprecated PyAiHost ===")
     print("You will hear an ascending tone. After the tone, please speak...")
@@ -256,7 +228,7 @@ if __name__ == "__main__":
         print("\n=== Testing Speech Synthesis ===")
         
         print("\nPlaying English synthesis...")
-        PyAiHost.text_to_speech(
+        utils_audio.text_to_speech(
             text=transcribed_text,
             voice='af_heart',
             play=True,

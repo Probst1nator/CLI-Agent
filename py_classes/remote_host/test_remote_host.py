@@ -11,6 +11,8 @@ import time
 import argparse
 from typing import Optional
 
+from py_methods import utils_audio
+
 # Add parent directory to path to allow importing from py_classes
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -122,7 +124,7 @@ def test_full_voice_interaction(use_remote: bool = False, server_url: Optional[s
         print("\n=== Testing Speech Synthesis ===")
         
         print("\nPlaying synthesis...")
-        PyAiHost.text_to_speech(
+        utils_audio.text_to_speech(
             text=transcribed_text,
             voice='af_heart',
             play=True
