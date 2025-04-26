@@ -398,27 +398,6 @@ def on_press(key):
     if key == keyboard.Key.esc:
         pygame.mixer.music.stop()
 
-def text_to_speech(text: str, enable_keyboard_interrupt: bool = True, speed: float = 1.3) -> None:
-    """
-    Convert the assistant's response to speech, adjust speed and pitch, then play it.
-    Args:
-    text (str): The text to convert to speech.
-    lang_key (str, optional): The language of the text. Defaults to 'en'.
-    enable_keyboard_interrupt (bool, optional): Whether to enable keyboard interrupt. Defaults to True.
-    speed (float, optional): The speed of the speech. Defaults to 1.2.
-    pitch_shift (float, optional): The pitch shift in semitones. Positive values increase pitch, negative values decrease it. Defaults to 0.
-    Returns:
-    None
-    """
-    # print a loading message if PyAiHost is not yet imported
-    # if not PyAiHost:
-    #     print(f"Local: <{colored('PyAiHost', 'green')}> is initializing...")
-    from py_classes.cls_pyaihost_interface import PyAiHost
-    if text == "":
-        print(colored("No text to convert to speech.", "red"))
-        return
-    PyAiHost.text_to_speech(text, split_pattern=r'')
-    return
 
 r: Recognizer = None
 def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
