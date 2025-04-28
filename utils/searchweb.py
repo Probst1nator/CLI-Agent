@@ -16,7 +16,7 @@ class SearchWeb(UtilBase):
     """
     
     @staticmethod
-    def run(queries: List[str]) -> str:
+    def run(queries: List[str], return_urls: bool = False ) -> str:
         """
         Perform a web search with the given query.
         

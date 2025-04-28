@@ -26,7 +26,6 @@ from prompt_toolkit.formatted_text import HTML
 import base64
 import tempfile
 import subprocess
-import importlib.util
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -55,7 +54,20 @@ from py_classes.cls_python_sandbox import PythonSandbox
 from py_classes.cls_text_stream_painter import TextStreamPainter
 
 # Fix the import by using a relative or absolute import path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Try importing with a direct import
+try:
+    from utils.imagetotext import ImageToText
+except ImportError:
+    # Fallback to a direct import of the module
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ImageToText", 
+                                                 os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                                                             "utils", "imagetotext.py"))
+    imagetotext_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(imagetotext_module)
+    ImageToText = imagetotext_module.ImageToText
 
 # Suppress TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -69,19 +81,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Import the ImageToText class directly
-import importlib.util
-import os
-
-# Dynamically import the ImageToText class
-spec = importlib.util.spec_from_file_location(
-    "imagetotext", 
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils", "imagetotext.py")
-)
-imagetotext_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(imagetotext_module)
-ImageToText = imagetotext_module.ImageToText
 
 def get_local_ip():
     try:
@@ -276,6 +275,7 @@ def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bo
     
     return True
 
+
 def select_best_branch(
     assistant_responses: List[str],
     user_input: str,
@@ -353,10 +353,7 @@ async def get_user_input_with_bindings(
     Gets user input, handling special keybindings.
 
     Returns:
-        A tuple containing:
-        - The user's input string (if it's not a binding).
-        - An optional asyncio.Task if an async action (like llm_selection) was triggered.
-        Returns None if a binding was handled that requires skipping the current turn.
+        - The user's input string.
     """
     while True:
         try:
@@ -372,12 +369,12 @@ async def get_user_input_with_bindings(
                 continue # Ask for input again
             print(colored("# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
             context_chat.messages.pop() # Remove last AI response
-            return ""
+            continue
 
         elif user_input.endswith("-l") or user_input.endswith("--l") or user_input.endswith("--llm") or user_input.endswith("--local"):
             print(colored("# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
             await llm_selection(args)
-            return ""
+            continue
 
         elif user_input.endswith("-a") or user_input.endswith("--auto"):
             args.auto = not args.auto
@@ -413,10 +410,11 @@ async def get_user_input_with_bindings(
             print(colored(f"# cli-agent: KeyBinding detected: Text-to-speech mode toggled {'on' if args.speak else 'off'}, type (--h) for info", "green"))
             continue
 
-        elif user_input.endswith("-img") or user_input.endswith("--img") or user_input.endswith("-screenshot") or user_input.endswith("--screenshot"):
+        elif user_input.endswith("-img") or user_input.endswith("--img") or user_input.endswith("-screenshot") or user_input.endswith("--screenshot") or args.image:
             print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
-            args.image = True # Signal main loop to take screenshot
-            return "" # Return empty to trigger screenshot logic
+            args.image = False
+            await handle_screenshot_capture(context_chat)
+            continue
 
         elif "-p" in user_input or "--p" in user_input:
             print(colored("# cli-agent: KeyBinding detected: Printing chat history, type (--h) for info", "green"))
@@ -474,10 +472,11 @@ async def get_user_input_with_bindings(
         # USER INPUT HANDLING - END
 
         # No binding matched, return the input
-        return user_input, None
-
+        return user_input
+    if args.image:
+        args.image = False # Reset flag
 # --- New Screenshot Handling Function ---
-async def handle_screenshot_capture(args: argparse.Namespace, context_chat: Optional[Chat]) -> Tuple[List[str], List[str]]:
+async def handle_screenshot_capture(context_chat: Optional[Chat]) -> Tuple[List[str], List[str]]:
     """
     Handles the screenshot capture process, including Spectacle, fallbacks, saving, and context update.
     Retries up to 3 times if no image is captured.
@@ -491,6 +490,7 @@ async def handle_screenshot_capture(args: argparse.Namespace, context_chat: Opti
         - List of base64 encoded image strings.
         - List of paths where screenshots were saved.
     """
+
     base64_images: List[str] = []
     screenshots_paths: List[str] = []
     max_attempts = 2
@@ -566,19 +566,17 @@ async def handle_screenshot_capture(args: argparse.Namespace, context_chat: Opti
                     if not base64_images:
                         print(colored(f"No windows with title containing '{window_title}' found on attempt {attempt}.", "red"))
                     else:
-                         print(colored(f"Window screenshot captured successfully.", "green"))
+                        print(colored(f"Window screenshot captured successfully.", "green"))
 
             except ImportError:
                 print(colored("Fallback screenshot library (e.g., mss, Pillow) not found. Please install dependencies.", "red"))
                 # No point retrying if library is missing
                 break
             except Exception as e:
-                print(colored(f"Error during fallback screenshot capture on attempt {attempt}: {str(e)}", "red"))
-                if args.debug: traceback.print_exc()
+                print(colored(f"Error during fallback screenshot capture on attempt {attempt}: {str(e)}\n\n\n{traceback.print_exc()}", "red"))
 
         except Exception as e:
-            print(colored(f"An unexpected error occurred during screenshot capture attempt {attempt}: {str(e)}", "red"))
-            if args.debug: traceback.print_exc()
+            print(colored(f"An unexpected error occurred during screenshot capture attempt {attempt}: {str(e)}\n\n\n{traceback.print_exc()}", "red"))
 
         # If images were captured in this attempt, break the loop
         if base64_images:
@@ -605,28 +603,24 @@ async def handle_screenshot_capture(args: argparse.Namespace, context_chat: Opti
                 print(colored(f"Screenshot saved to {img_path}", "green"))
             except Exception as e:
                 print(colored(f"Error saving screenshot {i+1}: {str(e)}", "red"))
-
-        # Add context message about saved screenshots
-        if screenshots_paths and context_chat:
-            screenshots_list = "\n".join([f"Screenshot {i+1}: {path}" for i, path in enumerate(screenshots_paths)])
-            # Use repr() for the list itself in the python code context
-            screenshots_section = f"""
-I've attached some screenshots. Here are their paths:
-```python
-screenshots_paths = {screenshots_paths!r}
-for i, screenshot_path in enumerate(screenshots_paths):
-    print(f"Screenshot {{i+1}}: {{screenshot_path}}")
-```
-<execution_output>
-{screenshots_list}
-</execution_output>
-"""
-            context_chat.add_message(Role.USER, screenshots_section)
-        elif not screenshots_paths:
-            print(colored("Failed to save any captured images.", "yellow"))
-
     else:
         print(colored("No images were captured.", "red"))
+
+    # Call the new handler function
+    if not base64_images:
+        print(colored("# cli-agent: No screenshot was captured or saved after multiple attempts.", "yellow"))
+        return ""
+    print(colored("Screenshot preprocesssing...", "green"))
+    context_chat.add_message(Role.USER, f"""I am inquiring about a screenshot let's have a look at it.
+```python
+image_path = '{screenshots_paths[0]}'
+description = ImageToText.run(image_path, "Describe the screenshot in detail, focusing on any text, images, or notable features.")
+print(f"Screenshot description: {{description}}")
+```
+<execution_output>
+Screenshot description: {ImageToText.run(screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
+</execution_output>
+Perfect, use this description as needed for the next steps.""")
 
     return base64_images, screenshots_paths
 # --- End New Screenshot Handling Function ---
@@ -848,31 +842,8 @@ Platform: {sys.platform}
                 user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
             else:
                 # Get input via the new wrapper function
-                hotkey_used = await get_user_input_with_bindings(args, context_chat)
-                if hotkey_used:
-                    continue
+                user_input = await get_user_input_with_bindings(args, context_chat)
 
-            # screen capture (triggered by args.image, potentially set by get_user_input_with_bindings)
-            if args.image:
-                args.image = False # Reset flag
-                # Call the new handler function
-                base64_images, saved_screenshots_paths = await handle_screenshot_capture(args, context_chat)
-                if not base64_images:
-                    print(colored("# cli-agent: No screenshot was captured or saved after multiple attempts.", "yellow"))
-                    if isinstance(args.message, list) and len(args.message) > 0: # ! Detect if this is a workflow, if the screenshot capture failed, empty the message queue and go to user_input
-                        args.message = None
-                    continue
-                print(colored("Screenshot preprocesssing for context...", "green"))
-                context_chat.add_message(Role.USER, f"""I am inquiring about a screenshot let's have a look at it.
-```python
-image_path = '{saved_screenshots_paths[0]}'
-description = ImageToText.run(image_path, "Describe the screenshot in detail, focusing on any text, images, or notable features.")
-print(f"Screenshot description: {{description}}")
-```
-<execution_output>
-Screenshot description: {ImageToText.run(saved_screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
-</execution_output>
-Perfect, use this description as needed for the next steps.""")
 
             if LlmRouter.has_unconfirmed_data():
                 LlmRouter.confirm_finetuning_data()
