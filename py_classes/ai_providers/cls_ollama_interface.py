@@ -331,9 +331,9 @@ class OllamaClient(AIProviderInterface):
                 # List of texts case
                 if chat:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    g.debug_log(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}", force_print=True, prefix=prefix)
+                    g.debug_log(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}", force_print=True, prefix=prefix, end="")
                 else:
-                    print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}")
+                    print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}", end="")
                 
                 embeddings = []
                 
