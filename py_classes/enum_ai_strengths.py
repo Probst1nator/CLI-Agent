@@ -9,7 +9,7 @@ class AIStrengths(Enum):
     CODE = 4
     GUARD = 3
     GENERAL = 2
-    FAST = 1
+    SMALL = 1
     LOCAL = 8
     ONLINE = 9
     VISION = 10

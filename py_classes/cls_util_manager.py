@@ -123,11 +123,13 @@ class UtilsManager:
                     
                     # Format the method signature with docstring and example showing static usage
                     prompt += f"""# Custom Utility {i}
-## {util_name} Importing                    
+## Name: {util_name}                    
+## Usage: 
+```python
 from utils.{util_name} import {util_cls.__name__}
-## {util_name} Usage
-{util_cls.__name__}.run{signature}
-## {util_name} Docstring
+{util_cls.__name__}.run{signature} # Example usage
+```
+## Docstring:
 \"\"\"
 {run_docstring}
 \"\"\""""

@@ -12,6 +12,9 @@ from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_rate_limit_tracker import rate_limit_tracker
+from py_classes.globals import g
+import base64
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -81,15 +84,16 @@ class GoogleAPI(AIProviderInterface):
         Raises:
             RateLimitException: If the model is rate limited.
             TimeoutException: If the request times out.
-            Exception: For other errors.
+            Exception: For other errors, to be handled by the router.
         """
         # Convert string to Chat object if needed
         if isinstance(chat, str):
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
-            
-        debug_print = AIProviderInterface.create_debug_printer(chat)
+
+        # Get the prefix for debug logging
+        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
 
         # Check if the model is rate limited
         if rate_limit_tracker.is_rate_limited(model_key):
@@ -97,74 +101,95 @@ class GoogleAPI(AIProviderInterface):
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
             
             if not silent_reason:
-                debug_print(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True)
+                g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True, prefix=prefix)
             
             # Raise a silent rate limit exception
             raise RateLimitException(f"Model {model_key} is rate limited. Try again in {remaining_time:.1f} seconds")
 
-        try:
-            # Configure the API if not already done
-            GoogleAPI._configure_api()
+        # Configure the API if not already done - let any error here bubble up to the router
+        GoogleAPI._configure_api()
+        
+        # Get the appropriate model
+        model = genai.GenerativeModel(model_key)
+        
+        # Set up the generation config with temperature
+        generation_config = genai.GenerationConfig(
+            temperature=temperature,
+            top_p=1.0,
+            top_k=32,
+            max_output_tokens=8192,
+        )
+        
+        # Create Gemini-compatible messages
+        gemini_messages = []
+        
+        if isinstance(chat, Chat):
+            # Handle Chat object conversion to Gemini format
+            system_prompt = chat.system_prompt if hasattr(chat, 'system_prompt') else None
             
-            # Create generation config
-            generation_config = {
-                "temperature": temperature,
-                "top_p": 0.95,
-                "top_k": 40,
-                "max_output_tokens": 8192,
-            }
-            
-            # Create model instance
-            model = genai.GenerativeModel(model_key)
-            
-            # Convert Chat to Gemini format
-            gemini_messages = chat.to_gemini()
-            
-            # Check if we're using a 2.5+ model, which may have stricter role requirements
-            is_newer_model = "2.5" in model_key or "3" in model_key
-            
-            # For newer models, ensure we're only using "user" and "model" roles
-            if is_newer_model:
-                # Make a copy of the messages to modify
-                fixed_messages = []
+            for message in chat.messages:
+                # Extract role and content from the message tuple (role, content)
+                message_role = message[0]  # Role enum
+                message_content = message[1]  # Content string or list
                 
-                # Find system message if any
-                system_content = None
-                for msg in gemini_messages:
-                    if msg.get("role") == "system":
-                        system_content = "\n".join([part.get("text", "") for part in msg.get("parts", []) if "text" in part])
+                if message_role == Role.USER:
+                    # Handle user messages, which might contain images
+                    if isinstance(message_content, list):
+                        # Multimodal content
+                        content_parts = []
+                        
+                        for item in message_content:
+                            if isinstance(item, dict):
+                                if item.get("type") == "text":
+                                    content_parts.append(item.get("text", ""))
+                                elif item.get("type") == "image":
+                                    image_url = item.get("image_url", {}).get("url", "")
+                                    if image_url.startswith("data:image"):
+                                        # Handle base64 encoded images
+                                        image_data = image_url.split(",")[1]
+                                        mime_type = image_url.split(";")[0].split(":")[1]
+                                        decoded_image = base64.b64decode(image_data)
+                                        content_parts.append(genai.Part.from_data(decoded_image, mime_type=mime_type))
+                                    elif image_url.startswith("http"):
+                                        # Handle URL images
+                                        content_parts.append(genai.Part.from_uri(image_url))
+                            else:
+                                # Simple text message
+                                content_parts.append(str(item))
+                                
+                        gemini_messages.append({"role": "user", "parts": content_parts})
                     else:
-                        fixed_messages.append(msg)
+                        # Simple text message
+                        gemini_messages.append({"role": "user", "parts": [str(message_content)]})
+                        
+                elif message_role == Role.ASSISTANT:
+                    # Assistant messages are always text
+                    gemini_messages.append({"role": "model", "parts": [str(message_content)]})
                 
-                # If we found a system message, add it to the first user message
-                if system_content and fixed_messages:
-                    for msg in fixed_messages:
-                        if msg.get("role") == "user":
-                            for part in msg.get("parts", []):
-                                if "text" in part:
-                                    part["text"] = f"{system_content}\n\n{part['text']}"
-                                    break
-                            break
-                
-                # Ensure all roles are valid
-                for msg in fixed_messages:
-                    if msg.get("role") not in ["user", "model"]:
-                        if msg.get("role") == "assistant":
-                            msg["role"] = "model"
-                        else:
-                            msg["role"] = "user"  # Default to user
-                
-                gemini_messages = fixed_messages
-                
-            # Print status message
-            if silent_reason:
-                temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-                debug_print(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
-            else:
-                temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-                debug_print(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", force_print=True)
+                elif message_role == Role.SYSTEM:
+                    # System messages are converted to user messages with a prefix
+                    # We'll store them separately and handle them below
+                    system_prompt = message_content
             
-            # Generate streaming response
+            # Add system prompt if present (prepend to the first user message)
+            if system_prompt and gemini_messages and gemini_messages[0]["role"] == "user":
+                first_message = gemini_messages[0]
+                first_message["parts"].insert(0, f"System instruction: {system_prompt}\n\n")
+        else:
+            # Handle string input
+            gemini_messages.append({"role": "user", "parts": [str(chat)]})
+            
+        # Print status message
+        if silent_reason:
+            temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
+            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True, prefix=prefix)
+        else:
+            temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
+            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
+        
+        # Generate streaming response - let errors bubble up to the router
+        # except for rate limit errors, which we'll handle here
+        try:
             response = model.generate_content(
                 gemini_messages,
                 generation_config=generation_config,
@@ -172,42 +197,29 @@ class GoogleAPI(AIProviderInterface):
             )
             
             return response
-
-        except (socket.timeout, socket.error, TimeoutError) as e:
-            # Handle timeout errors
-            debug_print(f"Google API timeout error: {e}", "red", is_error=True)
-            raise TimeoutException(f"Request timed out: {e}")
-            
-        except (ResourceExhausted, ServiceUnavailable, TooManyRequests) as e:
-            # Handle rate limit errors
-            debug_print(f"Google API rate limit error: {e}", "red", is_error=True)
-            
-            # Try to parse retry after information (if available)
-            retry_after: int = 60  # Default to 60 seconds
-            error_message = str(e)
-            if "retry after" in error_message.lower():
-                try:
-                    # Try to extract the retry after time
-                    retry_after_part = error_message.lower().split("retry after")[1].strip()
-                    if "seconds" in retry_after_part:
-                        retry_after = int(retry_after_part.split("seconds")[0].strip())
-                    elif "minutes" in retry_after_part:
-                        retry_after = int(retry_after_part.split("minutes")[0].strip()) * 60
-                except (IndexError, ValueError):
-                    pass
-            
-            # Update rate limit tracker
-            rate_limit_tracker.update_rate_limit(model_key, retry_after)
-            
-            # Raise exception
-            raise RateLimitException(f"Rate limit exceeded: {e}")
-            
         except Exception as e:
-            # Handle other errors
-            error_msg = f"Google API error: {e}"
-            debug_print(error_msg, "red", is_error=True)
-            raise Exception(error_msg)
-            
+            # Check if this is a rate limit error (usually contains "quota" in the error message)
+            error_str = str(e).lower()
+            if "quota" in error_str or "rate" in error_str:
+                try:
+                    # Extract retry time if possible (default to 60 seconds if not found)
+                    retry_seconds = 60
+                    retry_matches = re.findall(r"retry in (\d+)", error_str)
+                    if retry_matches:
+                        retry_seconds = int(retry_matches[0])
+                    
+                    # Update rate limit tracker
+                    rate_limit_tracker.update_rate_limit(model_key, retry_seconds)
+                    
+                    error_msg = f"Google-Api: Rate limit reached for {colored('<' + model_key + '>', 'red')}: {e}"
+                    g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
+                    raise RateLimitException(f"Rate limit exceeded: {e}")
+                except Exception as e2:
+                    # If there's an error in the rate limit handling, just proceed with regular error
+                    raise Exception(f"Google API error: {e} (rate limit handling failed: {e2})")
+            # For all other errors, let them bubble up to the router
+            raise
+
     @staticmethod
     def generate_embeddings(
         text: Union[str, List[str]], 
@@ -215,49 +227,27 @@ class GoogleAPI(AIProviderInterface):
         chat: Optional[Chat] = None
     ) -> Optional[Union[List[float], List[List[float]]]]:
         """
-        Generates embeddings for the given text(s) using the specified Gemini embedding model.
+        Generates embeddings for the given text using the Google Gemini API.
         
         Args:
-            text (Union[str, List[str]]): The input text or list of texts to generate embeddings for.
+            text (Union[str, List[str]]): The text or list of texts to generate embeddings for.
             model (str): The embedding model to use.
             chat (Optional[Chat]): The chat object for debug printing.
-        
+            
         Returns:
-            Optional[Union[List[float], List[List[float]]]]: The generated embedding(s) as a list of floats or 
-                                                           list of list of floats, or None if an error occurs.
-        
-        Raises:
-            Exception: For errors during embedding generation.
+            Optional[Union[List[float], List[List[float]]]]: The generated embedding(s) or None if an error occurs.
         """
-        if not text or (isinstance(text, str) and len(text.strip()) < 3):
-            return None
-            
-        if isinstance(text, list) and (len(text) == 0 or all(len(t.strip()) < 3 for t in text if isinstance(t, str))):
-            return None
-            
-        debug_print = AIProviderInterface.create_debug_printer(chat)
-        
-        # Check if the model is rate limited
-        if rate_limit_tracker.is_rate_limited(model):
-            remaining_time = rate_limit_tracker.get_remaining_time(model)
-            rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
-            
-            if debug_print:
-                debug_print(f"Google-Api Embeddings: {colored('<', 'yellow')}{colored(model, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True)
-            
-            # Raise a silent rate limit exception
-            raise RateLimitException(f"Model {model} is rate limited. Try again in {remaining_time:.1f} seconds")
-            
         try:
             # Configure the API if not already done
             GoogleAPI._configure_api()
             
             # Print status message
-            if debug_print:
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 if isinstance(text, list):
-                    debug_print(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings...", force_print=True)
+                    g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings...", force_print=True, prefix=prefix)
                 else:
-                    debug_print(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding...", force_print=True)
+                    g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding...", force_print=True, prefix=prefix)
                     
             # Determine task type for embedding (can influence quality)
             task_type = "RETRIEVAL_DOCUMENT"
@@ -271,48 +261,21 @@ class GoogleAPI(AIProviderInterface):
                 )
                 return result["embedding"]
             else:
-                # List of texts case - process in batches to avoid rate limits
-                embeddings: List[List[float]] = []
-                batch_size = 5  # Process 5 at a time to avoid rate limits
-                
-                for i in range(0, len(text), batch_size):
-                    batch = text[i:i+batch_size]
-                    
-                    for item in batch:
-                        if isinstance(item, str) and len(item.strip()) >= 3:
-                            result = genai.embed_content(
-                                model=model,
-                                content=item,
-                                task_type=task_type
-                            )
-                            embeddings.append(result["embedding"])
-                        else:
-                            # Add empty list for invalid items to maintain position
-                            embeddings.append([])
-                            
-                    # Print progress if debug_print is available
-                    if debug_print:
-                        debug_print(f"Processed {min(i+batch_size, len(text))}/{len(text)} embeddings", force_print=True)
-                
+                # List of texts case
+                embeddings = []
+                for t in text:
+                    result = genai.embed_content(
+                        model=model,
+                        content=t,
+                        task_type=task_type
+                    )
+                    embeddings.append(result["embedding"])
                 return embeddings
-            
-        except (ResourceExhausted, ServiceUnavailable, TooManyRequests) as e:
-            # Handle rate limit errors
-            if debug_print:
-                debug_print(f"Google API rate limit error: {e}", "red", is_error=True)
-            
-            # Default retry time
-            retry_after = 60  # Default to 60 seconds
-            
-            # Update rate limit tracker
-            rate_limit_tracker.update_rate_limit(model, retry_after)
-            
-            # Raise exception
-            raise RateLimitException(f"Rate limit exceeded: {e}")
-            
+                
         except Exception as e:
-            # Handle other errors
             error_msg = f"Google API embedding error: {e}"
-            if debug_print:
-                debug_print(error_msg, "red", is_error=True)
-            raise Exception(error_msg)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
+            logger.error(error_msg)
+            return None

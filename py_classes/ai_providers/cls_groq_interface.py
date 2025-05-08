@@ -4,16 +4,16 @@ from collections.abc import Callable
 from groq import Groq
 from termcolor import colored
 from py_classes.cls_text_stream_painter import TextStreamPainter
-# Defer actual import to avoid circular dependency
-# from py_classes.cls_chat import Chat
+from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_rate_limit_tracker import rate_limit_tracker
 import socket
 import logging
+from py_classes.globals import g
 
 # Only used for type annotations
 if TYPE_CHECKING:
-    from py_classes.cls_chat import Chat, Role
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -42,73 +42,78 @@ class GroqAPI(AIProviderInterface):
             silent_reason (str): Reason for silence if applicable.
         Returns:
             Any: A stream object that yields response chunks.
+            
+        Raises:
+            RateLimitException: If the model is rate limited.
+            Exception: For other issues, to be handled by the router.
         """
-        # Import here to avoid circular dependency
-        from py_classes.cls_chat import Chat, Role
-        
         # Convert string to Chat object if needed
         if isinstance(chat, str):
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
             
-        debug_print = AIProviderInterface.create_debug_printer(chat)
-
         # Check if the model is rate limited
         if rate_limit_tracker.is_rate_limited(model_key):
             remaining_time = rate_limit_tracker.get_remaining_time(model_key)
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
             
             if not silent_reason:
-                debug_print(f"Groq-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True)
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Groq-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True, prefix=prefix)
             
-            # Raise a silent rate limit exception
+            # Raise a rate limit exception to be handled by the router
             raise RateLimitException(f"Model {model_key} is rate limited. Try again in {remaining_time:.1f} seconds")
 
-        try:
-            client = Groq(api_key=os.getenv('GROQ_API_KEY'))
-            
-            if silent_reason:
-                temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
-                debug_print(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
-            else:
-                temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
-                debug_print(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
+        # Configure the client (let any error here bubble up to the router)
+        client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+        
+        # Informational logging (not error handling)
+        if silent_reason:
+            temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
+            prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+            g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True, prefix=prefix)
+        else:
+            temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
+            prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+            g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
 
-            return client.chat.completions.create(
-                model=model_key,
-                messages=chat.to_groq(),
-                temperature=temperature,
-                stream=True
-            )
-
-        except Exception as e:
-            error_msg = f"Groq API error: {e}"
-            debug_print(error_msg, "red", is_error=True)
-            raise Exception(error_msg)
+        # Let any errors here bubble up to the router for centralized handling
+        return client.chat.completions.create(
+            model=model_key,
+            messages=chat.to_groq(),
+            temperature=temperature,
+            stream=True
+        )
 
     @staticmethod
     def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional['Chat'] = None) -> Optional[Tuple[str, str]]:
         """
         Transcribes an audio file using Groq's Whisper implementation.
+        
         Args:
             filepath (str): The path to the audio file.
             model (str): The Whisper model to use.
             language (str): The language of the audio (default: "auto" for auto-detection).
             silent_reason (str): Reason for silence if applicable.
             chat (Optional[Chat]): Chat object for debug printing with title.
+            
         Returns:
-            Optional[Tuple[str, str]]: A tuple containing the transcribed text and detected language, or None if an error occurs.
+            Optional[Tuple[str, str]]: A tuple containing the transcribed text and detected language.
+            
+        Raises:
+            RateLimitException: If the model is rate limited.
+            TimeoutException: If the request times out.
+            Exception: For other errors.
         """
-        debug_print = AIProviderInterface.create_debug_printer(chat)
-        
         # Check if the model is rate limited
         if rate_limit_tracker.is_rate_limited(model):
             remaining_time = rate_limit_tracker.get_remaining_time(model)
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
             
-            if not silent_reason and debug_print:
-                debug_print(f"Groq-Api: {colored('<', 'yellow')}{colored(model, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True)
+            if not silent_reason and chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Groq-Api: {colored('<', 'yellow')}{colored(model, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True, prefix=prefix)
             
             # Raise a silent rate limit exception
             raise RateLimitException(f"Model {model} is rate limited. Try again in {remaining_time:.1f} seconds")
@@ -116,8 +121,9 @@ class GroqAPI(AIProviderInterface):
         try:
             client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=0)
             
-            if not silent_reason:
-                debug_print(f"Groq-Api: Transcribing audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True)
+            if not silent_reason and chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Groq-Api: Transcribing audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True, prefix=prefix)
             
             with open(filepath, "rb") as file:
                 transcription = client.audio.transcriptions.create(
@@ -127,8 +133,9 @@ class GroqAPI(AIProviderInterface):
                     language=language
                 )
             
-            if not silent_reason:
-                debug_print(colored("Transcription complete.", 'green'), force_print=True)
+            if not silent_reason and chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(colored("Transcription complete.", 'green'), force_print=True, prefix=prefix)
             
             return transcription.text, transcription.language
 

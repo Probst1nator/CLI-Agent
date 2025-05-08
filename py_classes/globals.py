@@ -2,11 +2,12 @@
 import os
 import shutil
 import socket
-from typing import List, Optional, Any, Callable
+from typing import List, Optional, Any, Callable, TYPE_CHECKING
 import argparse
 import logging
 import builtins
 from enum import Enum, auto
+from termcolor import colored
 
 from py_classes.enum_ai_strengths import AIStrengths
 
@@ -54,6 +55,54 @@ class Globals:
     if os.path.exists(PROJ_TEMP_STORAGE_PATH):
         shutil.rmtree(PROJ_TEMP_STORAGE_PATH)
     os.makedirs(PROJ_TEMP_STORAGE_PATH, exist_ok=True)
+    
+    def debug_log(self, message: str, color: str = None, end: str = '\n', 
+                  with_title: bool = True, is_error: bool = False, force_print: bool = False,
+                  prefix: str = "") -> None:
+        """
+        A centralized debug log function to replace the various debug_print and log_print functions.
+        
+        Args:
+            message (str): The message to print
+            color (str, optional): Color for the message
+            end (str): End character
+            with_title (bool): Whether to include the chat title
+            is_error (bool): Whether this is an error message
+            force_print (bool): Force printing to console even for info messages
+            prefix (str): Prefix to add before the message (replaces chat.get_debug_title_prefix())
+        """
+        log_message = f"{prefix}{message}"
+        
+        # Log to appropriate logger level (ignoring color)
+        if is_error:
+            logging.error(log_message)
+            # For errors, always print to console
+            if color:
+                print(colored(log_message, color), end=end)
+            else:
+                print(log_message, end=end)
+        else:
+            # For info level, log to logger
+            logging.info(log_message)
+            # Only print to console if forced
+            if force_print:
+                if color:
+                    print(colored(log_message, color), end=end)
+                else:
+                    print(log_message, end=end)
+    
+    def print_token(self, token: str, color_func = None) -> None:
+        """
+        Print a token with optional coloring for stream processing.
+        
+        Args:
+            token (str): The token to print
+            color_func: Function to apply color to the token
+        """
+        if color_func:
+            print(color_func(token), end="", flush=True)
+        else:
+            print(token, end="", flush=True)
     
 g = Globals()
 

@@ -7,6 +7,8 @@ import logging
 import traceback
 import requests
 from pydantic import ValidationError
+from py_classes.globals import g
+from py_classes.utils.cls_utils_web import WebTools
 
 class SearchWeb(UtilBase):
     """
@@ -15,17 +17,37 @@ class SearchWeb(UtilBase):
     This utility allows searching the web and returning relevant results.
     """
     
+    # Initialize WebTools here to ensure it's available in sandbox
+    web_tools = None
+    
+    @classmethod
+    def initialize(cls):
+        """Initialize the class resources if not already initialized"""
+        if cls.web_tools is None:
+            try:
+                cls.web_tools = WebTools()
+                print("SearchWeb: WebTools initialized successfully")
+            except Exception as e:
+                print(f"SearchWeb: Error initializing WebTools: {e}")
+                # Create a minimal fallback implementation
+                class MinimalWebTools:
+                    def search_brave(self, query, num_results=3):
+                        return [(f"Error: Could not initialize WebTools properly. Error: {e}", "https://error")]
+                cls.web_tools = MinimalWebTools()
+    
     @staticmethod
-    def run(queries: List[str], return_urls: bool = False ) -> str:
+    def run(queries: List[str]) -> str:
         """
-        Perform a web search with the given query.
+        Access the internet in real time.
         
         Args:
-            queries: List of search query strings
+            queries: List of google search queries
             
         Returns:
             A summary of the search results
         """
+        # Initialize WebTools if not already done
+        SearchWeb.initialize()
         
         # Handle both single string and list of strings
         if isinstance(queries, str):
@@ -122,7 +144,7 @@ Your suggested queries should be more specific or use alternative terminology th
         )
         is_relevant_tool_response = LlmRouter.generate_completion(
             is_relevant_chat,
-            strengths=[AIStrengths.REASONING, AIStrengths.FAST],
+            strengths=[AIStrengths.REASONING, AIStrengths.SMALL],
             exclude_reasoning_tokens=True,
             hidden_reason="SearchWebUtil: verifying relevance"
         )
