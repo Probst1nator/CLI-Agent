@@ -294,7 +294,8 @@ Do not add any other text after this single-word verdict.""",
     else:
         # Manual confirmation
         print(colored(" (Press Enter to confirm or 'n' to abort, press 'a' to toggle auto execution)", "cyan"))
-        user_input = input()
+        user_input = input(colored("> ", 'yellow', attrs=["bold"]))
+        
         if user_input.lower() == 'n':
             print(colored("❌ Code execution aborted by user", "red"))
             return False
@@ -1055,8 +1056,7 @@ You may read from the whole system but if you need to save or modify any files, 
                             stdout, stderr, result = python_sandbox.execute(
                                 code_to_execute,
                                 stdout_callback=stdout_callback,
-                                stderr_callback=stderr_callback,
-                                max_idle_time=120
+                                stderr_callback=stderr_callback
                             )
 
                             print(colored("\n✅ Code execution completed.", "cyan"))
