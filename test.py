@@ -1,324 +1,279 @@
-import pygame
-import random
-import os
-import time
-import math # Need math for calculating ray positions and vectors
-
-# Initialize Pygame
-pygame.init()
-
-# Screen dimensions
-screen_width = 800
-screen_height = 400
-screen = pygame.display.set_mode((screen_width, screen_height))
-pygame.display.set_caption("Frog Splatter Simulation")
-
-# Colors
-black = (0, 0, 0)
-gray = (100, 100, 100)
-red = (255, 0, 0)
-white = (255, 255, 255) # For the fading light
-
-# Road properties
-road_height = 50
-road_y = screen_height - road_height
-
-# Car properties
-car_speed = 5
-# Define new desired sizes for the images
-new_car_width = 150
-new_car_height = 75
-new_frog_width = 50
-new_frog_height = 50
-
-# Image paths (using the CORRECT paths in the home directory and .jpg/.png extension)
-car_image_path = os.path.expanduser("~/green_bmw.jpg")
-frog_image_path = os.path.expanduser("~/blue_frog.jpg")
-angel_image_path = os.path.expanduser("~/angel.png") # Assuming the angel is a PNG
-
-
-print(f"Attempting to load car image from: {car_image_path}")
-print(f"Attempting to load frog image from: {frog_image_path}")
-print(f"Attempting to load angel image from: {angel_image_path}")
-
-
-# Load images first to get original dimensions
-try:
-    car_image_orig = pygame.image.load(car_image_path).convert_alpha()
-    frog_image_orig = pygame.image.load(frog_image_path).convert_alpha()
-    angel_image_orig = pygame.image.load(angel_image_path).convert_alpha()
-
-except pygame.error as e:
-    print(f"Error loading images: {e}")
-    print(f"Make sure image files exist and are valid: '{car_image_path}', '{frog_image_path}', '{angel_image_path}'")
-    pygame.quit()
-    exit() # Exit if images can't be loaded
-
-# Scale images
-car_image = pygame.transform.scale(car_image_orig, (new_car_width, new_car_height))
-frog_image = pygame.transform.scale(frog_image_orig, (new_frog_width, new_frog_height))
-
-# Scale angel proportionally based on the desired width (same as car width)
-angel_original_aspect = angel_image_orig.get_width() / angel_image_orig.get_height()
-scaled_angel_width = new_car_width # Start with car width
-scaled_angel_height = int(scaled_angel_width / angel_original_aspect)
-# If the user wants it slimmer, we could reduce scaled_angel_width here, e.g., scaled_angel_width = int(new_car_width * 0.8)
-# Let's stick to car width for now, as "slimmer" might mean less tall if the original is wide.
-# If the original is tall, scaling to car width will make it shorter, which might be "slimmer" visually.
-# Let's scale to car width and see how it looks.
-angel_image = pygame.transform.scale(angel_image_orig, (scaled_angel_width, scaled_angel_height))
-print(f"Scaled angel image to: {scaled_angel_width}x{scaled_angel_height}")
-
-
-# Define a consistent off-screen top-left position for the angel's descent start and return target
-ANGEL_OFFSCREEN_TOPLEFT = (-scaled_angel_width, -scaled_angel_height) # Start completely off-screen top-left
-
-
-# Car, Frog, and Angel setup function (initial setup)
-def initial_setup():
-    car_rect = car_image.get_rect()
-    car_rect.bottom = road_y
-    car_rect.left = -car_rect.width # Start off-screen left
-
-    frog_rect = frog_image.get_rect()
-    frog_rect.bottom = road_y
-    frog_rect.centerx = screen_width // 2 # Center the frog horizontally
-
-    # Angel initial position (set to the consistent start position)
-    angel_rect = angel_image.get_rect()
-    angel_rect.topleft = ANGEL_OFFSCREEN_TOPLEFT
-
-
-    frog_alive = True
-    splatter_particles = []
-    last_frog_pos = frog_rect.center # Store initial position
-
-    # Angel state and movement variables
-    angel_state = 'idle' # 'idle', 'flying_down', 'flying_up'
-    angel_target_pos = last_frog_pos # Angel flies to where the frog died
-    angel_return_speed = 8 # Speed for flying back up (pixels per frame)
-    angel_descent_duration = 90 # frames for the angel's descent (controls speed) - ADJUSTED DURATION
-    angel_descent_timer = 0 # Timer for the descent flight
-
-
-    return car_rect, frog_rect, frog_alive, splatter_particles, last_frog_pos, angel_rect, angel_state, angel_target_pos, angel_return_speed, angel_descent_duration, angel_descent_timer
-
-
-# Splatter properties
-splatter_count = 50 # Number of splatter particles
-splatter_speed_range = (1, 5) # Min/Max speed for particles
-splatter_lifetime = 30 # How many frames particles last
-
-# State machine
-STATE_PLAYING = 'playing'
-STATE_ANGEL_DESCENT = 'angel_descent' # New state for angel flying down
-STATE_RESPAWNING = 'respawning' # Combined state for fading light and frog
-
-current_state = STATE_PLAYING
-
-# Respawning timing and effects
-fading_duration = 90 # frames for the fading effect (1.5 seconds at 60 fps)
-fading_timer = 0
-last_frog_pos = (screen_width // 2, road_y - new_frog_height // 2) # Default position
-
-# Variables for fading alpha (need to be accessible in drawing)
-light_alpha = 0
-frog_alpha = 0
-
-# Sun effect properties
-sun_radius = 40 # Radius of the central sun circle
-ray_length = 60 # Length of the sun rays
-ray_width = 10 # Width of the sun rays
-num_rays = 12 # Number of rays
-
-# Game loop
-running = True
-car_rect, frog_rect, frog_alive, splatter_particles, last_frog_pos, angel_rect, angel_state, angel_target_pos, angel_return_speed, angel_descent_duration, angel_descent_timer = initial_setup()
-clock = pygame.time.Clock()
-
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-
-    # --- State Logic ---
-    if current_state == STATE_PLAYING:
-        # Move the car
-        car_rect.x += car_speed
-
-        # Move angel up if flying up
-        if angel_state == 'flying_up':
-            # Calculate direction vector from current pos to top-left off-screen
-            direction = pygame.math.Vector2(ANGEL_OFFSCREEN_TOPLEFT) - pygame.math.Vector2(angel_rect.topleft)
-            # Normalize the vector and multiply by speed
-            if direction.length() > 0: # Avoid division by zero
-                 direction = direction.normalize() * angel_return_speed
-                 angel_rect.x += direction.x
-                 angel_rect.y += direction.y
-
-            # Check if angel is off-screen top-left
-            if angel_rect.right < 0 and angel_rect.bottom < 0:
-                angel_state = 'idle'
-                # Reset angel position to start point when idle
-                angel_rect.topleft = ANGEL_OFFSCREEN_TOPLEFT
-                print("Angel returned to heaven and reset.")
-
-
-        # Check for collision if frog is alive
-        if frog_alive and car_rect.colliderect(frog_rect):
-            print("Collision detected!")
-            frog_alive = False
-            last_frog_pos = frog_rect.center # Store position for respawn effect
-            # Create splatter particles
-            splatter_origin = frog_rect.center
-            for _ in range(splatter_count):
-                angle = random.uniform(0, 360)
-                speed = random.uniform(*splatter_speed_range)
-                # Calculate velocity components
-                vel_x = speed * pygame.math.Vector2(1, 0).rotate(angle).x
-                vel_y = speed * pygame.math.Vector2(1, 0).rotate(angle).y
-                splatter_particles.append({
-                    'pos': list(splatter_origin),
-                    'vel': [vel_x, vel_y],
-                    'lifetime': splatter_lifetime
-                })
-
-        # Check if car is off-screen and frog is dead to start angel descent
-        if car_rect.left > screen_width and not frog_alive:
-            print("Car off-screen and frog dead, starting angel descent...")
-            current_state = STATE_ANGEL_DESCENT # Transition to the new state
-            angel_state = 'flying_down' # Set angel state
-            angel_descent_timer = angel_descent_duration # Start the descent timer
-            angel_target_pos = last_frog_pos # Angel flies to where the frog died
-            # Car stays off-screen, don't reset its position yet
-            # Fading effect and frog respawn don't start yet
-
-
-    elif current_state == STATE_ANGEL_DESCENT:
-        angel_descent_timer -= 1
-
-        # --- Update Angel Position during flying_down ---
-        if angel_descent_timer >= 0:
-            # Calculate interpolation factor (0 at start, 1 at end of descent)
-            t = 1 - (angel_descent_timer / angel_descent_duration)
-            t = max(0, min(1, t)) # Clamp t between 0 and 1
-
-            # Linear interpolation between start and target position
-            # Angel's center moves from ANGEL_OFFSCREEN_TOPLEFT to angel_target_pos
-            angel_rect.center = (int(ANGEL_OFFSCREEN_TOPLEFT[0] + (angel_target_pos[0] - ANGEL_OFFSCREEN_TOPLEFT[0]) * t),
-                                 int(ANGEL_OFFSCREEN_TOPLEFT[1] + (angel_target_pos[1] - ANGEL_OFFSCREEN_TOPLEFT[1]) * t))
-
-        if angel_descent_timer <= 0:
-            print("Angel descent ended, starting respawning effect...")
-            # Angel has reached the target position, transition to respawning
-            current_state = STATE_RESPAWNING
-            fading_timer = fading_duration # Start the fading timer for light/frog
-            # Angel stays at the target position during respawning
-
-
-    elif current_state == STATE_RESPAWNING:
-        fading_timer -= 1
-
-        # Calculate alpha based on timer progress *every frame in this state*
-        # Light alpha goes from 255 to 0
-        light_alpha = int((fading_timer / fading_duration) * 255)
-        light_alpha = max(0, light_alpha) # Ensure alpha doesn't go below 0
-
-        # Frog alpha goes from 0 to 255
-        frog_alpha = int((1 - (fading_timer / fading_duration)) * 255)
-        frog_alpha = min(255, frog_alpha) # Ensure alpha doesn't go above 255
-
-        # Angel stays at the target position during this state
-        angel_rect.center = angel_target_pos
-
-
-        if fading_timer <= 0:
-            print("Respawning effect ended, resetting car and returning to playing state.")
-            # Respawn frog (it's already drawn with full alpha on the last frame of respawning)
-            frog_alive = True # Set alive for the next playing state
-            # Reset car position
-            car_rect.left = -car_rect.width
-            # Clear old splatter particles for the new round
-            splatter_particles = []
-            current_state = STATE_PLAYING # Return to playing state
-
-            # --- Trigger Angel Flight Up ---
-            angel_state = 'flying_up'
-            # Angel is already at the target position (last_frog_pos)
-
-
-    # --- Update Splatter Particles (always update regardless of state) ---
-    for particle in splatter_particles[:]: # Iterate over a copy to allow removal
-        particle['pos'][0] += particle['vel'][0]
-        particle['pos'][1] += particle['vel'][1]
-        particle['lifetime'] -= 1
-        if particle['lifetime'] <= 0:
-            splatter_particles.remove(particle)
-
-    # --- Drawing ---
-    screen.fill(black) # Sky
-    pygame.draw.rect(screen, gray, (0, road_y, screen_width, road_height)) # Road
-
-    # Draw frog
-    if current_state == STATE_PLAYING and frog_alive:
-        screen.blit(frog_image, frog_rect)
-    elif current_state == STATE_RESPAWNING:
-        # Draw the fading-in frog at the respawn position
-        # Create a temporary surface for the frog with alpha *here* in the drawing loop
-        temp_frog_surface = frog_image.copy()
-        temp_frog_surface.set_alpha(frog_alpha)
-        # Need to calculate the rect for the temporary surface at the correct position
-        temp_frog_rect = temp_frog_surface.get_rect(center=last_frog_pos)
-        screen.blit(temp_frog_surface, temp_frog_rect)
-
-
-    # Draw fading light effect if in respawning state and timer > 0
-    if current_state == STATE_RESPAWNING and fading_timer > 0:
-        # Create a temporary surface for the sun effect
-        # Make it large enough to contain the central circle and rays
-        sun_surface_size = (sun_radius + ray_length) * 2
-        sun_surface = pygame.Surface((sun_surface_size, sun_surface_size), pygame.SRCALPHA)
-        sun_center = (sun_surface_size // 2, sun_surface_size // 2)
-
-        # Draw central circle
-        pygame.draw.circle(sun_surface, white, sun_center, sun_radius)
-
-        # Draw rays
-        for i in range(num_rays):
-            angle = (360 / num_rays) * i
-            # Calculate start and end points for the ray
-            start_pos = pygame.math.Vector2(sun_radius, 0).rotate(angle) + sun_center
-            end_pos = pygame.math.Vector2(sun_radius + ray_length, 0).rotate(angle) + sun_center
-
-            # Draw lines for rays
-            pygame.draw.line(sun_surface, white, start_pos, end_pos, ray_width)
-
-
-        # Apply alpha to the sun surface
-        sun_surface.set_alpha(light_alpha)
-
-        # Blit the sun surface centered at the last frog position
-        sun_rect = sun_surface.get_rect(center=last_frog_pos)
-        screen.blit(sun_surface, sun_rect)
-
-    # Draw the angel if not idle
-    if angel_state != 'idle':
-        screen.blit(angel_image, angel_rect)
-
-
-    # Draw car (always draw, its position is handled by state)
-    screen.blit(car_image, car_rect)
-
-    # Draw splatter particles (always draw)
-    for particle in splatter_particles:
-        pygame.draw.circle(screen, red, (int(particle['pos'][0]), int(particle['pos'][1])), 2) # Draw small red circles
-
-    # Update the display
-    pygame.display.flip()
-
-    # Cap the frame rate
-    clock.tick(60) # 60 frames per second
-
-pygame.quit()
-# Note: SystemExit is expected here as Pygame is shutting down.
-# exit() # No need for explicit exit() after pygame.quit() in a script
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D # For 3D plotting
+import sympy
+
+# Helper function to plot vectors in 2D
+def plot_vector(ax, origin, vector, color='k', label=None, linestyle='-', head_width=0.1, head_length=0.15):
+    ax.quiver(origin[0], origin[1], vector[0], vector[1],
+              angles='xy', scale_units='xy', scale=1,
+              color=color, label=label, linestyle=linestyle,
+              headwidth=head_width / ax.get_xlim_size() * 10, # Adjust head size relative to plot
+              headlength=head_length / ax.get_ylim_size() * 10)
+
+# Helper function to plot vectors in 3D
+def plot_vector_3d(ax, origin, vector, color='k', label=None, linestyle='-'):
+    ax.quiver(origin[0], origin[1], origin[2],
+              vector[0], vector[1], vector[2],
+              color=color, label=label, linestyle=linestyle, length=np.linalg.norm(vector), normalize=False)
+
+
+def analyze_and_visualize_matrix(A_np, matrix_name="Matrix A"):
+    print(f"\n--- Analyzing {matrix_name} ---")
+    print(f"A = \n{A_np}\n")
+
+    n = A_np.shape[0]
+    A_sym = sympy.Matrix(A_np)
+    lam = sympy.symbols('lambda')
+    I_sym = sympy.eye(n)
+
+    # 1. Characteristic Polynomial
+    char_poly_matrix = A_sym - lam * I_sym
+    char_poly = sympy.det(char_poly_matrix)
+    print(f"Characteristic Polynomial P(λ) = det(A - λI) = {sympy.simplify(char_poly)} = 0")
+
+    # 2. Eigenvalues (from numpy for numerical stability, sympy for exact if possible)
+    eigenvalues_np, eigenvectors_np = np.linalg.eig(A_np)
+    # Sort them for consistent output, largest magnitude first for numpy
+    idx = np.argsort(np.abs(eigenvalues_np))[::-1]
+    eigenvalues_np = eigenvalues_np[idx]
+    eigenvectors_np = eigenvectors_np[:, idx]
+
+
+    print(f"Numerical Eigenvalues (from numpy): {np.round(eigenvalues_np, 5)}")
+    # For printing, try to get symbolic roots if polynomial is simple enough
+    try:
+        symbolic_roots = sympy.roots(char_poly, lam)
+        print(f"Symbolic Eigenvalues (from sympy roots): {symbolic_roots}")
+    except NotImplementedError:
+        print("Symbolic roots for this polynomial are complex to find.")
+
+
+    # 3. Algebraic Multiplicity
+    # Use rounded numpy eigenvalues for determining uniqueness and counts
+    unique_eigenvalues, counts = np.unique(np.round(eigenvalues_np, 5), return_counts=True)
+    algebraic_multiplicities = dict(zip(unique_eigenvalues, counts))
+    print("\nAlgebraic Multiplicities (m_a):")
+    for val, count in algebraic_multiplicities.items():
+        print(f"  λ = {val:.{5}f}: m_a = {count}")
+
+    # 4. Geometric Multiplicity & Eigenvectors
+    print("\nEigenvectors and Geometric Multiplicities (m_g):")
+    geometric_multiplicities = {}
+    all_eigenvectors_for_plotting = [] # Store (eigenvalue, eigenvector) pairs
+
+    for i, val_rounded in enumerate(unique_eigenvalues):
+        # Find the original complex eigenvalue that corresponds to this rounded unique one
+        # This is important if eigenvalues are complex or very close
+        original_val_indices = np.where(np.isclose(eigenvalues_np, val_rounded))[0]
+        original_val = eigenvalues_np[original_val_indices[0]] # Take the first match
+
+        print(f"  For λ = {original_val:.{5}f}:")
+
+        # Geometric multiplicity: dim(Null(A - λI)) = n - rank(A - λI)
+        # Use original_val for higher precision in (A - λI)
+        null_space_matrix = A_np - original_val * np.eye(n)
+        # For rank calculation, it's often better to use a small tolerance or convert to float if it's not already
+        rank = np.linalg.matrix_rank(null_space_matrix.astype(complex if np.iscomplexobj(A_np) or np.iscomplexobj(original_val) else float))
+        geom_mult = n - rank
+        geometric_multiplicities[val_rounded] = geom_mult
+        print(f"    Geometric Multiplicity (m_g) = {n} - rank(A - ({original_val:.{5}f})I) = {n} - {rank} = {geom_mult}")
+
+        # Eigenvectors from numpy for this unique eigenvalue
+        # These are the columns in eigenvectors_np corresponding to original_val
+        print(f"    Basis for Eigenspace E_({original_val:.{5}f}) (Eigenvectors from numpy):")
+        current_eigenvalue_eigenvectors = []
+        for k in original_val_indices:
+            # Only take up to geom_mult linearly independent ones if numpy gives more due to numerical issues
+            # However, numpy.linalg.eig usually gives a full set of L.I. eigenvectors if diagonalizable
+            # If not, the concept of "eigenvectors for this eigenvalue" is tricky.
+            # We trust numpy.linalg.eig gives L.I. vectors.
+            # The check for diagonalizability will use m_a vs m_g.
+            vec = eigenvectors_np[:, k]
+            print(f"      v{k+1} = {np.round(vec, 5)}")
+            all_eigenvectors_for_plotting.append((original_val, vec))
+            current_eigenvalue_eigenvectors.append(vec)
+        
+        # If m_g > number of vecs from original_val_indices (e.g. repeated real eigenvalue)
+        # This part is tricky as numpy.linalg.eig might return a full set of eigenvectors
+        # even if m_g < m_a for some eigenvalues, potentially spanning a larger space
+        # than the true eigenspace if the matrix is defective.
+        # The rank calculation is the most reliable for m_g.
+
+    # 5. Diagonalizability
+    is_diagonalizable = True
+    print("\nDiagonalizability Check:")
+    for val_rounded in unique_eigenvalues:
+        ma = algebraic_multiplicities[val_rounded]
+        mg = geometric_multiplicities[val_rounded]
+        print(f"  For λ = {val_rounded:.{5}f}: m_a = {ma}, m_g = {mg}. Condition m_g = m_a is {mg == ma}.")
+        if mg != ma:
+            is_diagonalizable = False
+
+    if is_diagonalizable:
+        print("Result: The matrix IS diagonalizable (all m_g == m_a).")
+        # Check if sum of geometric multiplicities is n (equivalent condition)
+        sum_mg = sum(geometric_multiplicities.values())
+        if sum_mg == n:
+            print(f"Sum of geometric multiplicities = {sum_mg} == n ({n}). Confirmed.")
+        else: # Should not happen if individual m_g == m_a and sum of m_a == n
+            print(f"Error: Sum of geometric multiplicities = {sum_mg} != n ({n}), but individual checks passed.")
+
+    else:
+        print("Result: The matrix IS NOT diagonalizable (at least one m_g < m_a).")
+
+    # --- Visualization ---
+    # Only visualize real eigenvectors for simplicity in this script
+    real_eigenvectors_for_plotting = [(val, vec) for val, vec in all_eigenvectors_for_plotting if np.all(np.isreal(vec)) and np.isreal(val)]
+    if not real_eigenvectors_for_plotting:
+        print("\nNo real eigenvalues/eigenvectors to visualize.")
+        return
+
+    if n == 2 and real_eigenvectors_for_plotting:
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.set_title(f"Visualization for {matrix_name}")
+        ax.axhline(0, color='grey', lw=0.5)
+        ax.axvline(0, color='grey', lw=0.5)
+        ax.set_xlabel("x-axis")
+        ax.set_ylabel("y-axis")
+        ax.grid(True, linestyle=':', alpha=0.7)
+
+        # Plot unit circle and its transformation
+        theta = np.linspace(0, 2 * np.pi, 100)
+        circle = np.array([np.cos(theta), np.sin(theta)])
+        ax.plot(circle[0, :], circle[1, :], color='lightgray', linestyle='--', label='Unit Circle')
+
+        transformed_circle = A_np @ circle
+        ax.plot(transformed_circle[0, :], transformed_circle[1, :], color='cyan', label='Transformed Circle (A @ Unit Circle)')
+
+        colors = ['red', 'green', 'purple', 'orange'] # Cycle through colors
+        plotted_labels = set()
+
+        # Store min/max for plot limits
+        all_x_coords = [0] + list(transformed_circle[0,:])
+        all_y_coords = [0] + list(transformed_circle[1,:])
+
+        for i, (val, vec) in enumerate(real_eigenvectors_for_plotting):
+            val = np.real(val) # Ensure val is real for plotting
+            vec = np.real(vec) # Ensure vec is real
+
+            # Normalize eigenvector for consistent plotting length (optional, but good for viz)
+            # vec_norm = vec / np.linalg.norm(vec) if np.linalg.norm(vec) > 1e-6 else vec
+            vec_norm = vec # Plot original eigenvector length
+
+            color = colors[i % len(colors)]
+
+            # Eigenvector v
+            label_v = f"v (λ={val:.2f})" if f"v (λ={val:.2f})" not in plotted_labels else None
+            plot_vector(ax, [0,0], vec_norm, color=color, linestyle='-', label=label_v)
+            if label_v: plotted_labels.add(label_v)
+            all_x_coords.extend([0, vec_norm[0]])
+            all_y_coords.extend([0, vec_norm[1]])
+
+
+            # Transformed Eigenvector Av
+            Av = A_np @ vec_norm
+            label_Av = f"Av (scaled by λ)" if f"Av (scaled by λ)" not in plotted_labels and i==0 else None # only one label for this
+            plot_vector(ax, [0,0], Av, color=color, linestyle=':', label=label_Av, head_width=0.12, head_length=0.18)
+            if label_Av: plotted_labels.add(label_Av)
+            all_x_coords.extend([0, Av[0]])
+            all_y_coords.extend([0, Av[1]])
+
+
+        # Set plot limits
+        padding = 0.5
+        min_x, max_x = min(all_x_coords), max(all_x_coords)
+        min_y, max_y = min(all_y_coords), max(all_y_coords)
+        ax.set_xlim(min_x - padding, max_x + padding)
+        ax.set_ylim(min_y - padding, max_y + padding)
+
+        ax.legend(fontsize='small')
+        ax.set_aspect('equal', adjustable='box') # Make x and y scales equal
+
+    elif n == 3 and real_eigenvectors_for_plotting:
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_title(f"Eigenvectors for {matrix_name}")
+        ax.set_xlabel("X axis")
+        ax.set_ylabel("Y axis")
+        ax.set_zlabel("Z axis")
+
+        # Origin lines
+        ax.plot([0,0],[0,0],[-1,1], color='grey', lw=0.5) # Z
+        ax.plot([0,0],[-1,1],[0,0], color='grey', lw=0.5) # Y
+        ax.plot([-1,1],[0,0],[0,0], color='grey', lw=0.5) # X
+
+
+        colors = ['red', 'green', 'blue', 'purple', 'orange']
+        plotted_labels = set()
+
+        all_coords = [0]
+        for i, (val, vec) in enumerate(real_eigenvectors_for_plotting):
+            val = np.real(val)
+            vec = np.real(vec)
+            color = colors[i % len(colors)]
+
+            # Eigenvector v
+            label_v = f"v (λ={val:.2f})" if f"v (λ={val:.2f})" not in plotted_labels else None
+            plot_vector_3d(ax, [0,0,0], vec, color=color, linestyle='-', label=label_v)
+            if label_v: plotted_labels.add(label_v)
+            all_coords.extend(list(vec))
+
+            # Transformed Eigenvector Av
+            Av = A_np @ vec
+            label_Av = f"Av (scaled by λ)" if f"Av (scaled by λ)" not in plotted_labels and i==0 else None
+            plot_vector_3d(ax, [0,0,0], Av, color=color, linestyle=':', label=label_Av)
+            if label_Av: plotted_labels.add(label_Av)
+            all_coords.extend(list(Av))
+
+        limit_val = max(np.abs(all_coords)) * 1.1 if all_coords else 1
+        ax.set_xlim([-limit_val, limit_val])
+        ax.set_ylim([-limit_val, limit_val])
+        ax.set_zlim([-limit_val, limit_val])
+        ax.legend(fontsize='small')
+    plt.tight_layout()
+
+
+# --- Define Example Matrices ---
+
+# 1. Simple Diagonalizable 2x2 (Symmetric, distinct real eigenvalues)
+A1 = np.array([[3, 1],
+               [1, 2]])
+
+# 2. Diagonalizable 2x2 (Non-symmetric, distinct real eigenvalues)
+A2 = np.array([[4, -1],
+               [2,  1]]) # Eigenvalues: 3, 2
+
+# 3. Non-Diagonalizable 2x2 (Shear matrix, repeated eigenvalue, m_g < m_a)
+A3 = np.array([[1, 1],
+               [0, 1]]) # Eigenvalue: 1 (m_a=2), but m_g=1
+
+# 4. Diagonalizable 2x2 (Identity * scalar - scaling matrix, repeated eigenvalue, m_g = m_a)
+A4 = np.array([[2, 0],
+               [0, 2]]) # Eigenvalue: 2 (m_a=2), m_g=2
+
+# 5. Diagonalizable 3x3 (Your example)
+A5 = np.array([[1, 1, 0],
+               [1, 1, 0],
+               [0, 0, 2]]) # Eigenvalues: 0, 2, 2 (m_a(2)=2, m_g(2)=2)
+
+# 6. Non-Diagonalizable 3x3 (Jordan block form)
+A6 = np.array([[2, 1, 0],
+               [0, 2, 1],
+               [0, 0, 2]]) # Eigenvalue: 2 (m_a=3), m_g=1
+
+# 7. Matrix with complex eigenvalues (Rotation + Scaling)
+A7 = np.array([[1, -1],
+               [1,  1]]) # Eigenvalues: 1+i, 1-i
+
+# --- Run Analysis ---
+analyze_and_visualize_matrix(A1, "Matrix A1 (2x2 Symmetric Diagonalizable)")
+analyze_and_visualize_matrix(A2, "Matrix A2 (2x2 Non-Symmetric Diagonalizable)")
+analyze_and_visualize_matrix(A3, "Matrix A3 (2x2 Shear, Non-Diagonalizable)")
+analyze_and_visualize_matrix(A4, "Matrix A4 (2x2 Scaling, Diagonalizable)")
+analyze_and_visualize_matrix(A5, "Matrix A5 (Your 3x3 Example, Diagonalizable)")
+analyze_and_visualize_matrix(A6, "Matrix A6 (3x3 Jordan Block, Non-Diagonalizable)")
+analyze_and_visualize_matrix(A7, "Matrix A7 (2x2 Complex Eigenvalues)")
+
+
+plt.show()

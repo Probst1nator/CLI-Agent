@@ -6,7 +6,7 @@ from collections.abc import Callable
 from openai import OpenAI
 from termcolor import colored
 import logging
-from py_classes.cls_chat import Chat
+from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_text_stream_painter import TextStreamPainter
 import speech_recognition as sr
@@ -21,45 +21,45 @@ class OpenAIAPI(AIProviderInterface):
     def generate_response(chat: Union[Chat, str], model_key: str, temperature: float = 0.7, silent_reason: str = "") -> Any:
         """
         Generates a response using the OpenAI API.
-        
+
         Args:
             chat (Union[Chat, str]): The chat object containing messages or a string prompt.
             model_key (str): The model identifier.
-            temperature (float): The temperature setting for the model. Default is 0.7.
-            silent_reason (str): Whether to suppress print statements.
-            
+            temperature (float): The temperature setting for the model.
+            silent_reason (str): Reason for suppressing print statements.
+
         Returns:
             Any: A stream object that yields response chunks.
+            
+        Raises:
+            Exception: If there's an error generating the response, to be handled by the router.
         """
         # Convert string to Chat object if needed
         if isinstance(chat, str):
-            from py_classes.cls_chat import Chat, Role
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
             
-        debug_print = AIProviderInterface.create_debug_printer(chat)
-        try:
-            client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-            
-            if silent_reason:
-                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
-                debug_print(f"OpenAI-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
-            else:
-                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
-                debug_print(f"OpenAI-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
+        # Configure the client (let any error here bubble up to the router)
+        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Informational logging (not error handling)
+        if silent_reason:
+            temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+            prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+            g.debug_log(f"OpenAI-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True, prefix=prefix)
+        else:
+            temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+            prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+            g.debug_log(f"OpenAI-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
 
-            return client.chat.completions.create(
-                model=model_key,
-                messages=chat.to_openai(),
-                temperature=temperature,
-                stream=True
-            )
-
-        except Exception as e:
-            error_msg = f"OpenAI API error: {e}"
-            debug_print(error_msg, "red", is_error=True)
-            raise Exception(error_msg)
+        # Let any errors here bubble up to the router for centralized handling
+        return client.chat.completions.create(
+            model=model_key,
+            messages=chat.to_openai(),
+            temperature=temperature,
+            stream=True
+        )
 
     @staticmethod
     def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional[Chat] = None) -> tuple[str,str]:
@@ -74,16 +74,17 @@ class OpenAIAPI(AIProviderInterface):
 
         Returns:
             tuple[str,str]: (transcribed text from the audio file, language)
-        """
-        debug_print = None
-        if chat:
-            debug_print = AIProviderInterface.create_debug_printer(chat)
             
+        Raises:
+            Exception: If an error occurs during transcription.
+        """
+        temp_audio_file_path = None
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
-            if debug_print:
-                debug_print(f"OpenAI-Api: Transcribing audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"OpenAI-Api: Transcribing audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True, prefix=prefix)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file.write(audio_data.get_wav_data())
@@ -99,23 +100,26 @@ class OpenAIAPI(AIProviderInterface):
             
             no_speech_prob = response.segments[0]['no_speech_prob']
             if (no_speech_prob > 0.7):
-                if debug_print:
-                    debug_print("No speech detected", force_print=True)
+                if chat:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log("No speech detected", force_print=True, prefix=prefix)
                 return "", "english"
             
             language = response.language
             
-            if debug_print:
-                debug_print(f"Transcription complete. Detected language: {language}", "green", force_print=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Transcription complete. Detected language: {language}", "green", force_print=True, prefix=prefix)
                 
             return response.text, language
 
         except Exception as e:
             error_msg = f"OpenAI Whisper API error: {e}"
-            if debug_print:
-                debug_print(error_msg, "red", is_error=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             raise Exception(error_msg)
 
         finally:
-            if 'temp_audio_file_path' in locals() and os.path.exists(temp_audio_file_path):
+            if temp_audio_file_path and os.path.exists(temp_audio_file_path):
                 os.remove(temp_audio_file_path)

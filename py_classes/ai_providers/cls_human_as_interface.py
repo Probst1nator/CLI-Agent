@@ -37,49 +37,47 @@ class HumanAPI(AIProviderInterface):
             temperature (float): Unused 
             silent_reason (str): Unused
             callback (Callable, optional): A function to call with each chunk of input data.
+            
         Returns:
-            Optional[str]: The generated response, or None if an error occurs.
+            Optional[str]: The generated response.
+            
+        Raises:
+            Exception: If an error occurs during response generation, to be handled by the router.
         """
-        # Defer import to avoid circular dependency
-        from py_classes.cls_chat import Chat, Role
-        
         # Convert string to Chat object if needed
         if isinstance(chat, str):
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
+        
+        # Get the prefix for debug logging 
+        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+        
+        # Informational logging (not error handling)
+        g.debug_log(f"Human-Api: User is asked for a response...", "green", force_print=True, prefix=prefix)
+        g.debug_log(colored(("# " * 20) + "CHAT BEGIN" + (" #" * 20), "yellow"), force_print=True, prefix=prefix)
+        chat.print_chat()
+        g.debug_log(colored(("# " * 20) + "CHAT STOP" + (" #" * 21), "yellow"), force_print=True, prefix=prefix)
+        
+        g.debug_log(colored("# # # Enter your multiline response. Type '--f' on a new line when finished.", "blue"), force_print=True, prefix=prefix)
+        lines = []
+        full_response = ""
+        while True:
+            line = input()
+            if line == "--f":
+                break
+            lines.append(line)
+            full_response = "\n".join(lines)
             
-        debug_print = AIProviderInterface.create_debug_printer(chat)
-        try:
-            debug_print(f"Human-Api: User is asked for a response...", "green", force_print=True)
-            debug_print(colored(("# " * 20) + "CHAT BEGIN" + (" #" * 20), "yellow"), force_print=True)
-            chat.print_chat()
-            debug_print(colored(("# " * 20) + "CHAT STOP" + (" #" * 21), "yellow"), force_print=True)
-            
-            debug_print(colored("# # # Enter your multiline response. Type '--f' on a new line when finished.", "blue"), force_print=True)
-            lines = []
-            full_response = ""
-            while True:
-                line = input()
-                if line == "--f":
-                    break
-                lines.append(line)
-                full_response = "\n".join(lines)
-                
-                # Call the callback function if provided
-                if callback is not None:
-                    callback(full_response)
+            # Call the callback function if provided
+            if callback is not None:
+                callback(full_response)
 
-            token_stream_painter = TextStreamPainter()
-            for character in full_response:
-                debug_print(token_stream_painter.apply_color(character), end="", with_title=False)
-            debug_print("", with_title=False)
-            return full_response
-
-        except Exception as e:
-            error_msg = f"Human-API error: {e}"
-            debug_print(error_msg, "red", is_error=True)
-            raise Exception(error_msg)
+        token_stream_painter = TextStreamPainter()
+        for character in full_response:
+            g.debug_log(token_stream_painter.apply_color(character), end="", with_title=False, prefix=prefix)
+        g.debug_log("", with_title=False, prefix=prefix)
+        return full_response
 
     @staticmethod
     def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional['Chat'] = None) -> tuple[str,str]:
@@ -94,16 +92,17 @@ class HumanAPI(AIProviderInterface):
 
         Returns:
             tuple[str,str]: (transcribed text from the audio file, language)
-        """
-        debug_print = None
-        if chat:
-            debug_print = AIProviderInterface.create_debug_printer(chat)
             
+        Raises:
+            Exception: If an error occurs during transcription.
+        """
+        temp_audio_file_path = None
         try:
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
-            if debug_print:
-                debug_print(f"Human-Api: Using OpenAI to transcribe audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Human-Api: Using OpenAI to transcribe audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True, prefix=prefix)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file.write(audio_data.get_wav_data())
@@ -119,22 +118,26 @@ class HumanAPI(AIProviderInterface):
             
             no_speech_prob = response.segments[0]['no_speech_prob']
             if (no_speech_prob > 0.7):
-                if debug_print:
-                    debug_print("No speech detected", force_print=True)
+                if chat:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log("No speech detected", force_print=True, prefix=prefix)
                 return "", "english"
             
             language = response.language
             
-            if debug_print:
-                debug_print(f"Transcription complete. Detected language: {language}", "green", force_print=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Transcription complete. Detected language: {language}", "green", force_print=True, prefix=prefix)
                 
             return response.text, language
 
         except Exception as e:
             error_msg = f"OpenAI Whisper API error: {e}"
-            debug_print(error_msg, "red", is_error=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             raise Exception(error_msg)
 
         finally:
-            if 'temp_audio_file_path' in locals() and os.path.exists(temp_audio_file_path):
+            if temp_audio_file_path and os.path.exists(temp_audio_file_path):
                 os.remove(temp_audio_file_path)

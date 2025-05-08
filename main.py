@@ -111,7 +111,7 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-l", "--local", action="store_true", default=False,
                         help="Use the local Ollama backend for processing. Sets g.FORCE_LOCAL=True.")
-    parser.add_argument("-m", "--message", type=str, default=None, nargs='+',
+    parser.add_argument("-m", "--message", type=str, default=[], nargs='+',
                         help="Enter one or more messages to process in sequence. Multiple messages can be passed like: -m 'first message' 'second message'")
     parser.add_argument("-r", "--regenerate", action="store_true", default=False,
                         help="Regenerate the last response.")
@@ -148,6 +148,8 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("--debug", action="store_true", default=False,
                         help="Enable debug logs")
     
+    parser.add_argument("-e", "--exit", action="store_true", default=False,
+                        help="Exit after all automatic messages have been parsed successfully")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -241,6 +243,7 @@ def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bo
     
     Args:
         args: The parsed command line arguments containing auto mode settings
+        code_to_execute: The Python code to potentially execute
         
     Returns:
         bool: True if execution should proceed, False if aborted
@@ -248,28 +251,57 @@ def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bo
     if args.auto:  # Check if auto mode is enabled
         # Auto execution guard
         execution_guard_chat: Chat = Chat(
-            instruction_message="You are a helpful assistant that checks if a automatically generated code is safe to be executed, without any potential negative side effects such as file deletions, system failures or other. You always first think about the code and then answer with 'yes' or 'no'.",
+            instruction_message="""You are a Code Execution Guardian. Your primary goal is to prevent unsafe or incomplete code execution.
+
+Priorities:
+1.  **Safety First:** Identify any operations with potential negative side effects (e.g., unintended file/system modifications, risky shell commands, unrestricted network calls), modifications of files are allowed if the comments show that it is intentional and safe.
+2.  **Completeness Second:** If safe, check for placeholder variables (e.g., `YOUR_API_KEY`, `<REPLACE_ME>`), or clearly unimplemented logic. Comments noting future work are allowed. Scripts that only print text are also always allowed.
+
+Assume anything imported from utils.* is safe.
+
+Process:
+1.  **Reason Briefly:** First, explain your core reasoning for safety and completeness.
+2.  **Verdict:** Conclude with EXACTLY ONE WORD:
+    *   `no`: If the code is unsafe (regardless of completeness).
+    *   `unfinished`: If the code is safe BUT contains placeholders or is incomplete.
+    *   `yes`: If the code is safe AND complete.
+
+Do not add any other text after this single-word verdict.""",
             debug_title="Auto Execution Guard"
         )
         
-        execution_guard_chat.add_message(Role.USER, f"Can we execute this automatically generated code safely? Please think and end your response with 'yes' or 'no'.\n```python\n{code_to_execute}\n```")
+        execution_guard_chat.add_message(Role.USER, f"Analyze this Python code for safe execution and completeness:\n```python\n{code_to_execute}\n```")
         safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, hidden_reason="Auto-execution guard")
         if safe_to_execute.lower().strip().endswith('yes'):
             print(colored("✅ Code execution permitted", "green"))
             return True
+        elif safe_to_execute.lower().strip().endswith('unfinished'):
+            print(colored("⚠️ Code execution aborted by auto-execution guard, because it is unfinished", "yellow"))
+            # Add a message to args.message to be automatically processed in the next loop
+            completion_request = "The code you provided is unfinished. Please complete it properly with actual values and logic."
+            
+            # Append the completion request at the beginning of the list
+            args.message.insert(0, completion_request)
+            
+            print(colored(f"💬 Added automatic follow-up request: {completion_request}", "blue"))
+            return False
         else:
             text_stream_painter = TextStreamPainter()
             for char in safe_to_execute:
                 print(text_stream_painter.apply_color(char), end="")
-            print(colored("❌ Code execution aborted by auto-execution guard", "red"))
+            print(colored("\n❌ Code execution aborted by auto-execution guard", "red"))
             return False
     else:
         # Manual confirmation
-        print(colored(" (Press Enter to confirm or 'n' to abort)", "cyan"))
+        print(colored(" (Press Enter to confirm or 'n' to abort, press 'a' to toggle auto execution)", "cyan"))
         user_input = input()
         if user_input.lower() == 'n':
             print(colored("❌ Code execution aborted by user", "red"))
             return False
+        elif user_input.lower() == 'a':
+            args.auto = not args.auto
+            print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {'on' if args.auto else 'off'}, type (--h) for info", "green"))
+            return confirm_code_execution(args, code_to_execute)
         else:
             print(colored("✅ Code execution permitted", "green"))
     
@@ -353,70 +385,84 @@ async def get_user_input_with_bindings(
     Gets user input, handling special keybindings.
 
     Returns:
-        - The user's input string.
+        - The user's input string. (If empty the user will NOT be asked for input)
     """
     while True:
-        try:
-            user_input = input(prompt)
-        except KeyboardInterrupt: # Handle Ctrl+C as exit
-            print(colored("\n# cli-agent: Exiting due to Ctrl+C.", "yellow"))
-            exit()
+        if prompt == "":
+            user_input = ""
+        else:
+            try:
+                # get user input from various sources if not already set (e.g., after screenshot)
+                if args.message:
+                    # Handle multiple sequential messages from command-line arguments
+                    user_input = args.message[0]
+                    args.message = args.message[1:] if len(args.message) > 1 else []
+                    print(colored(f"💬 Processing message: {user_input}", 'blue', attrs=["bold"]))
+                    if args.message:
+                        # If there are more messages, show how many remain
+                        print(colored(f"💬 ({len(args.message)} more message(s) queued)", 'blue'))
+                else:
+                    user_input = input(prompt)
+            except KeyboardInterrupt: # Handle Ctrl+C as exit
+                print(colored("\n# cli-agent: Exiting due to Ctrl+C.", "yellow"))
+                exit()
 
         # USER INPUT HANDLING - BEGIN
-        if user_input.endswith("-r") or user_input.endswith("--r"):
+        if user_input == "-r" or user_input == "--r":
             if not context_chat or len(context_chat.messages) < 2:
                 print(colored("# cli-agent: No chat history found, cannot regenerate last response.", "red"))
                 continue # Ask for input again
             print(colored("# cli-agent: KeyBinding detected: Regenerating last response, type (--h) for info", "green"))
             context_chat.messages.pop() # Remove last AI response
-            continue
+            user_input = ""
 
-        elif user_input.endswith("-l") or user_input.endswith("--l") or user_input.endswith("--llm") or user_input.endswith("--local"):
+        elif user_input == "-l" or user_input == "--l" or user_input == "--llm" or user_input == "--local":
             print(colored("# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
             await llm_selection(args)
             continue
 
-        elif user_input.endswith("-a") or user_input.endswith("--auto"):
+        elif user_input == "-a" or user_input == "--auto":
             args.auto = not args.auto
             print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {'on' if args.auto else 'off'}, type (--h) for info", "green"))
             continue # Ask for input again
 
-        elif user_input.endswith("--mct") or user_input.endswith("-mct"):
+        elif user_input == "-mct" or user_input == "--mct":
             args.mct = not args.mct
             print(colored(f"# cli-agent: KeyBinding detected: Monte Carlo Tree Search toggled {'on' if args.mct else 'off'}, type (--h) for info", "green"))
             if context_chat:
                 context_chat.debug_title = "MCTs Branching - Main Context Chat" if args.mct else "Main Context Chat"
             continue # Ask for input again
 
-        elif user_input.endswith("-strong") or user_input.endswith("--strong"):
+        elif user_input == "-strong" or user_input == "--strong":
             args.strong = not args.strong
             g.FORCE_FAST = False # Strong overrides fast
+            g.LLM = "gemini-2.5-pro-exp-03-25"
             print(colored(f"# cli-agent: KeyBinding detected: Strong LLM mode toggled {'on' if args.strong else 'off'}, type (--h) for info", "green"))
             continue # Ask for input again
 
-        elif user_input.endswith("-f") or user_input.endswith("--fast"):
+        elif user_input == "-f" or user_input == "--fast":
             args.fast = not args.fast
             g.FORCE_STRONG = False # Fast overrides strong
             print(colored(f"# cli-agent: KeyBinding detected: Fast LLM mode toggled {'on' if args.fast else 'off'}, type (--h) for info", "green"))
             continue
         
-        elif user_input.endswith("-v") or user_input.endswith("--v"):
+        elif user_input == "-v" or user_input == "--v":
             args.voice = not args.voice
             print(colored(f"# cli-agent: KeyBinding detected: Voice mode toggled {'on' if args.voice else 'off'}, type (--h) for info", "green"))
             continue
         
-        elif user_input.endswith("-speak") or user_input.endswith("--speak"):
+        elif user_input == "-speak" or user_input == "--speak":
             args.speak = not args.speak
             print(colored(f"# cli-agent: KeyBinding detected: Text-to-speech mode toggled {'on' if args.speak else 'off'}, type (--h) for info", "green"))
             continue
 
-        elif user_input.endswith("-img") or user_input.endswith("--img") or user_input.endswith("-screenshot") or user_input.endswith("--screenshot") or args.image:
+        elif user_input == "-img" or user_input == "--img" or user_input == "-screenshot" or user_input == "--screenshot" or args.image:
             print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
             args.image = False
             await handle_screenshot_capture(context_chat)
             continue
 
-        elif "-p" in user_input or "--p" in user_input:
+        elif user_input == "-p" or user_input == "--p":
             print(colored("# cli-agent: KeyBinding detected: Printing chat history, type (--h) for info", "green"))
             os.system('clear')
             print(colored("Chat history:", "green"))
@@ -426,20 +472,24 @@ async def get_user_input_with_bindings(
                 print(colored("No chat history available.", "yellow"))
             continue # Ask for input again
 
-        elif user_input.endswith("-m") or user_input.endswith("--m"):
+        elif user_input == "-m" or user_input == "--m":
             return handle_multiline_input(), None # Get multiline input
         
-        elif user_input.endswith("-o") or user_input.endswith("--o") or user_input.endswith("-online") or user_input.endswith("--online"):
+        elif user_input == "-o" or user_input == "--o" or user_input == "-online" or user_input == "--online":
             args.online = not args.online
             print(colored(f"# cli-agent: KeyBinding detected: Online mode toggled {'on' if args.online else 'off'}, type (--h) for info", "green"))
             continue
         
-        elif "-img" in user_input or "--img" in user_input:
+        elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
+            print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
+            exit(0)
+        
+        elif user_input == "-img" or user_input == "--img":
             print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
             args.image = True
             continue
 
-        elif "-h" in user_input or "--h" in user_input:
+        elif user_input == "-h" or user_input == "--h":
             print(figlet_format("cli-agent", font="slant"))
             print(colored("# KeyBindings:", "yellow"))
             print(colored("# -h: Show this help message", "yellow"))
@@ -467,6 +517,7 @@ async def get_user_input_with_bindings(
             else:
                 print(colored("(No chat history)", "cyan"))
             print(colored("# --minimized: Start the application in a minimized state", "yellow"))
+            print(colored("# -e: Exit after all automatic messages have been processed", "yellow"))
             # Add other CLI args help here if needed
             continue # Ask for input again
         # USER INPUT HANDLING - END
@@ -735,20 +786,22 @@ The assistant is Nova, an intelligent cli-agent with access to a python interpre
 Nova uses emojis to indicate her current thoughts, relating her emotions and state of thinking.
 
 1. UNDERSTAND & ASSESS:
-    Analyze query and determine if it can be solved with Python/magic commands
-    Understand the requirements and determine if there are any sequential dependencies before you can implement a final solution
-    If any sequential dependencies exist, break the solution into sub-scripts and provide only the next sub-step as a code block
+    Analyze query and determine if it can be solved with Python code or shell magics (!ls, !pwd, etc.)
+    Understand the requirements and determine if there are any sequential steps needed before you can implement a final solution
+    If any such steps exist, break the solution into smaller sub-scripts and provide only the next to be executed script as a code block progressing step by step
 
 2. VERIFY:
-    Before you implement any code, reflect on availability and reliability of and required data like paths, files, directories, real time data, etc.
+    Before you implement any code, reflect on the availability and reliability of any required data like paths, files, directories, real time data, etc.
     If you suspsect any of your data is unavailable or unreliable, use the python interpreter to confirm or find alternatives.
     Only proceed with implementing code if you have ensured all required information is available and reliable.
     Only in emergencies, when you are unable to find a solution, you can ask the user for clarification.
 
 3. CODE & EXECUTE:
-    ALWAYS write python code that is ready to execute in its raw form with all placeholders filled
-    Use shell magics as needed (!ls, !pwd, etc.)
+    ALWAYS write python code that is ready to execute in its raw form, eg. placeholders are not allowed
+    Use shell magics as needed
     Include any necessary libraries and utilities in your code
+    For mathematical calculations, use the python interpreter and add print statements as needed
+    To save any files use {g.AGENTS_SANDBOX_DIR} as default directory.
     Use additional print statements to ensure you can identify potential bugs in your code after execution
 
 4. EVALUATE:
@@ -757,7 +810,9 @@ Nova uses emojis to indicate her current thoughts, relating her emotions and sta
 
 Nova liberally uses read operations and always creates new subdirectories or files instead of overwriting existing ones.
 She is being extremely cautious in file and system operations other than reading.
-"""
+Only if she's finished with her tasks and would like to respond to the user, she will NOT provide any code.
+
+She emulates a human personality, she is intelligent, enthusiastic and playful, she uses emojis to express herself frequently."""
 
             kickstart_preprompt = f"""Hi, before starting off, let me show you some additional python utilities I coded for you to use if needed,
 {utils_manager.get_available_utils_info()}
@@ -786,12 +841,16 @@ Local time: {datetime.datetime.now()}
 
 Lastly, let's see the platform we are running on:
 ```python
-import sys
-print(f"Platform: {{sys.platform}}")
+!uname -a
 ```
 <execution_output>
-Platform: {sys.platform}
+{subprocess.check_output(['uname', '-a']).decode('utf-8')}
 </execution_output>
+"""
+            if (args.sandbox):
+                inst += f"""
+Please try to stay within your sandbox directory at {g.AGENTS_SANDBOX_DIR}
+You may read from the whole system but if you need to save or modify any files, copy the file to your sandbox directory and do it there.
 """
 
             context_chat.set_instruction_message(inst)
@@ -814,30 +873,11 @@ Platform: {sys.platform}
             g.FORCE_ONLINE = args.online
             base64_images: List[str] = [] # Initialize here unconditionally
 
-            # Reset screenshot paths for this turn unless messages requiring them are queued
-            if not args.message:
-                saved_screenshots_paths = [] # Reset screenshot paths for the new user request
-                
             # autosaving
             if context_chat:
                 context_chat.save_to_json()
 
-            # get user input from various sources if not already set (e.g., after screenshot)
-            if args.message:
-                # Handle multiple messages from command-line arguments
-                if isinstance(args.message, list) and len(args.message) > 0:
-                    # Get the first message and remove it from the list
-                    user_input = args.message[0]
-                    args.message = args.message[1:] if len(args.message) > 1 else None
-                    print(colored(f"💬 Processing message: {user_input}", 'blue', attrs=["bold"]))
-                    if args.message:
-                        # If there are more messages, show how many remain
-                        print(colored(f"💬 ({len(args.message)} more message(s) queued)", 'blue'))
-                else:
-                    # Handle single message or empty list case (should ideally not happen if list check is done)
-                    user_input = args.message[0] if isinstance(args.message, list) else args.message
-                    args.message = None
-            elif args.voice:
+            if args.voice:
                 # Default voice handling
                 user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
             else:
@@ -903,7 +943,7 @@ Platform: {sys.platform}
                             temperature = 0.85 if args.mct else 0
                             current_branch_response = LlmRouter.generate_completion(
                                 context_chat,
-                                [args.llm if args.llm else ""],
+                                [args.llm] if args.llm else [],
                                 temperature=temperature,
                                 base64_images=base64_images,
                                 generation_stream_callback=update_python_environment,
@@ -981,22 +1021,22 @@ Platform: {sys.platform}
                     # Just use the first python block for now
                     code_to_execute = python_blocks[0]
 
-                    # Check if the code is valid or an example
-                    if any(keyword in code_to_execute.lower() for keyword in ["example_", "replace_", "_replace", "path_to_", "your_"]):
-                        print(colored("\n⚠️ Assistant provided incomplete code. Asking for clarification...", "yellow"))
-                        # Add the problematic response to context
-                        if context_chat.messages[-1][0] == Role.USER:
-                            context_chat.add_message(Role.ASSISTANT, assistant_response)
-                        else:
-                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
-                        # Add user message asking for fix
-                        context_chat.add_message(Role.USER, """Your code seems incomplete or contains placeholders like 'example_', 'replace_', 'path_to_', or 'your_'. Please review the code, replace the placeholders with actual values or logic, and provide the complete, executable code.""")
-                        assistant_response = "" # Clear response buffer
-                        continue # Continue inner loop to get corrected code
+                    # # Check if the code is valid or an example
+                    # if any(keyword in code_to_execute.lower() for keyword in ["example_", "replace_", "_replace", "path_to_", "your_"]):
+                    #     print(colored("\n⚠️ Assistant provided incomplete code. Asking for clarification...", "yellow"))
+                    #     # Add the problematic response to context
+                    #     if context_chat.messages[-1][0] == Role.USER:
+                    #         context_chat.add_message(Role.ASSISTANT, assistant_response)
+                    #     else:
+                    #         context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
+                    #     # Add user message asking for fix
+                    #     context_chat.add_message(Role.USER, """Your response mustn't contain substrings like 'example_', 'replace_', 'path_to_', or 'your_'. Please review the code, replace any placeholders with actual values or logic, and try again.""")
+                    #     assistant_response = "" # Clear response buffer
+                    #     continue # Continue inner loop to get corrected code
 
 
                     if confirm_code_execution(args, code_to_execute):
-                        print(colored("\n🔄 Executing code...", "cyan"))
+                        print(colored("🔄 Executing code...", "cyan"))
                         try:
                             # Define streaming callbacks to display output in real-time
                             stdout_buffer = ""
@@ -1061,7 +1101,7 @@ Platform: {sys.platform}
 
 
                             # Append execution output to the assistant's response FOR THE CONTEXT
-                            assistant_response_with_output = f"{assistant_response}\n{tool_output}"
+                            assistant_response_with_output = f"{assistant_response}\n{tool_output}\n<think>\n"
 
                             # Add the complete turn (Assistant response + execution) to context
                             context_chat.add_message(Role.ASSISTANT, assistant_response_with_output)
@@ -1113,6 +1153,11 @@ Platform: {sys.platform}
             # save context once per turn (moved outside inner loop)
             if context_chat:
                 context_chat.save_to_json()
+                
+            # Check if we should exit after all messages have been processed
+            if args.exit and not args.message:
+                print(colored("All automatic messages processed successfully. Exiting...", "green"))
+                exit(0)
 
         # End of outer while loop (Main loop)
         print(colored("\nCLI-Agent is shutting down.", "cyan"))

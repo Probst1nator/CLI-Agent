@@ -88,12 +88,7 @@ class GenerateImage(UtilBase):
     def run(
         path: str,
         prompt: str,
-        model_id: str = "runwayml/stable-diffusion-v1-5",
-        size: str = "512x512",
-        negative_prompt: str = "blurry, low quality, deformed",
-        num_inference_steps: int = 30,
-        guidance_scale: float = 7.5,
-        seed: Optional[int] = None
+        negative_prompt: str = "blurry, low quality, deformed"
     ) -> str:
         """
         Generates an image based on a text prompt and saves it to the specified path.
@@ -101,16 +96,17 @@ class GenerateImage(UtilBase):
         Args:
             path: The file path where the generated image should be saved
             prompt: The text description of the image to generate
-            model_id: The Hugging Face model identifier (defaults to "runwayml/stable-diffusion-v1-5")
-            size: The desired size as "WIDTHxHEIGHT" (e.g., "512x512", "1024x1024")
             negative_prompt: Optional text describing elements to avoid in the image
-            num_inference_steps: Number of diffusion steps (higher = better quality but slower)
-            guidance_scale: How closely to follow the prompt (higher = more literal)
-            seed: Optional seed for reproducible results
             
         Returns:
             The absolute path to the saved image file
         """
+        size: str = "512x512"
+        model_id: str = "runwayml/stable-diffusion-v1-5"
+        num_inference_steps: int = 30
+        guidance_scale: float = 7.5
+        seed: Optional[int] = None
+        
         if not prompt:
             raise ValueError("Prompt cannot be empty.")
         if not path:

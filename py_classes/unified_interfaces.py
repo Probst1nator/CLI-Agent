@@ -45,63 +45,9 @@ class BaseProviderInterface(ABC):
         Returns:
             str: The formatted prefix string
         """
-        from py_classes.cls_debug_utils import get_debug_title_prefix
-        return get_debug_title_prefix(chat)
-    
-    @staticmethod
-    def create_debug_printer(chat: Optional['Chat'] = None):
-        """
-        Creates a debug printer function that includes the chat's debug title in each print.
-        Also logs messages to the logger with appropriate log levels.
-        
-        Args:
-            chat (Chat): The chat object whose debug_title should be included in prints.
-            
-        Returns:
-            function: A function that can be used for debug printing with the chat title.
-        """
-        def debug_print(message: str, color: str = None, end: str = '\n', with_title: bool = True, is_error: bool = False, force_print: bool = False) -> None:
-            """
-            Print debug information with chat title prefix and logging.
-            
-            Args:
-                message (str): The message to print
-                color (str, optional): Color for the message
-                end (str): End character
-                with_title (bool): Whether to include the chat title
-                is_error (bool): Whether this is an error message
-                force_print (bool): Force printing to console even for info messages
-            """
-
-            if with_title and chat:
-                prefix = BaseProviderInterface.get_debug_title_prefix(chat)
-                log_message = f"{prefix}{message}"
-                
-                # Log to appropriate logger level (ignoring color)
-                if is_error:
-                    logger.error(log_message)
-                    # For errors, always print to console
-                    if color:
-                        print(colored(log_message, color), end=end)
-                    else:
-                        print(log_message, end=end)
-                else:
-                    # For info level, log to logger
-                    logger.info(log_message)
-                    # Only print to console if forced
-                    if force_print:
-                        if color:
-                            print(colored(log_message, color), end=end)
-                        else:
-                            print(log_message, end=end)
-            else:
-                # For character-by-character printing, don't log to the logger
-                # But still print to console
-                if color:
-                    print(colored(message, color), end=end)
-                else:
-                    print(message, end=end)
-        return debug_print
+        if chat is None:
+            return ""
+        return chat.get_debug_title_prefix()
 
 
 class AudioProviderInterface(BaseProviderInterface):

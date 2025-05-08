@@ -20,7 +20,6 @@ from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
 from py_classes.ai_providers.cls_google_interface import GoogleAPI
 from py_classes.globals import g
-from py_classes.cls_debug_utils import get_debug_title_prefix, DEBUG_TITLE_FORMAT
 import logging
 
 # Configure logger with proper settings to prevent INFO level messages from being displayed
@@ -105,17 +104,20 @@ class Llm:
         # Define and return a list of available LLM instances
         llms = [
             # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
-            # Llm(GroqAPI(), "llama-3.3-70b-specdec", None, 8192, [AIStrengths.GENERAL, AIStrengths.CODE]),
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE]),
+            Llm(GoogleAPI(), "gemini-2.5-pro-exp-03-25", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.BALANCED]),
+            Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.BALANCED]),
+            
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.BALANCED]),
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE, AIStrengths.BALANCED]),
             Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE]),
+            Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.SMALL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
             
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.FAST, AIStrengths.CODE, AIStrengths.ONLINE]),
+            # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
-            Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
-            # Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", 0.15, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.BALANCED, AIStrengths.ONLINE]),
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.BALANCED, AIStrengths.ONLINE]),
+            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
+            Llm(OllamaClient(), "qwen3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             
             Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
@@ -123,19 +125,17 @@ class Llm:
             Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION, AIStrengths.BALANCED]),
             
             Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.BALANCED]),
-            Llm(OllamaClient(), "deepcoder:14b", None, 131072, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
-            Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST, AIStrengths.VISION]),
-            Llm(OllamaClient(), "deepcoder:1.5b", None, 128000, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.FAST]),
+            Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             
             # Guard models
             Llm(GroqAPI(), "llama-guard-3-8b", None, 8192, [AIStrengths.GUARD]),
             Llm(OllamaClient(), "llama-guard3:8b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "shieldgemma:2b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.FAST]),
+            Llm(OllamaClient(), "shieldgemma:2b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.SMALL]),
         ]
         if exclude_guards:
             llms = [llm for llm in llms if not any(s == AIStrengths.GUARD for s in llm.strengths)]
@@ -444,7 +444,6 @@ class LlmRouter:
     def _process_stream(
         cls,
         stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
-        debug_print: Callable,
         hidden_reason: str,
         callback: Optional[Callable] = None
     ) -> str:
@@ -453,7 +452,6 @@ class LlmRouter:
         
         Args:
             stream (Union[Iterator[Dict[str, Any]], Iterator[str], Any]): The stream object from the provider
-            debug_print (Callable): Function to print debug messages
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
             
@@ -475,7 +473,7 @@ class LlmRouter:
                         if finished_response and isinstance(finished_response, str):
                             break
                     elif not hidden_reason:
-                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
+                        g.print_token(token_stream_painter.apply_color(token))
         # ! OpenAI/NVIDIA
         elif hasattr(stream, 'choices'):  
             for chunk in stream:
@@ -487,8 +485,8 @@ class LlmRouter:
                             finished_response = callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
-                    elif not hidden_reason:
-                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
+                        elif not hidden_reason:
+                            g.print_token(token_stream_painter.apply_color(token))
         # ! Google Gemini
         elif hasattr(stream, '__iter__') and hasattr(next(iter(stream), None), 'text'):  
             try:
@@ -502,7 +500,7 @@ class LlmRouter:
                                 if finished_response and isinstance(finished_response, str):
                                     break
                             elif not hidden_reason:
-                                debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
+                                g.print_token(token_stream_painter.apply_color(token))
             except StopIteration:
                 pass  # End of stream
         # ! Ollama/Groq
@@ -529,7 +527,7 @@ class LlmRouter:
                         if finished_response and isinstance(finished_response, str):
                             break
                     elif not hidden_reason:
-                        debug_print(token_stream_painter.apply_color(token), end="", with_title=False)
+                        g.print_token(token_stream_painter.apply_color(token))
             
         if finished_response:
             return finished_response
@@ -541,7 +539,6 @@ class LlmRouter:
         cls,
         cached_completion: str,
         model: Llm,
-        debug_print: Callable,
         text_stream_painter: TextStreamPainter,
         hidden_reason: str,
         callback: Optional[Callable] = None
@@ -552,8 +549,7 @@ class LlmRouter:
         Args:
             cached_completion (str): The cached completion string
             model (Llm): The model that generated the response
-            debug_print (Callable): Function to print debug messages
-            tooling (TextStreamPainter): Token coloring utility
+            text_stream_painter (TextStreamPainter): Token coloring utility
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
             
@@ -561,16 +557,16 @@ class LlmRouter:
             str: The processed response string
         """
         if not hidden_reason:
-            debug_print(f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
+            g.debug_log(f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
             for char in cached_completion:
                 if callback:
                     finished_response = callback(char, not hidden_reason)
                     if finished_response and isinstance(finished_response, str):
                         return finished_response
                 elif not hidden_reason:
-                    debug_print(text_stream_painter.apply_color(char), end="", with_title=False)
+                    g.print_token(text_stream_painter.apply_color(char))
                 time.sleep(0)  # better observable for the user
-            debug_print("", with_title=False)
+            print()  # Add newline at the end
         return cached_completion
 
     @classmethod
@@ -579,8 +575,7 @@ class LlmRouter:
         e: Exception,
         model: Optional[Llm],
         instance: "LlmRouter",
-        chat: Chat,
-        log_print: Callable
+        chat: Chat
     ) -> None:
         """
         Handle errors that occur during model generation.
@@ -590,37 +585,67 @@ class LlmRouter:
             model (Optional[Llm]): The model that failed
             instance (LlmRouter): The router instance
             chat (Chat): The chat being processed
-            log_print (Callable): Function to print log messages
         """
-        if "too large" in str(e):
+        error_msg = str(e)
+        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+        provider_name = model.provider.__class__.__name__ if model else "Unknown"
+        model_key = model.model_key if model else "unknown"
+        
+        # Handle token limit error
+        if "too large" in error_msg:
             # Save the model's maximum token limit
-            print(colored(f"Too large request for {model.model_key}, saving token limit {len(chat)}", "yellow"))
+            print(colored(f"Too large request for {model_key}, saving token limit {len(chat)}", "yellow"))
             instance._save_dynamic_token_limit_for_model(model, len(chat))
         
+        # Update failed models list
         if model is not None:
             if model.model_key in instance.failed_models:
                 return
             instance.failed_models.add(model.model_key)
             instance.retry_models.remove(model)
         
-        # Special handling for timeout exceptions and rate limit errors
+        # Special handling for network and rate limit issues
         if (isinstance(e, TimeoutException) or 
             isinstance(e, RateLimitException) or
-            "request timed out" in str(e).lower() or 
-            "timeout" in str(e).lower() or 
-            "timed out" in str(e).lower() or
-            "connection" in str(e).lower() or
-            ("Groq" in str(e) and "rate_limit_exceeded" in str(e))):
-            # Silently handle timeout errors and rate limits
+            "request timed out" in error_msg.lower() or 
+            "timeout" in error_msg.lower() or 
+            "timed out" in error_msg.lower() or
+            "connection" in error_msg.lower() or
+            "rate_limit" in error_msg.lower()):
+            
+            # Log silently to file but don't show to user
             if model is not None:
-                logger.info(f"Network/timeout/rate-limit issue with model {model.model_key}: {e}")
+                logger.info(f"Network/timeout/rate-limit issue with model {model_key}: {e}")
             return
         
-        # Display other errors
-        if model is not None:
-            log_print(f"\ngenerate_completion error with model {model.model_key}: {e}", "red", is_error=True)
+        # Provider-specific error handling
+        if "OllamaClient" in provider_name:
+            g.debug_log(f"\nOllama-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+            # Add to unreachable hosts if applicable
+            if model and hasattr(model.provider, "unreachable_hosts") and hasattr(model.provider, "_client"):
+                try:
+                    host = model.provider._client.base_url.host
+                    model.provider.unreachable_hosts.append(f"{host}{model_key}")
+                except Exception:
+                    pass
+        elif "GroqAPI" in provider_name:
+            g.debug_log(f"\nGroq-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+        elif "GoogleAPI" in provider_name:
+            g.debug_log(f"\nGoogle-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+        elif "OpenAIAPI" in provider_name:
+            g.debug_log(f"\nOpenAI-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+        elif "AnthropicAPI" in provider_name:
+            g.debug_log(f"\nAnthropic-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+        elif "NvidiaAPI" in provider_name:
+            g.debug_log(f"\nNVIDIA-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+        elif "HumanAPI" in provider_name:
+            g.debug_log(f"\nHuman-Api: Failed to generate response: {e}", "red", is_error=True, prefix=prefix)
         else:
-            log_print(f"generate_completion error: {e}", "red", is_error=True)
+            # Generic error handling for unknown providers or when model is None
+            if model is not None:
+                g.debug_log(f"\ngenerate_completion error with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+            else:
+                g.debug_log(f"\ngenerate_completion error: {e}", "red", is_error=True, prefix=prefix)
 
     @classmethod
     def generate_completion(
@@ -659,14 +684,13 @@ class LlmRouter:
         """
         instance = cls()
         instance.failed_models.clear()
-        tooling = TextStreamPainter()
         cls.call_counter += 1
         
         # Check global force flags
         if g.LLM:
             preferred_models = [g.LLM]
         if g.FORCE_FAST:
-            strengths.append(AIStrengths.FAST)
+            strengths.append(AIStrengths.SMALL)
         if g.LLM_STRENGTHS:
             strengths.extend(g.LLM_STRENGTHS)
         if g.FORCE_ONLINE:
@@ -689,48 +713,6 @@ class LlmRouter:
                 elif "</" in response: # Weird fallback, helps for small models
                     return response.split("</")[1].split(">")[1]
             return response
-            
-        # Custom print function that prepends the chat debug title
-        def log_print(message: str, color: str = None, end: str = '\n', with_title: bool = True, is_error: bool = False, force_print: bool = False) -> None:
-            """
-            Print log information with chat title prefix and logging.
-            
-            Args:
-                message (str): The message to print
-                color (str, optional): Color for the message
-                end (str): End character
-                with_title (bool): Whether to include the chat title
-                is_error (bool): Whether this is an error message
-                force_print (bool): Force printing to console even for info messages
-            """
-            if with_title:
-                prefix = LlmRouter.get_debug_title_prefix(chat)
-                log_message = f"{prefix}{message}"
-                
-                # Log to appropriate logger level (ignoring color)
-                if is_error:
-                    logger.error(log_message)
-                    # For errors, always print to console
-                    if color:
-                        print(colored(log_message, color), end=end)
-                    else:
-                        print(log_message, end=end)
-                else:
-                    # For info level, log to logger
-                    logger.info(log_message)
-                    # Only print to console if forced
-                    if force_print:
-                        if color:
-                            print(colored(log_message, color), end=end)
-                        else:
-                            print(log_message, end=end)
-            else:
-                # For character-by-character printing, don't log to the logger
-                # But still print to console
-                if color:
-                    print(colored(message, color), end=end)
-                else:
-                    print(message, end=end)
         
         if base64_images:
             chat.base64_images = base64_images
@@ -753,7 +735,8 @@ class LlmRouter:
                 
                 # If no model is available, clear failed models and retry
                 if not model:
-                    log_print("# # # Could not find valid model # # # RETRYING... # # #", "red", is_error=True)
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log("# # # Could not find valid model # # # RETRYING... # # #", "red", is_error=True, prefix=prefix)
                     instance.failed_models.clear()
                     if preferred_models and isinstance(preferred_models[0], str):
                         model = instance.get_model(strengths=strengths, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
@@ -764,7 +747,7 @@ class LlmRouter:
                     cached_completion = instance._get_cached_completion(model.model_key, str(chat), base64_images)
                     if cached_completion:
                         return exclude_reasoning(cls._process_cached_response(
-                            cached_completion, model, log_print, tooling, hidden_reason, generation_stream_callback
+                            cached_completion, model, TextStreamPainter(), hidden_reason, generation_stream_callback
                         ))
 
                 try:
@@ -774,7 +757,7 @@ class LlmRouter:
                     instance.last_used_model = model.model_key
                     
                     # Process the stream
-                    full_response = cls._process_stream(stream, log_print, hidden_reason, generation_stream_callback)
+                    full_response = cls._process_stream(stream, hidden_reason, generation_stream_callback)
                     if (not full_response.endswith("\n") and not hidden_reason):
                         print()
                     
@@ -790,14 +773,15 @@ class LlmRouter:
 
                 except KeyboardInterrupt:
                     # Explicitly catch Ctrl+C during model generation
-                    log_print("User interrupted model generation (Ctrl+C).", "yellow", is_error=True, force_print=True)
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log("User interrupted model generation (Ctrl+C).", "yellow", is_error=True, force_print=True, prefix=prefix)
                     raise UserInterruptedException("Model generation interrupted by user (Ctrl+C).")
                 
             except UserInterruptedException:
                 # Re-raise the specific user interruption exception
                 raise
             except Exception as e:
-                cls._handle_model_error(e, model, instance, chat, log_print)
+                cls._handle_model_error(e, model, instance, chat)
 
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """
@@ -823,12 +807,8 @@ class LlmRouter:
             
             # logger.info(f"Updated token limit for {model.model_key}: {token_count} tokens")
         except Exception as limit_error:
-            # Create a simple local version of log_print for this method
-            def error_log(message: str):
-                logger.error(message)
-                print(colored(message, "red"))
-                
-            error_log(f"Failed to save model token limit: {limit_error}")
+            logger.error(f"Failed to save model token limit: {limit_error}")
+            print(colored(f"Failed to save model token limit: {limit_error}", "red"))
 
     @classmethod
     def _save_chat_completion_pair(cls, chat_str: str, response: str, model_key: str) -> None:
@@ -910,5 +890,5 @@ class LlmRouter:
         Returns:
             str: The formatted prefix string
         """
-        return get_debug_title_prefix(chat)
+        return chat.get_debug_title_prefix()
 

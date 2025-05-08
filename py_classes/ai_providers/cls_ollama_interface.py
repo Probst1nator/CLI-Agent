@@ -51,21 +51,19 @@ class OllamaClient(AIProviderInterface):
             bool: True if the host is reachable, False otherwise.
         """
         try:
-            debug_print = None
-            if chat:
-                debug_print = AIProviderInterface.create_debug_printer(chat)
-            
             hostname, port = host.split(':') if ':' in host else (host, 11434)
-            if debug_print:
-                debug_print(f"Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...", "green", force_print=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...", "green", force_print=True, prefix=prefix)
             else:
                 print(colored(f"Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...", "green"))
                 
             with socket.create_connection((hostname, int(port)), timeout=3):
                 return True
         except (socket.timeout, socket.error):
-            if debug_print:
-                debug_print(f"Ollama-Api: Host " + colored("<" + host + ">", "red") + " is unreachable", "red", is_error=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Ollama-Api: Host " + colored("<" + host + ">", "red") + " is unreachable", "red", is_error=True, prefix=prefix)
             else:
                 print(f"Ollama-Api: Host " + colored("<" + host + ">", "red") + " is unreachable", "red")
             return False
@@ -96,10 +94,6 @@ class OllamaClient(AIProviderInterface):
                 pass
         
         auto_download_hosts = set(os.getenv("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS", "").split(","))
-        
-        debug_print = None
-        if chat:
-            debug_print = AIProviderInterface.create_debug_printer(chat)
         
         for host in ollama_hosts:
             host = host.strip()
@@ -184,8 +178,9 @@ class OllamaClient(AIProviderInterface):
                     if found_model_key:
                         return client, found_model_key 
                     elif auto_download and host in auto_download_hosts:
-                        if debug_print:
-                            debug_print(f"{host} is pulling {model_key}...", "yellow", force_print=True)
+                        if chat:
+                            prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                            g.debug_log(f"{host} is pulling {model_key}...", "yellow", force_print=True, prefix=prefix)
                         else:
                             print(colored(f"{host} is pulling {model_key}...", "yellow"))
                         try:
@@ -209,13 +204,15 @@ class OllamaClient(AIProviderInterface):
                             print()
                             return client, model_key
                         except Exception as e:
-                            if debug_print:
-                                debug_print(f"Error pulling model {model_key} on host {host}: {e}", "red", is_error=True)
+                            if chat:
+                                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                                g.debug_log(f"Error pulling model {model_key} on host {host}: {e}", "red", is_error=True, prefix=prefix)
                             else:
                                 print(f"Error pulling model {model_key} on host {host}: {e}")
                 except Exception as e:
-                    if debug_print:
-                        debug_print(f"Error checking models on host {host}: {e}", "red", is_error=True)
+                    if chat:
+                        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                        g.debug_log(f"Error checking models on host {host}: {e}", "red", is_error=True, prefix=prefix)
                     else:
                         print(f"Error checking models on host {host}: {e}")
                     OllamaClient.unreachable_hosts.append(host)
@@ -240,17 +237,27 @@ class OllamaClient(AIProviderInterface):
 
         Returns:
             Any: A stream object that yields response chunks.
+            
+        Raises:
+            Exception: If there's an error generating the response, to be handled by the router.
         """
-        
-        debug_print = AIProviderInterface.create_debug_printer(chat)
-        tooling = TextStreamPainter()
-
+        # Convert string to Chat object if needed
+        if isinstance(chat, str):
+            chat_obj = Chat()
+            chat_obj.add_message(Role.USER, chat)
+            chat_inner = chat_obj
+        else:
+            chat_inner = chat
+            
         client: ollama.Client | None
-        client, model_key = OllamaClient.get_valid_client(model_key, chat)
+        client, model_key = OllamaClient.get_valid_client(model_key, chat_inner)
         if not client:
+            # Still handle this specific error locally since it's a configuration issue
             error_msg = f"No valid host found for model {model_key}"
-            debug_print(error_msg, "red", is_error=True)
+            prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
+            g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             return None
+            
         assert client is not None
         host: str = client._client.base_url.host
 
@@ -259,25 +266,22 @@ class OllamaClient(AIProviderInterface):
         if temperature is not None and temperature != 0:
             options["temperature"] = temperature
 
-        try:
-            if silent_reason:
-                temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-                debug_print(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')} for: {colored('<' + silent_reason + '>', 'yellow')}{temp_str}", force_print=True, with_title=False)
-            else:
-                temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-                debug_print(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')}{temp_str} to generate a response...", force_print=True)
-            
-            is_chat = isinstance(chat, Chat)
-            if is_chat:
-                return client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800, options=options)
-            else:
-                return client.generate(model=model_key, prompt=chat, stream=True, keep_alive=1800, options=options)
-
-        except Exception as e:
-            error_msg = f"Ollama-Api: Failed to generate response using {colored('<' + host + '>', 'red')} with model {colored('<' + model_key + '>', 'red')}: {e}"
-            debug_print(error_msg, "red", is_error=True)
-            OllamaClient.unreachable_hosts.append(f"{host}{model_key}")
-            return None
+        # Log the start of generation (this is informational, not error handling)
+        if silent_reason:
+            temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
+            prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
+            g.debug_log(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')} for: {colored('<' + silent_reason + '>', 'yellow')}{temp_str}", force_print=True, with_title=False, prefix=prefix)
+        else:
+            temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
+            prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
+            g.debug_log(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')}{temp_str} to generate a response...", force_print=True, prefix=prefix)
+        
+        # Let any errors here bubble up to the router for centralized handling
+        is_chat = isinstance(chat, Chat)
+        if is_chat:
+            return client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800, options=options)
+        else:
+            return client.generate(model=model_key, prompt=chat, stream=True, keep_alive=1800, options=options)
 
     @staticmethod
     def generate_embedding(text: Union[str, List[str]], model: str = "bge-m3", chat: Optional[Chat] = None) -> Optional[Union[List[float], List[List[float]]]]:
@@ -299,15 +303,12 @@ class OllamaClient(AIProviderInterface):
         if isinstance(text, list) and (len(text) == 0 or all(len(t) < 3 for t in text)):
             return None
 
-        debug_print = None
-        if chat:
-            debug_print = AIProviderInterface.create_debug_printer(chat)
-
         client, model_key = OllamaClient.get_valid_client(model, chat)
         if not client:
             error_msg = f"No valid host found for model {model}"
-            if debug_print:
-                debug_print(error_msg, "red", is_error=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             else:
                 logger.error(error_msg)
             return None
@@ -318,8 +319,9 @@ class OllamaClient(AIProviderInterface):
         try:
             if isinstance(text, str):
                 # Single text case
-                if debug_print:
-                    debug_print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}...", force_print=True)
+                if chat:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}...", force_print=True, prefix=prefix)
                 else:
                     print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}...")
                 
@@ -327,8 +329,9 @@ class OllamaClient(AIProviderInterface):
                 return response["embedding"]
             else:
                 # List of texts case
-                if debug_print:
-                    debug_print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}", force_print=True)
+                if chat:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}", force_print=True, prefix=prefix)
                 else:
                     print(f"Ollama-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings using {colored('<', 'green')}{colored(host, 'green')}{colored('>', 'green')}")
                 
@@ -351,8 +354,9 @@ class OllamaClient(AIProviderInterface):
 
         except Exception as e:
             error_msg = f"Ollama-Api: Failed to generate embedding(s) using {colored('<', 'red')}{colored(host, 'red')}{colored('>', 'red')} with model {colored('<', 'red')}{colored(model, 'red')}{colored('>', 'red')}: {e}"
-            if debug_print:
-                debug_print(error_msg, "red", is_error=True)
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             else:
                 print(colored(error_msg, "red"))
                 logger.error(f"Ollama-Api: Failed to generate embedding(s) using <{host}> with model <{model}>: {e}")

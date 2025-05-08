@@ -34,13 +34,22 @@ class Chat:
         self.metadata: Dict[str, Any] = {}  # Dictionary to store additional metadata
         self._window: Optional[tk.Tk] = None
         self._text_widget: Optional[tk.Text] = None
-        self.debug_title: str = debug_title or instruction_message or "Unnamed Context"
+        self.debug_title: str = debug_title or instruction_message[:50].split("\n")[0] or "Unnamed Context"
         self._update_queue: Optional[queue.Queue] = None
         self._window_thread: Optional[threading.Thread] = None
         if self.debug_title == "Unnamed Context":
             pass
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
+    
+    def get_debug_title_prefix(self) -> str:
+        """
+        Get a formatted prefix string for debug messages that includes the chat's debug title if available.
+        
+        Returns:
+            str: The formatted prefix string
+        """
+        return f"[{self.debug_title}] " if self.debug_title else ""
     
     def __len__(self) -> int:
         """
@@ -155,7 +164,14 @@ class Chat:
         if content and role:
             if self.messages and self.messages[-1][0] == role:
                 # If the last message has the same role, append the new content
-                self.messages[-1] = (role, self.messages[-1][1] + content)
+                last_content = self.messages[-1][1]
+                # Check if last_content is a string before concatenating
+                if isinstance(last_content, str) and isinstance(content, str):
+                    self.messages[-1] = (role, last_content + content)
+                else:
+                    # Handle the case where content is not a string
+                    # Convert to string if needed or append as a new message
+                    self.messages.append((role, str(content)))
             else:
                 # Otherwise, add a new message
                 self.messages.append((role, content))

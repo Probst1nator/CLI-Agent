@@ -4,7 +4,7 @@ import time
 from typing import Dict, List, Optional, Any, Union
 from collections.abc import Callable
 from termcolor import colored
-from py_classes.cls_chat import Chat
+from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 import socket
 import json
@@ -12,7 +12,7 @@ import logging
 import base64
 
 from py_classes.cls_text_stream_painter import TextStreamPainter
-from py_classes.cls_chat import Role
+from py_classes.globals import g
 
 class AnthropicAPI(AIProviderInterface):
     """
@@ -32,45 +32,125 @@ class AnthropicAPI(AIProviderInterface):
 
         Returns:
             Any: A stream object that yields response chunks.
+            
+        Raises:
+            RateLimitError: If the API rate limit is exceeded.
+            TimeoutError: If the request times out.
+            Exception: For other errors, to be handled by the router.
         """
         # Convert string to Chat object if needed
         if isinstance(chat, str):
-            from py_classes.cls_chat import Chat, Role
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
             
-        debug_print = AIProviderInterface.create_debug_printer(chat)
-        try:
-            client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'), timeout=3.0, max_retries=2)
+        # Configure the client (let any error here bubble up to the router)
+        client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+        
+        # Informational logging (not error handling)
+        if silent_reason:
+            temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+            prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+            g.debug_log(f"Anthropic-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True, prefix=prefix)
+        else:
+            temp_str = "" if temperature == 0 else f" at temperature {temperature}"
+            prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+            g.debug_log(f"Anthropic-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
+
+        # Define system content (if any)
+        system_content = ""
+        # Copy image URLs
+        image_urls = []
+
+        if isinstance(chat, Chat):
+            # Extract the system prompt if it exists
+            if hasattr(chat, 'system_prompt') and chat.system_prompt:
+                system_content = chat.system_prompt
             
-            if silent_reason:
-                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
-                debug_print(f"Anthropic-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True)
-            else:
-                temp_str = "" if temperature == 0 else f" at temperature {temperature}"
-                debug_print(f"Anthropic-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True)
-
-            l_chat = Chat()
-            l_chat.messages = chat.messages
-
-            system_message = ""
-            if l_chat.messages[0][0] == Role.SYSTEM:
-                system_message = l_chat.messages[0][1]
-                l_chat.messages = l_chat.messages[1:]
-
-            return client.messages.stream(
-                model=model_key,
-                max_tokens=4096,
-                system=system_message,
-                messages=l_chat.to_groq(),
-                temperature=temperature,
-            )
-
-        except Exception as e:
-            error_msg = f"Anthropic API error: {e}"
-            debug_print(error_msg, "red", is_error=True)
-            raise Exception(error_msg)
+            # Get any image URLs from the last user message
+            if chat.messages and chat.messages[-1][0] == Role.USER:
+                last_user_content = chat.messages[-1][1]
+                if isinstance(last_user_content, list):
+                    for item in last_user_content:
+                        if isinstance(item, dict) and item.get("type") == "image":
+                            # Extract the image URL
+                            image_url = item.get("image_url")
+                            if image_url and isinstance(image_url, dict) and "url" in image_url:
+                                image_urls.append(image_url["url"])
+        
+        # Create messages array in Anthropic format
+        anthropic_messages = []
+        
+        if isinstance(chat, Chat):
+            # Convert Chat object to Anthropic format
+            for message in chat.messages:
+                # Extract role and content from the message tuple (role, content)
+                message_role = message[0]  # Role enum
+                message_content = message[1]  # Content string or list
+                
+                if message_role == Role.USER:
+                    # Handle user messages with potential images
+                    if image_urls and chat.messages[-1] == message:
+                        # This is the last user message and has images
+                        content = []
+                        
+                        # First add the text content
+                        text_content = message_content
+                        if isinstance(text_content, str) and text_content:
+                            content.append({"type": "text", "text": text_content})
+                        
+                        # Then add each image
+                        for url in image_urls:
+                            if url.startswith("data:image"):
+                                # Handle base64 encoded images
+                                mime_type = url.split(";")[0].split(":")[1]
+                                base64_data = url.split(",")[1]
+                                content.append({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": mime_type,
+                                        "data": base64_data
+                                    }
+                                })
+                            else:
+                                # Handle URL images
+                                content.append({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "url",
+                                        "url": url
+                                    }
+                                })
+                        
+                        anthropic_messages.append({"role": "user", "content": content})
+                    else:
+                        # Regular text-only message
+                        anthropic_messages.append({"role": "user", "content": str(message_content)})
+                elif message_role == Role.ASSISTANT:
+                    anthropic_messages.append({"role": "assistant", "content": str(message_content)})
+                elif message_role == Role.SYSTEM:
+                    # Store system message separately
+                    system_content = str(message_content)
+        else:
+            # If chat is a string, just use it as a user message
+            anthropic_messages.append({"role": "user", "content": chat})
+        
+        # Create the stream with system prompt if provided
+        create_args = {
+            "model": model_key,
+            "messages": anthropic_messages,
+            "max_tokens": 4096,
+            "temperature": temperature,
+            "stream": True
+        }
+        
+        if system_content:
+            create_args["system"] = system_content
+            
+        # Let errors bubble up to the router for centralized handling
+        # RateLimitError and TimeoutError will be handled by the router's _handle_model_error method
+        return client.messages.create(**create_args)
 
     # @staticmethod
     # def count_tokens(text: str, model: str = "claude-3-5-sonnet-latest-20240620") -> int:
