@@ -492,58 +492,81 @@ class Chat:
             List[Dict[str, Any]]: The chat messages formatted for Gemini's API.
         """
         gemini_messages = []
-        current_role = None
-        current_parts = []
         
         # Use local base64_images if provided, otherwise use self.base64_images
         images_to_include = base64_images if base64_images is not None else self.base64_images
         
+        # Handle system prompt separately
+        system_prompt = None
         for role, content in self.messages:
-            gemini_role = None
             if role == Role.SYSTEM:
-                gemini_role = "system"  # For older models, will be fixed if needed
-            elif role == Role.USER:
-                gemini_role = "user"
+                system_prompt = content
+                break
+                
+        for role, content in self.messages:
+            if role == Role.USER:
+                # Handle user messages, which might contain images
+                if isinstance(content, list):
+                    # Multimodal content
+                    content_parts = []
+                    
+                    for item in content:
+                        if isinstance(item, dict):
+                            if item.get("type") == "text":
+                                content_parts.append(item.get("text", ""))
+                            elif item.get("type") == "image":
+                                image_url = item.get("image_url", {}).get("url", "")
+                                if image_url.startswith("data:image"):
+                                    # Handle base64 encoded images
+                                    try:
+                                        import base64
+                                        import google.generativeai as genai
+                                        image_data = image_url.split(",")[1]
+                                        mime_type = image_url.split(";")[0].split(":")[1]
+                                        decoded_image = base64.b64decode(image_data)
+                                        content_parts.append(genai.Part.from_data(decoded_image, mime_type=mime_type))
+                                    except Exception as e:
+                                        # Fallback for when genai isn't available
+                                        content_parts.append("[Image data]")
+                                elif image_url.startswith("http"):
+                                    # Handle URL images
+                                    try:
+                                        import google.generativeai as genai
+                                        content_parts.append(genai.Part.from_uri(image_url))
+                                    except Exception as e:
+                                        # Fallback for when genai isn't available
+                                        content_parts.append(f"[Image URL: {image_url}]")
+                        else:
+                            # Simple text message
+                            content_parts.append(str(item))
+                            
+                    gemini_messages.append({"role": "user", "parts": content_parts})
+                else:
+                    # Simple text message
+                    gemini_messages.append({"role": "user", "parts": [str(content)]})
+                    
+                    # Add any images attached to the message
+                    if images_to_include:
+                        current_message = gemini_messages[-1]
+                        for image in images_to_include:
+                            current_message["parts"].append({
+                                "inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": image
+                                }
+                            })
+                        images_to_include = []  # Clear images after adding them
+                    
             elif role == Role.ASSISTANT:
-                gemini_role = "model"  # Changed from "assistant" to "model" for Gemini
-            else:
-                # Handle unknown roles as user
-                gemini_role = "user"
+                # Assistant messages are always text
+                gemini_messages.append({"role": "model", "parts": [str(content)]})
             
-            # If role changes or this is the first message, create a new message
-            if gemini_role != current_role and current_parts:
-                gemini_messages.append({
-                    "role": current_role,
-                    "parts": current_parts
-                })
-                current_parts = []
+            # System messages are handled separately (above)
             
-            # Set the current role
-            current_role = gemini_role
-            
-            # Add content to parts
-            part = {"text": content}
-            current_parts.append(part)
-            
-            # Handle images for user messages
-            if role == Role.USER and images_to_include and gemini_role == "user":
-                # If there are base64_images and this is a user message,
-                # add them as inline parts
-                for image in images_to_include:
-                    current_parts.append({
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": image
-                        }
-                    })
-                images_to_include = []  # Clear images after adding them
-        
-        # Add the last message if there's any content
-        if current_parts:
-            gemini_messages.append({
-                "role": current_role,
-                "parts": current_parts
-            })
+        # Add system prompt if present (prepend to the first user message)
+        if system_prompt and gemini_messages and gemini_messages[0]["role"] == "user":
+            first_message = gemini_messages[0]
+            first_message["parts"].insert(0, f"System instruction: {system_prompt}\n\n")
         
         return gemini_messages
 

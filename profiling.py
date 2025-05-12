@@ -37,7 +37,61 @@ profiler = ImportProfiler(threshold=0.2)
 sys.modules['builtins'].__import__ = profiler
 
 # Your existing imports
-import main
+#!/usr/bin/env python3
+
+import datetime
+import json
+import logging
+import os
+import select
+import time
+import traceback
+from typing import Any, Callable, List, Optional, Tuple
+from pyfiglet import figlet_format
+from dotenv import load_dotenv
+from termcolor import colored
+import argparse
+import sys
+import socket
+import warnings
+import asyncio
+import re
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import HSplit, Layout
+from prompt_toolkit.widgets import CheckboxList, Frame, Label, RadioList
+from prompt_toolkit.styles import Style
+from prompt_toolkit.formatted_text import HTML
+import base64
+import tempfile
+import subprocess
+
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
+# Suppress phonemizer warnings
+warnings.filterwarnings("ignore", message="words count mismatch on*", module="phonemizer", category=UserWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
+
+
+from py_methods.utils import (
+    extract_blocks,
+    pdf_or_folder_to_database,
+    listen_microphone,
+    take_screenshot,
+    update_cmd_collection,
+    ScreenCapture,
+)
+from py_methods import utils_audio
+from py_classes.cls_util_manager import UtilsManager
+from py_classes.enum_ai_strengths import AIStrengths
+from py_classes.cls_llm_router import Llm, LlmRouter
+from py_classes.cls_chat import Chat, Role
+from py_classes.utils.cls_utils_web_server import WebServer
+from py_classes.globals import g
+from py_classes.cls_python_sandbox import PythonSandbox
+from py_classes.cls_text_stream_painter import TextStreamPainter
+
 
 
 # Print the profiling results

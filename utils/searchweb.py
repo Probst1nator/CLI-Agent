@@ -167,7 +167,7 @@ Your suggested queries should be more specific or use alternative terminology th
         
         if relevance_action['action'] == 'rerun_search' and 'new_queries' in relevance_action:
             print(f"SearchWebUtil: Summary not relevant, rerunning with new queries: {relevance_action['new_queries']}")
-            return SearchWeb.run(relevance_action['new_queries'])
+            summary = SearchWeb.run(relevance_action['new_queries'])
         
         # Return a clean response with the summary as a string
         return summary

@@ -120,64 +120,12 @@ class GoogleAPI(AIProviderInterface):
             max_output_tokens=8192,
         )
         
-        # Create Gemini-compatible messages
-        gemini_messages = []
-        
+        # Use the Chat's to_gemini method to create Gemini-compatible messages
         if isinstance(chat, Chat):
-            # Handle Chat object conversion to Gemini format
-            system_prompt = chat.system_prompt if hasattr(chat, 'system_prompt') else None
-            
-            for message in chat.messages:
-                # Extract role and content from the message tuple (role, content)
-                message_role = message[0]  # Role enum
-                message_content = message[1]  # Content string or list
-                
-                if message_role == Role.USER:
-                    # Handle user messages, which might contain images
-                    if isinstance(message_content, list):
-                        # Multimodal content
-                        content_parts = []
-                        
-                        for item in message_content:
-                            if isinstance(item, dict):
-                                if item.get("type") == "text":
-                                    content_parts.append(item.get("text", ""))
-                                elif item.get("type") == "image":
-                                    image_url = item.get("image_url", {}).get("url", "")
-                                    if image_url.startswith("data:image"):
-                                        # Handle base64 encoded images
-                                        image_data = image_url.split(",")[1]
-                                        mime_type = image_url.split(";")[0].split(":")[1]
-                                        decoded_image = base64.b64decode(image_data)
-                                        content_parts.append(genai.Part.from_data(decoded_image, mime_type=mime_type))
-                                    elif image_url.startswith("http"):
-                                        # Handle URL images
-                                        content_parts.append(genai.Part.from_uri(image_url))
-                            else:
-                                # Simple text message
-                                content_parts.append(str(item))
-                                
-                        gemini_messages.append({"role": "user", "parts": content_parts})
-                    else:
-                        # Simple text message
-                        gemini_messages.append({"role": "user", "parts": [str(message_content)]})
-                        
-                elif message_role == Role.ASSISTANT:
-                    # Assistant messages are always text
-                    gemini_messages.append({"role": "model", "parts": [str(message_content)]})
-                
-                elif message_role == Role.SYSTEM:
-                    # System messages are converted to user messages with a prefix
-                    # We'll store them separately and handle them below
-                    system_prompt = message_content
-            
-            # Add system prompt if present (prepend to the first user message)
-            if system_prompt and gemini_messages and gemini_messages[0]["role"] == "user":
-                first_message = gemini_messages[0]
-                first_message["parts"].insert(0, f"System instruction: {system_prompt}\n\n")
+            gemini_messages = chat.to_gemini()
         else:
-            # Handle string input
-            gemini_messages.append({"role": "user", "parts": [str(chat)]})
+            # Simple string input case (should not happen due to conversion above, but just in case)
+            gemini_messages = [{"role": "user", "parts": [str(chat)]}]
             
         # Print status message
         if silent_reason:
