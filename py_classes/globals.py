@@ -20,6 +20,7 @@ class Globals:
     USE_SANDBOX: bool = False
     LLM: Optional[str] = None
     LLM_STRENGTHS: List[AIStrengths] = []
+    SELECTED_UTILS: List[str] = []  # Store selected utilities
     
     if (os.getenv("USE_ONLINE_HOSTNAME", "") == socket.gethostname()):
         LLM_STRENGTHS = [AIStrengths.ONLINE]

@@ -131,11 +131,12 @@ class Llm:
             Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "DeepHermes-Egregore-v2-RLAIF-8b-Atropos-Q4:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             
             # Guard models
-            Llm(GroqAPI(), "llama-guard-3-8b", None, 8192, [AIStrengths.GUARD]),
-            Llm(OllamaClient(), "llama-guard3:8b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "shieldgemma:2b", None, 4096, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.SMALL]),
+            Llm(GroqAPI(), "llama-guard-4-12b", None, 128000, [AIStrengths.GUARD]),
+            Llm(OllamaClient(), "llama-guard3:8b", None, 8192, [AIStrengths.GUARD, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "shieldgemma:2b", None, 8192, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.SMALL]),
         ]
         if exclude_guards:
             llms = [llm for llm in llms if not any(s == AIStrengths.GUARD for s in llm.strengths)]

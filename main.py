@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
 import datetime
-import json
 import logging
 import os
 import select
-import time
 import traceback
-from typing import Any, Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from pyfiglet import figlet_format
 from dotenv import load_dotenv
 from termcolor import colored
@@ -237,6 +235,90 @@ async def llm_selection(args: argparse.Namespace) -> None:
         if args.debug:
             traceback.print_exc()
 
+async def utils_selection(args: argparse.Namespace) -> List[str]:
+    """
+    Handles the Utils selection process, supporting multi-selection mode.
+    
+    Args:
+        args: The parsed command line arguments
+
+    Returns:
+        List of selected util names or special identifiers
+    """
+    # Show available utils using prompt_toolkit
+    utils_manager = UtilsManager()
+    available_utils = utils_manager.get_util_names()
+    
+    # Create styled util choices
+    util_choices = []
+    
+    # Add a special "Add New Tool" option at the top
+    add_new_tool_id = "__add_new_tool__"
+    util_choices.append((add_new_tool_id, HTML('<special>+ Add New Tool</special>')))
+    
+    for util_name in available_utils:
+        # Create HTML formatted text with colors
+        styled_text = HTML(
+            f'<util>{util_name}</util>'
+        )
+        util_choices.append((util_name, styled_text))
+    
+    # Define the style
+    style = Style.from_dict({
+        'util': 'ansigreen',
+        'special': 'ansiyellow bold',
+    })
+    
+    checkbox_list = CheckboxList(
+        values=util_choices
+    )
+    bindings = KeyBindings()
+
+    @bindings.add("e")
+    def _execute(event) -> None:
+        # Fix: CheckboxList.current_values returns the selected values directly
+        selected = []
+        for value, _ in util_choices:
+            if value in checkbox_list.current_values:
+                selected.append(value)
+        app.exit(result=selected)
+
+    @bindings.add("a")
+    def _abort(event) -> None:
+        app.exit(result=None)
+
+    instructions = Label(text="Use arrow keys to navigate, Space to select/deselect utils, 'e' to confirm or 'a' to abort")
+    root_container = HSplit([
+        Frame(title="Select Utils to Use", body=checkbox_list),
+        instructions
+    ])
+    layout = Layout(root_container)
+    app = Application(layout=layout, key_bindings=bindings, full_screen=False, style=style)
+    
+    # Use the current event loop instead of creating a new one
+    try:
+        selected_utils = await app.run_async()
+        
+        if selected_utils is not None and len(selected_utils) > 0:
+            # Check if the special "Add New Tool" option was selected
+            if add_new_tool_id in selected_utils:
+                return [add_new_tool_id]
+            
+            utils_list = ", ".join(selected_utils)
+            print(colored(f"# cli-agent: Selected utils: {utils_list}", "green"))
+            return selected_utils
+        else:
+            print(colored(f"# cli-agent: No utils selected or selection cancelled", "yellow"))
+            return []
+    except asyncio.CancelledError:
+        print(colored(f"# cli-agent: Utils selection was interrupted", "yellow"))
+        return []
+    except Exception as e:
+        print(colored(f"# cli-agent: Error during utils selection: {str(e)}", "red"))
+        if args.debug:
+            traceback.print_exc()
+        return []
+
 def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bool:
     """
     Handles the confirmation process for code execution, supporting both auto and manual modes.
@@ -401,7 +483,7 @@ async def get_user_input_with_bindings(
                     print(colored(f"💬 Processing message: {user_input}", 'blue', attrs=["bold"]))
                     if args.message:
                         # If there are more messages, show how many remain
-                        print(colored(f"💬 ({len(args.message)} more message(s) queued)", 'blue'))
+                        print(colored(f"⏳ ({len(args.message)} more message(s) queued)", 'blue'))
                 else:
                     user_input = input(prompt)
             except KeyboardInterrupt: # Handle Ctrl+C as exit
@@ -489,6 +571,49 @@ async def get_user_input_with_bindings(
             print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
             args.image = True
             continue
+        
+        elif user_input == "-t" or user_input == "--t" or user_input == "-tool" or user_input == "--tool":
+            print(colored("# cli-agent: KeyBinding detected: Showing utils selection, type (--h) for info", "green"))
+            selected_utils = await utils_selection(args)
+            
+            # Check if the special "Add New Tool" option was selected
+            if selected_utils and selected_utils[0] == "__add_new_tool__":
+                print(colored(f"# cli-agent: 'Add New Tool' option selected. Custom handling will be implemented by user.", "green"))
+                # You can add your custom handling here or trigger a separate function
+                
+                # Example placeholder for your implementation:
+                # new_tool_name = await handle_add_new_tool()
+                # if new_tool_name:
+                #     g.SELECTED_UTILS.append(new_tool_name)
+                
+                continue
+            
+            if selected_utils:
+                # Store the selected utils in globals for subsequent requests
+                g.SELECTED_UTILS = selected_utils
+                
+                # Update the instruction message in the current chat if it exists
+                if context_chat:
+                    current_instruction = context_chat.messages[0][1]
+                    
+                    # Remove any existing selected utils section
+                    if "IMPORTANT: You MUST use the following utility tools" in current_instruction:
+                        current_instruction = current_instruction.split("IMPORTANT: You MUST use the following utility tools")[0].strip()
+                    
+                    # Add the selected utils to the instruction
+                    utils_instruction = f"""
+
+IMPORTANT: You MUST use the following utility tools that have been specifically requested:
+{', '.join(g.SELECTED_UTILS)}
+
+For any new code you write, be sure to make appropriate use of these selected utilities."""
+                    
+                    updated_instruction = current_instruction + utils_instruction
+                    context_chat.messages[0] = (Role.SYSTEM, updated_instruction)
+                    print(colored(f"# cli-agent: Updated chat instructions to include selected utils.", "green"))
+                
+                print(colored(f"# cli-agent: Utils selection saved. The model will be instructed to use these tools in subsequent requests.", "green"))
+            continue
 
         elif user_input == "-h" or user_input == "--h":
             print(figlet_format("cli-agent", font="slant"))
@@ -512,6 +637,8 @@ async def get_user_input_with_bindings(
             print(colored(f"(Current: {'on' if args.mct else 'off'})", "cyan"))
             print(colored("# -m: Enter multiline input (end with '--f' on a new line)", "yellow"))
             print(colored("# --message: Pass messages via CLI (-m 'msg1' 'msg2')", "yellow"))
+            print(colored(f"# -t: Select specific utility tools to be used ", "yellow"), end="")
+            print(colored(f"(Current: {', '.join(g.SELECTED_UTILS) if g.SELECTED_UTILS else 'None'})", "cyan"))
             print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
             if context_chat:
                 print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
@@ -672,7 +799,7 @@ print(f"Screenshot description: {{description}}")
 <execution_output>
 Screenshot description: {ImageToText.run(screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
 </execution_output>
-Perfect, use this description as needed for the next steps.""")
+Perfect, use this description as needed for the next steps.\n""")
 
     return base64_images, screenshots_paths
 # --- End New Screenshot Handling Function ---
@@ -815,6 +942,23 @@ Only if she's finished with her tasks and would like to respond to the user, she
 
 She emulates a human personality, she is intelligent, enthusiastic and playful, she uses emojis to express herself frequently."""
 
+            # Add selected utils to instruction if any are selected
+            if g.SELECTED_UTILS:
+                inst += f"""
+
+IMPORTANT: You MUST use the following utility tools that have been specifically requested:
+{', '.join(g.SELECTED_UTILS)}
+
+For any new code you write, be sure to make appropriate use of these selected utilities."""
+
+            if (args.sandbox):
+                inst += f"""
+Please try to stay within your sandbox directory at {g.AGENTS_SANDBOX_DIR}
+You may read from the whole system but if you need to save or modify any files, copy the file to your sandbox directory and do it there.
+"""
+
+            context_chat.set_instruction_message(inst)
+            
             kickstart_preprompt = f"""Hi, before starting off, let me show you some additional python utilities I coded for you to use if needed,
 {utils_manager.get_available_utils_info()}
 
@@ -848,13 +992,6 @@ Lastly, let's see the platform we are running on:
 {subprocess.check_output(['uname', '-a']).decode('utf-8')}
 </execution_output>
 """
-            if (args.sandbox):
-                inst += f"""
-Please try to stay within your sandbox directory at {g.AGENTS_SANDBOX_DIR}
-You may read from the whole system but if you need to save or modify any files, copy the file to your sandbox directory and do it there.
-"""
-
-            context_chat.set_instruction_message(inst)
             context_chat.add_message(Role.USER, kickstart_preprompt)
 
         
@@ -931,6 +1068,7 @@ You may read from the whole system but if you need to save or modify any files, 
                     try:
                         # Ensure last message is assistant before generating new one if needed
                         if assistant_response:
+                            print(colored(f"WARNING: Assistant response was not handled, defensively adding to context", "yellow"))
                             if context_chat.messages[-1][0] == Role.USER:
                                 context_chat.add_message(Role.ASSISTANT, assistant_response)
                             else:
@@ -1012,6 +1150,23 @@ You may read from the whole system but if you need to save or modify any files, 
                         assistant_response = "" # Clear buffer as it's been added/printed
                         break # Break inner loop to get next user input
                     
+                    # Check if any selected tools were used in the code response
+                    if g.SELECTED_UTILS:
+                        used_tools = []
+                        for tool in g.SELECTED_UTILS:
+                            # Check if the tool name appears in any of the code blocks
+                            for code_block in python_blocks:
+                                if tool in code_block:
+                                    used_tools.append(tool)
+                                    print(colored(f"# cli-agent: Tool '{tool}' was used and will be removed from required tools list.", "green"))
+                                    break
+                        
+                        # Remove used tools from globals
+                        if used_tools:
+                            for tool in used_tools:
+                                if tool in g.SELECTED_UTILS:
+                                    g.SELECTED_UTILS.remove(tool)
+
                     if (args.voice or args.speak):
                         # remove all code blocks from the assistant response
                         verbal_text = re.sub(r'```[^`]*```', '', assistant_response)
@@ -1109,8 +1264,7 @@ You may read from the whole system but if you need to save or modify any files, 
                             assistant_response = "" # Clear buffer as it's been processed
 
                             action_counter += 1  # Increment action counter
-                            # Decide whether to continue or break inner loop
-                            # Simple: assume one code execution per turn is enough. Break inner loop.
+                            
                             continue # Break inner loop after successful execution, continue to next agent turn
 
                         except Exception as e:
