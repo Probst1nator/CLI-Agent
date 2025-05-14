@@ -32,15 +32,7 @@ warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:
 warnings.filterwarnings("ignore", message="words count mismatch on*", module="phonemizer", category=UserWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
-
-from py_methods.utils import (
-    extract_blocks,
-    pdf_or_folder_to_database,
-    listen_microphone,
-    take_screenshot,
-    update_cmd_collection,
-    ScreenCapture,
-)
+# Import utils_audio which uses torch
 from py_methods import utils_audio
 from py_classes.cls_util_manager import UtilsManager
 from py_classes.enum_ai_strengths import AIStrengths
@@ -51,8 +43,36 @@ from py_classes.globals import g
 from py_classes.cls_python_sandbox import PythonSandbox
 from py_classes.cls_text_stream_painter import TextStreamPainter
 
+# Add a global variable for selected LLMs
+g.SELECTED_LLMS = []
+
 # Fix the import by using a relative or absolute import path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Lazy load functions from py_methods.utils to avoid heavy imports at startup
+def get_extract_blocks():
+    from py_methods.utils import extract_blocks
+    return extract_blocks
+
+def get_pdf_or_folder_to_database():
+    from py_methods.utils import pdf_or_folder_to_database
+    return pdf_or_folder_to_database
+
+def get_listen_microphone():
+    from py_methods.utils import listen_microphone
+    return listen_microphone
+
+def get_take_screenshot():
+    from py_methods.utils import take_screenshot
+    return take_screenshot
+
+def get_update_cmd_collection():
+    from py_methods.utils import update_cmd_collection
+    return update_cmd_collection
+
+def get_screen_capture():
+    from py_methods.utils import ScreenCapture
+    return ScreenCapture
 
 # Try importing with a direct import
 try:
@@ -109,8 +129,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-l", "--local", action="store_true", default=False,
                         help="Use the local Ollama backend for processing. Sets g.FORCE_LOCAL=True.")
-    parser.add_argument("-m", "--message", type=str, default=[], nargs='+',
-                        help="Enter one or more messages to process in sequence. Multiple messages can be passed like: -m 'first message' 'second message'")
+    parser.add_argument("-m", "--message", type=str, default=[], nargs='*',
+                        help="Enter one or more messages to process in sequence. Multiple messages can be passed like: -m 'first message' 'second message'. If no message is provided, multiline input mode will be activated.")
     parser.add_argument("-r", "--regenerate", action="store_true", default=False,
                         help="Regenerate the last response.")
     parser.add_argument("-v", "--voice", action="store_true", default=False,
@@ -160,12 +180,15 @@ def parse_cli_args() -> argparse.Namespace:
     
     return args
 
-async def llm_selection(args: argparse.Namespace) -> None:
+async def llm_selection(args: argparse.Namespace) -> List[str]:
     """
-    Handles the LLM selection process, supporting both auto and manual modes.
+    Handles the LLM selection process, supporting multi-selection mode.
     
     Args:
         args: The parsed command line arguments containing auto mode settings
+        
+    Returns:
+        List of selected LLM model keys or special identifiers
     """
     # Show available LLMs using prompt_toolkit
     available_llms = Llm.get_available_llms(exclude_guards=True)
@@ -193,22 +216,28 @@ async def llm_selection(args: argparse.Namespace) -> None:
         'context': 'ansiblue',
     })
     
-    radio_list = RadioList(
+    # Use CheckboxList instead of RadioList to allow multiple selections
+    checkbox_list = CheckboxList(
         values=llm_choices
     )
     bindings = KeyBindings()
 
     @bindings.add("e")
     def _execute(event) -> None:
-        app.exit(result=radio_list.current_value)
+        # Extract the selected values
+        selected = []
+        for value, _ in llm_choices:
+            if value in checkbox_list.current_values:
+                selected.append(value)
+        app.exit(result=selected)
 
     @bindings.add("a")
     def _abort(event) -> None:
         app.exit(result=None)
 
-    instructions = Label(text="Use arrow keys to select an LLM, press e to confirm or 'a' to abort")
+    instructions = Label(text="Use arrow keys to navigate, Space to select/deselect LLMs, 'e' to confirm or 'a' to abort")
     root_container = HSplit([
-        Frame(title="Select an LLM to use", body=radio_list),
+        Frame(title="Select LLMs to use", body=checkbox_list),
         instructions
     ])
     layout = Layout(root_container)
@@ -216,24 +245,38 @@ async def llm_selection(args: argparse.Namespace) -> None:
     
     # Use the current event loop instead of creating a new one
     try:
-        selected_llm = await app.run_async()
+        selected_llms = await app.run_async()
         
-        if selected_llm == "any_local":
-            g.FORCE_LOCAL = True
-            args.local = True
-            args.llm = None
-            print(colored(f"# cli-agent: KeyBinding detected: Local mode enabled", "green"))
-        elif selected_llm is not None:
-            args.llm = selected_llm
-            print(colored(f"# cli-agent: KeyBinding detected: LLM set to {args.llm}, type (--h) for info", "green"))
+        if selected_llms is not None and len(selected_llms) > 0:
+            # Check if "Any but local" was selected
+            if "any_local" in selected_llms:
+                g.FORCE_LOCAL = True
+                args.local = True
+                args.llm = None
+                print(colored(f"# cli-agent: 'Any but local' option selected. Local mode enabled.", "green"))
+                return []
+            
+            # If multiple LLMs were selected, enable MCT mode automatically
+            if len(selected_llms) > 1:
+                args.mct = True
+                print(colored(f"# cli-agent: Multiple LLMs selected ({', '.join(selected_llms)}). MCT mode enabled automatically.", "green"))
+            else:
+                # Single LLM selected - store in args.llm
+                args.llm = selected_llms[0]
+                print(colored(f"# cli-agent: LLM set to {args.llm}, type (--h) for info", "green"))
+            
+            return selected_llms
         else:
-            print(colored(f"# cli-agent: LLM selection cancelled", "yellow"))
+            print(colored(f"# cli-agent: No LLMs selected or selection cancelled", "yellow"))
+            return []
     except asyncio.CancelledError:
         print(colored(f"# cli-agent: LLM selection was interrupted", "yellow"))
+        return []
     except Exception as e:
         print(colored(f"# cli-agent: Error during LLM selection: {str(e)}", "red"))
         if args.debug:
             traceback.print_exc()
+        return []
 
 async def utils_selection(args: argparse.Namespace) -> List[str]:
     """
@@ -337,7 +380,7 @@ def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bo
 
 Priorities:
 1.  **Safety First:** Identify any operations with potential negative side effects (e.g., unintended file/system modifications, risky shell commands, unrestricted network calls), modifications of files are allowed if the comments show that it is intentional and safe.
-2.  **Completeness Second:** If safe, check for placeholder variables (e.g., `YOUR_API_KEY`, `<REPLACE_ME>`), or clearly unimplemented logic. Comments noting future work are allowed. Scripts that only print text are also always allowed.
+2.  **Completeness Second:** If safe, ensure that the script does not contain any placeholders (e.g., `YOUR_API_KEY`, `<REPLACE_ME>`), unimplemented logic or similar. Comments noting future work are allowed. Scripts that only print text are also always allowed.
 
 Assume anything imported from utils.* is safe.
 
@@ -425,13 +468,25 @@ def select_best_branch(
     selection_prompt += "- Appropriate level of detail for the user's request\n\n"
     
     for i, response in enumerate(assistant_responses):
-        selection_prompt += f"# Response {i}:\n{response}\n\n---\n\n"
+        # If these are responses from different LLMs, indicate which model generated each response
+        model_info = ""
+        if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS):
+            model_info = f" (Generated by {g.SELECTED_LLMS[i]})"
+        selection_prompt += f"# Response {i}{model_info}:\n{response}\n\n---\n\n"
     
     selection_prompt += "Analyze each complete response and select EXACTLY ONE best response. End your analysis with: 'Selected branch: X' where X is the response number."
     
     mct_branch_selector_chat.add_message(Role.USER, selection_prompt)
+    
+    # If multiple LLMs are selected, use the first one for evaluation
+    evaluator_model = []
+    if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 0:
+        evaluator_model = [g.SELECTED_LLMS[0]]
+        print(colored(f"Using {g.SELECTED_LLMS[0]} to evaluate responses from all models", "cyan"))
+    
     evaluator_response: str = LlmRouter.generate_completion(
         mct_branch_selector_chat,
+        evaluator_model,
     )
     
     # Extract the selected branch number
@@ -501,7 +556,9 @@ async def get_user_input_with_bindings(
 
         elif user_input == "-l" or user_input == "--l" or user_input == "--llm" or user_input == "--local":
             print(colored("# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
-            await llm_selection(args)
+            selected_llms = await llm_selection(args)
+            # Store the selected LLMs in globals for later use
+            g.SELECTED_LLMS = selected_llms
             continue
 
         elif user_input == "-a" or user_input == "--auto":
@@ -542,7 +599,7 @@ async def get_user_input_with_bindings(
         elif user_input == "-img" or user_input == "--img" or user_input == "-screenshot" or user_input == "--screenshot" or args.image:
             print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
             args.image = False
-            await handle_screenshot_capture(context_chat)
+            base64_images = await handle_screenshot_capture(context_chat)
             continue
 
         elif user_input == "-p" or user_input == "--p":
@@ -567,11 +624,6 @@ async def get_user_input_with_bindings(
             print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
             exit(0)
         
-        elif user_input == "-img" or user_input == "--img":
-            print(colored("# cli-agent: KeyBinding detected: Taking screenshot with Spectacle, type (--h) for info", "green"))
-            args.image = True
-            continue
-        
         elif user_input == "-t" or user_input == "--t" or user_input == "-tool" or user_input == "--tool":
             print(colored("# cli-agent: KeyBinding detected: Showing utils selection, type (--h) for info", "green"))
             selected_utils = await utils_selection(args)
@@ -580,11 +632,104 @@ async def get_user_input_with_bindings(
             if selected_utils and selected_utils[0] == "__add_new_tool__":
                 print(colored(f"# cli-agent: 'Add New Tool' option selected. Custom handling will be implemented by user.", "green"))
                 # You can add your custom handling here or trigger a separate function
+                author_util_chat = Chat("You are a coding agent, tasked with implementing a python script that precisely follows the constraints of the framework shown off by the example code. You always take your time to reason about your observations first and then provide a full working python script.")
+                author_util_chat.add_message(Role.USER, f"""Please understand the context of the conversation and try to understand what is happening. Do not implement anything yet, just understand the context and the conversation.
+{context_chat.print_chat(start_index=-3)}
+""")
+                response = LlmRouter.generate_completion(
+                    author_util_chat,
+                    g.SELECTED_LLMS,
+                )
+                author_util_chat.add_message(Role.ASSISTANT, response)
                 
-                # Example placeholder for your implementation:
-                # new_tool_name = await handle_add_new_tool()
-                # if new_tool_name:
-                #     g.SELECTED_UTILS.append(new_tool_name)
+                # Read utility example files from disk
+                utils_examples_files = [
+                    "utils/searchweb.py",
+                    "utils/tobool.py",
+                    "utils/generateimage.py"
+                ]
+                
+                utils_examples = "Here are three examples of utility tools that follow our framework:\n\n"
+                
+                for i, file_path in enumerate(utils_examples_files):
+                    try:
+                        # Use relative path from the current script
+                        full_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_path)
+                        with open(full_path, 'r') as f:
+                            file_content = f.read()
+                        
+                        # Add the example with a header and code block
+                        utils_examples += f"# Example {i+1}: {os.path.basename(file_path).replace('.py', '')} Utility\n"
+                        utils_examples += f"```python\n{file_content}\n```\n\n"
+                    except Exception as e:
+                        print(colored(f"Error reading utility file {file_path}: {e}", "red"))
+                
+                utils_examples += """All utility tools follow this common pattern:
+1. Import from the core framework classes
+2. Define a class that inherits from UtilBase
+3. Implement a static `run()` method with appropriate parameters
+4. Include comprehensive docstrings
+5. Return useful results in the expected format
+
+Your utility should follow this framework and implement functionality that addresses the specific need identified in the conversation."""
+
+                author_util_chat.add_message(Role.USER, f"""Now I'd like you to implement a Utility tool in python that achieves the same goal as the conversation above. The tool needs to fit into an existing framework of utility tools. To help you understand the framework I am going to show you examples of existing tools:
+{utils_examples}
+""")
+                response = LlmRouter.generate_completion(
+                    author_util_chat,
+                    g.SELECTED_LLMS,
+                )
+                author_util_chat.add_message(Role.ASSISTANT, response)
+                
+                # Extract Python code from response and save to utils directory
+                python_blocks = get_extract_blocks()(response, "python")
+                if python_blocks:
+                    # Get the first python block (main implementation)
+                    util_code = python_blocks[0]
+                    
+                    # Extract class name to use as filename
+                    import re
+                    class_match = re.search(r'class\s+(\w+)\s*\(', util_code)
+                    if class_match:
+                        class_name = class_match.group(1)
+                        # Convert from CamelCase to snake_case for filename
+                        filename = re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower() + ".py"
+                        
+                        # Ensure utils directory exists
+                        utils_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils")
+                        os.makedirs(utils_dir, exist_ok=True)
+                        
+                        # Save the utility to file
+                        filepath = os.path.join(utils_dir, filename)
+                        
+                        # Check if file already exists and create backup if needed
+                        if os.path.exists(filepath):
+                            import time
+                            backup_path = f"{filepath}.{int(time.time())}.bak"
+                            print(colored(f"# cli-agent: Utility file already exists! Creating backup at {backup_path}", "yellow"))
+                            try:
+                                os.rename(filepath, backup_path)
+                            except Exception as e:
+                                print(colored(f"# cli-agent: Could not create backup: {e}", "red"))
+                        
+                        # Write the utility code to file
+                        try:
+                            with open(filepath, 'w') as f:
+                                f.write(util_code)
+                            print(colored(f"# cli-agent: Successfully saved new utility to {filepath}", "green"))
+                            
+                            # Add the newly created utility to the selected utils
+                            util_name = class_name
+                            if util_name not in g.SELECTED_UTILS:
+                                g.SELECTED_UTILS.append(util_name)
+                                print(colored(f"# cli-agent: Added {util_name} to selected utilities for next requests", "green"))
+                        except Exception as e:
+                            print(colored(f"# cli-agent: Error saving utility file: {e}", "red"))
+                    else:
+                        print(colored("# cli-agent: Could not determine class name from implementation. Utility not saved.", "red"))
+                else:
+                    print(colored("# cli-agent: No Python code found in the implementation. Utility not saved.", "red"))
                 
                 continue
             
@@ -620,8 +765,8 @@ For any new code you write, be sure to make appropriate use of these selected ut
             print(colored("# KeyBindings:", "yellow"))
             print(colored("# -h: Show this help message", "yellow"))
             print(colored("# -r: Regenerate the last response", "yellow"))
-            print(colored(f"# -l: Pick a different LLM ", "yellow"), end="")
-            print(colored(f"(Current: {args.llm})", "cyan"))
+            print(colored(f"# -l: Pick different LLMs (supports multi-selection) ", "yellow"), end="")
+            print(colored(f"(Current: {', '.join(g.SELECTED_LLMS) if g.SELECTED_LLMS else args.llm or 'Auto'})", "cyan"))
             print(colored(f"# -a: Toggle automatic code execution ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.auto else 'off'})", "cyan"))
             print(colored(f"# -f: Toggle using only fast LLMs ", "yellow"), end="")
@@ -635,8 +780,9 @@ For any new code you write, be sure to make appropriate use of these selected ut
             print(colored("# -img: Take a screenshot using Spectacle (with automatic fallbacks if not available)", "yellow"))
             print(colored(f"# -mct: Toggle Monte Carlo Tree Search ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.mct else 'off'})", "cyan"))
+            print(colored(f"      Note: MCT is auto-enabled when multiple LLMs are selected", "cyan"))
             print(colored("# -m: Enter multiline input (end with '--f' on a new line)", "yellow"))
-            print(colored("# --message: Pass messages via CLI (-m 'msg1' 'msg2')", "yellow"))
+            print(colored("# --message: Pass messages via CLI (-m 'msg1' 'msg2'). If used without messages (-m), multiline input mode is activated.", "yellow"))
             print(colored(f"# -t: Select specific utility tools to be used ", "yellow"), end="")
             print(colored(f"(Current: {', '.join(g.SELECTED_UTILS) if g.SELECTED_UTILS else 'None'})", "cyan"))
             print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
@@ -654,20 +800,17 @@ For any new code you write, be sure to make appropriate use of these selected ut
         return user_input
     if args.image:
         args.image = False # Reset flag
-# --- New Screenshot Handling Function ---
-async def handle_screenshot_capture(context_chat: Optional[Chat]) -> Tuple[List[str], List[str]]:
+
+async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
     """
     Handles the screenshot capture process, including Spectacle, fallbacks, saving, and context update.
     Retries up to 3 times if no image is captured.
 
     Args:
-        args: Command line arguments.
         context_chat: The chat context to potentially add messages to.
 
     Returns:
-        A tuple containing:
-        - List of base64 encoded image strings.
-        - List of paths where screenshots were saved.
+        The user's input for further processing.
     """
 
     base64_images: List[str] = []
@@ -713,7 +856,7 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> Tuple[List[
             # Fallback to built-in screenshot method
             try:
                 print(colored("Trying built-in screenshot capture (interactive region)...", "cyan"))
-                screen_capture = ScreenCapture()
+                screen_capture = get_screen_capture()
                 captured_image = screen_capture.return_captured_region_image()
                 if captured_image:
                     base64_images = [captured_image]
@@ -741,7 +884,7 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> Tuple[List[
                     except Exception as input_e: # Catch potential errors during input
                         print(colored(f"Error during title input: {input_e}. Using default.", "yellow"))
 
-                    base64_images = take_screenshot(window_title)
+                    base64_images = get_take_screenshot()(window_title)
                     if not base64_images:
                         print(colored(f"No windows with title containing '{window_title}' found on attempt {attempt}.", "red"))
                     else:
@@ -801,8 +944,8 @@ Screenshot description: {ImageToText.run(screenshots_paths[0], 'Describe the scr
 </execution_output>
 Perfect, use this description as needed for the next steps.\n""")
 
-    return base64_images, screenshots_paths
-# --- End New Screenshot Handling Function ---
+    # Return the base64 images for use in the generate_completion call
+    return base64_images
 
 async def main() -> None:
     try:
@@ -814,6 +957,14 @@ async def main() -> None:
         
         args = parse_cli_args()
         print(args)
+
+        # Check if -m flag was provided without messages and prompt for multiline input
+        if '-m' in sys.argv or '--message' in sys.argv:
+            if not args.message:  # Empty list means -m was provided without arguments
+                print(colored("# cli-agent: -m flag detected without messages. Entering multiline input mode.", "green"))
+                multiline_input = handle_multiline_input()
+                if multiline_input.strip():  # Only add if not empty
+                    args.message.append(multiline_input)
 
         # Override logging level if debug mode is enabled
         if args.debug:
@@ -876,10 +1027,6 @@ async def main() -> None:
         for util_name in utils_manager.get_util_names():
             print(colored(f"  - {util_name}", "green"))
         
-        # Initialize screenshots_paths list to manage screenshot paths across iterations if needed
-        # Though typically reset each loop unless messages are queued.
-        saved_screenshots_paths: List[str] = []
-        
         # Initialize web server early if GUI mode is enabled
         web_server = None
         if args.gui:
@@ -891,9 +1038,9 @@ async def main() -> None:
         if args.preload:
             print(colored("Preloading resources...", "green"))
             print(colored("Generating atuin-command-history embeddings...", "green"))
-            update_cmd_collection()
+            get_update_cmd_collection()()
             print(colored("Generating pdf embeddings for cli-agent directory...", "green"))
-            pdf_or_folder_to_database(g.PROJ_DIR_PATH)
+            get_pdf_or_folder_to_database()(g.PROJ_DIR_PATH)
             print(colored("Preloading complete.", "green"))
             exit(0)
         
@@ -997,6 +1144,12 @@ Lastly, let's see the platform we are running on:
         
         if args.mct and context_chat:
             context_chat.debug_title = "MCTs Branching - Main Context Chat"
+            
+        # Handle screenshot capture immediately if --img flag was provided
+        if args.image:
+            print(colored("# cli-agent: Taking screenshot with Spectacle due to --img flag...", "green"))
+            base64_images = await handle_screenshot_capture(context_chat)
+            args.image = False  # Reset the flag after handling
 
         # Main loop
         while True:
@@ -1017,7 +1170,7 @@ Lastly, let's see the platform we are running on:
 
             if args.voice:
                 # Default voice handling
-                user_input, _, wake_word_used = listen_microphone(private_remote_wake_detection=args.private_remote_wake_detection)
+                user_input, _, wake_word_used = get_listen_microphone()(private_remote_wake_detection=args.private_remote_wake_detection)
             else:
                 # Get input via the new wrapper function
                 user_input = await get_user_input_with_bindings(args, context_chat)
@@ -1043,11 +1196,11 @@ Lastly, let's see the platform we are running on:
                     def extract_pythonToolcode(text: str) -> list[str]:
                         # Extract the python block from the response and execute it in a persistent sandbox
                         # Prioritize python, then tool_code, then bash
-                        python_blocks = extract_blocks(text, "python")
+                        python_blocks = get_extract_blocks()(text, "python")
                         if not python_blocks:
-                            python_blocks = extract_blocks(text, "tool_code")
+                            python_blocks = get_extract_blocks()(text, "tool_code")
                             if not python_blocks:
-                                python_blocks = extract_blocks(text, "bash")
+                                python_blocks = get_extract_blocks()(text, "bash")
                         return python_blocks
 
                     def update_python_environment(chunk: str, print_char: bool = True) -> str:
@@ -1080,14 +1233,44 @@ Lastly, let's see the platform we are running on:
                             response_buffer = "" # Reset buffer for each branch
                             
                             temperature = 0.85 if args.mct else 0
-                            current_branch_response = LlmRouter.generate_completion(
-                                context_chat,
-                                [args.llm] if args.llm else [],
-                                temperature=temperature,
-                                base64_images=base64_images,
-                                generation_stream_callback=update_python_environment,
-                                strengths=g.LLM_STRENGTHS
-                            )
+                            
+                            # If multi-LLM mode is active and there are selected LLMs
+                            if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1:
+                                # If this is the first iteration, just use the selected LLMs instead of temperature variations
+                                if i < len(g.SELECTED_LLMS):
+                                    current_model = g.SELECTED_LLMS[i]
+                                    print(colored(f"Generating response from model: {current_model}", "cyan"))
+                                    current_branch_response = LlmRouter.generate_completion(
+                                        context_chat,
+                                        [current_model],
+                                        temperature=0,
+                                        base64_images=base64_images,
+                                        generation_stream_callback=update_python_environment,
+                                        strengths=g.LLM_STRENGTHS
+                                    )
+                                else:
+                                    # If we've already used all selected LLMs, use the first one with different temperatures
+                                    print(colored(f"Using first model ({g.SELECTED_LLMS[0]}) with temperature variation", "cyan"))
+                                    current_branch_response = LlmRouter.generate_completion(
+                                        context_chat,
+                                        [g.SELECTED_LLMS[0]],
+                                        temperature=temperature,
+                                        base64_images=base64_images,
+                                        generation_stream_callback=update_python_environment,
+                                        strengths=g.LLM_STRENGTHS
+                                    )
+                            else:
+                                # Standard single-LLM mode (or no specific LLM selection)
+                                if (base64_images):
+                                    print(colored("Base64 images being included", "yellow"))
+                                current_branch_response = LlmRouter.generate_completion(
+                                    context_chat,
+                                    [args.llm] if args.llm else [],
+                                    temperature=temperature,
+                                    base64_images=base64_images,
+                                    generation_stream_callback=update_python_environment,
+                                    strengths=g.LLM_STRENGTHS
+                                )
                             response_branches.append(current_branch_response)
                         
                         base64_images = [] # Clear images after use
@@ -1105,7 +1288,13 @@ Lastly, let's see the platform we are running on:
                         try:
                             selected_branch_index = select_best_branch(response_branches, user_input or "") # Use last user input
                             assistant_response = response_branches[selected_branch_index]
-                            print(colored(f"Selected branch: {selected_branch_index}", "green"))
+                            
+                            # Show which model generated the selected response if in multi-LLM mode
+                            if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and selected_branch_index < len(g.SELECTED_LLMS):
+                                model_name = g.SELECTED_LLMS[selected_branch_index]
+                                print(colored(f"Selected branch {selected_branch_index} from model: {model_name}", "green"))
+                            else:
+                                print(colored(f"Selected branch: {selected_branch_index}", "green"))
                             
                             # Print the selected branch if we're in MCT mode (since we don't stream MCT branches)
                             text_stream_painter = TextStreamPainter()
@@ -1127,16 +1316,6 @@ Lastly, let's see the platform we are running on:
                         # non mct case
                         assistant_response = response_branches[0]
                         
-                    # # Only print the response if we didn't use streaming (for MCT)
-                    # if args.mct:
-                    #     text_stream_painter = TextStreamPainter()
-                    #     for char in assistant_response:
-                    #         print(text_stream_painter.apply_color(char), end="", flush=True)
-                    #     print() # Add newline
-                    
-                    # We already printed the assistant response either through streaming or after MCT selection
-                    # So we don't need to print it again here
-
                     # --- Code Extraction and Execution ---
                     python_blocks = extract_pythonToolcode(assistant_response)
 
@@ -1176,20 +1355,6 @@ Lastly, let's see the platform we are running on:
 
                     # Just use the first python block for now
                     code_to_execute = python_blocks[0]
-
-                    # # Check if the code is valid or an example
-                    # if any(keyword in code_to_execute.lower() for keyword in ["example_", "replace_", "_replace", "path_to_", "your_"]):
-                    #     print(colored("\n⚠️ Assistant provided incomplete code. Asking for clarification...", "yellow"))
-                    #     # Add the problematic response to context
-                    #     if context_chat.messages[-1][0] == Role.USER:
-                    #         context_chat.add_message(Role.ASSISTANT, assistant_response)
-                    #     else:
-                    #         context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
-                    #     # Add user message asking for fix
-                    #     context_chat.add_message(Role.USER, """Your response mustn't contain substrings like 'example_', 'replace_', 'path_to_', or 'your_'. Please review the code, replace any placeholders with actual values or logic, and try again.""")
-                    #     assistant_response = "" # Clear response buffer
-                    #     continue # Continue inner loop to get corrected code
-
 
                     if confirm_code_execution(args, code_to_execute):
                         print(colored("🔄 Executing code...", "cyan"))

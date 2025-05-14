@@ -5,9 +5,7 @@ from collections.abc import Callable
 import socket
 import logging
 from termcolor import colored
-import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, TooManyRequests
-from google.generativeai.types import GenerateContentResponse
 from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
@@ -50,6 +48,9 @@ class GoogleAPI(AIProviderInterface):
         
         # Only configure if not already done
         if not _google_api_configured:
+            # Import google.generativeai only when needed
+            import google.generativeai as genai
+            
             api_key: Optional[str] = os.getenv('GOOGLE_API_KEY')
             if not api_key:
                 raise Exception("Google API key not found. Set the GOOGLE_API_KEY environment variable.")
@@ -68,7 +69,7 @@ class GoogleAPI(AIProviderInterface):
         model_key: str = "gemini-1.5-pro-latest", 
         temperature: float = 0, 
         silent_reason: str = ""
-    ) -> Iterator[GenerateContentResponse]:
+    ) -> Any:  # Return type changed to Any to avoid circular imports
         """
         Generates a response using the Google Gemini API.
         
@@ -86,6 +87,9 @@ class GoogleAPI(AIProviderInterface):
             TimeoutException: If the request times out.
             Exception: For other errors, to be handled by the router.
         """
+        # Import google.generativeai only when needed
+        import google.generativeai as genai
+        
         # Convert string to Chat object if needed
         if isinstance(chat, str):
             chat_obj = Chat()
@@ -186,6 +190,9 @@ class GoogleAPI(AIProviderInterface):
             Optional[Union[List[float], List[List[float]]]]: The generated embedding(s) or None if an error occurs.
         """
         try:
+            # Import google.generativeai only when needed
+            import google.generativeai as genai
+            
             # Configure the API if not already done
             GoogleAPI._configure_api()
             

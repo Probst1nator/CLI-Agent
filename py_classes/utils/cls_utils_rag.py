@@ -3,10 +3,9 @@ import os
 import os
 import re
 import pickle
-import chromadb
 import hashlib
 from io import StringIO
-from typing import Dict, Iterable, List, Tuple, Any, Union
+from typing import Dict, Iterable, List, Tuple, Any, Union, TYPE_CHECKING
 from datetime import datetime
 from termcolor import colored
 
@@ -21,10 +20,14 @@ from py_classes.cls_few_shot_provider import FewShotProvider
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.globals import g
 
+# Only for type checking, not actually importing at runtime
+if TYPE_CHECKING:
+    import chromadb
+
 
 class RagTooling:
     @classmethod
-    def pdf_or_folder_to_database(cls, pdf_or_folder_path: str, collection: chromadb.Collection, topology_model_key: str = "phi3.5", force_local: bool = True) -> chromadb.Collection:
+    def pdf_or_folder_to_database(cls, pdf_or_folder_path: str, collection: 'chromadb.Collection', topology_model_key: str = "phi3.5", force_local: bool = True) -> 'chromadb.Collection':
         """
         Extracts content from a PDF file or multiple PDFs in a folder (and its subfolders),
         processes them into propositions, and stores them in a Chroma database.
@@ -130,7 +133,7 @@ class RagTooling:
         return page_contents
 
     @classmethod
-    def _process_single_pdf(cls, pdf_file_path: str, collection: chromadb.Collection, topology_model_key: str, force_local: bool = True) -> None:
+    def _process_single_pdf(cls, pdf_file_path: str, collection: 'chromadb.Collection', topology_model_key: str, force_local: bool = True) -> None:
         """
         Helper function to process a single PDF file.
         Args:
@@ -313,45 +316,62 @@ class RagTooling:
         return prompt
 
     @classmethod
-    def retrieve_augment(cls, user_query: str, collection: chromadb.Collection, top_k: int = 3) -> str:
+    def retrieve_augment(cls, user_query: str, collection: 'chromadb.Collection', top_k: int = 3) -> str:
         """
-        Retrieve and Augment step for RAG
-        
+        Retrieve relevant information from a chroma collection based on a user query.
+
         Args:
-        user_query (str): The user's query.
-        collection (chromadb.Collection): The Chroma collection to query.
-        
+            user_query (str): The user's query.
+            collection (chromadb.Collection): The chroma collection to search.
+            top_k (int, optional): The number of results to return. Defaults to 3.
+
         Returns:
-        str: The generated RAG prompt.
+            str: A RAG prompt containing the retrieved information.
         """
-        print(colored("# # # Retrieving and Augmenting # # #", "green"))
-        user_query_embedding: List[float] = OllamaClient.generate_embedding(user_query)
-        if not user_query_embedding:
-            return user_query
-        results: Dict[str, Any] = collection.query(
+        # Create embedding for user query using Ollama
+        user_query_embedding = OllamaClient.generate_embedding(user_query)
+        
+        # Query the collection for similar documents
+        results = collection.query(
             query_embeddings=user_query_embedding,
-            n_results=top_k*100 # TODO: Increase this number for better results, decrease for latency
+            n_results=top_k,
+            include=["documents", "metadatas"]
         )
-        if len(results["documents"][0]) == 0:
-            return user_query
-        text_and_metas = list(zip(results["documents"][0], results["metadatas"][0]))
-        # rerank
-        reranked_results: List[Tuple[str, Dict[str, str]]] = cls.rerank_results(text_and_metas, user_query, top_k)
-        rag_prompt: str = cls.create_rag_prompt(reranked_results, user_query)
+        
+        # Zip documents and metadatas together for reranking
+        docs_metas = list(zip(results['documents'][0], results['metadatas'][0]))
+        
+        # Rerank the results based on relevance to user query
+        reranked_results = cls.rerank_results(docs_metas, user_query, top_k)
+        
+        # Create a RAG prompt from the reranked results
+        rag_prompt = cls.create_rag_prompt(reranked_results, user_query)
+        
         return rag_prompt
-    
+
     @classmethod 
     def retrieve_augment_from_path(cls, user_query: str, path: str) -> str:
         """
-        Retrieve and Augment from either a file or a folder path.
+        Retrieve augmented information from a PDF or folder path based on a user query.
 
         Args:
-        user_query (str): The user's query.
-        path (str): The path to the file or folder.
-        
+            user_query (str): The user's query.
+            path (str): Path to a PDF file or folder containing PDFs.
+
         Returns:
-        str: The generated RAG prompt.
+            str: A RAG prompt containing the retrieved information.
         """
-        collection = chromadb.Collection()
-        collection = cls.pdf_or_folder_to_database(path, collection)
+        # Import chromadb only when needed
+        import chromadb
+        
+        # Create a client
+        client = chromadb.Client()
+        
+        # Create a temporary collection
+        collection = client.create_collection(name="temp_collection")
+        
+        # Process the PDF(s) and add to collection
+        cls.pdf_or_folder_to_database(path, collection)
+        
+        # Use the collection to retrieve information
         return cls.retrieve_augment(user_query, collection)
