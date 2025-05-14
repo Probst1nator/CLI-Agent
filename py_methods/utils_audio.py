@@ -7,28 +7,31 @@ from typing import Dict, Tuple, Optional, List, Union, Any
 
 import json
 import numpy as np
-import outetts
 import psutil
 import queue
 import sounddevice as sd
 import soundfile as sf
-import torch
-import whisper
-from scipy import signal
 from termcolor import colored
 from vosk import Model, KaldiRecognizer, SetLogLevel
-from dotenv import load_dotenv
 
 
 logger = logging.getLogger(__name__)
 
 # Global resources
-_whisper_model: Optional[whisper.Whisper] = None
+_whisper_model: Optional[Any] = None
 _whisper_model_key: Optional[str] = None
-_tts_interface: Optional[outetts.InterfaceHF] = None
 _kokoro_pipeline: Optional[Any] = None  # Using Any to avoid type issues if kokoro not available
 _vosk_model: Optional[Model] = None
-_device = "cuda" if torch.cuda.is_available() else "cpu"
+_device = None  # Will be set when needed
+
+
+def get_torch_device():
+    """Get the torch device lazily."""
+    global _device
+    if _device is None:
+        import torch
+        _device = "cuda" if torch.cuda.is_available() else "cpu"
+    return _device
 
 
 def initialize_wake_word() -> None:
@@ -325,85 +328,78 @@ def record_audio(
 
 
 def initialize_whisper_model(whisper_model_key: str = '') -> None:
-    """
-    Initialize the Whisper speech recognition model.
+    """Initialize Whisper model for transcription."""
+    global _whisper_model, _whisper_model_key
     
-    Model Sizes:
-    - tiny: 39M parameters
-    - base: 74M parameters
-    - small: 244M parameters
-    - medium: 769M parameters
-    - large: 1550M parameters
-    - large-v2: 1550M parameters (improved version of large)
+    # Import torch and whisper only when needed
+    import torch
+    import whisper
     
-    Args:
-        whisper_model_key: The key of the Whisper model to initialize. If empty, will select based on available resources.
-    """
-    global _whisper_model, _whisper_model_key, _device
+    device = get_torch_device()
     
-    if _whisper_model is None:
-        # If no key provided, decide using cuda availability and core count
-        if whisper_model_key == '':
-            if _device == "cuda":
-                # Check free vram
-                free_vram = torch.cuda.mem_get_info()[0]
-                # If more than 2gb use large else medium
-                if free_vram > 2 * 1024 * 1024 * 1024:  # 2 GB in bytes
-                    whisper_model_key = 'large-v2'
-                else:
-                    whisper_model_key = 'medium'
-            else:
-                # Check core count
-                core_count = psutil.cpu_count(logical=False)
-                # If more than 8 use medium, if more than 4 use small, else tiny
-                if core_count > 8:
-                    whisper_model_key = 'medium'
-                elif core_count > 4:
-                    whisper_model_key = 'small'
-                else:
-                    whisper_model_key = 'tiny'
+    # If no specific model requested, use what we have or default to tiny
+    if not whisper_model_key:
+        if _whisper_model:
+            return  # Already have a loaded model, no need to reload
+        whisper_model_key = "tiny"
+    
+    # Only reload if we need a different model
+    if _whisper_model_key != whisper_model_key or _whisper_model is None:
+        try:
+            # Check if we have enough memory for larger models
+            available_memory = psutil.virtual_memory().available
+            model_memory_reqs = {
+                "large": 10 * 1024 * 1024 * 1024,  # ~10GB
+                "medium": 5 * 1024 * 1024 * 1024,  # ~5GB
+                "small": 2 * 1024 * 1024 * 1024,   # ~2GB
+                "base": 1 * 1024 * 1024 * 1024,    # ~1GB
+                "tiny": 512 * 1024 * 1024          # ~512MB
+            }
             
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", FutureWarning)
+            # If requested model requires too much memory, fallback to safer option
+            if whisper_model_key in model_memory_reqs:
+                if available_memory < model_memory_reqs[whisper_model_key]:
+                    smaller_model = "tiny"  # Tiny is our minimum fallback
+                    print(f"Not enough memory for whisper-{whisper_model_key}. Falling back to {smaller_model}.")
+                    whisper_model_key = smaller_model
+            
+            # Load the model
+            print(f"Loading Whisper {whisper_model_key} model...")
+            _whisper_model = whisper.load_model(whisper_model_key)
             _whisper_model_key = whisper_model_key
-            _whisper_model = whisper.load_model(
-                whisper_model_key,
-                device=_device
-            )
+            print(f"Whisper {whisper_model_key} model loaded successfully.")
+            
+        except Exception as e:
+            print(f"Error loading Whisper model: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 def transcribe_audio(audio_path: str, whisper_model_key: str = '') -> Tuple[str, str]:
-    """
-    Transcribes an audio file using Whisper speech recognition.
+    """Transcribe audio using Whisper model."""
+    # Lazy import whisper only when needed
+    import whisper
     
-    Args:
-        audio_path: Path to the audio file to transcribe
-        whisper_model_key: Whisper model to use (tiny, base, small, medium, large, large-v2)
-                          If not specified, will use previously loaded model or choose based on system resources
-                          
-    Returns:
-        Tuple[str, str]: Transcribed text and detected language
-    """
-    global _whisper_model, _whisper_model_key
+    # First initialize the model
+    initialize_whisper_model(whisper_model_key)
     
-    if _whisper_model is None:
-        initialize_whisper_model(whisper_model_key)
+    if not _whisper_model:
+        return "Error: Failed to initialize Whisper model", ""
     
     try:
-        print(f"<{colored(f'Whisper - {_whisper_model_key}', 'green')}> is transcribing...")
-        # Use CUDA if available but suppress warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result: Dict[str, any] = _whisper_model.transcribe(audio_path)
+        # Do transcription with the model
+        print(f"Transcribing with Whisper {_whisper_model_key}...")
+        result = _whisper_model.transcribe(audio_path)
+        text = result["text"].strip()
+        language = result.get("language", "unknown")
         
-        transcribed_text: str = result.get('text', '')
-        detected_language: str = result.get('language', '')
-
-        return transcribed_text, detected_language
-
+        return text, language
+        
     except Exception as e:
-        print(f"An error occurred during transcription: {e}")
-        return "", ""
+        print(f"Error during transcription: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"Error: {str(e)}", ""
 
 
 def initialize_kokoro_pipeline() -> bool:
@@ -451,6 +447,9 @@ def text_to_speech(
         Union[List[str], None]: List of generated audio file paths if output_path is provided, None otherwise
     """
     global _kokoro_pipeline
+    
+    # Import torch here for lazy loading
+    import torch
     
     if not initialize_kokoro_pipeline():
         return None

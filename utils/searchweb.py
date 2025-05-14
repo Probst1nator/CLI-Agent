@@ -36,7 +36,7 @@ class SearchWeb(UtilBase):
                 cls.web_tools = MinimalWebTools()
     
     @staticmethod
-    def run(queries: List[str]) -> str:
+    def run(queries: List[str], num_results: int = 3) -> str:
         """
         Access the internet in real time.
         
@@ -58,9 +58,9 @@ class SearchWeb(UtilBase):
         failed_queries: List[Tuple[str, str]] = []
         
         if (len(queries) == 1):
-            num_results = 3
+            num_results = 5
         else:
-            num_results = 2
+            num_results = 3
 
         for query in queries:
             try:

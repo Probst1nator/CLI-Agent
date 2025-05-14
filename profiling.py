@@ -40,13 +40,11 @@ sys.modules['builtins'].__import__ = profiler
 #!/usr/bin/env python3
 
 import datetime
-import json
 import logging
 import os
 import select
-import time
 import traceback
-from typing import Any, Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from pyfiglet import figlet_format
 from dotenv import load_dotenv
 from termcolor import colored
@@ -74,14 +72,13 @@ warnings.filterwarnings("ignore", message="words count mismatch on*", module="ph
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
 
-from py_methods.utils import (
-    extract_blocks,
-    pdf_or_folder_to_database,
-    listen_microphone,
-    take_screenshot,
-    update_cmd_collection,
-    ScreenCapture,
-)
+from py_methods.utils import extract_blocks
+from py_methods.utils import pdf_or_folder_to_database
+from py_methods.utils import listen_microphone
+from py_methods.utils import take_screenshot
+from py_methods.utils import update_cmd_collection
+from py_methods.utils import ScreenCapture
+
 from py_methods import utils_audio
 from py_classes.cls_util_manager import UtilsManager
 from py_classes.enum_ai_strengths import AIStrengths

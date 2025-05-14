@@ -250,11 +250,39 @@ class Chat:
         """
         return self.to_json()
 
-    def print_chat(self):
+    def print_chat(self, start_index: Optional[int] = None, end_index: Optional[int] = None):
         """
         Prints the chat messages with colored and bold roles, and similarly colored content using termcolor.
+        
+        Args:
+            start_index (Optional[int]): The starting index of messages to include. Negative indices count from the end.
+                                         If None, starts from the first message.
+            end_index (Optional[int]): The ending index of messages to include (exclusive).
+                                       If None, includes all messages from start_index to the end.
+                                       Negative indices count from the end.
         """
-        for role, content in self.messages:
+        # Set default values for start_index and end_index if they are None
+        if start_index is None:
+            start_index = 0
+            
+        # Normalize indices
+        normalized_start = start_index if start_index >= 0 else len(self.messages) + start_index
+        normalized_end = end_index if end_index is None else (
+            end_index if end_index >= 0 else len(self.messages) + end_index
+        )
+        
+        # Clamp indices to valid range
+        normalized_start = max(0, min(normalized_start, len(self.messages)))
+        if normalized_end is not None:
+            normalized_end = max(normalized_start, min(normalized_end, len(self.messages)))
+        else:
+            normalized_end = len(self.messages)
+            
+        # Get selected messages
+        selected_messages = self.messages[normalized_start:normalized_end]
+        
+        # Print the selected messages with appropriate formatting
+        for role, content in selected_messages:
             role_value = role.value if isinstance(role, Role) else role
             
             if role in {Role.ASSISTANT, Role.SYSTEM}:
