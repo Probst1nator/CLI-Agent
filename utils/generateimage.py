@@ -13,10 +13,6 @@ class GenerateImage(UtilBase):
     """
     A utility for generating an image based on a text prompt using Hugging Face
     diffusers library (e.g., Stable Diffusion) and saving it to a file.
-    
-    This utility lazily loads the specified diffusion model pipeline only when needed,
-    generates an image, and saves the result to the specified path. It includes 
-    basic caching for loaded pipelines within the same process execution.
     """
     # Dictionary to store loaded pipelines
     _loaded_pipelines: Dict[Tuple[str, torch.dtype, torch.device], Any] = {}
@@ -161,7 +157,7 @@ class GenerateImage(UtilBase):
         seed: Optional[int] = None
     ) -> str:
         """
-        Generates an image based on a text prompt and saves it to the specified path.
+        Generates an image with a diffusion model based on a text prompt and save it to the specified path.
         
         Args:
             path: The file path where the generated image should be saved

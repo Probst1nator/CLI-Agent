@@ -192,13 +192,14 @@ class PythonSandbox:
         Args:
             timeout: Maximum time to wait for more output (seconds), None means wait indefinitely
             stdout_callback: Optional callback function to handle stdout in real-time
-            stderr_callback: Optional callback function to handle stderr in real-time
+            stderr_callback: Optional callback function to receive stderr in real-time
             
         Returns:
             Tuple of (stdout, stderr, result)
         """
         stdout_content = []
         stderr_content = []
+        seen_outputs = set()  # Track outputs we've seen to prevent duplication
         result = None
         error = None
         execution_completed = False
@@ -215,16 +216,23 @@ class PythonSandbox:
                 content = msg['content']
                 
                 if msg_type == 'stream':
-                    if content['name'] == 'stdout':
-                        output_text = content['text']
-                        stdout_content.append(output_text)
-                        if stdout_callback:
-                            stdout_callback(output_text)
-                    elif content['name'] == 'stderr':
+                    if content['name'] == 'stderr':
+                        # Prioritize stderr
                         error_text = content['text']
+                        # Add to stderr regardless of whether seen before
                         stderr_content.append(error_text)
+                        # Mark as seen
+                        seen_outputs.add(error_text)
                         if stderr_callback:
                             stderr_callback(error_text)
+                    elif content['name'] == 'stdout':
+                        output_text = content['text']
+                        # Only add to stdout if not already in stderr
+                        if output_text not in seen_outputs:
+                            stdout_content.append(output_text)
+                            seen_outputs.add(output_text)
+                            if stdout_callback:
+                                stdout_callback(output_text)
                         
                 elif msg_type == 'execute_result':
                     result = content['data'].get('text/plain', '')
@@ -237,6 +245,8 @@ class PythonSandbox:
                     error_value = content['evalue']
                     error_traceback = '\n'.join(content['traceback'])
                     error = f"{error_name}: {error_value}\n{error_traceback}"
+                    # Add to seen outputs to prevent duplication
+                    seen_outputs.add(error)
                     if stderr_callback:
                         stderr_callback(error)
                     

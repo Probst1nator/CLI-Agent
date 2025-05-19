@@ -10,7 +10,7 @@ from py_classes.cls_util_base import UtilBase
 
 class ImageToText(UtilBase):
     """
-    A utility for converting an image to descriptive text.
+    A utility for converting an image to a descriptive text.
     
     This utility allows converting an image file into a detailed text 
     description using vision-capable language models.
@@ -19,7 +19,7 @@ class ImageToText(UtilBase):
     @staticmethod
     def run(
         image_path: str,
-        prompt: Optional[str] = "Describe this image in detail."
+        prompt: Optional[str] = "This image shows a screenshot of the current screen. There should be a video player playing a video. What is the name of the video and whats the like to dislike ratio?"
     ) -> str:
         """
         Convert an image to descriptive text.

@@ -21,6 +21,7 @@ class Globals:
     LLM: Optional[str] = None
     LLM_STRENGTHS: List[AIStrengths] = []
     SELECTED_UTILS: List[str] = []  # Store selected utilities
+    SELECTED_LLMS: List[str] = []  # Store selected LLMs
     
     if (os.getenv("USE_ONLINE_HOSTNAME", "") == socket.gethostname()):
         LLM_STRENGTHS = [AIStrengths.ONLINE]
