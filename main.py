@@ -43,9 +43,6 @@ from py_classes.globals import g
 from py_classes.cls_python_sandbox import PythonSandbox
 from py_classes.cls_text_stream_painter import TextStreamPainter
 
-# Add a global variable for selected LLMs
-g.SELECTED_LLMS = []
-
 # Fix the import by using a relative or absolute import path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -1150,6 +1147,9 @@ Lastly, let's see the platform we are running on:
             print(colored("# cli-agent: Taking screenshot with Spectacle due to --img flag...", "green"))
             base64_images = await handle_screenshot_capture(context_chat)
             args.image = False  # Reset the flag after handling
+        
+        if args.llm:
+            g.SELECTED_LLMS = [args.llm]
 
         # Main loop
         while True:
@@ -1265,7 +1265,7 @@ Lastly, let's see the platform we are running on:
                                     print(colored("Base64 images being included", "yellow"))
                                 current_branch_response = LlmRouter.generate_completion(
                                     context_chat,
-                                    [args.llm] if args.llm else [],
+                                    [g.SELECTED_LLMS[0]] if g.SELECTED_LLMS[0]else [],
                                     temperature=temperature,
                                     base64_images=base64_images,
                                     generation_stream_callback=update_python_environment,
