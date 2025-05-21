@@ -378,6 +378,7 @@ def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bo
 Priorities:
 1.  **Safety First:** Identify any operations with potential negative side effects (e.g., unintended file/system modifications, risky shell commands, unrestricted network calls), modifications of files are allowed if the comments show that it is intentional and safe.
 2.  **Completeness Second:** If safe, ensure that the script does not contain any placeholders (e.g., `YOUR_API_KEY`, `<REPLACE_ME>`), unimplemented logic or similar. Comments noting future work are allowed. Scripts that only print text are also always allowed.
+3.  **Custom Utilities:** If the script uses custom utilities like `utils.searchweb.SearchWeb`, it is allowed. Calling external programs is allowed if its does not pose an obvious risk.
 
 Assume anything imported from utils.* is safe.
 
@@ -1265,7 +1266,7 @@ Lastly, let's see the platform we are running on:
                                     print(colored("Base64 images being included", "yellow"))
                                 current_branch_response = LlmRouter.generate_completion(
                                     context_chat,
-                                    [g.SELECTED_LLMS[0]] if g.SELECTED_LLMS[0]else [],
+                                    [g.SELECTED_LLMS] if g.SELECTED_LLMS else [],
                                     temperature=temperature,
                                     base64_images=base64_images,
                                     generation_stream_callback=update_python_environment,
