@@ -629,24 +629,7 @@ class LlmRouter:
                     model.provider.unreachable_hosts.append(f"{host}{model_key}")
                 except Exception:
                     pass
-        elif "GroqAPI" in provider_name:
-            g.debug_log(f"\nGroq-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
-        elif "GoogleAPI" in provider_name:
-            g.debug_log(f"\nGoogle-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
-        elif "OpenAIAPI" in provider_name:
-            g.debug_log(f"\nOpenAI-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
-        elif "AnthropicAPI" in provider_name:
-            g.debug_log(f"\nAnthropic-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
-        elif "NvidiaAPI" in provider_name:
-            g.debug_log(f"\nNVIDIA-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
-        elif "HumanAPI" in provider_name:
-            g.debug_log(f"\nHuman-Api: Failed to generate response: {e}", "red", is_error=True, prefix=prefix)
-        else:
-            # Generic error handling for unknown providers or when model is None
-            if model is not None:
-                g.debug_log(f"\ngenerate_completion error with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
-            else:
-                g.debug_log(f"\ngenerate_completion error: {e}", "red", is_error=True, prefix=prefix)
+        print(colored(prefix, "red") + colored(provider_name, "yellow") + colored(": Failed to generate response with model ", "red") + colored(model_key, "yellow") + colored(": " + error_msg, "red"))
 
     @classmethod
     def generate_completion(
@@ -661,8 +644,7 @@ class LlmRouter:
         force_preferred_model: bool = False,
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
-        generation_stream_callback: Optional[Callable] = None,
-        follows_condition_callback: Optional[Callable] = None
+        generation_stream_callback: Optional[Callable] = None
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.

@@ -153,24 +153,14 @@ class GoogleAPI(AIProviderInterface):
             # Check if this is a rate limit error (usually contains "quota" in the error message)
             error_str = str(e).lower()
             if "quota" in error_str or "rate" in error_str:
-                try:
-                    # Extract retry time if possible (default to 60 seconds if not found)
-                    retry_seconds = 60
-                    retry_matches = re.findall(r"retry in (\d+)", error_str)
-                    if retry_matches:
-                        retry_seconds = int(retry_matches[0])
-                    
-                    # Update rate limit tracker
-                    rate_limit_tracker.update_rate_limit(model_key, retry_seconds)
-                    
-                    error_msg = f"Google-Api: Rate limit reached for {colored('<' + model_key + '>', 'red')}: {e}"
-                    g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
-                    raise RateLimitException(f"Rate limit exceeded: {e}")
-                except Exception as e2:
-                    # If there's an error in the rate limit handling, just proceed with regular error
-                    raise Exception(f"Google API error: {e} (rate limit handling failed: {e2})")
-            # For all other errors, let them bubble up to the router
-            raise
+                retry_seconds = 60
+                retry_matches = re.findall(r"retry in (\d+)", error_str)
+                if retry_matches:
+                    retry_seconds = int(retry_matches[0])
+                
+                # Update rate limit tracker
+                rate_limit_tracker.update_rate_limit(model_key, retry_seconds)
+            raise Exception(e.message)
 
     @staticmethod
     def generate_embeddings(

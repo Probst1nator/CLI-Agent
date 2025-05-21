@@ -77,12 +77,7 @@ class Globals:
         
         # Log to appropriate logger level (ignoring color)
         if is_error:
-            logging.error(log_message)
-            # For errors, always print to console
-            if color:
-                print(colored(log_message, color), end=end)
-            else:
-                print(log_message, end=end)
+            print(colored(log_message, "red"), end=end)
         else:
             # For info level, log to logger
             logging.info(log_message)
