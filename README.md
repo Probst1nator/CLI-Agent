@@ -59,6 +59,46 @@ CLI-Agent is a powerful AI-powered command-line assistant that enables natural l
    OPENAI_API_KEY=your_key_here   # OpenAI API key
    ```
 
+## Dia Environment Setup
+
+CLI-Agent includes scripts to install the Dia 1.6B model from nari-labs directly to your current Python environment. These minimal scripts handle downloading the model, installing dependencies, and cleaning up afterward.
+
+### For Linux/macOS
+
+```bash
+# Run the setup script
+./shell_scripts/setup_dia_environment.sh
+```
+
+### For Windows
+
+```bash
+# Run the Windows setup script
+shell_scripts\setup_dia_environment.bat
+```
+
+Both scripts will:
+1. Check for prerequisites (Git, Python)
+2. Clone the Dia repository to a temporary directory
+3. Install PyTorch with CUDA 12.1 support and other dependencies
+4. Install Dia to your current Python environment
+5. Clean up temporary files automatically
+
+After installation, you can import and use Dia directly in your Python scripts:
+
+```python
+from dia.model import Dia
+
+# Create a Dia instance
+model = Dia()
+
+# Generate text
+output = model.generate("Hello, world!")
+print(output)
+```
+
+**Note**: Dia requires an NVIDIA GPU with CUDA support for optimal performance. Make sure your NVIDIA drivers are up to date and compatible with CUDA 12.1 or newer.
+
 ## Usage
 
 ### Basic Usage

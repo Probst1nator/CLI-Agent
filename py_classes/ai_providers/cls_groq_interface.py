@@ -32,11 +32,11 @@ class GroqAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Union['Chat', str], model_key: str, temperature: float = 0, silent_reason: str = "") -> Any:
+    def generate_response(chat: Chat, model_key: str, temperature: float = 0, silent_reason: str = "") -> Any:
         """
         Generates a response using the Groq API.
         Args:
-            chat (Union[Chat, str]): The chat object containing messages or a string prompt.
+            chat (Chat): The chat object containing messages or a string prompt.
             model_key (str): The model identifier.
             temperature (float): The temperature setting for the model.
             silent_reason (str): Reason for silence if applicable.
@@ -47,12 +47,6 @@ class GroqAPI(AIProviderInterface):
             RateLimitException: If the model is rate limited.
             Exception: For other issues, to be handled by the router.
         """
-        # Convert string to Chat object if needed
-        if isinstance(chat, str):
-            chat_obj = Chat()
-            chat_obj.add_message(Role.USER, chat)
-            chat = chat_obj
-            
         # Check if the model is rate limited
         if rate_limit_tracker.is_rate_limited(model_key):
             remaining_time = rate_limit_tracker.get_remaining_time(model_key)
