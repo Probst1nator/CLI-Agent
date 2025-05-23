@@ -163,7 +163,17 @@ class GoogleAPI(AIProviderInterface):
                 
                 # Update rate limit tracker
                 rate_limit_tracker.update_rate_limit(model_key, retry_seconds)
-            raise Exception(e.message)
+            
+            # Log the error here so we don't get duplicate logs
+            if not silent_reason:
+                error_msg = f"\nGoogle-Api: Failed to generate response with model {model_key}: {e}"
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
+                
+                # Mark the exception as already logged so the router won't log it again
+                setattr(e, 'already_logged', True)
+                
+            # Re-raise the original exception
+            raise
 
     @staticmethod
     def generate_embeddings(
@@ -226,6 +236,8 @@ class GoogleAPI(AIProviderInterface):
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             logger.error(error_msg)
+            # Keep returning None for embeddings as this appears to be the expected behavior
+            # This is different from generate_response and generate_speech which re-raise exceptions
             return None
 
     @staticmethod
@@ -360,4 +372,7 @@ class GoogleAPI(AIProviderInterface):
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             logger.error(error_msg)
-            raise Exception(f"Failed to generate speech: {e}")
+            # Mark the exception as already logged so the router won't log it again
+            setattr(e, 'already_logged', True)
+            # Re-raise the original exception
+            raise

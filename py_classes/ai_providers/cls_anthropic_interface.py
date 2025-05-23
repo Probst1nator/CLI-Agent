@@ -20,12 +20,12 @@ class AnthropicAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Union[Chat, str], model_key: str = "claude-3-5-sonnet-latest", temperature: float = 0.7, silent_reason: str = "") -> Any:
+    def generate_response(chat: Chat, model_key: str = "claude-3-5-sonnet-latest", temperature: float = 0.7, silent_reason: str = "") -> Any:
         """
         Generates a response using the Anthropic API.
 
         Args:
-            chat (Union[Chat, str]): The chat object containing messages or a string prompt.
+            chat (Chat): The chat object containing messages or a string prompt.
             model_key (str): The model identifier.
             temperature (float): The temperature setting for the model.
             silent_reason (str): Reason for suppressing print statements.
@@ -38,12 +38,6 @@ class AnthropicAPI(AIProviderInterface):
             TimeoutError: If the request times out.
             Exception: For other errors, to be handled by the router.
         """
-        # Convert string to Chat object if needed
-        if isinstance(chat, str):
-            chat_obj = Chat()
-            chat_obj.add_message(Role.USER, chat)
-            chat = chat_obj
-            
         # Configure the client (let any error here bubble up to the router)
         client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
         

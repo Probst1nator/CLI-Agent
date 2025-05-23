@@ -117,8 +117,9 @@ class Llm:
             
             # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
-            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
+            Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
             Llm(OllamaClient(), "qwen3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             
             Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
@@ -128,7 +129,6 @@ class Llm:
             Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
             Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
@@ -588,6 +588,15 @@ class LlmRouter:
             instance (LlmRouter): The router instance
             chat (Chat): The chat being processed
         """
+        # Check if the exception has already been logged by a provider
+        if hasattr(e, 'already_logged') and getattr(e, 'already_logged'):
+            # This error was already logged, don't log it again
+            # We still need to update the failed models list though
+            if model is not None and model.model_key not in instance.failed_models:
+                instance.failed_models.add(model.model_key)
+                instance.retry_models.remove(model)
+            return
+            
         error_msg = str(e)
         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
         provider_name = model.provider.__class__.__name__ if model else "Unknown"
@@ -618,6 +627,11 @@ class LlmRouter:
             # Log silently to file but don't show to user
             if model is not None:
                 logger.info(f"Network/timeout/rate-limit issue with model {model_key}: {e}")
+            return
+        
+        # Check if this error has already been logged by the Google API provider
+        if "Google API" in error_msg and "error" in error_msg.lower():
+            # This error was already logged by the Google API provider, don't log it again
             return
         
         # Provider-specific error handling
@@ -723,6 +737,11 @@ class LlmRouter:
         if not isinstance(strengths, list):
             strengths = [strengths] if strengths else []
         
+        if isinstance(chat, str):
+            prompt = chat
+            chat = Chat()
+            chat.add_message(Role.USER, prompt)
+        
         # Find llm and generate response, excepts on user interruption, or total failure
         while True:
             try:
@@ -744,6 +763,8 @@ class LlmRouter:
                         model = instance.get_model(strengths=strengths, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
 
                 enable_caching = False
+                instance.last_used_model = model.model_key
+                
                 if temperature == 0:
                     enable_caching = True
                     cached_completion = instance._get_cached_completion(model.model_key, str(chat), base64_images)
@@ -755,8 +776,6 @@ class LlmRouter:
                 try:
                     # Get the stream from the provider
                     stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason)
-                    
-                    instance.last_used_model = model.model_key
                     
                     # Process the stream
                     full_response = cls._process_stream(stream, hidden_reason, generation_stream_callback)
