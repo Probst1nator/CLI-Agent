@@ -26,3 +26,6 @@ gunicorn==21.2.0  # For production deployment
 # Python code execution sandbox dependencies
 jupyter_client>=8.0.0
 ipykernel>=6.0.0
+
+# Add paramiko for SSH connections
+paramiko>=2.11.0

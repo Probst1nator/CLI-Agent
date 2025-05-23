@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from datetime import datetime
 import json
 import os
 import sys
@@ -290,6 +291,15 @@ class PythonSandbox:
             self.sync_globals()
         
         try:
+            # keep a history of executed code
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            history_dir = f"{g.AGENTS_SANDBOX_DIR}/executed_code"
+            if not os.path.exists(history_dir):
+                os.makedirs(history_dir)
+            code_file = f"{history_dir}/{timestamp}.py"
+            with open(code_file, "w") as f:
+                f.write(code)
+            
             # Send code to the kernel
             msg_id = self.kc.execute(code)
             
