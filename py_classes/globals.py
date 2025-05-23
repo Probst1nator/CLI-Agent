@@ -22,6 +22,7 @@ class Globals:
     LLM_STRENGTHS: List[AIStrengths] = []
     SELECTED_UTILS: List[str] = []  # Store selected utilities
     SELECTED_LLMS: List[str] = []  # Store selected LLMs
+    SSH_CONNECTION: Optional[str] = None  # Store SSH connection details (user@hostname:port)
     
     if (os.getenv("USE_ONLINE_HOSTNAME", "") == socket.gethostname()):
         LLM_STRENGTHS = [AIStrengths.ONLINE]
@@ -77,7 +78,12 @@ class Globals:
         
         # Log to appropriate logger level (ignoring color)
         if is_error:
-            print(colored(log_message, "red"), end=end)
+            logging.error(log_message)
+            # For errors, always print to console
+            if color:
+                print(colored(log_message, color), end=end)
+            else:
+                print(log_message, end=end)
         else:
             # For info level, log to logger
             logging.info(log_message)

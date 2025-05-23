@@ -41,6 +41,7 @@ from py_classes.cls_chat import Chat, Role
 from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.globals import g
 from py_classes.cls_python_sandbox import PythonSandbox
+from py_classes.cls_ssh_sandbox import SSHSandbox
 from py_classes.cls_text_stream_painter import TextStreamPainter
 
 # Fix the import by using a relative or absolute import path
@@ -146,6 +147,12 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Use weakly sandboxed python execution. Sets g.USE_SANDBOX=True.")
     parser.add_argument("-o", "--online", action="store_true", default=False,
                         help="Force use of cloud AI.")
+    
+    parser.add_argument("-ssh", "--ssh", type=str, default=None,
+                        help="Execute code on remote server via SSH (format: 'user@hostname[:port]').")
+    
+    parser.add_argument("--test-x11", action="store_true", default=False,
+                        help="Test X11 forwarding in SSH mode.")
     
     parser.add_argument("-llm", "--llm", type=str, default=None,
                         help="Specify the LLM model key to use (e.g., 'gpt-4', 'gemini-pro').")
@@ -378,7 +385,6 @@ def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bo
 Priorities:
 1.  **Safety First:** Identify any operations with potential negative side effects (e.g., unintended file/system modifications, risky shell commands, unrestricted network calls), modifications of files are allowed if the comments show that it is intentional and safe.
 2.  **Completeness Second:** If safe, ensure that the script does not contain any placeholders (e.g., `YOUR_API_KEY`, `<REPLACE_ME>`), unimplemented logic or similar. Comments noting future work are allowed. Scripts that only print text are also always allowed.
-3.  **Custom Utilities:** If the script uses custom utilities like `utils.searchweb.SearchWeb`, it is allowed. Calling external programs is allowed if its does not pose an obvious risk.
 
 Assume anything imported from utils.* is safe.
 
@@ -618,6 +624,61 @@ async def get_user_input_with_bindings(
             print(colored(f"# cli-agent: KeyBinding detected: Online mode toggled {'on' if args.online else 'off'}, type (--h) for info", "green"))
             continue
         
+        elif user_input == "-ssh" or user_input == "--ssh":
+            print(colored("# cli-agent: Enter SSH connection (user@hostname[:port]), 'test' for X11 test, or empty to disable: ", "green"))
+            ssh_connection = input(colored("> ", 'yellow', attrs=["bold"]))
+            
+            # Handle testing X11 forwarding
+            if ssh_connection.strip().lower() == 'test':
+                if args.ssh and isinstance(python_sandbox, SSHSandbox):
+                    if hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
+                        python_sandbox.test_x11_forwarding()
+                    else:
+                        print(colored("# cli-agent: X11 forwarding not available", "yellow"))
+                else:
+                    print(colored("# cli-agent: Not connected via SSH", "yellow"))
+                continue
+            
+            if ssh_connection.strip():
+                # Clean up existing sandbox if needed
+                if 'python_sandbox' in globals() and python_sandbox is not None:
+                    try:
+                        python_sandbox.shutdown()
+                    except:
+                        pass
+                
+                # Set up SSH connection
+                try:
+                    try:
+                        import paramiko
+                    except ImportError:
+                        print(colored("# cli-agent: Error - paramiko package required. Run: pip install paramiko", "red"))
+                        continue
+                    
+                    args.ssh = ssh_connection
+                    g.SSH_CONNECTION = ssh_connection
+                    python_sandbox = SSHSandbox(ssh_connection)
+                except Exception as e:
+                    print(colored(f"# cli-agent: SSH connection error: {str(e)}", "red"))
+                    if args.debug:
+                        traceback.print_exc()
+                    args.ssh = None
+                    g.SSH_CONNECTION = None
+                    python_sandbox = PythonSandbox()
+            else:
+                # If no connection string was provided, disable SSH mode
+                if args.ssh:
+                    print(colored("# cli-agent: SSH mode disabled", "green"))
+                    if isinstance(python_sandbox, SSHSandbox):
+                        try:
+                            python_sandbox.shutdown()
+                        except:
+                            pass
+                    python_sandbox = PythonSandbox()
+                    args.ssh = None
+                    g.SSH_CONNECTION = None
+            continue
+        
         elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
             print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
             exit(0)
@@ -788,6 +849,12 @@ For any new code you write, be sure to make appropriate use of these selected ut
                 print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
             else:
                 print(colored("(No chat history)", "cyan"))
+            print(colored(f"# -ssh: Toggle SSH mode for remote code execution ", "yellow"), end="")
+            print(colored(f"(Current: {args.ssh if args.ssh else 'Local execution'})", "cyan"))
+            if args.ssh:
+                # Add X11 forwarding status if in SSH mode
+                ssh_x11_status = " with X11" if (hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available) else ""
+                print(colored(f"      SSH: {args.ssh}{ssh_x11_status}", "cyan"))
             print(colored("# --minimized: Start the application in a minimized state", "yellow"))
             print(colored("# -e: Exit after all automatic messages have been processed", "yellow"))
             # Add other CLI args help here if needed
@@ -950,9 +1017,6 @@ async def main() -> None:
         print(colored("Starting CLI-Agent", "cyan"))
         load_dotenv(g.PROJ_ENV_FILE_PATH)
         
-        # Initialize the Python sandbox
-        python_sandbox = PythonSandbox()
-        
         args = parse_cli_args()
         print(args)
 
@@ -975,6 +1039,40 @@ async def main() -> None:
         # Use sandboxed python execution
         if args.sandbox:
             g.USE_SANDBOX = True
+        
+        # Store SSH information in globals if provided
+        if args.ssh:
+            g.SSH_CONNECTION = args.ssh
+            print(colored(f"# cli-agent: SSH mode enabled: {args.ssh}", "green"))
+            
+            # Try to import paramiko which is required for SSH
+            try:
+                import paramiko
+            except ImportError:
+                print(colored("# cli-agent: Error - paramiko package required for SSH mode. Run: pip install paramiko", "red"))
+                exit(1)
+        
+        # Initialize the appropriate sandbox
+        if args.ssh:
+            # Initialize SSH sandbox for remote execution
+            try:
+                python_sandbox = SSHSandbox(args.ssh)
+                
+                # Test X11 forwarding if requested
+                if args.test_x11 and hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
+                    python_sandbox.test_x11_forwarding()
+            except Exception as e:
+                print(colored(f"# cli-agent: SSH connection error: {str(e)}", "red"))
+                if args.debug:
+                    traceback.print_exc()
+                exit(1)
+        else:
+            # Initialize local Python sandbox
+            python_sandbox = PythonSandbox()
+            
+            # Warn if --test-x11 was specified but SSH mode is not enabled
+            if args.test_x11:
+                print(colored(f"# cli-agent: --test-x11 ignored (SSH mode not enabled)", "yellow"))
         
         # Minimize window if requested
         if args.minimized:
@@ -1196,12 +1294,40 @@ Lastly, let's see the platform we are running on:
                 try:
                     def extract_pythonToolcode(text: str) -> list[str]:
                         # Extract the python block from the response and execute it in a persistent sandbox
-                        # Prioritize python, then tool_code, then bash
+                        import re
+                        
+                        # Check for code blocks first
                         python_blocks = get_extract_blocks()(text, "python")
+                        
+                        # If we found Python blocks, check if they contain shell commands
+                        if python_blocks:
+                            # Check for special case: Python block with only shell commands
+                            first_block = python_blocks[0]
+                            lines = first_block.strip().split('\n')
+                            # Count lines that start with !
+                            shell_lines = [line for line in lines if line.strip().startswith('!')]
+                            
+                            # If all non-empty lines are shell commands, extract them as a single shell block
+                            if shell_lines and len(shell_lines) == len([line for line in lines if line.strip()]):
+                                return [first_block]  # Return as is, the SSH sandbox will handle it
+                            
+                            # If it's a mix of Python and shell commands, return as regular Python
+                            return python_blocks
+                        
+                        # Continue with other code block types if no Python blocks found
+                        python_blocks = get_extract_blocks()(text, "tool_code")
                         if not python_blocks:
-                            python_blocks = get_extract_blocks()(text, "tool_code")
+                            # Check for bash blocks
+                            python_blocks = get_extract_blocks()(text, "bash")
                             if not python_blocks:
-                                python_blocks = get_extract_blocks()(text, "bash")
+                                # Check for shell blocks
+                                python_blocks = get_extract_blocks()(text, "shell")
+                                if not python_blocks:
+                                    # Look for Jupyter-style shell commands (!command) outside of code blocks
+                                    shell_commands = re.findall(r'(?:^|\n)(!.+?)(?=\n|$)', text)
+                                    if shell_commands:
+                                        python_blocks = shell_commands
+                        
                         return python_blocks
 
                     def update_python_environment(chunk: str, print_char: bool = True) -> str:
@@ -1359,17 +1485,26 @@ Lastly, let's see the platform we are running on:
 
                     if confirm_code_execution(args, code_to_execute):
                         print(colored("🔄 Executing code...", "cyan"))
+                        if ("sudo " in code_to_execute and not "sudo -A " in code_to_execute):
+                            code_to_execute = code_to_execute.replace("sudo ", "sudo -A ")
+                        
+                        def filter_cmd_output(text: str) -> str:
+                            text = text.replace("ksshaskpass: Unable to parse phrase \"[sudo] password for prob: \"", "")
+                            return text
+                        
                         try:
                             # Define streaming callbacks to display output in real-time
                             stdout_buffer = ""
                             stderr_buffer = ""
                             def stdout_callback(text: str) -> None:
                                 nonlocal stdout_buffer
+                                text = filter_cmd_output(text)
                                 print(text, end="") # Print directly to console
                                 stdout_buffer += text
 
                             def stderr_callback(text: str) -> None:
                                 nonlocal stderr_buffer
+                                text = filter_cmd_output(text)
                                 print(colored(text, "red"), end="") # Print errors in red
                                 stderr_buffer += text
 
@@ -1392,6 +1527,8 @@ Lastly, let's see the platform we are running on:
                             # Include result if it's meaningful (not None and not empty)
                             if result is not None and str(result).strip() != "":
                                 tool_output += f"```result\n{result}\n```\n"
+                            
+                            tool_output = filter_cmd_output(tool_output)
 
                             # remove color codes
                             tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output)

@@ -13,6 +13,9 @@ from py_classes.cls_rate_limit_tracker import rate_limit_tracker
 from py_classes.globals import g
 import base64
 import re
+# Import audio utility functions
+from py_methods.utils_audio import save_binary_file, convert_to_wav, parse_audio_mime_type
+import mimetypes
 
 logger = logging.getLogger(__name__)
 
@@ -224,3 +227,137 @@ class GoogleAPI(AIProviderInterface):
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             logger.error(error_msg)
             return None
+
+    @staticmethod
+    def generate_speech(
+        text: str,
+        output_file: str = "output.wav",
+        model: str = "gemini-2.5-flash-preview-tts",
+        temperature: float = 1.0,
+        chat: Optional[Chat] = None,
+        speaker_config: Optional[List[Dict[str, str]]] = None
+    ) -> str:
+        """
+        Generates speech from text using Google's TTS API with multi-speaker support.
+        
+        Args:
+            text (str): The text to convert to speech.
+            output_file (str): The name of the output file to save the audio to.
+            model (str): The TTS model to use.
+            temperature (float): The temperature setting for the model.
+            chat (Optional[Chat]): The chat object for debug printing.
+            speaker_config (Optional[List[Dict[str, str]]]): List of speaker configurations.
+                Each dictionary should contain 'speaker' and 'voice' keys.
+                If None, default voices will be used.
+                
+        Returns:
+            str: The path to the saved audio file.
+            
+        Raises:
+            Exception: If the API is not configured or if there is an error during generation.
+        """
+        try:
+            # Import necessary modules
+            from google import genai
+            from google.genai import types
+            
+            # Configure the API if not already done
+            GoogleAPI._configure_api()
+            
+            # Print status message
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating speech...", force_print=True, prefix=prefix)
+            
+            # Create the client
+            client = genai.Client(
+                api_key=os.environ.get("GOOGLE_API_KEY"),
+            )
+            
+            # Default speaker configuration if none provided
+            if not speaker_config:
+                speaker_config = [
+                    {"speaker": "Speaker 1", "voice": "Zephyr"},
+                    {"speaker": "Speaker 2", "voice": "Puck"}
+                ]
+            
+            # Create speaker voice configs
+            speaker_voice_configs = []
+            for config in speaker_config:
+                speaker_voice_configs.append(
+                    types.SpeakerVoiceConfig(
+                        speaker=config["speaker"],
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name=config["voice"]
+                            )
+                        ),
+                    )
+                )
+            
+            # Set up content for TTS
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=text),
+                    ],
+                ),
+            ]
+            
+            # Configure TTS generation
+            generate_content_config = types.GenerateContentConfig(
+                temperature=temperature,
+                response_modalities=["audio"],
+                speech_config=types.SpeechConfig(
+                    multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                        speaker_voice_configs=speaker_voice_configs
+                    ),
+                ),
+            )
+            
+            # Generate speech content
+            for chunk in client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=generate_content_config,
+            ):
+                if (
+                    chunk.candidates is None
+                    or chunk.candidates[0].content is None
+                    or chunk.candidates[0].content.parts is None
+                ):
+                    continue
+                
+                if chunk.candidates[0].content.parts[0].inline_data:
+                    inline_data = chunk.candidates[0].content.parts[0].inline_data
+                    data_buffer = inline_data.data
+                    file_extension = mimetypes.guess_extension(inline_data.mime_type)
+                    
+                    if file_extension is None:
+                        file_extension = ".wav"
+                        data_buffer = convert_to_wav(inline_data.data, inline_data.mime_type)
+                    
+                    # Ensure output_file has the correct extension
+                    base_name, existing_ext = os.path.splitext(output_file)
+                    if not existing_ext:
+                        output_file = f"{base_name}{file_extension}"
+                    
+                    # Save the file
+                    return save_binary_file(output_file, data_buffer)
+                else:
+                    # Handle text response
+                    if chunk.text and chat:
+                        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                        g.debug_log(f"TTS Response: {chunk.text}", force_print=True, prefix=prefix)
+            
+            # If we get here without returning a file, raise an exception
+            raise Exception("No audio data received from the API")
+            
+        except Exception as e:
+            error_msg = f"Google API speech generation error: {e}"
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
+            logger.error(error_msg)
+            raise Exception(f"Failed to generate speech: {e}")
