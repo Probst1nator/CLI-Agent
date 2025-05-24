@@ -8,7 +8,6 @@ __pycache__/
 .env
 
 *.wav
-*.png
 *.csv
 *.log
 *.json
