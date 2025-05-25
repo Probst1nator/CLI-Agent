@@ -104,6 +104,10 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         safe_title_for_filename = "podcast_episode"
 
     os.makedirs(PODCAST_SAVE_LOCATION, exist_ok=True)
+    
+    print(colored(f"[{title}] Splitting podcast dialogue into chunks...", "blue"))
+    text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=600 if use_local_dia else 4000)
+    print(colored(f"[{title}] Successfully split into {len(text_chunks)} chunks.", "blue"))
 
     if use_local_dia:
         print(colored(f"[{title}] Attempting to use local Dia TTS model.", "magenta"))
@@ -137,35 +141,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
             # Continue to the Google TTS implementation instead
             return generate_podcast(podcast_dialogue, title, use_local_dia=False)
 
-        dialogue_lines = podcast_dialogue.splitlines()
         dia_formatted_segments = []
-        current_speaker_tag = "[S2]" 
-        buffer = [] 
-
-        def flush_buffer_to_segments(tag_for_buffer, current_buffer_list):
-            if current_buffer_list:
-                full_speech = " ".join(current_buffer_list).strip()
-                if full_speech:
-                    # Dia expects tags like [S1] text [S2] text.
-                    # Non-verbal cues like (laughs) should be part of the text.
-                    dia_formatted_segments.append(f"{tag_for_buffer} {full_speech}")
-                current_buffer_list.clear()
-
-        for line in dialogue_lines:
-            line_stripped = line.strip()
-            if not line_stripped:
-                continue
-
-            if _is_speaker_line(line_stripped):
-                flush_buffer_to_segments(current_speaker_tag, buffer)
-                current_speaker_tag = "[S1]" if current_speaker_tag == "[S2]" else "[S2]"
-                speech_part = line_stripped.split(":", 1)[1].strip() if ":" in line_stripped else line_stripped
-                buffer.append(speech_part)
-            else:
-                buffer.append(line_stripped)
-        
-        flush_buffer_to_segments(current_speaker_tag, buffer)
-        
         dia_input_text = " ".join(dia_formatted_segments)
         
         if not dia_input_text.strip():
@@ -210,14 +186,6 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
 
     else: # Original Google TTS Implementation
         print(colored(f"[{title}] Using Google GenAI TTS model: {GOOGLE_TTS_MODEL_NAME}", "magenta"))
-        print(colored(f"[{title}] Splitting podcast dialogue into chunks...", "blue"))
-        text_chunks = _split_podcast_text_into_chunks(podcast_dialogue)
-        
-        if not text_chunks:
-            print(colored(f"[{title}] No text chunks to process after splitting.", "yellow"))
-            return ""
-
-        print(colored(f"[{title}] Successfully split into {len(text_chunks)} chunks.", "blue"))
 
         # Ensure API key is available
         google_api_key = os.environ.get("GOOGLE_API_KEY")
@@ -502,6 +470,9 @@ The topic of the conversation is:
 The following information/topic(s) are provided to help you ground the conversation:
 {analysisResponse}"""
 
+    if args.local:
+        podcastGenPrompt = podcastGenPrompt.replace("Chloe (Student):", "[S1]").replace("Liam (Expert):", "[S2]")
+        
     try:
         podcastDialogue = LlmRouter.generate_completion(podcastGenPrompt)
     except Exception as e:

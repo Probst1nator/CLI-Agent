@@ -446,6 +446,7 @@ class LlmRouter:
     def _process_stream(
         cls,
         stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
+        provider: AIProviderInterface,
         hidden_reason: str,
         callback: Optional[Callable] = None
     ) -> str:
@@ -454,6 +455,7 @@ class LlmRouter:
         
         Args:
             stream (Union[Iterator[Dict[str, Any]], Iterator[str], Any]): The stream object from the provider
+            provider (AIProviderInterface): The provider interface
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
             
@@ -466,22 +468,27 @@ class LlmRouter:
         
         # Handle different stream types
         # ! Anthropic
-        if hasattr(stream, 'text_stream'):  
-            for token in stream.text_stream:
-                if token:
-                    full_response += token
-                    if callback is not None:
-                        finished_response = callback(token, hidden_reason)
-                        if finished_response and isinstance(finished_response, str):
-                            break
-                    elif not hidden_reason:
-                        g.print_token(token_stream_painter.apply_color(token))
-        # ! OpenAI/NVIDIA
-        elif hasattr(stream, 'choices'):  
-            for chunk in stream:
-                if hasattr(chunk.choices[0].delta, 'content'):
-                    token = chunk.choices[0].delta.content
+        if isinstance(provider, AnthropicAPI):
+            if hasattr(stream, 'text_stream'):  
+                for token in stream.text_stream:
                     if token:
+                        full_response += token
+                        if callback is not None:
+                            finished_response = callback(token, hidden_reason)
+                            if finished_response and isinstance(finished_response, str):
+                                break
+                        elif not hidden_reason:
+                            g.print_token(token_stream_painter.apply_color(token))
+        # ! OpenAI/NVIDIA
+        elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
+            if hasattr(stream, 'choices'):  
+                for chunk in stream:
+                    # Safely access delta content
+                    token = None
+                    if chunk.choices and hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                        token = chunk.choices[0].delta.content
+                    
+                    if token is not None:  # Ensure token is not None (can be empty string)
                         full_response += token
                         if callback is not None:
                             finished_response = callback(token)
@@ -489,39 +496,78 @@ class LlmRouter:
                                 break
                         elif not hidden_reason:
                             g.print_token(token_stream_painter.apply_color(token))
-        # ! Google Gemini
-        elif hasattr(stream, '__iter__') and hasattr(next(iter(stream), None), 'text'):  
+        # ! Google Gemini - IMPROVED HANDLING
+        elif isinstance(provider, GoogleAPI):
             try:
-                for chunk in stream:
-                    if hasattr(chunk, 'text'):
-                        token = chunk.text
-                        if token:
-                            full_response += token
-                            if callback is not None:
-                                finished_response = callback(token)
-                                if finished_response and isinstance(finished_response, str):
-                                    break
-                            elif not hidden_reason:
-                                g.print_token(token_stream_painter.apply_color(token))
+                first_chunk_processed = False
+                for chunk in stream:  # chunk is a GenerateContentResponse
+                    if not first_chunk_processed:
+                        first_chunk_processed = True
+                        # Minimal check for immediate prompt blocking on the first chunk
+                        if hasattr(chunk, 'prompt_feedback') and chunk.prompt_feedback and \
+                           hasattr(chunk.prompt_feedback, 'block_reason') and chunk.prompt_feedback.block_reason:
+                            return ""  # Prompt was blocked, no content will follow.
+
+                    token_from_this_chunk = ""
+                    try:
+                        # Safely attempt to extract text.
+                        # The .parts property on GenerateContentResponse is a shortcut for candidates[0].content.parts
+                        if hasattr(chunk, 'parts') and chunk.parts:
+                            for part in chunk.parts:
+                                if hasattr(part, 'text') and part.text is not None:
+                                    token_from_this_chunk += part.text
+                        # If chunk.parts is empty or not present, token_from_this_chunk remains ""
+                        # This avoids the error from directly accessing chunk.text if parts are missing.
+                    except AttributeError:
+                        # This catches if `chunk.parts` itself or `part.text` is missing when expected.
+                        # Silently treat as no token for this chunk to prevent crash.
+                        pass 
+                    
+                    if token_from_this_chunk:
+                        full_response += token_from_this_chunk
+                        if callback is not None:
+                            # Callback can return the final response string to terminate early
+                            result_from_callback = callback(token_from_this_chunk)
+                            if result_from_callback and isinstance(result_from_callback, str):
+                                finished_response = result_from_callback
+                                break 
+                        elif not hidden_reason:
+                            g.print_token(token_stream_painter.apply_color(token_from_this_chunk))
+                
+                # If callback signaled to finish early
+                if finished_response and isinstance(finished_response, str):
+                    return finished_response
+
             except StopIteration:
-                pass  # End of stream
+                pass  # Normal end of stream
         # ! Ollama/Groq
-        else:  
+        elif isinstance(provider, OllamaClient) or isinstance(provider, GroqAPI):
             for chunk in stream:
-                if hasattr(chunk, 'choices'):  # Groq ChatCompletionChunk
-                    if hasattr(chunk.choices[0].delta, 'content'):
+                token = None
+                if isinstance(provider, GroqAPI):
+                    if hasattr(chunk, 'choices') and chunk.choices and \
+                       hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
                         token = chunk.choices[0].delta.content
-                    else:
-                        continue
-                elif isinstance(chunk, dict):  # Ollama dictionary chunks
-                    token = chunk.get('message', {}).get('content', '') or chunk.get('response', '')
-                elif hasattr(chunk, 'message'):  # Ollama response object
-                    if hasattr(chunk.message, 'content'):
-                        token = chunk.message.content
-                    else:
-                        continue
-                else:
-                    token = str(chunk)
+                elif isinstance(provider, OllamaClient):
+                    if isinstance(chunk, dict):  # Ollama dictionary chunks
+                        token = chunk.get('message', {}).get('content', '') or chunk.get('response', '')
+                    elif hasattr(chunk, 'message'):  # Ollama response object
+                        if hasattr(chunk.message, 'content'):
+                            token = chunk.message.content
+                
+                if token is not None:  # Ensure token is not None
+                    full_response += token
+                    if callback is not None:
+                        finished_response = callback(token)
+                        if finished_response and isinstance(finished_response, str):
+                            break
+                    elif not hidden_reason:
+                        g.print_token(token_stream_painter.apply_color(token))
+        
+        # Fallback for other unknown stream types (original logic)
+        else:  
+            for chunk_item in stream:  # Renamed to avoid conflict
+                token = str(chunk_item)  # Basic conversion
                 if token:
                     full_response += token
                     if callback is not None:
@@ -531,7 +577,8 @@ class LlmRouter:
                     elif not hidden_reason:
                         g.print_token(token_stream_painter.apply_color(token))
             
-        if finished_response:
+        # If callback returned a final response string at any point (and broke the loop)
+        if finished_response and isinstance(finished_response, str):
             return finished_response
         
         return full_response
@@ -777,8 +824,9 @@ class LlmRouter:
                     # Get the stream from the provider
                     stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason)
                     
-                    # Process the stream
-                    full_response = cls._process_stream(stream, hidden_reason, generation_stream_callback)
+                    # MODIFIED LINE: Pass model.provider to _process_stream
+                    full_response = cls._process_stream(stream, model.provider, hidden_reason, generation_stream_callback)
+                    
                     if (not full_response.endswith("\n") and not hidden_reason):
                         print()
                     
