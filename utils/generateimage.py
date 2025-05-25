@@ -183,6 +183,7 @@ class GenerateImage(UtilBase):
             os.makedirs(output_dir, exist_ok=True)
             
         # Determine the best device and precision to use
+        dtype = torch.float16
         if torch.cuda.is_available():
             device = torch.device("cuda")
             dtype = torch.float16

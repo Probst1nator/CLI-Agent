@@ -16,15 +16,17 @@ __pycache__/
 *.pdf
 *.gif
 *.wav
+*.mp3
+*.stfolder
+*.deprecated
+
 .vscode
 .venv/**
-
 .cliagent
+
 **/env/**
 **.bin
 **.sqlite3
-
 **test_
-*.deprecated
 
 run_screen_grabber.sh

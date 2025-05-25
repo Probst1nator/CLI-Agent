@@ -4,6 +4,7 @@ import datetime
 import logging
 import os
 import select
+import time
 import traceback
 from typing import List, Optional, Tuple
 from pyfiglet import figlet_format
@@ -366,7 +367,7 @@ async def utils_selection(args: argparse.Namespace) -> List[str]:
             traceback.print_exc()
         return []
 
-def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bool:
+async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bool:
     """
     Handles the confirmation process for code execution, supporting both auto and manual modes.
     
@@ -422,16 +423,14 @@ Do not add any other text after this single-word verdict.""",
             return False
     else:
         # Manual confirmation
-        print(colored(" (Press Enter to confirm or 'n' to abort, press 'a' to toggle auto execution)", "cyan"))
-        user_input = input(colored("> ", 'yellow', attrs=["bold"]))
-        
+        user_input = await get_user_input_with_bindings(args, None, colored(" (Press Enter to confirm or 'n' to abort, press 'a' to toggle auto execution)", "cyan"))
         if user_input.lower() == 'n':
             print(colored("❌ Code execution aborted by user", "red"))
             return False
         elif user_input.lower() == 'a':
             args.auto = not args.auto
             print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {'on' if args.auto else 'off'}, type (--h) for info", "green"))
-            return confirm_code_execution(args, code_to_execute)
+            return await confirm_code_execution(args, code_to_execute)
         else:
             print(colored("✅ Code execution permitted", "green"))
     
@@ -1012,6 +1011,110 @@ Perfect, use this description as needed for the next steps.\n""")
     # Return the base64 images for use in the generate_completion call
     return base64_images
 
+def extract_pythonToolcode(text: str) -> list[str]:
+    """
+    Extract the python block from the response and execute it in a persistent sandbox.
+    Also handles bash/shell blocks by converting them to Jupyter shell magic format.
+    """
+    import re
+    
+    # Check for code blocks first
+    python_blocks = get_extract_blocks()(text, "python")
+    
+    # If we found Python blocks, check if they contain shell commands
+    if python_blocks:
+        # Check for special case: Python block with only shell commands
+        first_block = python_blocks[0]
+        lines = first_block.strip().split('\n')
+        # Count lines that start with !
+        shell_lines = [line for line in lines if line.strip().startswith('!')]
+        
+        # If all non-empty lines are shell commands, extract them as a single shell block
+        if shell_lines and len(shell_lines) == len([line for line in lines if line.strip()]):
+            return [first_block]  # Return as is, the SSH sandbox will handle it
+        
+        # If it's a mix of Python and shell commands, return as regular Python
+        return python_blocks
+    
+    # Continue with other code block types if no Python blocks found
+    python_blocks = get_extract_blocks()(text, "tool_code")
+    if not python_blocks:
+        # Check for bash blocks
+        bash_blocks = get_extract_blocks()(text, "bash")
+        if bash_blocks:
+            # Convert bash commands to Jupyter shell magic format
+            converted_blocks = []
+            for block in bash_blocks:
+                lines = block.strip().split('\n')
+                converted_lines = []
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('#'):  # Skip empty lines and comments
+                        if not line.startswith('!'):
+                            line = '!' + line  # Add shell magic prefix
+                        converted_lines.append(line)
+                if converted_lines:
+                    converted_blocks.append('\n'.join(converted_lines))
+            return converted_blocks
+        
+        # Check for shell blocks
+        shell_blocks = get_extract_blocks()(text, "shell")
+        if shell_blocks:
+            # Convert shell commands to Jupyter shell magic format
+            converted_blocks = []
+            for block in shell_blocks:
+                lines = block.strip().split('\n')
+                converted_lines = []
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('#'):  # Skip empty lines and comments
+                        if not line.startswith('!'):
+                            line = '!' + line  # Add shell magic prefix
+                        converted_lines.append(line)
+                if converted_lines:
+                    converted_blocks.append('\n'.join(converted_lines))
+            return converted_blocks
+        
+        # Look for Jupyter-style shell commands (!command) outside of code blocks
+        shell_commands = re.findall(r'(?:^|\n)(!.+?)(?=\n|$)', text)
+        if shell_commands:
+            return shell_commands
+    
+    return []
+
+# Also, here's the enhanced sudo preprocessing function to integrate:
+def preprocess_consecutive_sudo_commands(code: str) -> str:
+    """Combine consecutive shell commands with sudo to reduce password prompts."""
+    lines = code.strip().split('\n')
+    processed_lines = []
+    shell_commands = []
+    
+    for line in lines:
+        line = line.strip()
+        if line.startswith('!'):
+            shell_commands.append(line[1:])  # Remove ! prefix
+        else:
+            # Non-shell line encountered, flush any accumulated shell commands
+            if shell_commands:
+                if len(shell_commands) == 1:
+                    processed_lines.append(f'!{shell_commands[0]}')
+                else:
+                    # Combine multiple shell commands with &&
+                    combined = ' && '.join(shell_commands)
+                    processed_lines.append(f'!{combined}')
+                shell_commands = []
+            processed_lines.append(line)
+    
+    # Handle any remaining shell commands
+    if shell_commands:
+        if len(shell_commands) == 1:
+            processed_lines.append(f'!{shell_commands[0]}')
+        else:
+            combined = ' && '.join(shell_commands)
+            processed_lines.append(f'!{combined}')
+    
+    return '\n'.join(processed_lines)
+
 async def main() -> None:
     try:
         print(colored("Starting CLI-Agent", "cyan"))
@@ -1153,7 +1256,7 @@ async def main() -> None:
             context_chat = Chat(debug_title="Main Context Chat")
             inst = f"""# SYSTEM INSTRUCTION
 Enable deep thinking subroutine.
-The assistant is Nova, an intelligent cli-agent with access to a python interpreter. 
+The assistant is Nova, an intelligent cli-agent with access to a computational notebook environment. 
 Nova uses emojis to indicate her current thoughts, relating her emotions and state of thinking.
 
 1. UNDERSTAND & ASSESS:
@@ -1163,17 +1266,15 @@ Nova uses emojis to indicate her current thoughts, relating her emotions and sta
 
 2. VERIFY:
     Before you implement any code, reflect on the availability and reliability of any required data like paths, files, directories, real time data, etc.
-    If you suspsect any of your data is unavailable or unreliable, use the python interpreter to confirm or find alternatives.
+    If you suspsect any of your data is unavailable or unreliable, use the computational notebook environment to confirm or find alternatives.
     Only proceed with implementing code if you have ensured all required information is available and reliable.
     Only in emergencies, when you are unable to find a solution, you can ask the user for clarification.
 
 3. CODE & EXECUTE:
-    ALWAYS write python code that is ready to execute in its raw form, eg. placeholders are not allowed
-    Use shell magics as needed
-    Include any necessary libraries and utilities in your code
-    For mathematical calculations, use the python interpreter and add print statements as needed
-    To save any files use {g.AGENTS_SANDBOX_DIR} as default directory.
-    Use additional print statements to ensure you can identify potential bugs in your code after execution
+    ALWAYS plan your solution before entering the computational notebook environment. 
+    This environment is persistent across all calls, so variables, imports, and defined functions remain available for future use. 
+    Leverage shell magics (!command) when needed, import necessary libraries, and include print statements for mathematical calculations and debugging. 
+    Use {g.AGENTS_SANDBOX_DIR} as your default directory for saving files.
 
 4. EVALUATE:
     Remind yourself of your overall goal and your current state of progress
@@ -1483,10 +1584,16 @@ Lastly, let's see the platform we are running on:
                     # Just use the first python block for now
                     code_to_execute = python_blocks[0]
 
-                    if confirm_code_execution(args, code_to_execute):
+                    if await confirm_code_execution(args, code_to_execute):
                         print(colored("🔄 Executing code...", "cyan"))
-                        if ("sudo " in code_to_execute and not "sudo -A " in code_to_execute):
-                            code_to_execute = code_to_execute.replace("sudo ", "sudo -A ")
+                        # Then in your main execution logic:
+                        if 'sudo ' in code_to_execute:
+                            # First, try to combine consecutive shell commands
+                            code_to_execute = preprocess_consecutive_sudo_commands(code_to_execute)
+                            
+                            # Then apply sudo -A replacement for remaining sudo commands
+                            if ("sudo " in code_to_execute and not "sudo -A " in code_to_execute):
+                                code_to_execute = code_to_execute.replace("sudo ", "sudo -A ")
                         
                         def filter_cmd_output(text: str) -> str:
                             text = text.replace("ksshaskpass: Unable to parse phrase \"[sudo] password for prob: \"", "")
@@ -1496,6 +1603,8 @@ Lastly, let's see the platform we are running on:
                             # Define streaming callbacks to display output in real-time
                             stdout_buffer = ""
                             stderr_buffer = ""
+                            
+                            
                             def stdout_callback(text: str) -> None:
                                 nonlocal stdout_buffer
                                 text = filter_cmd_output(text)
@@ -1507,12 +1616,27 @@ Lastly, let's see the platform we are running on:
                                 text = filter_cmd_output(text)
                                 print(colored(text, "red"), end="") # Print errors in red
                                 stderr_buffer += text
-
+                            
+                            def input_callback(prompt: str) -> str:
+                                print("CALLBACK DETECTED")
+                                konsole_interaction_chat = context_chat.deep_copy()
+                                konsole_interaction_chat.add_message(Role.USER, f"Your notebook execution was halted, please determine what keys to enter to continue execution. Provide the key or the string to enter as the last line of your response:\n```bash\n{stdout_buffer}\n{prompt}```")
+                                konsole_interaction_response = LlmRouter.generate_completion(
+                                    konsole_interaction_chat,
+                                    [g.SELECTED_LLMS[0]],
+                                    temperature=0,
+                                    base64_images=base64_images,
+                                    generation_stream_callback=update_python_environment,
+                                    strengths=g.LLM_STRENGTHS
+                                )
+                                return konsole_interaction_response.split("\n")[-1]
+                            
                             # Execute code with streaming callbacks
                             stdout, stderr, result = python_sandbox.execute(
                                 code_to_execute,
                                 stdout_callback=stdout_callback,
-                                stderr_callback=stderr_callback
+                                stderr_callback=stderr_callback,
+                                input_callback=input_callback
                             )
 
                             print(colored("\n✅ Code execution completed.", "cyan"))
