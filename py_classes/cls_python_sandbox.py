@@ -185,50 +185,46 @@ class PythonSandbox:
             except Exception as e:
                 logger.warning(f"Failed to sync global '{attr_name}': {str(e)}")
         
-    def _collect_output(self, timeout: Optional[float] = None, stdout_callback: Optional[Callable[[str], None]] = None, 
-                       stderr_callback: Optional[Callable[[str], None]] = None) -> Tuple[str, str, Any]:
+    def _collect_output(self, timeout: Optional[float] = None, 
+                       stdout_callback: Optional[Callable[[str], None]] = None, 
+                       stderr_callback: Optional[Callable[[str], None]] = None,
+                       input_callback: Optional[Callable[[str], str]] = None) -> Tuple[str, str, Any]:
         """
-        Collect all output from the kernel execution.
+        Collect all output from the kernel execution, including handling stdin requests.
         
         Args:
             timeout: Maximum time to wait for more output (seconds), None means wait indefinitely
             stdout_callback: Optional callback function to handle stdout in real-time
             stderr_callback: Optional callback function to receive stderr in real-time
+            input_callback: Optional callback function to handle input requests (prompts)
             
         Returns:
             Tuple of (stdout, stderr, result)
         """
         stdout_content = []
         stderr_content = []
-        seen_outputs = set()  # Track outputs we've seen to prevent duplication
+        seen_outputs = set()
         result = None
         error = None
         execution_completed = False
-        
-        # Continue getting messages until idle message is received
-        start_time = time.time()
         last_message_time = time.time()
         
         while True:
             try:
                 msg = self.kc.get_iopub_msg(timeout=0.1)
-                last_message_time = time.time()  # Update last message time
+                last_message_time = time.time()
                 msg_type = msg['header']['msg_type']
                 content = msg['content']
                 
                 if msg_type == 'stream':
                     if content['name'] == 'stderr':
-                        # Prioritize stderr
                         error_text = content['text']
-                        # Add to stderr regardless of whether seen before
                         stderr_content.append(error_text)
-                        # Mark as seen
                         seen_outputs.add(error_text)
                         if stderr_callback:
                             stderr_callback(error_text)
                     elif content['name'] == 'stdout':
                         output_text = content['text']
-                        # Only add to stdout if not already in stderr
                         if output_text not in seen_outputs:
                             stdout_content.append(output_text)
                             seen_outputs.add(output_text)
@@ -246,33 +242,36 @@ class PythonSandbox:
                     error_value = content['evalue']
                     error_traceback = '\n'.join(content['traceback'])
                     error = f"{error_name}: {error_value}\n{error_traceback}"
-                    # Add to seen outputs to prevent duplication
                     seen_outputs.add(error)
                     if stderr_callback:
                         stderr_callback(error)
+                
+                elif msg_type == 'input_request':
+                    # Handle stdin requests (like y/n prompts)
+                    prompt = content.get('prompt', 'Input required: ')
+                    if input_callback:
+                        user_input = input_callback(prompt)
+                    else:
+                        # Default behavior: prompt the user directly
+                        user_input = input(prompt)
+                    
+                    # Send the input back to the kernel
+                    self.kc.input(user_input)
                     
                 elif msg_type == 'status' and content['execution_state'] == 'idle':
-                    # Kernel has finished processing
                     execution_completed = True
                     break
                     
             except Empty:
-                # No more messages in the queue
                 current_time = time.time()
-                # Check if we've been waiting too long for any message, but only if timeout is set
                 if timeout is not None and (current_time - last_message_time > timeout):
-                    # No messages for a while, assume execution is complete or stuck
                     break
                 continue
-        
-        # If we're exiting without seeing an idle state, we won't show any warnings
-        # as these are causing unintended interruptions. We'll just silently continue
-        # and let the execution proceed normally, trusting the user to interrupt if needed.
         
         return ''.join(stdout_content), ''.join(stderr_content), result if not error else error
     
     def execute(self, code: str, stdout_callback: Optional[Callable[[str], None]] = None,
-               stderr_callback: Optional[Callable[[str], None]] = None, timeout: Optional[float] = None) -> Tuple[str, str, Any]:
+               stderr_callback: Optional[Callable[[str], None]] = None, input_callback: Optional[Callable[[str], str]] = None) -> Tuple[str, str, Any]:
         """
         Execute the given code in the kernel and return stdout, stderr, and result.
         
@@ -319,7 +318,7 @@ class PythonSandbox:
             
             # Collect and return all output, using the same timeout value
             # Always use None to disable timeouts
-            return self._collect_output(timeout=None, stdout_callback=stdout_callback, stderr_callback=stderr_callback)
+            return self._collect_output(timeout=None, stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_callback=input_callback)
         finally:
             pass
     

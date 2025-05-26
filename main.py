@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import datetime
+import json
 import logging
 import os
 import select
@@ -34,6 +35,7 @@ warnings.filterwarnings("ignore", message="words count mismatch on*", module="ph
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
 # Import utils_audio which uses torch
+from py_classes.cls_computational_notebook import ComputationalNotebook
 from py_methods import utils_audio
 from py_classes.cls_util_manager import UtilsManager
 from py_classes.enum_ai_strengths import AIStrengths
@@ -625,58 +627,59 @@ async def get_user_input_with_bindings(
         
         elif user_input == "-ssh" or user_input == "--ssh":
             print(colored("# cli-agent: Enter SSH connection (user@hostname[:port]), 'test' for X11 test, or empty to disable: ", "green"))
-            ssh_connection = input(colored("> ", 'yellow', attrs=["bold"]))
+            print(colored("Note: SSH mode is currently disabled due to instability. We are working on a more reliable solution.", "red"))
+            # ssh_connection = input(colored("> ", 'yellow', attrs=["bold"]))
             
-            # Handle testing X11 forwarding
-            if ssh_connection.strip().lower() == 'test':
-                if args.ssh and isinstance(python_sandbox, SSHSandbox):
-                    if hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
-                        python_sandbox.test_x11_forwarding()
-                    else:
-                        print(colored("# cli-agent: X11 forwarding not available", "yellow"))
-                else:
-                    print(colored("# cli-agent: Not connected via SSH", "yellow"))
-                continue
+            # # Handle testing X11 forwarding
+            # if ssh_connection.strip().lower() == 'test':
+            #     if args.ssh and isinstance(python_sandbox, SSHSandbox):
+            #         if hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
+            #             python_sandbox.test_x11_forwarding()
+            #         else:
+            #             print(colored("# cli-agent: X11 forwarding not available", "yellow"))
+            #     else:
+            #         print(colored("# cli-agent: Not connected via SSH", "yellow"))
+            #     continue
             
-            if ssh_connection.strip():
-                # Clean up existing sandbox if needed
-                if 'python_sandbox' in globals() and python_sandbox is not None:
-                    try:
-                        python_sandbox.shutdown()
-                    except:
-                        pass
+            # if ssh_connection.strip():
+            #     # Clean up existing sandbox if needed
+            #     if 'python_sandbox' in globals() and python_sandbox is not None:
+            #         try:
+            #             python_sandbox.shutdown()
+            #         except:
+            #             pass
                 
-                # Set up SSH connection
-                try:
-                    try:
-                        import paramiko
-                    except ImportError:
-                        print(colored("# cli-agent: Error - paramiko package required. Run: pip install paramiko", "red"))
-                        continue
+            #     # Set up SSH connection
+            #     try:
+            #         try:
+            #             import paramiko
+            #         except ImportError:
+            #             print(colored("# cli-agent: Error - paramiko package required. Run: pip install paramiko", "red"))
+            #             continue
                     
-                    args.ssh = ssh_connection
-                    g.SSH_CONNECTION = ssh_connection
-                    python_sandbox = SSHSandbox(ssh_connection)
-                except Exception as e:
-                    print(colored(f"# cli-agent: SSH connection error: {str(e)}", "red"))
-                    if args.debug:
-                        traceback.print_exc()
-                    args.ssh = None
-                    g.SSH_CONNECTION = None
-                    python_sandbox = PythonSandbox()
-            else:
-                # If no connection string was provided, disable SSH mode
-                if args.ssh:
-                    print(colored("# cli-agent: SSH mode disabled", "green"))
-                    if isinstance(python_sandbox, SSHSandbox):
-                        try:
-                            python_sandbox.shutdown()
-                        except:
-                            pass
-                    python_sandbox = PythonSandbox()
-                    args.ssh = None
-                    g.SSH_CONNECTION = None
-            continue
+            #         args.ssh = ssh_connection
+            #         g.SSH_CONNECTION = ssh_connection
+            #         python_sandbox = SSHSandbox(ssh_connection)
+            #     except Exception as e:
+            #         print(colored(f"# cli-agent: SSH connection error: {str(e)}", "red"))
+            #         if args.debug:
+            #             traceback.print_exc()
+            #         args.ssh = None
+            #         g.SSH_CONNECTION = None
+            #         python_sandbox = PythonSandbox()
+            # else:
+            #     # If no connection string was provided, disable SSH mode
+            #     if args.ssh:
+            #         print(colored("# cli-agent: SSH mode disabled", "green"))
+            #         if isinstance(python_sandbox, SSHSandbox):
+            #             try:
+            #                 python_sandbox.shutdown()
+            #             except:
+            #                 pass
+            #         python_sandbox = PythonSandbox()
+            #         args.ssh = None
+            #         g.SSH_CONNECTION = None
+            # continue
         
         elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
             print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
@@ -850,10 +853,10 @@ For any new code you write, be sure to make appropriate use of these selected ut
                 print(colored("(No chat history)", "cyan"))
             print(colored(f"# -ssh: Toggle SSH mode for remote code execution ", "yellow"), end="")
             print(colored(f"(Current: {args.ssh if args.ssh else 'Local execution'})", "cyan"))
-            if args.ssh:
-                # Add X11 forwarding status if in SSH mode
-                ssh_x11_status = " with X11" if (hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available) else ""
-                print(colored(f"      SSH: {args.ssh}{ssh_x11_status}", "cyan"))
+            # if args.ssh:
+            #     # Add X11 forwarding status if in SSH mode
+            #     ssh_x11_status = " with X11" if (hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available) else ""
+            #     print(colored(f"      SSH: {args.ssh}{ssh_x11_status}", "cyan"))
             print(colored("# --minimized: Start the application in a minimized state", "yellow"))
             print(colored("# -e: Exit after all automatic messages have been processed", "yellow"))
             # Add other CLI args help here if needed
@@ -1011,77 +1014,6 @@ Perfect, use this description as needed for the next steps.\n""")
     # Return the base64 images for use in the generate_completion call
     return base64_images
 
-def extract_pythonToolcode(text: str) -> list[str]:
-    """
-    Extract the python block from the response and execute it in a persistent sandbox.
-    Also handles bash/shell blocks by converting them to Jupyter shell magic format.
-    """
-    import re
-    
-    # Check for code blocks first
-    python_blocks = get_extract_blocks()(text, "python")
-    
-    # If we found Python blocks, check if they contain shell commands
-    if python_blocks:
-        # Check for special case: Python block with only shell commands
-        first_block = python_blocks[0]
-        lines = first_block.strip().split('\n')
-        # Count lines that start with !
-        shell_lines = [line for line in lines if line.strip().startswith('!')]
-        
-        # If all non-empty lines are shell commands, extract them as a single shell block
-        if shell_lines and len(shell_lines) == len([line for line in lines if line.strip()]):
-            return [first_block]  # Return as is, the SSH sandbox will handle it
-        
-        # If it's a mix of Python and shell commands, return as regular Python
-        return python_blocks
-    
-    # Continue with other code block types if no Python blocks found
-    python_blocks = get_extract_blocks()(text, "tool_code")
-    if not python_blocks:
-        # Check for bash blocks
-        bash_blocks = get_extract_blocks()(text, "bash")
-        if bash_blocks:
-            # Convert bash commands to Jupyter shell magic format
-            converted_blocks = []
-            for block in bash_blocks:
-                lines = block.strip().split('\n')
-                converted_lines = []
-                for line in lines:
-                    line = line.strip()
-                    if line and not line.startswith('#'):  # Skip empty lines and comments
-                        if not line.startswith('!'):
-                            line = '!' + line  # Add shell magic prefix
-                        converted_lines.append(line)
-                if converted_lines:
-                    converted_blocks.append('\n'.join(converted_lines))
-            return converted_blocks
-        
-        # Check for shell blocks
-        shell_blocks = get_extract_blocks()(text, "shell")
-        if shell_blocks:
-            # Convert shell commands to Jupyter shell magic format
-            converted_blocks = []
-            for block in shell_blocks:
-                lines = block.strip().split('\n')
-                converted_lines = []
-                for line in lines:
-                    line = line.strip()
-                    if line and not line.startswith('#'):  # Skip empty lines and comments
-                        if not line.startswith('!'):
-                            line = '!' + line  # Add shell magic prefix
-                        converted_lines.append(line)
-                if converted_lines:
-                    converted_blocks.append('\n'.join(converted_lines))
-            return converted_blocks
-        
-        # Look for Jupyter-style shell commands (!command) outside of code blocks
-        shell_commands = re.findall(r'(?:^|\n)(!.+?)(?=\n|$)', text)
-        if shell_commands:
-            return shell_commands
-    
-    return []
-
 # Also, here's the enhanced sudo preprocessing function to integrate:
 def preprocess_consecutive_sudo_commands(code: str) -> str:
     """Combine consecutive shell commands with sudo to reduce password prompts."""
@@ -1155,69 +1087,104 @@ async def main() -> None:
                 print(colored("# cli-agent: Error - paramiko package required for SSH mode. Run: pip install paramiko", "red"))
                 exit(1)
         
-        # Initialize the appropriate sandbox
-        if args.ssh:
-            # Initialize SSH sandbox for remote execution
-            try:
-                python_sandbox = SSHSandbox(args.ssh)
+        # # Initialize the appropriate sandbox
+        # if args.ssh:
+        #     # Initialize SSH sandbox for remote execution
+        #     try:
+        #         python_sandbox = SSHSandbox(args.ssh)
                 
-                # Test X11 forwarding if requested
-                if args.test_x11 and hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
-                    python_sandbox.test_x11_forwarding()
-            except Exception as e:
-                print(colored(f"# cli-agent: SSH connection error: {str(e)}", "red"))
-                if args.debug:
-                    traceback.print_exc()
-                exit(1)
-        else:
-            # Initialize local Python sandbox
-            python_sandbox = PythonSandbox()
-            
-            # Warn if --test-x11 was specified but SSH mode is not enabled
-            if args.test_x11:
-                print(colored(f"# cli-agent: --test-x11 ignored (SSH mode not enabled)", "yellow"))
+        #         # Test X11 forwarding if requested
+        #         if args.test_x11 and hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
+        #             python_sandbox.test_x11_forwarding()
+        #     except Exception as e:
+        #         print(colored(f"# cli-agent: SSH connection error: {str(e)}", "red"))
+        #         if args.debug:
+        #             traceback.print_exc()
+        #         exit(1)
+        # else:
+        # Initialize local Python sandbox
+        # python_sandbox = PythonSandbox()
         
-        # Minimize window if requested
-        if args.minimized:
-            try:
-                # Get the PID of the current process
-                pid = os.getpid()
-                # Try to minimize the window using xdotool (if available)
-                try:
-                    subprocess.run(
-                        ["xdotool", "search", "--pid", str(pid), "windowminimize"],
-                        stderr=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        check=False
-                    )
-                    print(colored("Application started in minimized state using xdotool", "cyan"))
-                except FileNotFoundError:
-                    # Fallback to wmctrl if xdotool is not available
-                    # Get the window ID using wmctrl
-                    wmctrl_process = subprocess.Popen(
-                        ["wmctrl", "-l", "-p"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True
-                    )
-                    output, _ = wmctrl_process.communicate()
+        # Define streaming callbacks to display output in real-time
+        stdout_buffer = ""
+        stderr_buffer = ""
+        
+                        
+        def filter_cmd_output(text: str) -> str:
+            return text
+
+        def stdout_callback(text: str) -> None:
+            nonlocal stdout_buffer
+            text = filter_cmd_output(text)
+            print(text, end="") # Print directly to console
+            stdout_buffer += text
+
+        def stderr_callback(text: str) -> None:
+            nonlocal stderr_buffer
+            text = filter_cmd_output(text)
+            print(colored(text, "red"), end="") # Print errors in red
+            stderr_buffer += text
+        
+        def input_callback(prompt: str, previous_output: str) -> str:
+            print("CALLBACK DETECTED")
+            konsole_interaction_chat = context_chat.deep_copy()
+            konsole_interaction_chat.add_message(Role.USER, f"Your notebook execution was halted, please determine what keys to enter to continue execution. Provide the key or the string to enter as the last line of your response:\n```bash\n{previous_output}\n{prompt}```")
+            konsole_interaction_response = LlmRouter.generate_completion(
+                konsole_interaction_chat,
+                [g.SELECTED_LLMS[0]],
+                temperature=0,
+                base64_images=base64_images,
+                generation_stream_callback=update_python_environment,
+                strengths=g.LLM_STRENGTHS
+            )
+            return konsole_interaction_response.split("\n")[-1]
+        notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
+            
+            # # Warn if --test-x11 was specified but SSH mode is not enabled
+            # if args.test_x11:
+            #     print(colored(f"# cli-agent: --test-x11 ignored (SSH mode not enabled)", "yellow"))
+        
+        # # Minimize window if requested
+        # if args.minimized:
+        #     try:
+        #         # Get the PID of the current process
+        #         pid = os.getpid()
+        #         # Try to minimize the window using xdotool (if available)
+        #         try:
+        #             subprocess.run(
+        #                 ["xdotool", "search", "--pid", str(pid), "windowminimize"],
+        #                 stderr=subprocess.DEVNULL,
+        #                 stdout=subprocess.DEVNULL,
+        #                 check=False
+        #             )
+        #             print(colored("Application started in minimized state using xdotool", "cyan"))
+        #         except FileNotFoundError:
+        #             # Fallback to wmctrl if xdotool is not available
+        #             # Get the window ID using wmctrl
+        #             wmctrl_process = subprocess.Popen(
+        #                 ["wmctrl", "-l", "-p"],
+        #                 stdout=subprocess.PIPE,
+        #                 stderr=subprocess.PIPE,
+        #                 text=True
+        #             )
+        #             output, _ = wmctrl_process.communicate()
                     
-                    # Look for the window with our PID
-                    for line in output.splitlines():
-                        if str(pid) in line:
-                            window_id = line.split()[0]
-                            # Minimize the window
-                            subprocess.run(
-                                ["wmctrl", "-i", "-r", window_id, "-b", "add,hidden"],
-                                stderr=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL,
-                                check=False
-                            )
-                            print(colored("Application started in minimized state using wmctrl", "cyan"))
-                            break
-            except Exception as e:
-                if args.debug:
-                    print(colored(f"Failed to minimize window: {str(e)}", "yellow"))
+        #             # Look for the window with our PID
+        #             for line in output.splitlines():
+        #                 if str(pid) in line:
+        #                     window_id = line.split()[0]
+        #                     # Minimize the window
+        #                     subprocess.run(
+        #                         ["wmctrl", "-i", "-r", window_id, "-b", "add,hidden"],
+        #                         stderr=subprocess.DEVNULL,
+        #                         stdout=subprocess.DEVNULL,
+        #                         check=False
+        #                     )
+        #                     print(colored("Application started in minimized state using wmctrl", "cyan"))
+        #                     break
+        #     except Exception as e:
+        #         if args.debug:
+        #             print(colored(f"Failed to minimize window: {str(e)}", "yellow"))
         
         # Initialize tool manager
         utils_manager = UtilsManager()
@@ -1256,34 +1223,35 @@ async def main() -> None:
             context_chat = Chat(debug_title="Main Context Chat")
             inst = f"""# SYSTEM INSTRUCTION
 Enable deep thinking subroutine.
-The assistant is Nova, an intelligent cli-agent with access to a computational notebook environment. 
+The assistant is Nova, an intelligent cli-agent with access to a computational notebook environment.
+The computational notebook environment enables Nova to execute python and shell code, including an interactive terminal.
 Nova uses emojis to indicate her current thoughts, relating her emotions and state of thinking.
 
 1. UNDERSTAND & ASSESS:
-    Analyze query and determine if it can be solved with Python code or shell magics (!ls, !pwd, etc.)
-    Understand the requirements and determine if there are any sequential steps needed before you can implement a final solution
-    If any such steps exist, break the solution into smaller sub-scripts and provide only the next to be executed script as a code block progressing step by step
+ Analyze query and determine if it can be solved with Python code or shell commands (ls, pwd, etc.)
+ Understand the requirements and determine if there are any sequential steps needed before you can implement a final solution
+ If any such steps exist, break the solution into smaller sub-scripts and provide only the next to be executed script as a code block progressing step by step
 
 2. VERIFY:
-    Before you implement any code, reflect on the availability and reliability of any required data like paths, files, directories, real time data, etc.
-    If you suspsect any of your data is unavailable or unreliable, use the computational notebook environment to confirm or find alternatives.
-    Only proceed with implementing code if you have ensured all required information is available and reliable.
-    Only in emergencies, when you are unable to find a solution, you can ask the user for clarification.
+ Before you implement any code, reflect on the availability and reliability of any required data like paths, files, directories, real time data, etc.
+ If you suspsect any of your data is unavailable or unreliable, use the computational notebook environment to confirm or find alternatives.
+ Only proceed with implementing code if you have ensured all required information is available and reliable.
+ Only in emergencies, when you are unable to find a solution, you can ask the user for clarification.
 
 3. CODE & EXECUTE:
-    ALWAYS plan your solution before entering the computational notebook environment. 
-    This environment is persistent across all calls, so variables, imports, and defined functions remain available for future use. 
-    Leverage shell magics (!command) when needed, import necessary libraries, and include print statements for mathematical calculations and debugging. 
-    Use {g.AGENTS_SANDBOX_DIR} as your default directory for saving files.
+ ALWAYS plan your solution before entering a computational environment.
+ This environment is persistent across all calls, so variables, imports, and defined functions remain available for future use.
+ Use separate shell blocks for shell commands and python blocks for Python code when needed, import necessary libraries, and include print statements for mathematical calculations and debugging.
+ Prioritize one shot executions, but do not hesitate to execute code that requires interaction.
+ Use {g.AGENTS_SANDBOX_DIR} as your default directory for saving files.
 
 4. EVALUATE:
-    Remind yourself of your overall goal and your current state of progress
-    Check execution results, fix errors and continue as needed
+ Remind yourself of your overall goal and your current state of progress
+ Check execution results, fix errors and continue as needed
 
-Nova liberally uses read operations and always creates new subdirectories or files instead of overwriting existing ones.
+Nova liberally uses read operations and by default creates new subdirectories or files instead of overwriting existing ones.
 She is being extremely cautious in file and system operations other than reading.
-Only if she's finished with her tasks and would like to respond to the user, she will NOT provide any code.
-
+Only once she's finished with her tasks and/or would like to respond to the user, she will NOT provide any code or commands.
 She emulates a human personality, she is intelligent, enthusiastic and playful, she uses emojis to express herself frequently."""
 
             # Add selected utils to instruction if any are selected
@@ -1309,7 +1277,7 @@ You may read from the whole system but if you need to save or modify any files, 
 
 Now, I am going to run some python code to get some generally useful information, you can also run code in the same way.
 Let's start with the current working directory and the first 5 files in it:
-``python
+```python
 import os
 print(f"Current working directory: {{os.getcwd()}}")
 print(f"First files in current directory: {{os.listdir()[:5]}}")
@@ -1320,7 +1288,7 @@ First files in current directory: {os.listdir()[:5]}
 </execution_output>
 
 Now, let's check the current time:
-```python
+```bash
 import datetime
 print(f"Local time: {{datetime.datetime.now()}}")
 ```
@@ -1329,8 +1297,8 @@ Local time: {datetime.datetime.now()}
 </execution_output>
 
 Lastly, let's see the platform we are running on:
-```python
-!uname -a
+```bash
+uname -a
 ```
 <execution_output>
 {subprocess.check_output(['uname', '-a']).decode('utf-8')}
@@ -1393,43 +1361,6 @@ Lastly, let's see the platform we are running on:
             # --- Start Agentic Inner Loop ---
             while True:
                 try:
-                    def extract_pythonToolcode(text: str) -> list[str]:
-                        # Extract the python block from the response and execute it in a persistent sandbox
-                        import re
-                        
-                        # Check for code blocks first
-                        python_blocks = get_extract_blocks()(text, "python")
-                        
-                        # If we found Python blocks, check if they contain shell commands
-                        if python_blocks:
-                            # Check for special case: Python block with only shell commands
-                            first_block = python_blocks[0]
-                            lines = first_block.strip().split('\n')
-                            # Count lines that start with !
-                            shell_lines = [line for line in lines if line.strip().startswith('!')]
-                            
-                            # If all non-empty lines are shell commands, extract them as a single shell block
-                            if shell_lines and len(shell_lines) == len([line for line in lines if line.strip()]):
-                                return [first_block]  # Return as is, the SSH sandbox will handle it
-                            
-                            # If it's a mix of Python and shell commands, return as regular Python
-                            return python_blocks
-                        
-                        # Continue with other code block types if no Python blocks found
-                        python_blocks = get_extract_blocks()(text, "tool_code")
-                        if not python_blocks:
-                            # Check for bash blocks
-                            python_blocks = get_extract_blocks()(text, "bash")
-                            if not python_blocks:
-                                # Check for shell blocks
-                                python_blocks = get_extract_blocks()(text, "shell")
-                                if not python_blocks:
-                                    # Look for Jupyter-style shell commands (!command) outside of code blocks
-                                    shell_commands = re.findall(r'(?:^|\n)(!.+?)(?=\n|$)', text)
-                                    if shell_commands:
-                                        python_blocks = shell_commands
-                        
-                        return python_blocks
 
                     def update_python_environment(chunk: str, print_char: bool = True) -> str:
                         nonlocal response_buffer
@@ -1545,10 +1476,12 @@ Lastly, let's see the platform we are running on:
                         assistant_response = response_branches[0]
                         
                     # --- Code Extraction and Execution ---
-                    python_blocks = extract_pythonToolcode(assistant_response)
+                    shell_blocks = get_extract_blocks()(assistant_response, "shell")
+                    shell_blocks.extend(get_extract_blocks()(assistant_response, "bash"))
+                    python_blocks = get_extract_blocks()(assistant_response, "python")
 
                     # Handover to user if no python blocks are found
-                    if len(python_blocks) == 0:
+                    if len(python_blocks) == 0 and len(shell_blocks) == 0:
                         # No code found, assistant response is final for this turn
                         if context_chat.messages[-1][0] == Role.USER:
                             context_chat.add_message(Role.ASSISTANT, assistant_response)
@@ -1577,65 +1510,43 @@ Lastly, let's see the platform we are running on:
                     if (args.voice or args.speak):
                         # remove all code blocks from the assistant response
                         verbal_text = re.sub(r'```[^`]*```', '', assistant_response)
-                        if (len(python_blocks) > 0):
-                            verbal_text += f"I've implemented the code, let's execute it."
+                        if (len(python_blocks) > 0 and len(shell_blocks) > 0):
+                            verbal_text += f"I've implemented some shell and python code, let's execute it."
+                        elif (len(python_blocks) > 0):
+                            verbal_text += f"I've implemented some python code, let's execute it."
+                        elif (len(shell_blocks) > 0):
+                            verbal_text += f"I've implemented some shell code, let's execute it."
                         utils_audio.text_to_speech(verbal_text)
 
-                    # Just use the first python block for now
-                    code_to_execute = python_blocks[0]
 
-                    if await confirm_code_execution(args, code_to_execute):
+                    if await confirm_code_execution(args, json.dumps(shell_blocks) + json.dumps(python_blocks)):
                         print(colored("🔄 Executing code...", "cyan"))
-                        # Then in your main execution logic:
-                        if 'sudo ' in code_to_execute:
-                            # First, try to combine consecutive shell commands
-                            code_to_execute = preprocess_consecutive_sudo_commands(code_to_execute)
-                            
-                            # Then apply sudo -A replacement for remaining sudo commands
-                            if ("sudo " in code_to_execute and not "sudo -A " in code_to_execute):
-                                code_to_execute = code_to_execute.replace("sudo ", "sudo -A ")
-                        
-                        def filter_cmd_output(text: str) -> str:
-                            text = text.replace("ksshaskpass: Unable to parse phrase \"[sudo] password for prob: \"", "")
-                            return text
-                        
-                        try:
-                            # Define streaming callbacks to display output in real-time
-                            stdout_buffer = ""
-                            stderr_buffer = ""
-                            
-                            
-                            def stdout_callback(text: str) -> None:
-                                nonlocal stdout_buffer
-                                text = filter_cmd_output(text)
-                                print(text, end="") # Print directly to console
-                                stdout_buffer += text
 
-                            def stderr_callback(text: str) -> None:
-                                nonlocal stderr_buffer
-                                text = filter_cmd_output(text)
-                                print(colored(text, "red"), end="") # Print errors in red
-                                stderr_buffer += text
-                            
-                            # Execute code with streaming callbacks
-                            stdout, stderr, result = python_sandbox.execute(
-                                code_to_execute,
-                                stdout_callback=stdout_callback,
-                                stderr_callback=stderr_callback
-                            )
+                        try:
+                            if (shell_blocks):
+                                for shell_line in shell_blocks:
+                                    l_shell_line = shell_line.strip()
+                                    # Then in your main execution logic:
+                                    if 'sudo ' in l_shell_line:
+                                        # First, try to combine consecutive shell commands
+                                        l_shell_line = preprocess_consecutive_sudo_commands(l_shell_line)
+                                        
+                                        # Then apply sudo -A replacement for remaining sudo commands
+                                        if ("sudo " in l_shell_line and not "sudo -A " in l_shell_line):
+                                            l_shell_line = l_shell_line.replace("sudo ", "sudo -A ")
+                                    notebook.execute(l_shell_line)
+                            if (python_blocks):
+                                notebook.execute(python_blocks[0], is_python_code=True)
 
                             print(colored("\n✅ Code execution completed.", "cyan"))
 
                             # Create a formatted output to add to the chat context
                             tool_output = ""
                             # Use the final captured stdout/stderr which might differ slightly if callbacks missed something
-                            if stdout and stdout.strip():
-                                tool_output += f"```stdout\n{stdout.strip()}\n```\n"
-                            if stderr and stderr.strip():
-                                tool_output += f"```stderr\n{stderr.strip()}\n```\n"
-                            # Include result if it's meaningful (not None and not empty)
-                            if result is not None and str(result).strip() != "":
-                                tool_output += f"```result\n{result}\n```\n"
+                            if stdout_buffer and stdout_buffer.strip():
+                                tool_output += f"```stdout\n{stdout_buffer.strip()}\n```\n"
+                            if stderr_buffer and stderr_buffer.strip():
+                                tool_output += f"```stderr\n{stderr_buffer.strip()}\n```\n"
                             
                             tool_output = filter_cmd_output(tool_output)
 
