@@ -1617,26 +1617,11 @@ Lastly, let's see the platform we are running on:
                                 print(colored(text, "red"), end="") # Print errors in red
                                 stderr_buffer += text
                             
-                            def input_callback(prompt: str) -> str:
-                                print("CALLBACK DETECTED")
-                                konsole_interaction_chat = context_chat.deep_copy()
-                                konsole_interaction_chat.add_message(Role.USER, f"Your notebook execution was halted, please determine what keys to enter to continue execution. Provide the key or the string to enter as the last line of your response:\n```bash\n{stdout_buffer}\n{prompt}```")
-                                konsole_interaction_response = LlmRouter.generate_completion(
-                                    konsole_interaction_chat,
-                                    [g.SELECTED_LLMS[0]],
-                                    temperature=0,
-                                    base64_images=base64_images,
-                                    generation_stream_callback=update_python_environment,
-                                    strengths=g.LLM_STRENGTHS
-                                )
-                                return konsole_interaction_response.split("\n")[-1]
-                            
                             # Execute code with streaming callbacks
                             stdout, stderr, result = python_sandbox.execute(
                                 code_to_execute,
                                 stdout_callback=stdout_callback,
-                                stderr_callback=stderr_callback,
-                                input_callback=input_callback
+                                stderr_callback=stderr_callback
                             )
 
                             print(colored("\n✅ Code execution completed.", "cyan"))
