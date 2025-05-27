@@ -401,8 +401,13 @@ Process:
 Do not add any other text after this single-word verdict.""",
             debug_title="Auto Execution Guard"
         )
-        
-        execution_guard_chat.add_message(Role.USER, f"Analyze this Python code for safe execution and completeness:\n```python\n{code_to_execute}\n```")
+        if ("bash" in code_to_execute and "python" in code_to_execute):
+            analysis_prompt = f"Analyze this code for safe execution and completeness:\n```bash\n{code_to_execute}\n```"
+        elif "python" in code_to_execute:
+            analysis_prompt = f"Analyze this python code for safe execution and completeness:\n```python\n{code_to_execute}\n```"
+        else:
+            analysis_prompt = f"Analyze these bash commands for safe execution and completeness:\n{code_to_execute}"
+        execution_guard_chat.add_message(Role.USER, analysis_prompt)
         safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, hidden_reason="Auto-execution guard")
         if safe_to_execute.lower().strip().endswith('yes'):
             print(colored("✅ Code execution permitted", "green"))
@@ -1518,8 +1523,14 @@ uname -a
                             verbal_text += f"I've implemented some shell code, let's execute it."
                         utils_audio.text_to_speech(verbal_text)
 
+                    # Join shell blocks into a single string
+                    formatted_code = ""
+                    if shell_blocks:
+                        formatted_code += "```bash\n" + "\n".join(shell_blocks) + "\n```\n"
+                    if python_blocks:
+                        formatted_code += "```python\n" + python_blocks[0] + "\n```"
 
-                    if await confirm_code_execution(args, json.dumps(shell_blocks) + json.dumps(python_blocks)):
+                    if await confirm_code_execution(args, formatted_code):
                         print(colored("🔄 Executing code...", "cyan"))
 
                         try:
@@ -1534,8 +1545,10 @@ uname -a
                                         # Then apply sudo -A replacement for remaining sudo commands
                                         if ("sudo " in l_shell_line and not "sudo -A " in l_shell_line):
                                             l_shell_line = l_shell_line.replace("sudo ", "sudo -A ")
+                                    print(f"$ {l_shell_line}")
                                     notebook.execute(l_shell_line)
                             if (python_blocks):
+                                print(f"$ {python_blocks[0]}")
                                 notebook.execute(python_blocks[0], is_python_code=True)
 
                             print(colored("\n✅ Code execution completed.", "cyan"))
