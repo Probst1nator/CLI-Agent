@@ -26,7 +26,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.dia_helper import get_dia_model
 
-load_dotenv(g.PROJ_ENV_FILE_PATH)
+load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
 
 # next to this script in a directory called podcast_generations
 PODCAST_SAVE_LOCATION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "podcast_generations")
@@ -235,7 +235,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         first_mime_type = None
         auto_retry_seconds = 15
 
-        for i, text_chunk in enumerate(text_chunks[1:][:-1]):
+        for i, text_chunk in enumerate(text_chunks):
             # For Google's multi-speaker, text_chunk needs to be formatted.
             # E.g., "Speaker 1: Hello. Speaker 2: Hi."
             # Your current text_chunks are like "Chloe (Student): Hello."
@@ -473,14 +473,13 @@ The following information/topic(s) are provided to help you ground the conversat
         podcastGenPrompt = podcastGenPrompt.replace("Chloe (Student):", "[S1]").replace("Liam (Expert):", "[S2]")
         
     try:
-        podcastDialogue = LlmRouter.generate_completion(podcastGenPrompt)
+        podcastDialogueResponse = LlmRouter.generate_completion(podcastGenPrompt)
     except Exception as e:
         print(colored(f"Error during LLM processing for podcast dialogue: {e}", "red"))
         exit(1) # Changed to exit(1)
-
-    if not podcastDialogue.strip():
-        print(colored("Generated podcast dialogue is empty. Exiting.", "red"))
-        exit(1) # Changed to exit(1)
+    
+    from py_methods.utils import extract_blocks
+    podcastDialogue = extract_blocks(podcastDialogueResponse, ["txt", "text"])
 
     file_location = generate_podcast(podcastDialogue, titleResponse, use_local_dia=args.local)
 

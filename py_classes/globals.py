@@ -27,25 +27,25 @@ class Globals:
     if (os.getenv("USE_ONLINE_HOSTNAME", "") == socket.gethostname()):
         LLM_STRENGTHS = [AIStrengths.ONLINE]
     
-    PROJ_DIR_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    PROJ_PERSISTENT_STORAGE_PATH = os.path.join(PROJ_DIR_PATH, '.cliagent')
-    PROJ_TEMP_STORAGE_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'temporary')
-    PROJ_ENV_FILE_PATH = os.path.join(PROJ_DIR_PATH, '.env')
-    AGENTS_SANDBOX_DIR = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, "agents_sandbox")
+    CLIAGENT_ROOT_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    CLIAGENT_PERSISTENT_STORAGE_PATH = os.path.join(CLIAGENT_ROOT_PATH, '.cliagent')
+    CLIAGENT_TEMP_STORAGE_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, '.temp')
+    CLIAGENT_ENV_FILE_PATH = os.path.join(CLIAGENT_ROOT_PATH, '.env')
+    AGENTS_SANDBOX_DIR = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, "agents_sandbox")
     os.makedirs(AGENTS_SANDBOX_DIR, exist_ok=True)
     
     # Model limits
     # Generate a daily model token limits file path with date suffix
     import datetime
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    PROJ_MODEL_LIMITS_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'model_limits')
+    PROJ_MODEL_LIMITS_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, 'model_limits')
     os.makedirs(PROJ_MODEL_LIMITS_PATH, exist_ok=True)
     MODEL_TOKEN_LIMITS_PATH = os.path.join(PROJ_MODEL_LIMITS_PATH, f'{today}_model_token_limits.json')
     MODEL_RATE_LIMITS_PATH = os.path.join(PROJ_MODEL_LIMITS_PATH, f'{today}_model_rate_limits.json')
     
     # Finetuning
-    UNCONFIRMED_FINETUNING_PATH = os.path.join(PROJ_TEMP_STORAGE_PATH, 'unconfirmed_finetuning_data')
-    CONFIRMED_FINETUNING_PATH = os.path.join(PROJ_PERSISTENT_STORAGE_PATH, 'confirmed_finetuning_data')
+    UNCONFIRMED_FINETUNING_PATH = os.path.join(CLIAGENT_TEMP_STORAGE_PATH, 'unconfirmed_finetuning_data')
+    CONFIRMED_FINETUNING_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, 'confirmed_finetuning_data')
     
     # Web server instance
     web_server = None
@@ -53,11 +53,11 @@ class Globals:
     # Store the original print function
     original_print: Callable = builtins.print
 
-    os.makedirs(PROJ_PERSISTENT_STORAGE_PATH, exist_ok=True)
+    os.makedirs(CLIAGENT_PERSISTENT_STORAGE_PATH, exist_ok=True)
     
-    if os.path.exists(PROJ_TEMP_STORAGE_PATH):
-        shutil.rmtree(PROJ_TEMP_STORAGE_PATH)
-    os.makedirs(PROJ_TEMP_STORAGE_PATH, exist_ok=True)
+    if os.path.exists(CLIAGENT_TEMP_STORAGE_PATH):
+        shutil.rmtree(CLIAGENT_TEMP_STORAGE_PATH)
+    os.makedirs(CLIAGENT_TEMP_STORAGE_PATH, exist_ok=True)
     
     def debug_log(self, message: str, color: str = None, end: str = '\n', 
                   with_title: bool = True, is_error: bool = False, force_print: bool = False,
@@ -127,8 +127,8 @@ def configure_logging():
     root_logger.addHandler(console_handler)
     
     # Create file handler for all logs
-    os.makedirs(g.PROJ_PERSISTENT_STORAGE_PATH, exist_ok=True)
-    log_file_path = os.path.join(g.PROJ_PERSISTENT_STORAGE_PATH, 'app.log') 
+    os.makedirs(g.CLIAGENT_PERSISTENT_STORAGE_PATH, exist_ok=True)
+    log_file_path = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'app.log') 
     file_handler = logging.FileHandler(log_file_path)
     file_handler.setLevel(logging.INFO)  # Still log INFO and above to file
     file_handler.setFormatter(formatter)

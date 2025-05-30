@@ -43,8 +43,6 @@ from py_classes.cls_llm_router import Llm, LlmRouter
 from py_classes.cls_chat import Chat, Role
 from py_classes.utils.cls_utils_web_server import WebServer
 from py_classes.globals import g
-from py_classes.cls_python_sandbox import PythonSandbox
-from py_classes.cls_ssh_sandbox import SSHSandbox
 from py_classes.cls_text_stream_painter import TextStreamPainter
 
 # Fix the import by using a relative or absolute import path
@@ -151,14 +149,9 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-o", "--online", action="store_true", default=False,
                         help="Force use of cloud AI.")
     
-    parser.add_argument("-ssh", "--ssh", type=str, default=None,
-                        help="Execute code on remote server via SSH (format: 'user@hostname[:port]').")
-    
-    parser.add_argument("--test-x11", action="store_true", default=False,
-                        help="Test X11 forwarding in SSH mode.")
-    
     parser.add_argument("-llm", "--llm", type=str, default=None,
                         help="Specify the LLM model key to use (e.g., 'gpt-4', 'gemini-pro').")
+    
     parser.add_argument("--preload", action="store_true", default=False,
                         help="Preload systems like embeddings and other resources.")
     parser.add_argument("--gui", action="store_true", default=False,
@@ -630,61 +623,6 @@ async def get_user_input_with_bindings(
             print(colored(f"# cli-agent: KeyBinding detected: Online mode toggled {'on' if args.online else 'off'}, type (--h) for info", "green"))
             continue
         
-        elif user_input == "-ssh" or user_input == "--ssh":
-            print(colored("# cli-agent: Enter SSH connection (user@hostname[:port]), 'test' for X11 test, or empty to disable: ", "green"))
-            print(colored("Note: SSH mode is currently disabled due to instability. We are working on a more reliable solution.", "red"))
-            # ssh_connection = input(colored("> ", 'yellow', attrs=["bold"]))
-            
-            # # Handle testing X11 forwarding
-            # if ssh_connection.strip().lower() == 'test':
-            #     if args.ssh and isinstance(python_sandbox, SSHSandbox):
-            #         if hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
-            #             python_sandbox.test_x11_forwarding()
-            #         else:
-            #             print(colored("# cli-agent: X11 forwarding not available", "yellow"))
-            #     else:
-            #         print(colored("# cli-agent: Not connected via SSH", "yellow"))
-            #     continue
-            
-            # if ssh_connection.strip():
-            #     # Clean up existing sandbox if needed
-            #     if 'python_sandbox' in globals() and python_sandbox is not None:
-            #         try:
-            #             python_sandbox.shutdown()
-            #         except:
-            #             pass
-                
-            #     # Set up SSH connection
-            #     try:
-            #         try:
-            #             import paramiko
-            #         except ImportError:
-            #             print(colored("# cli-agent: Error - paramiko package required. Run: pip install paramiko", "red"))
-            #             continue
-                    
-            #         args.ssh = ssh_connection
-            #         g.SSH_CONNECTION = ssh_connection
-            #         python_sandbox = SSHSandbox(ssh_connection)
-            #     except Exception as e:
-            #         print(colored(f"# cli-agent: SSH connection error: {str(e)}", "red"))
-            #         if args.debug:
-            #             traceback.print_exc()
-            #         args.ssh = None
-            #         g.SSH_CONNECTION = None
-            #         python_sandbox = PythonSandbox()
-            # else:
-            #     # If no connection string was provided, disable SSH mode
-            #     if args.ssh:
-            #         print(colored("# cli-agent: SSH mode disabled", "green"))
-            #         if isinstance(python_sandbox, SSHSandbox):
-            #             try:
-            #                 python_sandbox.shutdown()
-            #             except:
-            #                 pass
-            #         python_sandbox = PythonSandbox()
-            #         args.ssh = None
-            #         g.SSH_CONNECTION = None
-            # continue
         
         elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
             print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
@@ -856,12 +794,6 @@ For any new code you write, be sure to make appropriate use of these selected ut
                 print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
             else:
                 print(colored("(No chat history)", "cyan"))
-            print(colored(f"# -ssh: Toggle SSH mode for remote code execution ", "yellow"), end="")
-            print(colored(f"(Current: {args.ssh if args.ssh else 'Local execution'})", "cyan"))
-            # if args.ssh:
-            #     # Add X11 forwarding status if in SSH mode
-            #     ssh_x11_status = " with X11" if (hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available) else ""
-            #     print(colored(f"      SSH: {args.ssh}{ssh_x11_status}", "cyan"))
             print(colored("# --minimized: Start the application in a minimized state", "yellow"))
             print(colored("# -e: Exit after all automatic messages have been processed", "yellow"))
             # Add other CLI args help here if needed
@@ -1055,7 +987,7 @@ def preprocess_consecutive_sudo_commands(code: str) -> str:
 async def main() -> None:
     try:
         print(colored("Starting CLI-Agent", "cyan"))
-        load_dotenv(g.PROJ_ENV_FILE_PATH)
+        load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
         
         args = parse_cli_args()
         print(args)
@@ -1080,29 +1012,19 @@ async def main() -> None:
         if args.sandbox:
             g.USE_SANDBOX = True
         
-        # Store SSH information in globals if provided
-        if args.ssh:
-            g.SSH_CONNECTION = args.ssh
-            print(colored(f"# cli-agent: SSH mode enabled: {args.ssh}", "green"))
             
-            # Try to import paramiko which is required for SSH
             try:
                 import paramiko
             except ImportError:
-                print(colored("# cli-agent: Error - paramiko package required for SSH mode. Run: pip install paramiko", "red"))
                 exit(1)
         
         # # Initialize the appropriate sandbox
-        # if args.ssh:
-        #     # Initialize SSH sandbox for remote execution
         #     try:
-        #         python_sandbox = SSHSandbox(args.ssh)
                 
         #         # Test X11 forwarding if requested
         #         if args.test_x11 and hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
         #             python_sandbox.test_x11_forwarding()
         #     except Exception as e:
-        #         print(colored(f"# cli-agent: SSH connection error: {str(e)}", "red"))
         #         if args.debug:
         #             traceback.print_exc()
         #         exit(1)
@@ -1133,21 +1055,55 @@ async def main() -> None:
         def input_callback(prompt: str, previous_output: str) -> str:
             print("CALLBACK DETECTED")
             konsole_interaction_chat = context_chat.deep_copy()
-            konsole_interaction_chat.add_message(Role.USER, f"Your notebook execution was halted, please determine what keys to enter to continue execution. Provide the key or the string to enter as the last line of your response:\n```bash\n{previous_output}\n{prompt}```")
+            
+            if prompt == "TIMEOUT_DECISION":
+                # Special handling for timeout decisions
+                konsole_interaction_chat.add_message(Role.USER, f"""Your code execution has been idle (no new output) for a while. Based on the current state, decide whether to:
+
+1. WAIT LONGER: If the process might still be working (e.g., downloading, processing, thinking), respond with 'None' as the last line
+2. PROVIDE INPUT: If the process is waiting for user input, provide exactly what should be entered
+
+Current execution state:
+```
+{previous_output}
+```
+
+If you decide to wait longer, end your response with exactly 'None' on a new line.
+If you decide to provide input, end your response with exactly what should be typed (no quotes, no explanations after it).""")
+            else:
+                # Original handling for other prompt types
+                konsole_interaction_chat.add_message(Role.USER, f"Your notebook execution was halted, please determine what keys to enter to continue execution. Provide the key or the string to enter as the last line of your response:\n```bash\n{previous_output}\n{prompt}```")
+            
             konsole_interaction_response = LlmRouter.generate_completion(
                 konsole_interaction_chat,
-                [g.SELECTED_LLMS[0]],
+                [g.SELECTED_LLMS[0]] if g.SELECTED_LLMS else [],
                 temperature=0,
                 base64_images=base64_images,
                 generation_stream_callback=update_python_environment,
                 strengths=g.LLM_STRENGTHS
             )
-            return konsole_interaction_response.split("\n")[-1]
+            
+            # Handle empty or malformed responses gracefully
+            if not konsole_interaction_response or not konsole_interaction_response.strip():
+                print("Warning: Empty response from LLM, returning 'None' for timeout decision")
+                return "None"
+            
+            lines = konsole_interaction_response.split("\n")
+            if not lines:
+                print("Warning: No lines in LLM response, returning 'None' for timeout decision")
+                return "None"
+            
+            # Get the last non-empty line, or "None" if all lines are empty
+            last_line = "None"
+            for line in reversed(lines):
+                if line.strip():
+                    last_line = line.strip()
+                    break
+            
+            return last_line
         notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
             
-            # # Warn if --test-x11 was specified but SSH mode is not enabled
             # if args.test_x11:
-            #     print(colored(f"# cli-agent: --test-x11 ignored (SSH mode not enabled)", "yellow"))
         
         # # Minimize window if requested
         # if args.minimized:
@@ -1211,7 +1167,7 @@ async def main() -> None:
             print(colored("Generating atuin-command-history embeddings...", "green"))
             get_update_cmd_collection()()
             print(colored("Generating pdf embeddings for cli-agent directory...", "green"))
-            get_pdf_or_folder_to_database()(g.PROJ_DIR_PATH)
+            get_pdf_or_folder_to_database()(g.CLIAGENT_ROOT_PATH)
             print(colored("Preloading complete.", "green"))
             exit(0)
         
@@ -1545,10 +1501,8 @@ uname -a
                                         # Then apply sudo -A replacement for remaining sudo commands
                                         if ("sudo " in l_shell_line and not "sudo -A " in l_shell_line):
                                             l_shell_line = l_shell_line.replace("sudo ", "sudo -A ")
-                                    print(f"$ {l_shell_line}")
                                     notebook.execute(l_shell_line)
                             if (python_blocks):
-                                print(f"$ {python_blocks[0]}")
                                 notebook.execute(python_blocks[0], is_python_code=True)
 
                             print(colored("\n✅ Code execution completed.", "cyan"))

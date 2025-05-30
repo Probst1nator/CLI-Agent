@@ -554,7 +554,7 @@ from termcolor import colored
 import json
 
 def get_cache_file_path(file_path: str, cache_key: str) -> str:
-    cache_dir = os.path.join(g.PROJ_PERSISTENT_STORAGE_PATH, "pdf_cache")
+    cache_dir = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, "pdf_cache")
     os.makedirs(cache_dir, exist_ok=True)
     last_modified = os.path.getmtime(file_path)
     full_cache_key = hashlib.md5(f"{file_path}_{last_modified}".encode()).hexdigest()
@@ -725,31 +725,42 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
-def extract_blocks(text: str, language: Optional[str] = None) -> List[str]:
+def extract_blocks(text: str, language: Optional[str|List[str]] = None) -> List[str]:
     """
-    Extract code blocks of a specific language from text.
-    
+    Extract code blocks of specific languages from text.
+
     Args:
         text (str): The text to extract code blocks from.
-        language (Optional[str]): The specific language to extract (e.g., 'python'). 
-                                  If None, all code blocks are extracted.
-    
+        language (Optional[str|List[str]]): The specific language(s) to extract 
+                                                  (e.g., 'python', ['python', 'javascript']). 
+                                                  If None, all code blocks are extracted.
+
     Returns:
-        List[str]: List of extracted code block contents. If language is specified,
-                  only blocks of that language are included.
+        List[str]: List of extracted code block contents. If language(s) are specified,
+                  only blocks of those language(s) are included.
     """
     pattern = r'```(?P<lang>\w*)\n(?P<content>.*?)```'
     matches = re.finditer(pattern, text, re.DOTALL)
     blocks = []
-    
+
     for match in matches:
         block_lang = match.group('lang').strip().lower()
         content = match.group('content').strip()
-        
-        # If language is specified, only include blocks with that language
-        if language is None or (language.lower() == block_lang):
+
+        # Determine if the block language matches the specified language(s)
+        is_match = False
+        if language is None:
+            is_match = True # Extract all blocks if no language is specified
+        elif isinstance(language, str) and language.lower() == block_lang:
+            is_match = True # Extract blocks matching the single specified language
+        elif isinstance(language, list):
+            # Extract blocks matching any language in the list
+            if block_lang in [lang.lower() for lang in language]:
+                is_match = True
+
+        if is_match:
             blocks.append(content)
-    
+
     return blocks
 
 def extract_blocks_with_metadata(text: str, include_context: bool = False) -> List[Union[Tuple[str, str], Tuple[str, str, str]]]:
@@ -926,7 +937,7 @@ def recolor(text: str, start_string_sequence: str, end_string_sequence: str, col
 
 
 def update_cmd_collection():
-    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH)
+    client = chromadb.PersistentClient(g.CLIAGENT_PERSISTENT_STORAGE_PATH)
     collection = client.get_or_create_collection(name="commands")
     all_commands = get_atuin_history(200)
     if all_commands:
@@ -940,154 +951,6 @@ def update_cmd_collection():
                     embeddings=cmd_embedding,
                     documents=[command]
                 )
-
-
-def pdf_or_folder_to_database(pdf_or_folder_path: str, preferred_models:List[str]=["llama3.1", "phi3.5"], force_local: bool = True) -> chromadb.Collection:
-    """
-    Extracts content from a PDF file or multiple PDFs in a folder (and its subfolders),
-    processes them into propositions, and stores them in a Chroma database.
-    This function performs the following steps for each PDF:
-    1. Extracts text and image content from the PDF.
-    2. Splits the text content into digestible chunks.
-    3. Converts each chunk into propositions.
-    4. Embeds and stores each proposition in the database.
-    Args:
-    pdf_or_folder_path (str): The file path of a single PDF or a folder containing multiple PDFs.
-    collection (chromadb.Collection): The collection to store the extracted propositions in.
-    Raises:
-    FileNotFoundError: If the pdf_or_folder_path does not exist.
-    ValueError: If the pdf_or_folder_path is neither a file nor a directory.
-    """
-    client = chromadb.PersistentClient(g.PROJ_PERSISTENT_STORAGE_PATH, settings=chromadb.Settings(anonymized_telemetry=False))
-    collection = client.get_or_create_collection(name=hashlib.md5(pdf_or_folder_path.encode()).hexdigest())
-    
-    if not os.path.exists(pdf_or_folder_path):
-        raise FileNotFoundError(f"The path {pdf_or_folder_path} does not exist.")
-
-    if os.path.isfile(pdf_or_folder_path) and pdf_or_folder_path.lower().endswith('.pdf'):
-        # Process a single PDF file
-        _process_single_pdf(pdf_or_folder_path, collection, preferred_models=preferred_models, force_local=force_local)
-    elif os.path.isdir(pdf_or_folder_path):
-        # Process all PDF files in the directory and its subdirectories
-        for root, dirs, files in os.walk(pdf_or_folder_path):
-            for filename in files:
-                if filename.lower().endswith('.pdf'):
-                    file_path = os.path.join(root, filename)
-                    _process_single_pdf(file_path, collection, preferred_models=preferred_models, force_local=force_local)
-    else:
-        raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
-
-    return collection
-
-def _process_single_pdf(pdf_file_path: str, collection: chromadb.Collection, preferred_models: List[str] = [], force_local: bool = True) -> None:
-    """
-    Helper function to process a single PDF file.
-    Args:
-    pdf_file_path (str): The file path of the PDF to process.
-    collection (chromadb.Collection): The collection to store the extracted propositions in.
-    """
-    # Delete all documents in collection
-    all_ids = collection.get()["ids"]
-    if all_ids:
-        collection.delete(ids=all_ids)
-    
-    file_name = os.path.basename(pdf_file_path).replace(" ", "_")
-    last_modified = datetime.fromtimestamp(os.stat(pdf_file_path).st_mtime).isoformat()
-    
-    # text_content = extract_pdf_content(pdf_file_path)
-    # list of strings, containing the text content of each page
-    pages_extracted_content: List[str] = extract_pdf_content_page_wise(pdf_file_path)
-    print(colored(f"pages count:\t{len(pages_extracted_content)}", "yellow"))
-    # let's always look at a window of 3 pages such that we can capture context accurately
-    # we'll determine for each page if it better belongs to the previous or next page
-    coherent_extractions: List[str] = []
-    coherent_extraction_cache: str = ""
-    for i in range(len(pages_extracted_content) - 2):
-        print(colored(f"{i+1}/{len(pages_extracted_content)}. pages_extracted_content to coherent_extractions ", "green"))
-        coherent_extraction_cache += pages_extracted_content[i]
-        
-        may_continue_on_next_page = True
-        if len(pages_extracted_content) > i+1:
-            # if "1 Modulbezeichnung" present on next page, then this is the last page of the coherent extraction
-            if "1 Modulbezeichnung" in pages_extracted_content[i+1]:
-                may_continue_on_next_page = False
-        # if "1 Modulbezeichnung" is not found anywhere later in the pages, switch to heuristical chunking
-        remaining_pages: str = "".join(pages_extracted_content[i+2:])
-        if may_continue_on_next_page: 
-            if not "1 Modulbezeichnung" in remaining_pages:
-                # First heuristic
-                may_continue_on_next_page, yes_no_chat = FewShotProvider.few_shot_YesNo(f"If the following document is cut off abruptly at its end, respond with 'yes'. Otherwise, respond with 'no'.\n```document\n{coherent_extraction_cache}\n```", preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
-                
-                # Second heuristic
-                if may_continue_on_next_page and i < len(pages_extracted_content) - 1:
-                    yes_no_chat.add_message(Role.USER, f"This is the next page of the document, does it start a new topic/subject different to the previous page I showed you before? If a new topic/subject is started respond with 'yes', otherwise 'no'.\n```document\n{pages_extracted_content[i+1]}\n```")
-                    is_next_page_new_topic, yes_no_chat = FewShotProvider.few_shot_YesNo(yes_no_chat, preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
-                    may_continue_on_next_page = not is_next_page_new_topic
-            else:
-                # if "1 Modulbezeichnung" is found in the remaining pages [i+2:] and not in the next Page, then we can continue on the next page
-                may_continue_on_next_page = True
-        if not may_continue_on_next_page:
-            print(colored(f"Coherent extraction tokens:\t{len(coherent_extraction_cache)/3}", "yellow"))
-            coherent_extractions.append(coherent_extraction_cache)
-            coherent_extraction_cache = ""
-    # # DEBUG
-    # with open("filename.txt", 'w') as file:
-    #     json.dump(coherent_extractions, file, indent=4)
-        
-    # Let's rephrase the coherent extractions into even more coherent chunks
-    for i, coherent_extraction in enumerate(coherent_extractions):
-        print(colored(f"{i+1}/{len(coherent_extractions)}. coherent_extraction to coherent_chunks", "cyan"))
-        
-        # Transform the extractable information to a german presentation
-        chat = Chat()
-        chat.add_message(Role.USER, f"The following text is an automated extraction from a PDF document. The PDF document was named '{file_name}'. Please reason shortly about it's contents and their context. Focus on explaining the relation between source, context and reliability of the content.\n\n```\n{coherent_extraction}\n```")
-        high_level_extraction_analysis = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, hidden_reason = True)
-        chat.add_message(Role.ASSISTANT, high_level_extraction_analysis)
-        chat.add_message(Role.USER, "Can you please summarize all details of the document in a coherent manner? The summary will be used to provide advice to students, this requires you to only provide facts that have plenty of context of topic and subject available. If such context is not present, always choose to skip unreliable or inaccurate information completely. Do not mention when you are ignoring content because of this.")
-        factual_summarization = LlmRouter.generate_completion(chat, preferred_models=["llama3-70b-8192"] + preferred_models, force_local = force_local, hidden_reason = True, force_free = True)
-        chat.add_message(Role.ASSISTANT, factual_summarization)
-        praesentieren_prompt = "Bitte präsentiere die Informationen in dem Dokument in einer Weise, die für Studenten leicht verständlich ist. Verwende einfache Sprache und ganze Sätze, um die Informationen zu vermitteln. Verwende Neologismen wenn angemessen. Beginne deine Antwort bitte direkt mit dem präsentieren."
-        chat.add_message(Role.USER, praesentieren_prompt)
-        raw_informationen = LlmRouter.generate_completion(chat, preferred_models=["llama-3.1-8b-instant"] + preferred_models, force_local = force_local, hidden_reason = True, force_free = True)
-        
-        # Transform the used ontology to the production model
-        chat = Chat("You bist ein hilfreicher KI-Assistent der Friedrich-Alexander-Universität.")
-        chat.add_message(Role.USER, f"Bitte präsentiere die angehängten Informationen in einer präzise, so dass die für Studenten leicht verständlich ist. Verwende einfache Sprache und ganze Sätze, um die Informationen zu vermitteln. Verwende Neologismen wenn angemessen. Beginne deine Antwort bitte direkt mit dem präsentieren. \n```{raw_informationen}\n```")
-        
-        # Because we're working with a very small model it often breaks, this we'll try alernate models until we give up and skip the information
-        # We need to try models similar to the production model for the resulting onology to fit optimally
-        # Todo: Still waiting for phi3.5-moe to become available on ollama or as gguf on huggingface
-        for model_key in ["phi3.5", "phi3:mini-4k", "phi3:medium-4k", "llava-phi3"]:
-            informationen = LlmRouter.generate_completion(chat, preferred_models=[model_key], force_local = force_local, hidden_reason = True, force_free = True, force_preferred_model = True)
-            if not informationen:
-                break
-            # Safe guard for any issues that might ocurr
-            ist_verstaendlich, _ = FewShotProvider.few_shot_YesNo(f"Sind die folgenden Informationen verständlich kommuniziert?\n```\n{informationen}\n```", preferred_models=["gemma2-9b-it"] + preferred_models, force_local = force_local, silent = True, force_free = True)
-            if ist_verstaendlich:
-                break
-            else:
-                pass
-        if not ist_verstaendlich:
-            print(colored("# # # Die Informationen wurden nicht verständlich kommuniziert und werden übersprungen... # # #", "red"))
-            print(colored(informationen, "red"))
-            continue
-        
-        # Generate informationen embedding and add to vector database
-        informationen_hash = hashlib.md5(informationen.encode()).hexdigest()
-        # Add the content to the collection if it doesn't exist
-        if not collection.get(informationen_hash)['documents']:
-            informationen_embedding = OllamaClient.generate_embedding(informationen)
-            collection.add(
-                ids=[informationen_hash],
-                embeddings=informationen_embedding,
-                metadatas=[{"file_path": pdf_file_path, "file_name": file_name, "last_modified": last_modified, "source_text": coherent_extraction}],
-                documents=[informationen]
-            )
-        
-    # # DEBUG
-    # with open("filename.txt", 'w') as file:
-    #     json.dump(coherent_chunks, file, indent=4)
-    
 
 def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
     if not results['documents'] or not results['metadatas']:
@@ -1109,8 +972,6 @@ def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
 # CONTEXT:\n{retrieved_context}"""
 
     return prompt
-
-
 
 def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
     all_contents = []
