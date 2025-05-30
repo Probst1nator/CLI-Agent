@@ -104,7 +104,7 @@ class HumanAPI(AIProviderInterface):
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Human-Api: Using OpenAI to transcribe audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True, prefix=prefix)
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.CLIAGENT_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file.write(audio_data.get_wav_data())
                 temp_audio_file_path = temp_audio_file.name
 

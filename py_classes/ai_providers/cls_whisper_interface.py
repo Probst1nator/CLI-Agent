@@ -39,7 +39,7 @@ class WhisperInterface(AudioProviderInterface):
         """
         try:
             # Create a temporary file for the audio
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.CLIAGENT_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file_path = temp_audio_file.name
                 
                 # Handle different input types
@@ -112,7 +112,7 @@ class WhisperInterface(AudioProviderInterface):
                 return "", "", audio_data
             
             # Create a temporary file for the audio
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.PROJ_PERSISTENT_STORAGE_PATH) as temp_audio_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=g.CLIAGENT_PERSISTENT_STORAGE_PATH) as temp_audio_file:
                 temp_audio_file_path = temp_audio_file.name
                 sf.write(temp_audio_file_path, audio_data, sample_rate)
             

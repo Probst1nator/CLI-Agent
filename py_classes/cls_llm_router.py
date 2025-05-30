@@ -171,7 +171,7 @@ class LlmRouter:
         Initialize the LlmRouter instance.
         """
         # Set up cache directory and file path
-        self.cache_file_path = f"{g.PROJ_PERSISTENT_STORAGE_PATH}/llm_cache.json"
+        self.cache_file_path = f"{g.CLIAGENT_PERSISTENT_STORAGE_PATH}/llm_cache.json"
         
         # Load cache and initialize retry models and failed models set
         self.cache = self._load_cache()

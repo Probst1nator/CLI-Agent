@@ -14,7 +14,7 @@ class SearchWeb(UtilBase):
     """
     A utility for performing web searches.
     
-    This utility allows searching the web and returning relevant results.
+    This utility allows searching the web and summarizing the results.
     """
     
     # Initialize WebTools here to ensure it's available in sandbox
@@ -36,12 +36,12 @@ class SearchWeb(UtilBase):
                 cls.web_tools = MinimalWebTools()
     
     @staticmethod
-    def run(queries: List[str], num_results: int = 3) -> str:
+    def run(queries: List[str]) -> str:
         """
-        Access the internet in real time.
+        Perform a web search and receive a summary of the results.
         
         Args:
-            queries: List of google search queries
+            queries: List of multiple search queries (IMPORTANT: include additional information for improved accuracy)
             
         Returns:
             A summary of the search results
@@ -57,10 +57,9 @@ class SearchWeb(UtilBase):
         all_results: List[Tuple[str, str]] = []
         failed_queries: List[Tuple[str, str]] = []
         
+        num_results = 3
         if (len(queries) == 1):
             num_results = 5
-        else:
-            num_results = 3
 
         for query in queries:
             try:
