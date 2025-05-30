@@ -235,7 +235,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         first_mime_type = None
         auto_retry_seconds = 15
 
-        for i, text_chunk in enumerate(text_chunks):
+        for i, text_chunk in enumerate(text_chunks[1:][:-1]):
             # For Google's multi-speaker, text_chunk needs to be formatted.
             # E.g., "Speaker 1: Hello. Speaker 2: Hi."
             # Your current text_chunks are like "Chloe (Student): Hello."
@@ -247,7 +247,6 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
             # if the Google TTS doesn't pick up the speakers correctly.
 
             print(colored(f"[{title}] Google-Api: <{GOOGLE_TTS_MODEL_NAME}> generating audio for chunk {i+1}/{len(text_chunks)} ({len(text_chunk)} chars)...", "green"))
-            contents = [types.Content(role="user", parts=[types.Part.from_text(text=text_chunk)])]
             
             current_chunk_audio_data = b""
             current_chunk_mime_type = None
@@ -259,7 +258,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                 try:
                     response_stream = client.models.generate_content_stream(
                         model=f"models/{GOOGLE_TTS_MODEL_NAME}", # Models are typically prefixed with "models/"
-                        contents=contents,
+                        contents=text_chunk,
                         config=generate_content_config,
                     )
 
