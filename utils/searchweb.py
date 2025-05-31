@@ -87,14 +87,16 @@ If sources conflict or information seems outdated, note this in your summary.
 
 """
 
-        summarization_prompt = f"# Search Queries\n{"\n".join([f"{i+1}. {query}" for i, query in enumerate(queries)])}\n# Search Results\n"
+        summarization_prompt = f"# Search Queries\n"
+        query_list = '\n'.join([f'{i+1}. {query}' for i, query in enumerate(queries)])
+        summarization_prompt += f"{query_list}\n# Search Results\n"
         for result, url in all_results:
             summarization_prompt += f"URL: {url}\n"
             summarization_prompt += f"Content: {result}\n"
             summarization_prompt += "-----------------------------------\n"
 
         # Add final instruction
-        summarization_prompt += f"Search Queries: {", ".join(queries)}\nPlease provide a dense summary of the results, include key facts and relevant details extending beyond the required. Focus on relating the results to answer the original Search Queries: {', '.join(queries)}. Ensure trusthworthy sources and interpolate details when necessary."
+        summarization_prompt += f"Search Queries: {', '.join(queries)}\nPlease provide a dense summary of the results, include key facts and relevant details extending beyond the required. Focus on relating the results to answer the original Search Queries: {', '.join(queries)}. Ensure trusthworthy sources and interpolate details when necessary."
 
         # Add note about failed queries if some succeeded but others failed
         if failed_queries and all_results:

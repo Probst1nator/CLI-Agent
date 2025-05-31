@@ -6,9 +6,16 @@ import re
 import struct
 import time
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
-from py_classes.cls_llm_router import LlmRouter # Assuming these are in PYTHONPATH or local
+# Google imports - only needed for Google TTS mode
+try:
+    from google import genai
+    from google.genai import types
+    GOOGLE_AVAILABLE = True
+except ImportError:
+    GOOGLE_AVAILABLE = False
+    genai = None
+    types = None
+from py_classes.cls_llm_router import LlmRouter
 from py_classes.globals import g
 import pyperclip
 from termcolor import colored
@@ -113,8 +120,6 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         print(colored(f"[{title}] Attempting to use local Dia TTS model.", "magenta"))
         try:
             import soundfile as sf
-            # Instead of directly importing Dia, use our helper
-            # from dia.model import Dia
         except ImportError:
             print(colored("Error: 'soundfile' library not found. Please install it with 'pip install soundfile'", "red"))
             return ""
@@ -141,26 +146,64 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
             # Continue to the Google TTS implementation instead
             return generate_podcast(podcast_dialogue, title, use_local_dia=False)
 
-        dia_formatted_segments = []
-        dia_input_text = " ".join(dia_formatted_segments)
+        # Generate audio for each chunk separately and collect paths
+        audio_files = []
+        total_chunks = len(text_chunks)
         
-        if not dia_input_text.strip():
-            print(colored(f"[{title}] No processable text for Dia model after formatting.", "yellow"))
+        for i, chunk in enumerate(text_chunks):
+            if not chunk.strip():
+                continue
+                
+            print(colored(f"[{title}] Generating audio for chunk {i+1}/{total_chunks} ({len(chunk)} chars)...", "green"))
+            
+            try:
+                output_waveform = dia_model.generate(chunk)
+                dia_sample_rate = 44100 # Dia's typical sample rate
+
+                if output_waveform is None or output_waveform.size == 0:
+                    print(colored(f"[{title}] Dia model generated no audio data for chunk {i+1}.", "yellow"))
+                    continue
+
+                # Save individual chunk to temporary file
+                temp_filename = f"temp_chunk_{i+1:03d}.wav"
+                temp_filepath = os.path.join(PODCAST_SAVE_LOCATION, temp_filename)
+                sf.write(temp_filepath, output_waveform, dia_sample_rate)
+                audio_files.append(temp_filepath)
+                
+                print(colored(f"[{title}] Chunk {i+1} audio generated successfully.", "cyan"))
+
+            except Exception as e:
+                print(colored(f"[{title}] Error during Dia TTS generation for chunk {i+1}: {e}", "red"))
+                import traceback
+                traceback.print_exc()
+                continue
+
+        if not audio_files:
+            print(colored(f"[{title}] No audio chunks were generated successfully.", "red"))
             return ""
 
-        print(colored(f"[{title}] Generating audio with Dia for text ({len(dia_input_text)} chars)...", "green"))
+        # Merge all audio files into one
+        print(colored(f"[{title}] Merging {len(audio_files)} audio chunks into final podcast...", "blue"))
         
         try:
-            output_waveform = dia_model.generate(dia_input_text)
-            dia_sample_rate = 44100 # Dia's typical sample rate
-
-            if output_waveform is None or output_waveform.size == 0 : # Check if waveform is empty
-                print(colored(f"[{title}] Dia model generated no audio data.", "red"))
-                return ""
-
-            print(colored(f"[{title}] Audio generated successfully with Dia.", "cyan"))
-
-            file_extension = ".mp3" # Dia example uses mp3, soundfile supports it if system libs are present
+            # Read all audio files and concatenate
+            merged_audio = []
+            sample_rate = None
+            
+            for audio_file in audio_files:
+                audio_data, sr = sf.read(audio_file)
+                if sample_rate is None:
+                    sample_rate = sr
+                elif sr != sample_rate:
+                    print(colored(f"[{title}] Warning: Sample rate mismatch in chunk files. Using {sample_rate} Hz.", "yellow"))
+                
+                merged_audio.append(audio_data)
+            
+            # Concatenate all audio arrays
+            final_audio = np.concatenate(merged_audio)
+            
+            # Determine final filename
+            file_extension = ".wav"
             highest_num = 0
             file_pattern = re.compile(rf"(\d+)_{re.escape(safe_title_for_filename)}\{re.escape(file_extension)}")
             for f_name in os.listdir(PODCAST_SAVE_LOCATION):
@@ -174,18 +217,40 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
             file_name_base = f"{episode_number:03d}_{safe_title_for_filename}"
             file_location = os.path.join(PODCAST_SAVE_LOCATION, f"{file_name_base}{file_extension}")
 
-            sf.write(file_location, output_waveform, dia_sample_rate)
-            print(colored(f"[{title}] Dia podcast saved to: {file_location} (Sample Rate: {dia_sample_rate} Hz)", "green"))
+            # Save merged audio
+            sf.write(file_location, final_audio, sample_rate)
+            
+            # Clean up temporary files
+            for audio_file in audio_files:
+                try:
+                    os.remove(audio_file)
+                except OSError:
+                    pass  # Ignore cleanup errors
+            
+            print(colored(f"[{title}] Dia podcast saved to: {file_location} (Sample Rate: {sample_rate} Hz)", "green"))
+            print(colored(f"[{title}] Successfully merged {len(audio_files)} audio chunks.", "green"))
             return file_location
 
         except Exception as e:
-            print(colored(f"[{title}] Error during Dia TTS generation or saving: {e}", "red"))
+            print(colored(f"[{title}] Error during audio merging: {e}", "red"))
             import traceback
             traceback.print_exc()
+            
+            # Clean up temporary files on error
+            for audio_file in audio_files:
+                try:
+                    os.remove(audio_file)
+                except OSError:
+                    pass
             return ""
 
-    else: # Original Google TTS Implementation
+    else: # Google TTS Implementation
         print(colored(f"[{title}] Using Google GenAI TTS model: {GOOGLE_TTS_MODEL_NAME}", "magenta"))
+
+        # Check if Google dependencies are available
+        if not GOOGLE_AVAILABLE:
+            print(colored("Error: Google dependencies not available. Install with 'pip install google-genai' or use -l flag for local TTS.", "red"))
+            return ""
 
         # Ensure API key is available
         google_api_key = os.environ.get("GOOGLE_API_KEY")
@@ -479,7 +544,7 @@ The following information/topic(s) are provided to help you ground the conversat
         exit(1) # Changed to exit(1)
     
     from py_methods.utils import extract_blocks
-    podcastDialogue = extract_blocks(podcastDialogueResponse, ["txt", "text"])
+    podcastDialogue = extract_blocks(podcastDialogueResponse, ["txt", "text"])[0]
 
     file_location = generate_podcast(podcastDialogue, titleResponse, use_local_dia=args.local)
 

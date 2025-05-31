@@ -13,4 +13,4 @@ class AIStrengths(Enum):
     LOCAL = 8
     ONLINE = 9
     VISION = 10
-    BALANCED = 11
+    STRONG = 11

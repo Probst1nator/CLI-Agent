@@ -105,34 +105,35 @@ class Llm:
         llms = [
             # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
             
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.BALANCED]),
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.BALANCED]),
-            Llm(GoogleAPI(), "gemini-2.5-pro-exp-03-25", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
-            Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.BALANCED]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
+            Llm(GoogleAPI(), "gemini-2.5-pro-exp-03-25", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
+            Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
             
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.BALANCED]),
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE, AIStrengths.BALANCED]),
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE]),
             Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE]),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.SMALL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
             
             # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
+            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
             Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
             Llm(OllamaClient(), "qwen3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
-            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             
+            
+            Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
             Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
             
-            Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION, AIStrengths.BALANCED]),
-            
-            Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.BALANCED]),
-            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
+            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION, AIStrengths.STRONG]),
+            Llm(OllamaClient(), "devstral:24b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
             Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "DeepHermes-Egregore-v2-RLAIF-8b-Atropos-Q4:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.BALANCED]),
+            Llm(OllamaClient(), "DeepHermes-Egregore-v2-RLAIF-8b-Atropos-Q4:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             
             # Guard models
             Llm(GroqAPI(), "llama-guard-4-12b", None, 128000, [AIStrengths.GUARD]),
