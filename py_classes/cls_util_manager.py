@@ -119,6 +119,7 @@ class UtilsManager:
                 if hasattr(util_cls, 'run'):
                     run_method = util_cls.run
                     run_docstring = inspect.getdoc(run_method) or "No method documentation available"
+                    run_docstring = "\n".join("# " + line for line in run_docstring.strip().splitlines())
                     signature = inspect.signature(run_method)
                     
                     # Format the method signature with docstring and example showing static usage
@@ -127,12 +128,10 @@ class UtilsManager:
 ## Usage: 
 ```python
 from utils.{util_name} import {util_cls.__name__}
+{run_docstring}
 {util_cls.__name__}.run{signature} # Example usage
 ```
-## Docstring:
-\"\"\"
-{run_docstring}
-\"\"\""""
+"""
                 else:
                     prompt += "```python\n# No run method found\n```\n"
             except Exception:

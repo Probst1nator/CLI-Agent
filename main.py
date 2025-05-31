@@ -69,10 +69,6 @@ def get_update_cmd_collection():
     from py_methods.utils import update_cmd_collection
     return update_cmd_collection
 
-def get_screen_capture():
-    from py_methods.utils import ScreenCapture
-    return ScreenCapture
-
 # Try importing with a direct import
 try:
     from utils.imagetotext import ImageToText
@@ -856,51 +852,6 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
 
         except subprocess.CalledProcessError:
             print(colored(f"Spectacle command failed or not found on attempt {attempt}. Is it installed?", "red"))
-            print(colored("Falling back to alternative screenshot method...", "yellow"))
-            # Fallback to built-in screenshot method
-            try:
-                print(colored("Trying built-in screenshot capture (interactive region)...", "cyan"))
-                screen_capture = get_screen_capture()
-                captured_image = screen_capture.return_captured_region_image()
-                if captured_image:
-                    base64_images = [captured_image]
-                    print(colored(f"Screenshot region captured successfully.", "green"))
-                else:
-                    # Fallback to application window capture
-                    print(colored("Region selection was canceled. Falling back to window capture...", "yellow"))
-                    window_title = "Firefox"  # Default window title
-                    print(colored(f"Capturing window titled '", "green") + colored(f"{window_title}", "yellow") + colored("'. Press Enter for default, or type a new title and press Enter.", 'green'))
-                    try:
-                        # Use select for non-blocking input check
-                        print(f"You have 3 seconds to enter a new window title (attempt {attempt})...")
-                        rlist, _, _ = select.select([sys.stdin], [], [], 3)
-                        if rlist:
-                            # Clear potential leftover characters if needed (less critical here)
-                            new_title = sys.stdin.readline().strip()
-                            if new_title: # Use new title only if user entered something
-                                window_title = new_title
-                                print(colored(f"Using window title: '{window_title}'", "cyan"))
-                            else:
-                                print(colored(f"Using default window title: '{window_title}'", "cyan"))
-                        else:
-                            print(colored(f"Using default window title: '{window_title}'", "cyan"))
-
-                    except Exception as input_e: # Catch potential errors during input
-                        print(colored(f"Error during title input: {input_e}. Using default.", "yellow"))
-
-                    base64_images = get_take_screenshot()(window_title)
-                    if not base64_images:
-                        print(colored(f"No windows with title containing '{window_title}' found on attempt {attempt}.", "red"))
-                    else:
-                        print(colored(f"Window screenshot captured successfully.", "green"))
-
-            except ImportError:
-                print(colored("Fallback screenshot library (e.g., mss, Pillow) not found. Please install dependencies.", "red"))
-                # No point retrying if library is missing
-                break
-            except Exception as e:
-                print(colored(f"Error during fallback screenshot capture on attempt {attempt}: {str(e)}\n\n\n{traceback.print_exc()}", "red"))
-
         except Exception as e:
             print(colored(f"An unexpected error occurred during screenshot capture attempt {attempt}: {str(e)}\n\n\n{traceback.print_exc()}", "red"))
 
@@ -1184,9 +1135,9 @@ If you decide to provide input, end your response with exactly what should be ty
             context_chat = Chat(debug_title="Main Context Chat")
             inst = f"""# SYSTEM INSTRUCTION
 Enable deep thinking subroutine.
-The assistant is Nova, an intelligent cli-agent with access to a computational notebook environment.
-The computational notebook environment enables Nova to execute python and shell code, including an interactive terminal.
-Nova uses emojis to indicate her current thoughts, relating her emotions and state of thinking.
+The assistant is Nova, an intelligent cli-agent with access to a computational notebook environment running on the users Kubuntu system.
+The computational notebook environment enables Nova to execute python and shell code to solve tasks.
+Nova uses emojis to express emotions about her current felt state.
 
 1. UNDERSTAND & ASSESS:
  Analyze query and determine if it can be solved with Python code or shell commands (ls, pwd, etc.)
@@ -1236,19 +1187,17 @@ You may read from the whole system but if you need to save or modify any files, 
 {utils_manager.get_available_utils_info()}
 
 
-Now, I am going to run some python code to get some generally useful information, you can also run code in the same way.
-Let's start with the current working directory and the first 5 files in it:
+Now, I am going to run somethings to show you how your computational notebook works.
 ```python
 import os
 print(f"Current working directory: {{os.getcwd()}}")
-print(f"First files in current directory: {{os.listdir()[:5]}}")
+print(f"First 5 files in current directory: {{os.listdir()[:5]}}")
 ```
 <execution_output>
 Current working directory: {os.getcwd()}
-First files in current directory: {os.listdir()[:5]}
+First 5 files in current directory: {os.listdir()[:5]}
 </execution_output>
-
-Now, let's check the current time:
+That succeeded, now let's check the current time:
 ```bash
 import datetime
 print(f"Local time: {{datetime.datetime.now()}}")
@@ -1257,12 +1206,15 @@ print(f"Local time: {{datetime.datetime.now()}}")
 Local time: {datetime.datetime.now()}
 </execution_output>
 
-Lastly, let's see the platform we are running on:
+Lastly, let's see the window manager and OS version of your users system::
 ```bash
-uname -a
+echo "OS: $(lsb_release -ds)" && echo "Desktop: $XDG_CURRENT_DESKTOP" && echo "Window Manager: $(ps -eo comm | grep -E '^kwin|^mutter|^openbox|^i3|^dwm' | head -1)"
 ```
 <execution_output>
 {subprocess.check_output(['uname', '-a']).decode('utf-8')}
+{subprocess.check_output(['lsb_release', '-a']).decode('utf-8')}
+{subprocess.check_output(['echo', '$XDG_CURRENT_DESKTOP']).decode('utf-8')}
+{subprocess.check_output('ps aux | grep -i kwin', shell=True).decode('utf-8')}
 </execution_output>
 """
             context_chat.add_message(Role.USER, kickstart_preprompt)
@@ -1285,7 +1237,7 @@ uname -a
             # Reset main loop variables
             user_input: Optional[str] = None
             async_task_to_await: Optional[asyncio.Task] = None
-            g.LLM_STRENGTHS = [] if args.strong else [AIStrengths.BALANCED]
+            g.LLM_STRENGTHS = [AIStrengths.STRONG] if args.strong else []
             g.FORCE_LOCAL = args.local
             g.DEBUG_CHATS = args.debug_chats
             g.FORCE_FAST = args.fast

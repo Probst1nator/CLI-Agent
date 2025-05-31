@@ -77,7 +77,6 @@ from py_methods.utils import pdf_or_folder_to_database
 from py_methods.utils import listen_microphone
 from py_methods.utils import take_screenshot
 from py_methods.utils import update_cmd_collection
-from py_methods.utils import ScreenCapture
 
 from py_methods import utils_audio
 from py_classes.cls_util_manager import UtilsManager
