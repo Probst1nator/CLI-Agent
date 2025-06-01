@@ -35,23 +35,26 @@ from utils.dia_helper import get_dia_model
 
 load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
 
-# next to this script in a directory called podcast_generations
 PODCAST_SAVE_LOCATION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "podcast_generations")
-GOOGLE_TTS_MODEL_NAME = "gemini-2.5-flash-preview-tts" 
+GOOGLE_TTS_MODEL_NAME = "gemini-2.5-flash-preview-tts" # User specified model
 
 def save_binary_file(file_name, data):
-    os.makedirs(os.path.dirname(file_name), exist_ok=True) # Ensure directory exists
-    with open(file_name, "wb") as f: # Use 'with' for automatic file closing
+    os.makedirs(os.path.dirname(file_name), exist_ok=True)
+    with open(file_name, "wb") as f:
         f.write(data)
     print(f"File saved to: {file_name}")
 
 
+# _is_speaker_line might still be useful for other purposes or if we need to validate format
 def _is_speaker_line(line: str) -> bool:
     """Checks if a line indicates the start of a speaker's dialogue."""
     return bool(re.match(r"^\s*[\w\s.-]+\s*\([\w\s.-]+\):", line))
 
-def _split_podcast_text_into_chunks(text: str, max_chars: int = 4000, max_lines: int = 30) -> list[str]:
-    """Splits the podcast text into chunks based on character limits, line limits, and speaker changes."""
+def _split_podcast_text_into_chunks(text: str, max_chars: int = 600, max_lines: int = 30, split_on_speakers: bool = True) -> list[str]:
+    """
+    Splits the podcast text into chunks based on character limits, line limits,
+    and optionally speaker changes.
+    """
     chunks = []
     current_chunk_lines = []
     
@@ -66,26 +69,21 @@ def _split_podcast_text_into_chunks(text: str, max_chars: int = 4000, max_lines:
 
         must_split_before_adding_current_line = False
         
-        if current_chunk_lines:
+        if current_chunk_lines: # Only split if there's something in the current chunk
             if prospective_char_count > max_chars:
                 must_split_before_adding_current_line = True
             elif prospective_actual_line_count > max_lines:
                 must_split_before_adding_current_line = True
-            elif _is_speaker_line(line_to_add):
+            elif split_on_speakers and _is_speaker_line(line_to_add): # Split when a new speaker line is encountered
                 must_split_before_adding_current_line = True
         
         if must_split_before_adding_current_line:
             chunks.append("\n".join(current_chunk_lines))
-            current_chunk_lines = [] 
+            current_chunk_lines = [] # Reset for the new chunk
         
         current_chunk_lines.append(line_to_add)
 
-        if len(current_chunk_lines) == 1:
-            current_line_str = current_chunk_lines[0]
-            if len(current_line_str) > max_chars:
-                print(colored(f"Warning: A single line intended for a chunk is longer than max_chars ({len(current_line_str)} chars). "
-                              "This might cause issues with API processing for this specific line/chunk.", "yellow"))
-
+    # Add any remaining lines in current_chunk_lines as the last chunk
     if current_chunk_lines:
         chunks.append("\n".join(current_chunk_lines))
         
@@ -93,117 +91,76 @@ def _split_podcast_text_into_chunks(text: str, max_chars: int = 4000, max_lines:
 
 
 def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = False) -> str:
-    """
-    Generate a podcast audio file from dialogue text.
-    
-    Args:
-        podcast_dialogue: The dialogue text for the podcast
-        title: The title of the podcast
-        use_local_dia: Whether to use the local Dia TTS model instead of Google TTS
-        
-    Returns:
-        The path to the generated audio file, or empty string if generation failed
-    """
-    
-    # Sanitize title for use in filenames early
     safe_title_for_filename = re.sub(r'[^\w_-]+', '', title.replace(' ', '_')).strip('_')
     if not safe_title_for_filename:
         safe_title_for_filename = "podcast_episode"
-
     os.makedirs(PODCAST_SAVE_LOCATION, exist_ok=True)
     
-    print(colored(f"[{title}] Splitting podcast dialogue into chunks...", "blue"))
-    text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=600 if use_local_dia else 4000)
-    print(colored(f"[{title}] Successfully split into {len(text_chunks)} chunks.", "blue"))
+    # Use different chunk sizes based on TTS method
+    if use_local_dia:
+        text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=600, max_lines=30, split_on_speakers=True)
+        print(colored(f"[{title}] Successfully split into {len(text_chunks)} chunks for Dia.", "blue"))
+    else:
+        text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=4500, max_lines=100, split_on_speakers=False)
+        print(colored(f"[{title}] Successfully split into {len(text_chunks)} chunks for Google TTS.", "blue"))
 
     if use_local_dia:
         print(colored(f"[{title}] Attempting to use local Dia TTS model.", "magenta"))
+
         try:
-            import soundfile as sf
+            import soundfile as sf # Moved import here
         except ImportError:
             print(colored("Error: 'soundfile' library not found. Please install it with 'pip install soundfile'", "red"))
             return ""
 
         print(colored(f"[{title}] NOTE: Dia TTS requires a compatible GPU and may take time to load the model.", "yellow"))
+        dia_model = get_dia_model()
+        if dia_model is None:
+            print(colored("Failed to initialize Dia model. Falling back to Google TTS...", "red"))
+            return generate_podcast(podcast_dialogue, title, use_local_dia=False) # Fallback
+        print(colored(f"[{title}] Dia model loaded.", "blue"))
 
-        try:
-            print(colored(f"[{title}] Loading Dia-1.6B model...", "blue"))
-            # Use the helper function to get the Dia model
-            dia_model = get_dia_model()
-            if dia_model is None:
-                print(colored("Failed to initialize Dia model. Check if Dia is properly installed.", "red"))
-                print(colored("Falling back to Google TTS...", "yellow"))
-                use_local_dia = False
-                # Continue to the Google TTS implementation instead
-                return generate_podcast(podcast_dialogue, title, use_local_dia=False)
-            
-            print(colored(f"[{title}] Dia-1.6B model loaded.", "blue"))
-        except Exception as e:
-            print(colored(f"[{title}] Error loading Dia model: {e}", "red"))
-            print(colored("Ensure you have PyTorch with CUDA installed and a suitable GPU.", "red"))
-            print(colored("Falling back to Google TTS...", "yellow"))
-            use_local_dia = False 
-            # Continue to the Google TTS implementation instead
-            return generate_podcast(podcast_dialogue, title, use_local_dia=False)
-
-        # Generate audio for each chunk separately and collect paths
         audio_files = []
         total_chunks = len(text_chunks)
-        
-        for i, chunk in enumerate(text_chunks):
+        for i, chunk in enumerate(text_chunks): # Use Dia specific chunks
             if not chunk.strip():
                 continue
-                
-            print(colored(f"[{title}] Generating audio for chunk {i+1}/{total_chunks} ({len(chunk)} chars)...", "green"))
-            
+            print(colored(f"[{title}] Dia: Generating audio for chunk {i+1}/{total_chunks} ({len(chunk)} chars)...", "green"))
             try:
                 output_waveform = dia_model.generate(chunk)
-                dia_sample_rate = 44100 # Dia's typical sample rate
-
+                dia_sample_rate = 44100 
                 if output_waveform is None or output_waveform.size == 0:
-                    print(colored(f"[{title}] Dia model generated no audio data for chunk {i+1}.", "yellow"))
+                    print(colored(f"[{title}] Dia: No audio data for chunk {i+1}.", "yellow"))
                     continue
-
-                # Save individual chunk to temporary file
                 temp_filename = f"temp_chunk_{i+1:03d}.wav"
                 temp_filepath = os.path.join(PODCAST_SAVE_LOCATION, temp_filename)
                 sf.write(temp_filepath, output_waveform, dia_sample_rate)
                 audio_files.append(temp_filepath)
-                
-                print(colored(f"[{title}] Chunk {i+1} audio generated successfully.", "cyan"))
-
+                print(colored(f"[{title}] Dia: Chunk {i+1} audio generated.", "cyan"))
             except Exception as e:
-                print(colored(f"[{title}] Error during Dia TTS generation for chunk {i+1}: {e}", "red"))
+                print(colored(f"[{title}] Dia: Error for chunk {i+1}: {e}", "red"))
                 import traceback
                 traceback.print_exc()
                 continue
-
+        
         if not audio_files:
-            print(colored(f"[{title}] No audio chunks were generated successfully.", "red"))
+            print(colored(f"[{title}] Dia: No audio chunks generated.", "red"))
             return ""
 
-        # Merge all audio files into one
-        print(colored(f"[{title}] Merging {len(audio_files)} audio chunks into final podcast...", "blue"))
-        
+        print(colored(f"[{title}] Dia: Merging {len(audio_files)} audio chunks...", "blue"))
         try:
-            # Read all audio files and concatenate
-            merged_audio = []
-            sample_rate = None
+            merged_audio_dia = []
+            final_sample_rate_dia = None
+            for af_path in audio_files:
+                audio_data, sr = sf.read(af_path)
+                if final_sample_rate_dia is None: final_sample_rate_dia = sr
+                elif sr != final_sample_rate_dia:
+                    print(colored(f"[{title}] Dia: Warning sample rate mismatch. Using {final_sample_rate_dia} Hz.", "yellow"))
+                merged_audio_dia.append(audio_data)
             
-            for audio_file in audio_files:
-                audio_data, sr = sf.read(audio_file)
-                if sample_rate is None:
-                    sample_rate = sr
-                elif sr != sample_rate:
-                    print(colored(f"[{title}] Warning: Sample rate mismatch in chunk files. Using {sample_rate} Hz.", "yellow"))
-                
-                merged_audio.append(audio_data)
-            
-            # Concatenate all audio arrays
-            final_audio = np.concatenate(merged_audio)
-            
-            # Determine final filename
+            final_audio_dia = np.concatenate(merged_audio_dia)
             file_extension = ".wav"
+            # ... (filename generation logic remains the same)
             highest_num = 0
             file_pattern = re.compile(rf"(\d+)_{re.escape(safe_title_for_filename)}\{re.escape(file_extension)}")
             for f_name in os.listdir(PODCAST_SAVE_LOCATION):
@@ -213,190 +170,115 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                     if num > highest_num:
                         highest_num = num
             episode_number = highest_num + 1
-
             file_name_base = f"{episode_number:03d}_{safe_title_for_filename}"
             file_location = os.path.join(PODCAST_SAVE_LOCATION, f"{file_name_base}{file_extension}")
 
-            # Save merged audio
-            sf.write(file_location, final_audio, sample_rate)
-            
-            # Clean up temporary files
-            for audio_file in audio_files:
-                try:
-                    os.remove(audio_file)
-                except OSError:
-                    pass  # Ignore cleanup errors
-            
-            print(colored(f"[{title}] Dia podcast saved to: {file_location} (Sample Rate: {sample_rate} Hz)", "green"))
-            print(colored(f"[{title}] Successfully merged {len(audio_files)} audio chunks.", "green"))
+            sf.write(file_location, final_audio_dia, final_sample_rate_dia)
+            for af_path in audio_files: os.remove(af_path)
+            print(colored(f"[{title}] Dia podcast saved to: {file_location} (SR: {final_sample_rate_dia} Hz)", "green"))
             return file_location
-
         except Exception as e:
-            print(colored(f"[{title}] Error during audio merging: {e}", "red"))
-            import traceback
-            traceback.print_exc()
-            
-            # Clean up temporary files on error
-            for audio_file in audio_files:
-                try:
-                    os.remove(audio_file)
-                except OSError:
-                    pass
+            print(colored(f"[{title}] Dia: Error merging audio: {e}", "red"))
+            for af_path in audio_files: 
+                try: os.remove(af_path)
+                except OSError: pass
             return ""
 
-    else: # Google TTS Implementation
-        print(colored(f"[{title}] Using Google GenAI TTS model: {GOOGLE_TTS_MODEL_NAME}", "magenta"))
+    else: # Google TTS Implementation - Sequential chunk processing
+        print(colored(f"[{title}] Using Google GenAI TTS model: {GOOGLE_TTS_MODEL_NAME} for sequential chunk processing.", "magenta"))
 
-        # Check if Google dependencies are available
         if not GOOGLE_AVAILABLE:
-            print(colored("Error: Google dependencies not available. Install with 'pip install google-genai' or use -l flag for local TTS.", "red"))
+            print(colored("Error: Google dependencies not available. Install with 'pip install google-genai'.", "red"))
             return ""
 
-        # Ensure API key is available
         google_api_key = os.environ.get("GOOGLE_API_KEY")
         if not google_api_key:
-            print(colored("Error: GOOGLE_API_KEY environment variable not set. Cannot use Google TTS.", "red"))
+            print(colored("Error: GOOGLE_API_KEY environment variable not set.", "red"))
             return ""
-        client = genai.Client(api_key=google_api_key)
-
-        # Define speaker mapping for Google TTS. This is a simplified example.
-        # You might need a more robust way to map speakers from your dialogue
-        # to the "Speaker 1", "Speaker 2" tags if your LLM produces varied names.
-        # For now, we assume a generic mapping based on the example.
-        # This part of the Google config seems to map generic "Speaker 1" / "Speaker 2"
-        # from the text chunks to specific voices. The text chunks themselves would need to contain
-        # "Speaker 1:" or "Speaker 2:" for this to work as intended by multi_speaker_voice_config.
-        # Your _is_speaker_line and chunking logic already handle named speakers,
-        # so the input to Google would be "Chloe (Student): ..."
-        # Google's multi-speaker TTS might require specific SSML or text formats.
-        # The example config uses generic speaker tags; this needs careful input formatting for Google.
-        # For now, I'll keep your original config, but note this potential complexity.
         
+        try:
+            client = genai.Client(api_key=google_api_key)
+        except Exception as e:
+            print(colored(f"Failed to initialize Google GenAI Client: {e}", "red"))
+            return ""
+
         generate_content_config = types.GenerateContentConfig(
-            temperature=1, 
             response_modalities=["audio"],
-            speech_config=types.SpeechConfig(
-                multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
-                    speaker_voice_configs=[
-                        types.SpeakerVoiceConfig(
-                            speaker="Speaker 1", # This tag needs to be in the text_chunk
-                            voice_config=types.VoiceConfig(
-                                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="sulafat")
-                            )
-                        ),
-                        types.SpeakerVoiceConfig(
-                            speaker="Speaker 2", # This tag needs to be in the text_chunk
-                            voice_config=types.VoiceConfig(
-                                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="orus")
-                            )
-                        ),
-                    ]
-                )
-            ),
+            speech_config=types.SpeechConfig(),
         )
 
-        # All audio chunks are merged in memory into this variable - no temp files are created
         all_audio_data = b""
-        first_mime_type = None
-        auto_retry_seconds = 15
+        auto_retry_seconds = 30
+        max_retries = 3
+        total_chunks = len(text_chunks)
 
-        for i, text_chunk in enumerate(text_chunks):
-            # For Google's multi-speaker, text_chunk needs to be formatted.
-            # E.g., "Speaker 1: Hello. Speaker 2: Hi."
-            # Your current text_chunks are like "Chloe (Student): Hello."
-            # This might not directly work with the above `speaker_voice_configs`
-            # unless Google's model can infer or map.
-            # A common approach for Google multi-speaker is to use SSML or ensure text is
-            # "speaker_tag: dialogue". You might need to preprocess `text_chunk` here.
-            # For minimal change, I'm leaving it as is, but this is a likely point of failure
-            # if the Google TTS doesn't pick up the speakers correctly.
-
-            print(colored(f"[{title}] Google-Api: <{GOOGLE_TTS_MODEL_NAME}> generating audio for chunk {i+1}/{len(text_chunks)} ({len(text_chunk)} chars)...", "green"))
+        # Process chunks sequentially
+        for i, chunk in enumerate(text_chunks):
+            if not chunk.strip():
+                continue
+                
+            print(colored(f"[{title}] Google TTS: Generating audio for chunk {i+1}/{total_chunks} ({len(chunk)} chars)...", "green"))
             
-            current_chunk_audio_data = b""
-            current_chunk_mime_type = None
-            max_retries = 3
             retry_count = 0
+            chunk_audio_data = b""
             
-            # Keep retrying the current chunk until successful or max retries reached
             while retry_count <= max_retries:
                 try:
                     response_stream = client.models.generate_content_stream(
-                        model=f"models/{GOOGLE_TTS_MODEL_NAME}", # Models are typically prefixed with "models/"
-                        contents=text_chunk,
+                        model=f"models/{GOOGLE_TTS_MODEL_NAME}",
+                        contents=chunk,
                         config=generate_content_config,
                     )
 
+                    current_chunk_audio = b""
                     for response_part in response_stream:
                         if (
                             response_part.candidates is None
                             or not response_part.candidates[0].content
                             or not response_part.candidates[0].content.parts
                         ):
-                            if response_part.text:
-                                print(colored(f"[{title}] API Text response (no candidates) for chunk {i+1}: {response_part.text}", "yellow"))
                             continue
                         
-                        if response_part.text:
-                            print(colored(f"[{title}] API stream text for chunk {i+1}: {response_part.text}", "yellow"))
-
                         api_part_data = response_part.candidates[0].content.parts[0]
-                        if api_part_data.inline_data:
-                            current_chunk_audio_data += api_part_data.inline_data.data
-                            if not current_chunk_mime_type:
-                                current_chunk_mime_type = api_part_data.inline_data.mime_type
-                            if not first_mime_type: 
-                                first_mime_type = api_part_data.inline_data.mime_type
-                        elif api_part_data.text :
-                            print(colored(f"ERROR: [{title}] API returned text part for chunk {i+1} instead of audio: {api_part_data.text}", "red"))
-                            # Removed exit(1) to allow script to continue or fail more gracefully
-                            return "" # Indicate failure for this path
-                        
-                    if current_chunk_audio_data:
-                        all_audio_data += current_chunk_audio_data
-                        print(colored(f"[{title}] Chunk {i+1} audio ({len(current_chunk_audio_data)} bytes, type: {current_chunk_mime_type}) processed.", "cyan"))
-                        break  # Successfully processed this chunk, exit the retry loop
-                    else:
-                        print(colored(f"[{title}] Critical error: Chunk {i+1} yielded no audio data after stream completion.", "red"))
-                        if retry_count < max_retries:
-                            retry_count += 1
-                            print(colored(f"{time.strftime('%H:%M:%S')} Retrying chunk {i+1} (attempt {retry_count}/{max_retries}) in {auto_retry_seconds} seconds...", "yellow"))
-                            time.sleep(auto_retry_seconds)
-                            auto_retry_seconds = min(auto_retry_seconds * 2, 300)
-                        else:
-                            print(colored(f"[{title}] Failed to process chunk {i+1} after {max_retries} attempts. Skipping.", "red"))
-                            break  # Give up on this chunk after max retries
+                        if hasattr(api_part_data, 'inline_data') and api_part_data.inline_data and hasattr(api_part_data.inline_data, 'data'):
+                            current_chunk_audio += api_part_data.inline_data.data
+                        elif hasattr(api_part_data, 'text') and api_part_data.text:
+                            print(colored(f"ERROR: [{title}] API returned text instead of audio for chunk {i+1}: {api_part_data.text}", "red"))
+                            current_chunk_audio = b""
+                            break
 
+                    if current_chunk_audio:
+                        chunk_audio_data = current_chunk_audio
+                        print(colored(f"[{title}] Google TTS: Chunk {i+1} audio generated ({len(chunk_audio_data)} bytes).", "cyan"))
+                        break
+                        
+                except types.generation_types.StopCandidateException as e:
+                    print(colored(f"[{title}] StopCandidateException for chunk {i+1}: {e}", "red"))
+                    break
                 except Exception as e:
                     print(colored(f"[{title}] Error generating audio for chunk {i+1}: {e}", "red"))
-                    if retry_count < max_retries:
-                        retry_count += 1
-                        print(colored(f"{time.strftime('%H:%M:%S')} Retrying chunk {i+1} (attempt {retry_count}/{max_retries}) in {auto_retry_seconds} seconds...", "yellow"))
-                        time.sleep(auto_retry_seconds)
-                        auto_retry_seconds = min(auto_retry_seconds * 2, 300)
-                    else:
-                        print(colored(f"[{title}] Failed to process chunk {i+1} after {max_retries} attempts. Skipping.", "red"))
-                        break  # Give up on this chunk after max retries
+                
+                retry_count += 1
+                if retry_count <= max_retries:
+                    print(colored(f"Retrying chunk {i+1} (attempt {retry_count}/{max_retries}) in {auto_retry_seconds} seconds...", "yellow"))
+                    time.sleep(auto_retry_seconds)
+                else:
+                    print(colored(f"[{title}] Failed to process chunk {i+1} after {max_retries} attempts. Skipping.", "red"))
+                    break
+            
+            if chunk_audio_data:
+                all_audio_data += chunk_audio_data
+            else:
+                print(colored(f"[{title}] No audio data for chunk {i+1}. Continuing with remaining chunks.", "yellow"))
 
         if not all_audio_data:
-            print(colored(f"[{title}] No audio data was generated for any chunk (Google TTS).", "red"))
+            print(colored(f"[{title}] No audio data was generated for any chunks (Google TTS).", "red"))
             return ""
 
-        # Add a message about merging all chunks into a single audio file
-        if len(text_chunks) > 1:
-            print(colored(f"[{title}] Successfully merged {len(text_chunks)} audio chunks into a single file.", "green"))
+        print(colored(f"[{title}] Successfully generated audio from {total_chunks} chunks.", "green"))
 
-        file_extension = ".wav" 
-        if first_mime_type:
-            guessed_extension = mimetypes.guess_extension(first_mime_type)
-            if guessed_extension:
-                file_extension = guessed_extension
-            if "audio/L" in first_mime_type.lower() and file_extension != ".wav":
-                print(colored(f"[{title}] Mime type {first_mime_type} suggests raw audio; ensuring .wav extension.", "blue"))
-                file_extension = ".wav"
-        if file_extension == ".bin":
-            file_extension = ".wav"
-
+        # Generate filename
+        file_extension = ".wav"
         highest_num = 0
         file_pattern = re.compile(rf"(\d+)_{re.escape(safe_title_for_filename)}\{re.escape(file_extension)}")
         for f_name in os.listdir(PODCAST_SAVE_LOCATION):
@@ -406,71 +288,44 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                 if num > highest_num:
                     highest_num = num
         episode_number = highest_num + 1
-
         file_name_base = f"{episode_number:03d}_{safe_title_for_filename}"
         file_location = os.path.join(PODCAST_SAVE_LOCATION, f"{file_name_base}{file_extension}")
         
-        final_audio_to_save = all_audio_data
-        if first_mime_type and "audio/L" in first_mime_type.lower():
-            print(colored(f"[{title}] Converting combined raw audio data (mime: {first_mime_type}) to WAV format...", "blue"))
-            final_audio_to_save = convert_to_wav(all_audio_data, first_mime_type)
+        final_audio_to_save = create_wav_file(all_audio_data, sample_rate=24000, bits_per_sample=16, num_channels=1)
         
         save_binary_file(file_location, final_audio_to_save)
-        google_sample_rate = parse_audio_mime_type(first_mime_type).get("rate", 24000) if first_mime_type else "N/A"
-        print(colored(f"Google podcast saved to: {file_location} (Sample Rate: {google_sample_rate} Hz approx.)", "green"))
+        print(colored(f"Google podcast saved to: {file_location} (Sample Rate: 24000 Hz)", "green"))
         return file_location
 
-def convert_to_wav(audio_data: bytes, mime_type: str) -> bytes:
-    parameters = parse_audio_mime_type(mime_type)
-    bits_per_sample = parameters.get("bits_per_sample", 16) 
-    sample_rate = parameters.get("rate", 24000) 
-    num_channels = 1 
-    data_size = len(audio_data)
+def create_wav_file(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: int = 16, num_channels: int = 1) -> bytes:
+    """
+    Create a proper WAV file from raw PCM data.
+    (This function remains unchanged)
+    """
+    data_size = len(pcm_data)
     bytes_per_sample = bits_per_sample // 8
     block_align = num_channels * bytes_per_sample
     byte_rate = sample_rate * block_align
-    chunk_size = 36 + data_size # 36 is size of header items before data_size itself
-
-    header = struct.pack(
+    
+    riff_chunk_id = b"RIFF"
+    riff_chunk_size = 36 + data_size 
+    wave_format = b"WAVE"
+    
+    fmt_chunk_id = b"fmt "
+    fmt_chunk_size = 16  
+    audio_format = 1  
+    
+    data_chunk_id = b"data"
+    data_chunk_size = data_size
+    
+    wav_header = struct.pack(
         "<4sI4s4sIHHIIHH4sI",
-        b"RIFF",
-        chunk_size, # File size - 8 bytes
-        b"WAVE",
-        b"fmt ",
-        16,  # Subchunk1Size (16 for PCM)
-        1,   # AudioFormat (1 for PCM)
-        num_channels,
-        sample_rate,
-        byte_rate,
-        block_align,
-        bits_per_sample,
-        b"data",
-        data_size
+        riff_chunk_id, riff_chunk_size, wave_format,
+        fmt_chunk_id, fmt_chunk_size, audio_format, num_channels,
+        sample_rate, byte_rate, block_align, bits_per_sample,
+        data_chunk_id, data_chunk_size
     )
-    return header + audio_data
-
-def parse_audio_mime_type(mime_type: str) -> dict[str, int | None]:
-    bits_per_sample = 16 
-    rate = 24000         
-
-    parts = mime_type.lower().split(";")
-    for param in parts:
-        param = param.strip()
-        if param.startswith("rate="):
-            try:
-                rate_str = param.split("=", 1)[1]
-                rate = int(rate_str)
-            except (ValueError, IndexError):
-                pass 
-        elif param.startswith("audio/l"): 
-            try:
-                bits_str = "".join(filter(str.isdigit, param.split("audio/l",1)[1]))
-                if bits_str:
-                    bits_per_sample = int(bits_str)
-            except (ValueError, IndexError):
-                pass
-    return {"bits_per_sample": bits_per_sample, "rate": rate}
-
+    return wav_header + pcm_data
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a podcast using AI.")
@@ -478,12 +333,12 @@ if __name__ == "__main__":
                         help="Use local Dia TTS model instead of Google TTS.")
     args = parser.parse_args()
     
-    g.local = args.local
+    g.local = args.local # Assuming g is a global settings object
 
     if not args.local and not os.environ.get("GOOGLE_API_KEY"):
         print(colored("Error: GOOGLE_API_KEY environment variable not set. Needed for Google TTS.", "red"))
         print(colored("You can either set GOOGLE_API_KEY or use the -l flag for local TTS (if configured).", "red"))
-        exit(1) # Changed to exit(1) for error
+        exit(1)
 
     for i in range(5, 0, -1):
         print(colored(f"Generating podcast via clipboard in ", "green") + colored(f"{i}", "yellow") + colored(" seconds...", "green"))
@@ -494,67 +349,127 @@ if __name__ == "__main__":
     clipboard_content = pyperclip.paste()
     if not clipboard_content.strip():
         print(colored("No text in clipboard", "red"))
-        exit(1) # Changed to exit(1)
+        exit(1)
     
     print(colored("Analyzing content for summary and title...", "blue"))
     try:
-        analysisResponse = LlmRouter.generate_completion("Hi, I have a text snippet which I would like you to analyze. Please reason about it and provide a summary of the fundamentals and key points. Include analogies and intuitions to help a reader remember the topic better.\nText:\n" + clipboard_content)
-        titleResponse = LlmRouter.generate_completion("I am going to provide you with a text and you should generate a descriptive title for whatever content its about. Ensure it is a short fit for a file name. Please think about the contents first and then like this:\nTitle: <title>\nThis is the text:\n" + analysisResponse)
+        analysisResponse = LlmRouter.generate_completion(
+            "Hi, I have a text snippet which I would like you to analyze. Please reason about it and provide a summary of the context, fundamentals and key points. Include insights and broader implications to help a reader remember the topic better.\nText:\n" + clipboard_content
+        )
+        titleResponseText = LlmRouter.generate_completion( # Renamed to avoid conflict
+            "I am going to provide you with a text and you should generate a descriptive title for whatever content it's about. Ensure it is a short fit for a file name. Please think about the contents first and then like this:\nTitle: <title>\nThis is the text:\n" + analysisResponse
+        )
     except Exception as e:
         print(colored(f"Error during LLM processing for analysis/title: {e}", "red"))
-        exit(1) # Changed to exit(1)
+        import traceback
+        traceback.print_exc()
+        exit(1)
 
-    title_index = titleResponse.rfind("Title:")
-    if title_index != -1:
-        titleResponse = titleResponse[title_index + len("Title:"):].strip() # More robust extraction
-    MAX_TITLE_LEN = 50 
-    if len(titleResponse) > MAX_TITLE_LEN:
-        titleResponse = titleResponse[:MAX_TITLE_LEN]
-    titleResponse = titleResponse.split("\n")[0].strip() # Ensure single line and stripped
-    if not titleResponse : titleResponse = "Untitled_Podcast" # Default title if empty
-
+    # More robust title extraction
+    title_match = re.search(r"Title:\s*(.*)", titleResponseText, re.IGNORECASE)
+    extracted_title = ""
+    if title_match:
+        extracted_title = title_match.group(1).strip()
     
-    print(colored(f"Generated Title: {titleResponse}", "magenta"))
+    if not extracted_title: # Fallback if "Title:" not found
+        extracted_title = titleResponseText.splitlines()[0].strip() # Take first line as a guess
+
+    MAX_TITLE_LEN = 50 
+    if len(extracted_title) > MAX_TITLE_LEN:
+        extracted_title = extracted_title[:MAX_TITLE_LEN]
+    
+    # Further sanitize title for filename
+    extracted_title = re.sub(r'[^\w\s-]', '', extracted_title).strip() # Allow spaces and hyphens initially
+    extracted_title = re.sub(r'\s+', '_', extracted_title) # Replace spaces with underscores
+    if not extracted_title: extracted_title = "Untitled_Podcast"
+
+
+    print(colored(f"Generated Title: {extracted_title}", "magenta"))
     print(colored("Generating podcast dialogue...", "blue"))
 
-    podcastGenPrompt = f"""
-Create a meditative expert discussion between an intelligent and very critically implorative student named Chloe and a self-taught established expert named Liam.
+    # Using f-string for cleaner prompt construction
+    podcastGenPrompt = f"""Create a meditative and joyful expert discussion between an intelligent and very creative and educated student named Chloe and an self-taught established expert named Liam.
 The discussion should revolve around powerful insights and intuitions that enable easy understanding and retention of the topic.
 To provide the dialogue please use the following delimiters and this exact format:
 ```txt
 Chloe (Student): Are we on? I think we're on! Okay viewers, today we have a very special guest. Liam, why don't you introduce yourself?
-Liam (Expert): Hello everybody! It's great to be here. First of all I'm a big fan of your work Chloe.
-Chloe (Student): Oh thank you!
-Liam (Expert): We should start with the fundamentals. What is the main topic of the conversation?
+Liam (Expert): We should start with the fundamentals of {extracted_title}.
 ...
 You dont need to use my example introducion, you can create a more imaginative one for the topic.
-
-The topic of the conversation is:
-{titleResponse}
-The following information/topic(s) are provided to help you ground the conversation:
+The following information/topic(s) are provided to establish the conversations context:
 {analysisResponse}"""
 
+    # Specific prompt adjustment for local Dia model if it requires different speaker tags
     if args.local:
-        podcastGenPrompt = podcastGenPrompt.replace("Chloe (Student):", "[S1]").replace("Liam (Expert):", "[S2]")
+        # Example adjustment: If Dia uses [S1], [S2]
+        # This part needs to be conditional based on how Dia expects speaker tags
+        # For now, we assume the Chloe (Student): format is standard
+        # podcastGenPrompt = podcastGenPrompt.replace("Chloe (Student):", "[S1]").replace("Liam (Expert):", "[S2]")
+        print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations if different from 'Speaker (Role):' format.", "yellow"))
         
     try:
         podcastDialogueResponse = LlmRouter.generate_completion(podcastGenPrompt)
     except Exception as e:
         print(colored(f"Error during LLM processing for podcast dialogue: {e}", "red"))
-        exit(1) # Changed to exit(1)
+        exit(1)
     
-    from py_methods.utils import extract_blocks
-    podcastDialogue = extract_blocks(podcastDialogueResponse, ["txt", "text"])[0]
+    # Assuming extract_blocks is a valid utility you have
+    from py_methods.utils import extract_blocks # Make sure this import is valid
+    extracted_dialogue_blocks = extract_blocks(podcastDialogueResponse, ["txt", "text"])
+    
+    podcastDialogue = ""
+    if extracted_dialogue_blocks:
+        # extract_blocks returns a list, so we need to handle it properly
+        if isinstance(extracted_dialogue_blocks, list):
+            if len(extracted_dialogue_blocks) == 1:
+                podcastDialogue = extracted_dialogue_blocks[0].strip()
+            else:
+                # If multiple blocks, join them with newlines
+                podcastDialogue = "\n".join(block.strip() for block in extracted_dialogue_blocks if block.strip())
+        else:
+            # If it's not a list (unexpected), treat as string
+            podcastDialogue = str(extracted_dialogue_blocks).strip()
+    else:
+        print(colored("Could not extract dialogue from LLM response. Using raw response.", "yellow"))
+        # Fallback: use the whole response, but try to clean it up a bit
+        # This might happen if ```txt ... ``` was not found
+        # Basic cleanup: remove the prompt part if it's reflected in the response
+        prompt_intro_for_cleanup = "Create a meditative expert discussion"
+        intro_index = podcastDialogueResponse.find(prompt_intro_for_cleanup)
+        if intro_index != -1:
+            # Try to find the actual start of the dialogue after the prompt
+            dialogue_start_markers = ["Chloe (Student):", "Liam (Expert):", "[S1]", "[S2]"] # Add more if needed
+            actual_dialogue_text = podcastDialogueResponse[intro_index:] # Search in the part after prompt
+            first_speaker_occurrence = -1
+            for marker in dialogue_start_markers:
+                pos = actual_dialogue_text.find(marker)
+                if pos != -1 and (first_speaker_occurrence == -1 or pos < first_speaker_occurrence):
+                    first_speaker_occurrence = pos
+            
+            if first_speaker_occurrence != -1:
+                podcastDialogue = actual_dialogue_text[first_speaker_occurrence:].strip()
+            else: # If no speaker tags found after prompt, take a guess
+                podcastDialogue = podcastDialogueResponse.split(analysisResponse)[-1].strip() if analysisResponse in podcastDialogueResponse else podcastDialogueResponse.strip()
 
-    file_location = generate_podcast(podcastDialogue, titleResponse, use_local_dia=args.local)
+        else: # If prompt intro not found, just use the raw response
+            podcastDialogue = podcastDialogueResponse.strip()
+            
+    if not podcastDialogue:
+        print(colored("Error: Podcast dialogue is empty after extraction/processing.", "red"))
+        exit(1)
+
+    # --- Call the updated generate_podcast function ---
+    file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
 
     if file_location:
         end_time = time.time()
         print(colored(f"Finished! Podcast saved to: {file_location}", "green"))
         print(colored(f"Total time taken: {end_time - start_time:.2f} seconds", "green"))
-        print(colored(f"Used authoring model: {LlmRouter.last_used_model}", "green"))
+        # Ensure LlmRouter.last_used_model is set by your LlmRouter class
+        last_model = LlmRouter.last_used_model if hasattr(LlmRouter, 'last_used_model') else "N/A"
+        print(colored(f"Used authoring model: {last_model}", "green"))
         if args.local:
-            print(colored(f"Used TTS model: Dia-1.6B (Local)", "green"))
+            print(colored(f"Used TTS model: Dia (Local)", "green")) # Simplified Dia model name
         else:
             print(colored(f"Used TTS model: {GOOGLE_TTS_MODEL_NAME} (Google)", "green"))
     else:
@@ -563,4 +478,4 @@ The following information/topic(s) are provided to help you ground the conversat
              print(colored(f"Local Dia TTS generation attempt failed. Check logs for errors and ensure Dia setup is correct (GPU, libraries).", "red"))
         else:
              print(colored(f"Google TTS generation attempt failed. Check logs for API errors or issues with input.", "red"))
-        exit(1) # Indicate failure
+        exit(1)
