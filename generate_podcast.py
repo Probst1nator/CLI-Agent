@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 try:
     from google import genai
     from google.genai import types
+    from google.genai.types import SpeechConfig
     GOOGLE_AVAILABLE = True
 except ImportError:
     GOOGLE_AVAILABLE = False
@@ -204,7 +205,28 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
 
         generate_content_config = types.GenerateContentConfig(
             response_modalities=["audio"],
-            speech_config=types.SpeechConfig(),
+            speech_config=SpeechConfig(
+                multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                    speaker_voice_configs=[
+                        types.SpeakerVoiceConfig(
+                            speaker="Chloe",
+                            voice_config=types.VoiceConfig(
+                                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                    voice_name="Kore"
+                                )
+                            ),
+                        ),
+                        types.SpeakerVoiceConfig(
+                            speaker="Liam",
+                            voice_config=types.VoiceConfig(
+                                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                    voice_name="Iopetus"
+                                )
+                            ),
+                        ),
+                    ]
+                ),
+            ),
         )
 
         all_audio_data = b""
@@ -388,23 +410,23 @@ if __name__ == "__main__":
     print(colored("Generating podcast dialogue...", "blue"))
 
     # Using f-string for cleaner prompt construction
-    podcastGenPrompt = f"""Create a meditative and joyful expert discussion between an intelligent and very creative and educated student named Chloe and an self-taught established expert named Liam.
+    podcastGenPrompt = f"""Create a meditative and joyful expert discussion between an intelligent and very creative and educated student and an self-taught established expert.
 The discussion should revolve around powerful insights and intuitions that enable easy understanding and retention of the topic.
 To provide the dialogue please use the following delimiters and this exact format:
 ```txt
-Chloe (Student): Are we on? I think we're on! Okay viewers, today we have a very special guest. Liam, why don't you introduce yourself?
-Liam (Expert): We should start with the fundamentals of {extracted_title}.
+Chloe: Welcome!
+Liam: It's great to be here, lets attack the topic of {extracted_title}.
 ...
-You dont need to use my example introducion, you can create a more imaginative one for the topic.
-The following information/topic(s) are provided to establish the conversations context:
+You dont need to use my example introduction, you can create a more fitting one for the topic.
+The following information/topic(s) are provided to provide food for thought:
 {analysisResponse}"""
 
     # Specific prompt adjustment for local Dia model if it requires different speaker tags
     if args.local:
         # Example adjustment: If Dia uses [S1], [S2]
         # This part needs to be conditional based on how Dia expects speaker tags
-        # For now, we assume the Chloe (Student): format is standard
-        # podcastGenPrompt = podcastGenPrompt.replace("Chloe (Student):", "[S1]").replace("Liam (Expert):", "[S2]")
+        # For now, we assume the Chloe: format is standard
+        # podcastGenPrompt = podcastGenPrompt.replace("Chloe:", "[S1]").replace("Liam:", "[S2]")
         print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations if different from 'Speaker (Role):' format.", "yellow"))
         
     try:
@@ -438,7 +460,7 @@ The following information/topic(s) are provided to establish the conversations c
         intro_index = podcastDialogueResponse.find(prompt_intro_for_cleanup)
         if intro_index != -1:
             # Try to find the actual start of the dialogue after the prompt
-            dialogue_start_markers = ["Chloe (Student):", "Liam (Expert):", "[S1]", "[S2]"] # Add more if needed
+            dialogue_start_markers = ["Chloe:", "Liam:", "[S1]", "[S2]"] # Add more if needed
             actual_dialogue_text = podcastDialogueResponse[intro_index:] # Search in the part after prompt
             first_speaker_occurrence = -1
             for marker in dialogue_start_markers:

@@ -289,8 +289,8 @@ class GoogleAPI(AIProviderInterface):
             # Default speaker configuration if none provided
             if not speaker_config:
                 speaker_config = [
-                    {"speaker": "Speaker 1", "voice": "Zephyr"},
-                    {"speaker": "Speaker 2", "voice": "Puck"}
+                    {"speaker": "Chloe", "voice": "Kore"},
+                    {"speaker": "Liam", "voice": "Iapetus"}
                 ]
             
             # Create speaker voice configs
