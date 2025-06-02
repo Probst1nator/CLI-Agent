@@ -377,11 +377,20 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str)
         bash_codes: List[str] = get_extract_blocks()(code_to_execute, "bash")
         bash_code = "\n".join(bash_codes)
         bash_code_lines = bash_code.split("\n")
+        # cleanup empty lines and comments
+        bash_code_lines = [line for line in bash_code_lines if line.strip() and not line.strip().startswith("#")]
+        allowed = True
+        collected_matching_commands = []
         for line in bash_code_lines:
             matching_commands = [cmd for cmd in always_permitted_bash if line.startswith(cmd)]
             if len(matching_commands) > 0 and (line.count(" && ") + line.count(" || ") + line.count(";") + 1 == len(matching_commands)):
-                print(colored(f"✅ Code execution permitted automatically (These commands are always allowed: '{', '.join(matching_commands).strip()}')", "green"))
-                return True
+                collected_matching_commands.extend(matching_commands)
+                continue
+            allowed = False
+            break
+        if allowed:
+            print(colored(f"✅ Code execution permitted automatically (These commands are always allowed: '{', '.join(collected_matching_commands).strip()}')", "green"))
+            return True
     
     if args.auto:  # Check if auto mode is enabled
         # Auto execution guard
@@ -433,7 +442,7 @@ Do not add any other text after this single-word verdict.""",
             return False
     else:
         # Manual confirmation
-        user_input = await get_user_input_with_bindings(args, None, colored(" (Press Enter to confirm or 'n' to abort, press 'a' to toggle auto execution)", "cyan"))
+        user_input = await get_user_input_with_bindings(args, None, colored(" (Press Enter to confirm or 'n' to abort, press 'a' to toggle auto execution, 'l' for local auto execution)", "cyan"))
         if user_input.lower() == 'n':
             print(colored("❌ Code execution aborted by user", "red"))
             return False
@@ -943,7 +952,6 @@ async def main() -> None:
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
         
         args = parse_cli_args()
-        print(args)
 
         # Override logging level if debug mode is enabled
         if args.debug:
@@ -1067,6 +1075,7 @@ To respond, simply ensure your response is thought through and your last line is
             if last_line_str.lower() == "none":
                 return True  # Continue without providing input
             elif last_line_str.lower() == "kill":
+                print(colored("🚧 Code execution terminated by LLM", "red"))
                 return False # Interrupt execution
             else:
                 return last_line_str # Provide the string as input
