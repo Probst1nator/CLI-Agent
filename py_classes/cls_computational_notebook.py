@@ -24,6 +24,9 @@ class ComputationalNotebook:
         
         # Track when we're executing Python code to add emojis
         self.is_executing_python = False
+        
+        # Track when we're executing shell commands to add emojis
+        self.is_executing_shell = False
 
         # Clean up old temporary files from previous runs
         g.cleanup_temp_py_files()
@@ -89,7 +92,7 @@ class ComputationalNotebook:
                             if re.search(self.bash_prompt_regex, last_line):
                                 command_completed = True
                                 break
-                
+
                 # Check for output stall (only if command hasn't completed)
                 if not command_completed:
                     time_since_last_output = time.time() - last_output_time
@@ -147,14 +150,19 @@ from utils import *
             
             # Set flag before sending command so the echoed command also gets emoji
             self.is_executing_python = True
+            # Debug: confirm flag is set (remove this later)
             # Always use non-persistent execution for simplicity
             self.child.sendline(f"python3 -u {py_script_path}")
             self._stream_output_until_prompt(timeout=120)
             self.is_executing_python = False
+            # Debug: confirm flag is reset (remove this later)
             # Files are kept until program restart for debugging purposes
         else:
+            # Set shell execution flag for bash commands
+            self.is_executing_shell = True
             self.child.sendline(command)
             self._stream_output_until_prompt(timeout=120)
+            self.is_executing_shell = False
 
     def close(self):
         self.child.sendline("exit")
@@ -162,8 +170,8 @@ from utils import *
         self.stdout_callback("\n[Session closed]\n")
 
     def _process_output_with_emoji(self, text: str) -> str:
-        """Add ⚙️ emoji before newlines during Python execution."""
-        if not self.is_executing_python:
+        """Add ⚙️ emoji before newlines during Python or shell execution."""
+        if not (self.is_executing_python or self.is_executing_shell):
             return text
         
         # Split into lines and add emoji before each line
@@ -171,6 +179,13 @@ from utils import *
         processed_lines = []
         
         for i, line in enumerate(lines):
+            # Hide everything before $ sign in bash prompts
+            if '$' in line:
+                # Find the last occurrence of $ and keep from there
+                dollar_index = line.rfind('$')
+                if dollar_index != -1:
+                    line = '$' + line[dollar_index + 1:]
+            
             if i == 0:
                 # First line - add emoji at the start
                 processed_lines.append('⚙️  ' + line)
