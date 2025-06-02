@@ -4,51 +4,6 @@ import importlib
 from typing import Tuple, Optional, Any, Dict
 
 
-def verify_dia_installation() -> Tuple[bool, str]:
-    """
-    Verify that Dia is properly installed and accessible.
-    Returns a tuple of (success, message).
-    """
-    try:
-        import soundfile
-        print("✅ soundfile is installed")
-    except ImportError:
-        return False, "soundfile library not found. Please install with 'pip install soundfile'"
-    
-    # Try to import dia directly
-    try:
-        import dia
-        print(f"✅ dia module found at: {dia.__file__}")
-    except ImportError as e:
-        # Failed to import dia, search for installation
-        site_packages = get_site_packages_dirs()
-        print(f"Looking for dia in: {site_packages}")
-        
-        # Look for Dia in common locations
-        dia_locations = find_dia_locations()
-        if dia_locations:
-            paths = "\n    ".join(dia_locations)
-            return False, f"dia module found but not in Python path. Locations:\n    {paths}\n\nPlease add to PYTHONPATH."
-        else:
-            return False, f"dia module not found. Error: {str(e)}"
-    
-    # Try to import the Dia model class
-    try:
-        from dia.model import Dia
-        print("✅ dia.model.Dia class is accessible")
-        return True, "Dia is properly installed and ready to use"
-    except ImportError as e:
-        return False, f"dia module found but could not import Dia class: {str(e)}"
-
-
-def get_site_packages_dirs() -> list:
-    """Get all site-packages directories in the current Python environment."""
-    import site
-    site_packages = site.getsitepackages()
-    user_site = site.getusersitepackages()
-    return [*site_packages, user_site]
-
-
 def find_dia_locations() -> list:
     """Find possible locations of the Dia module."""
     import glob
@@ -168,25 +123,3 @@ def get_dia_model(force_cpu: bool = False, **kwargs) -> Optional[Any]:
     except Exception as e:
         print(f"ERROR creating Dia model: {str(e)}")
         return None
-
-
-# Function to run when this module is executed directly
-if __name__ == "__main__":
-    success, message = verify_dia_installation()
-    if success:
-        print(f"✅ {message}")
-    else:
-        print(f"❌ {message}")
-        
-    # Try to fix path issues
-    if not success:
-        fixed = add_dia_to_path()
-        if fixed:
-            print("✅ Successfully added Dia to Python path")
-            success, message = verify_dia_installation()
-            if success:
-                print(f"✅ {message}")
-            else:
-                print(f"❌ Still having issues: {message}")
-        else:
-            print("❌ Could not fix Dia import issues") 

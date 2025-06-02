@@ -32,7 +32,7 @@ import sys
 
 # Add the parent directory to the path so we can import DiaHelper
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils.dia_helper import get_dia_model
+from py_methods.dia_helper import get_dia_model
 
 load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
 
