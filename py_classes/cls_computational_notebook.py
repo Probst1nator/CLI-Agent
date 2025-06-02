@@ -21,6 +21,9 @@ class ComputationalNotebook:
         
         # Track cumulative output to avoid re-displaying
         self.cumulative_output = ""
+        
+        # Track when we're executing Python code to add emojis
+        self.is_executing_python = False
 
         # Clean up old temporary files from previous runs
         g.cleanup_temp_py_files()
@@ -57,12 +60,14 @@ class ComputationalNotebook:
                         # Only show the truly new part that we haven't seen before
                         truly_new = new_output[len(self.cumulative_output):]
                         if truly_new:
-                            self.stdout_callback(truly_new)
+                            processed_output = self._process_output_with_emoji(truly_new)
+                            self.stdout_callback(processed_output)
                             self.cumulative_output += truly_new
                             last_output_time = time.time()
                     elif not self.cumulative_output or not new_output.startswith(self.cumulative_output):
                         # This is completely new output (first command or unrelated content)
-                        self.stdout_callback(new_output)
+                        processed_output = self._process_output_with_emoji(new_output)
+                        self.stdout_callback(processed_output)
                         self.cumulative_output += new_output
                         last_output_time = time.time()
                     
@@ -140,9 +145,12 @@ from utils import *
             with open(py_script_path, 'w') as py_file:
                 py_file.write(self.get_initialization_code() + "\n" + command)
             
+            # Set flag before sending command so the echoed command also gets emoji
+            self.is_executing_python = True
             # Always use non-persistent execution for simplicity
             self.child.sendline(f"python3 -u {py_script_path}")
             self._stream_output_until_prompt(timeout=120)
+            self.is_executing_python = False
             # Files are kept until program restart for debugging purposes
         else:
             self.child.sendline(command)
@@ -152,3 +160,27 @@ from utils import *
         self.child.sendline("exit")
         self.child.close()
         self.stdout_callback("\n[Session closed]\n")
+
+    def _process_output_with_emoji(self, text: str) -> str:
+        """Add ⚙️ emoji before newlines during Python execution."""
+        if not self.is_executing_python:
+            return text
+        
+        # Split into lines and add emoji before each line
+        lines = text.split('\n')
+        processed_lines = []
+        
+        for i, line in enumerate(lines):
+            if i == 0:
+                # First line - add emoji at the start
+                processed_lines.append('⚙️  ' + line)
+            else:
+                # Subsequent lines - add emoji after newline
+                processed_lines.append('\n⚙️  ' + line)
+        
+        # Join and handle final newline correctly
+        result = ''.join(processed_lines)
+        if text.endswith('\n') and not result.endswith('\n'):
+            result += '\n'
+        
+        return result
