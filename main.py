@@ -369,6 +369,20 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str)
     Returns:
         bool: True if execution should proceed, False if aborted
     """
+    python_codes: List[str] = get_extract_blocks()(code_to_execute, "python")
+    
+    if (len(python_codes) == 0):
+        always_permitted_bash = ["ls ", "pwd ", "cd ", "echo ", "print ", "cat ", "head ", "tail ", "grep ", "sed ", "awk ", "sort "]
+        # check if code to execute is executing solely always_permitted_commands
+        bash_codes: List[str] = get_extract_blocks()(code_to_execute, "bash")
+        bash_code = "\n".join(bash_codes)
+        bash_code_lines = bash_code.split("\n")
+        for line in bash_code_lines:
+            matching_commands = [cmd for cmd in always_permitted_bash if line.startswith(cmd)]
+            if len(matching_commands) > 0 and (line.count(" && ") + line.count(" || ") + line.count(";") + 1 == len(matching_commands)):
+                print(colored(f"✅ Code execution permitted automatically (These commands are always allowed: '{', '.join(matching_commands).strip()}')", "green"))
+                return True
+    
     if args.auto:  # Check if auto mode is enabled
         # Auto execution guard
         execution_guard_chat: Chat = Chat(

@@ -59,6 +59,16 @@ class Globals:
         shutil.rmtree(CLIAGENT_TEMP_STORAGE_PATH)
     os.makedirs(CLIAGENT_TEMP_STORAGE_PATH, exist_ok=True)
     
+    def cleanup_temp_py_files(self):
+        """Remove temporary Python files from previous runs."""
+        import re
+        try:
+            for f in os.listdir(self.CLIAGENT_TEMP_STORAGE_PATH):
+                if f.endswith('.py') and re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$', f):
+                    os.remove(os.path.join(self.CLIAGENT_TEMP_STORAGE_PATH, f))
+        except:
+            pass
+    
     def debug_log(self, message: str, color: str = None, end: str = '\n', 
                   with_title: bool = True, is_error: bool = False, force_print: bool = False,
                   prefix: str = "") -> None:
