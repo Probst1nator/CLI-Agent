@@ -3,7 +3,7 @@
 source "$(grep PYTHON_ENV_PATH ~/repos/CLI-Agent/.env | cut -d '=' -f2)"
 
 # Run the CLI-Agent with the screen grabber
-python3 ~/repos/CLI-Agent/generate_podcast.py
+python3 ~/repos/CLI-Agent/generate_podcast.py -o /home/user/OneDrive/Podcasts
 
 # Print a message to the console
 echo "Script execution completed."

@@ -2,12 +2,13 @@
 import os
 import shutil
 import socket
-from typing import List, Optional, Any, Callable, TYPE_CHECKING
+from typing import List, Optional, Any, Callable, TYPE_CHECKING, Dict
 import argparse
 import logging
 import builtins
 from enum import Enum, auto
 from termcolor import colored
+import json
 
 from py_classes.enum_ai_strengths import AIStrengths
 
@@ -24,6 +25,9 @@ class Globals:
     SELECTED_LLMS: List[str] = []  # Store selected LLMs
     SSH_CONNECTION: Optional[str] = None  # Store SSH connection details (user@hostname:port)
     
+    # Configuration settings
+    _user_config: Dict[str, Any] = {}
+    
     if (os.getenv("USE_ONLINE_HOSTNAME", "") == socket.gethostname()):
         LLM_STRENGTHS = [AIStrengths.ONLINE]
     
@@ -33,6 +37,9 @@ class Globals:
     CLIAGENT_ENV_FILE_PATH = os.path.join(CLIAGENT_ROOT_PATH, '.env')
     AGENTS_SANDBOX_DIR = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, "agents_sandbox")
     os.makedirs(AGENTS_SANDBOX_DIR, exist_ok=True)
+    
+    # User configuration file path
+    USER_CONFIG_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, 'user_config.json')
     
     # Model limits
     # Generate a daily model token limits file path with date suffix
@@ -58,6 +65,62 @@ class Globals:
     if os.path.exists(CLIAGENT_TEMP_STORAGE_PATH):
         shutil.rmtree(CLIAGENT_TEMP_STORAGE_PATH)
     os.makedirs(CLIAGENT_TEMP_STORAGE_PATH, exist_ok=True)
+    
+    def load_user_config(self) -> Dict[str, Any]:
+        """Load user configuration from JSON file."""
+        try:
+            if os.path.exists(self.USER_CONFIG_PATH):
+                with open(self.USER_CONFIG_PATH, 'r') as f:
+                    self._user_config = json.load(f)
+            else:
+                # Initialize with default values
+                self._user_config = {
+                    'podcast_save_location': self._get_default_podcast_location()
+                }
+                self.save_user_config()
+        except Exception as e:
+            logging.error(f"Failed to load user config: {e}")
+            self._user_config = {
+                'podcast_save_location': self._get_default_podcast_location()
+            }
+        return self._user_config
+    
+    def save_user_config(self) -> None:
+        """Save user configuration to JSON file."""
+        try:
+            os.makedirs(os.path.dirname(self.USER_CONFIG_PATH), exist_ok=True)
+            with open(self.USER_CONFIG_PATH, 'w') as f:
+                json.dump(self._user_config, f, indent=4)
+        except Exception as e:
+            logging.error(f"Failed to save user config: {e}")
+    
+    def get_config_value(self, key: str, default_value: Any = None) -> Any:
+        """Get a configuration value with fallback to default."""
+        if not self._user_config:
+            self.load_user_config()
+        return self._user_config.get(key, default_value)
+    
+    def set_config_value(self, key: str, value: Any) -> None:
+        """Set a configuration value and save to file."""
+        if not self._user_config:
+            self.load_user_config()
+        self._user_config[key] = value
+        self.save_user_config()
+    
+    def get_podcast_save_location(self) -> str:
+        """Get the podcast save location from configuration or default."""
+        return self.get_config_value('podcast_save_location', self._get_default_podcast_location())
+    
+    def set_podcast_save_location(self, path: str) -> None:
+        """Set the podcast save location in configuration."""
+        self.set_config_value('podcast_save_location', path)
+    
+    def _get_default_podcast_location(self) -> str:
+        """Get the default podcast save location."""
+        # Default to a podcast_generations folder in the CLI-Agent directory
+        default_path = os.path.join(self.CLIAGENT_ROOT_PATH, "podcast_generations")
+        os.makedirs(default_path, exist_ok=True)
+        return default_path
     
     def cleanup_temp_py_files(self):
         """Remove temporary Python files from previous runs."""
@@ -118,6 +181,9 @@ class Globals:
             print(token, end="", flush=True)
     
 g = Globals()
+
+# Initialize user configuration
+g.load_user_config()
 
 def configure_logging():
     # Configure root logger 

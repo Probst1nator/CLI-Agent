@@ -26,6 +26,14 @@ import numpy as np
 from enum import Enum
 import sys
 
+# Add pydub for MP3 conversion
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except ImportError:
+    PYDUB_AVAILABLE = False
+    AudioSegment = None
+
 # Attempt to import Dia-related libraries conditionally later if needed
 # import soundfile as sf
 # from dia.model import Dia
@@ -36,15 +44,64 @@ from py_methods.dia_helper import get_dia_model
 
 load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
 
-PODCAST_SAVE_LOCATION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "podcast_generations")
+# Default podcast save location - can be overridden by command line argument
+DEFAULT_PODCAST_SAVE_LOCATION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "podcast_generations")
+PODCAST_SAVE_LOCATION = DEFAULT_PODCAST_SAVE_LOCATION  # Will be updated by command line args
 GOOGLE_TTS_MODEL_NAME = "gemini-2.5-flash-preview-tts" # User specified model
 
 def save_binary_file(file_name, data):
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
     with open(file_name, "wb") as f:
         f.write(data)
-    print(f"File saved to: {file_name}")
 
+def convert_wav_to_mp3(wav_file_path: str) -> str:
+    """
+    Convert a WAV file to MP3 format using pydub.
+    Returns the path to the MP3 file.
+    """
+    if not PYDUB_AVAILABLE:
+        print(colored("Warning: pydub not available. Cannot convert to MP3. Install with 'pip install pydub'", "yellow"))
+        return ""
+    
+    try:
+        # Load WAV file
+        audio = AudioSegment.from_wav(wav_file_path)
+        
+        # Generate MP3 filename
+        mp3_file_path = wav_file_path.replace('.wav', '.mp3')
+        
+        # Export as MP3
+        audio.export(mp3_file_path, format="mp3", bitrate="192k")
+        print(colored(f"MP3 file saved to: {mp3_file_path}", "green"))
+        return mp3_file_path
+    except Exception as e:
+        print(colored(f"Error converting WAV to MP3: {e}", "red"))
+        return ""
+
+def save_audio_files(audio_data, sample_rate: int, file_name_base: str, file_extension: str = ".wav") -> Tuple[str, str]:
+    """
+    Save audio data as both WAV and MP3 files.
+    Returns tuple of (wav_file_path, mp3_file_path)
+    """
+    wav_file_path = os.path.join(PODCAST_SAVE_LOCATION, f"{file_name_base}.wav")
+    mp3_file_path = ""
+    
+    # Save WAV file
+    if isinstance(audio_data, np.ndarray):
+        # For numpy array (Dia output)
+        import soundfile as sf
+        sf.write(wav_file_path, audio_data, sample_rate)
+    else:
+        # For binary data (Google TTS output)
+        final_audio_to_save = create_wav_file(audio_data, sample_rate=sample_rate, bits_per_sample=16, num_channels=1)
+        save_binary_file(wav_file_path, final_audio_to_save)
+    
+    print(colored(f"WAV file saved to: {wav_file_path} (Sample Rate: {sample_rate} Hz)", "green"))
+    
+    # Convert to MP3
+    mp3_file_path = convert_wav_to_mp3(wav_file_path)
+    
+    return wav_file_path, mp3_file_path
 
 # _is_speaker_line might still be useful for other purposes or if we need to validate format
 def _is_speaker_line(line: str) -> bool:
@@ -172,11 +229,11 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                         highest_num = num
             episode_number = highest_num + 1
             file_name_base = f"{episode_number:03d}_{safe_title_for_filename}"
-            file_location = os.path.join(PODCAST_SAVE_LOCATION, f"{file_name_base}{file_extension}")
-
-            sf.write(file_location, final_audio_dia, final_sample_rate_dia)
+            file_location, mp3_file_location = save_audio_files(final_audio_dia, final_sample_rate_dia, file_name_base, file_extension)
             for af_path in audio_files: os.remove(af_path)
             print(colored(f"[{title}] Dia podcast saved to: {file_location} (SR: {final_sample_rate_dia} Hz)", "green"))
+            if mp3_file_location:
+                print(colored(f"[{title}] Dia podcast MP3 saved to: {mp3_file_location}", "green"))
             return file_location
         except Exception as e:
             print(colored(f"[{title}] Dia: Error merging audio: {e}", "red"))
@@ -220,7 +277,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                             speaker="Liam",
                             voice_config=types.VoiceConfig(
                                 prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                    voice_name="Iopetus"
+                                    voice_name="iapetus"
                                 )
                             ),
                         ),
@@ -246,6 +303,9 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
             
             while retry_count <= max_retries:
                 try:
+                    # The 'contents' argument is where the textual guidance for narration
+                    # (e.g., "(laughs)", "(stutters)") is passed to the TTS model.
+                    # The model interprets these cues directly from the text.
                     response_stream = client.models.generate_content_stream(
                         model=f"models/{GOOGLE_TTS_MODEL_NAME}",
                         contents=chunk,
@@ -274,11 +334,14 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                         print(colored(f"[{title}] Google TTS: Chunk {i+1} audio generated ({len(chunk_audio_data)} bytes).", "cyan"))
                         break
                         
-                except types.generation_types.StopCandidateException as e:
-                    print(colored(f"[{title}] StopCandidateException for chunk {i+1}: {e}", "red"))
-                    break
                 except Exception as e:
-                    print(colored(f"[{title}] Error generating audio for chunk {i+1}: {e}", "red"))
+                    # Handle any API errors including stop candidate exceptions
+                    error_message = str(e)
+                    if "stop" in error_message.lower() or "candidate" in error_message.lower():
+                        print(colored(f"[{title}] Generation stopped for chunk {i+1}: {e}", "red"))
+                        break
+                    else:
+                        print(colored(f"[{title}] Error generating audio for chunk {i+1}: {e}", "red"))
                 
                 retry_count += 1
                 if retry_count <= max_retries:
@@ -311,12 +374,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                     highest_num = num
         episode_number = highest_num + 1
         file_name_base = f"{episode_number:03d}_{safe_title_for_filename}"
-        file_location = os.path.join(PODCAST_SAVE_LOCATION, f"{file_name_base}{file_extension}")
-        
-        final_audio_to_save = create_wav_file(all_audio_data, sample_rate=24000, bits_per_sample=16, num_channels=1)
-        
-        save_binary_file(file_location, final_audio_to_save)
-        print(colored(f"Google podcast saved to: {file_location} (Sample Rate: 24000 Hz)", "green"))
+        file_location, mp3_file_location = save_audio_files(all_audio_data, 24000, file_name_base, file_extension)
         return file_location
 
 def create_wav_file(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: int = 16, num_channels: int = 1) -> bytes:
@@ -353,7 +411,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a podcast using AI.")
     parser.add_argument("-l", "--local", action="store_true",
                         help="Use local Dia TTS model instead of Google TTS.")
+    parser.add_argument("-o", "--output-dir", type=str, 
+                        help="Custom directory to save podcast files. Defaults to 'podcast_generations' in script directory.")
     args = parser.parse_args()
+    
+    # Update PODCAST_SAVE_LOCATION if custom output directory is provided
+    if args.output_dir:
+        PODCAST_SAVE_LOCATION = os.path.abspath(args.output_dir)
+        print(colored(f"Using custom output directory: {PODCAST_SAVE_LOCATION}", "cyan"))
+    else:
+        print(colored(f"Using default output directory: {PODCAST_SAVE_LOCATION}", "cyan"))
     
     g.local = args.local # Assuming g is a global settings object
 
@@ -361,6 +428,11 @@ if __name__ == "__main__":
         print(colored("Error: GOOGLE_API_KEY environment variable not set. Needed for Google TTS.", "red"))
         print(colored("You can either set GOOGLE_API_KEY or use the -l flag for local TTS (if configured).", "red"))
         exit(1)
+
+    if not PYDUB_AVAILABLE:
+        print(colored("Warning: pydub library not found. MP3 files will not be generated.", "yellow"))
+        print(colored("Install pydub with: pip install pydub", "yellow"))
+        print(colored("Note: You may also need ffmpeg installed on your system for MP3 conversion.", "yellow"))
 
     for i in range(5, 0, -1):
         print(colored(f"Generating podcast via clipboard in ", "green") + colored(f"{i}", "yellow") + colored(" seconds...", "green"))
@@ -376,7 +448,7 @@ if __name__ == "__main__":
     print(colored("Analyzing content for summary and title...", "blue"))
     try:
         analysisResponse = LlmRouter.generate_completion(
-            "Hi, I have a text snippet which I would like you to analyze. Please reason about it and provide a summary of the context, fundamentals and key points. Include insights and broader implications to help a reader remember the topic better.\nText:\n" + clipboard_content
+            "Hi, I have a text snippet which I would like you to analyze. Please reason about it and provide a summary of the context, fundamentals and key points. Include insightful analogies to other fields and concepts to help a reader remember the topic better.\nText:\n" + clipboard_content
         )
         titleResponseText = LlmRouter.generate_completion( # Renamed to avoid conflict
             "I am going to provide you with a text and you should generate a descriptive title for whatever content it's about. Ensure it is a short fit for a file name. Please think about the contents first and then like this:\nTitle: <title>\nThis is the text:\n" + analysisResponse
@@ -409,15 +481,28 @@ if __name__ == "__main__":
     print(colored(f"Generated Title: {extracted_title}", "magenta"))
     print(colored("Generating podcast dialogue...", "blue"))
 
-    # Using f-string for cleaner prompt construction
+    # Modified podcastGenPrompt to instruct the LLM to include narration cues
     podcastGenPrompt = f"""Create a meditative and joyful expert discussion between an intelligent and very creative and educated student and an self-taught established expert.
 The discussion should revolve around powerful insights and intuitions that enable easy understanding and retention of the topic.
+
+To guide the emotional tone and style of the speech, include concise parenthetical cues like (laughs), (stutters), (happy), (sadly), (whispering), or (enthusiastically) directly within the dialogue.
+**IMPORTANT: These cues are instructions for how the dialogue should be *spoken* by the text-to-speech system, and should NOT be spoken aloud themselves. They should only guide the voice's delivery.**
+
+For example, if Chloe says something funny, write:
+Chloe: That's absolutely hilarious! (laughs)
+
+If Liam is hesitant:
+Liam: I, uh, (stutters) I'm not entirely sure about that.
+
+If Chloe is expressing joy:
+Chloe: I'm so glad we covered this topic! (happy)
+
 To provide the dialogue please use the following delimiters and this exact format:
 ```txt
 Chloe: Welcome!
 Liam: It's great to be here, lets attack the topic of {extracted_title}.
 ...
-You dont need to use my example introduction, you can create a more fitting one for the topic.
+You don't need to use my example introduction, you can create a more fitting one for the topic.
 The following information/topic(s) are provided to provide food for thought:
 {analysisResponse}"""
 
@@ -485,19 +570,7 @@ The following information/topic(s) are provided to provide food for thought:
 
     if file_location:
         end_time = time.time()
-        print(colored(f"Finished! Podcast saved to: {file_location}", "green"))
         print(colored(f"Total time taken: {end_time - start_time:.2f} seconds", "green"))
-        # Ensure LlmRouter.last_used_model is set by your LlmRouter class
-        last_model = LlmRouter.last_used_model if hasattr(LlmRouter, 'last_used_model') else "N/A"
-        print(colored(f"Used authoring model: {last_model}", "green"))
-        if args.local:
-            print(colored(f"Used TTS model: Dia (Local)", "green")) # Simplified Dia model name
-        else:
-            print(colored(f"Used TTS model: {GOOGLE_TTS_MODEL_NAME} (Google)", "green"))
     else:
         print(colored("Podcast generation failed or produced no audio.", "red"))
-        if args.local:
-             print(colored(f"Local Dia TTS generation attempt failed. Check logs for errors and ensure Dia setup is correct (GPU, libraries).", "red"))
-        else:
-             print(colored(f"Google TTS generation attempt failed. Check logs for API errors or issues with input.", "red"))
         exit(1)
