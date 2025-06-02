@@ -18,6 +18,12 @@ class ComputationalNotebook:
         self.input_prompt_handler = input_prompt_handler
 
         self.bash_prompt_regex = r"(\([^)]+\)\s+)?[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:[^#$]*[#$]\s*$"
+        
+        # Track cumulative output to avoid re-displaying
+        self.cumulative_output = ""
+
+        # Clean up old temporary files from previous runs
+        g.cleanup_temp_py_files()
 
         self.child = pexpect.spawn('bash', encoding='utf-8', timeout=30)
         self._expect_bash_prompt()
@@ -35,6 +41,9 @@ class ComputationalNotebook:
         stall_threshold = 10  # seconds without new output before consulting LLM
         command_completed = False
         
+        # CRITICAL FIX: Clear pexpect's internal 'before' buffer to prevent contamination from previous commands
+        self.child.before = self.child.string_type()
+        
         while time.time() - start_time < timeout:
             try:
                 # Try to read any available data
@@ -43,16 +52,24 @@ class ComputationalNotebook:
                 # Get the new output since last read
                 new_output = str(self.child.before)
                 if new_output and new_output != buffer:
-                    # Only show the new part
-                    if buffer and new_output.startswith(buffer):
-                        diff = new_output[len(buffer):]
-                        if diff:
-                            self.stdout_callback(diff)
-                            last_output_time = time.time()  # Reset stall timer
-                    else:
+                    # Filter out content we've already displayed
+                    if self.cumulative_output and new_output.startswith(self.cumulative_output):
+                        # Only show the truly new part that we haven't seen before
+                        truly_new = new_output[len(self.cumulative_output):]
+                        if truly_new:
+                            self.stdout_callback(truly_new)
+                            self.cumulative_output += truly_new
+                            last_output_time = time.time()
+                    elif not self.cumulative_output or not new_output.startswith(self.cumulative_output):
+                        # This is completely new output (first command or unrelated content)
                         self.stdout_callback(new_output)
-                        last_output_time = time.time()  # Reset stall timer
+                        self.cumulative_output += new_output
+                        last_output_time = time.time()
+                    
                     buffer = new_output
+                    
+                    # Clear before for the next iteration to only get new data
+                    self.child.before = self.child.string_type()
                 
                 # Check if we have a bash prompt at the end (command completed)
                 if buffer:
@@ -113,7 +130,7 @@ sys.stderr.reconfigure(line_buffering=True)
 os.chdir('{os.getcwd()}')
 sys.path.append('{g.CLIAGENT_ROOT_PATH}')
 from py_classes.globals import g
-from utils import *')
+from utils import *
 """
 
     def execute(self, command: str, is_python_code: bool = False, persist_python_state: bool = True):
@@ -126,10 +143,7 @@ from utils import *')
             # Always use non-persistent execution for simplicity
             self.child.sendline(f"python3 -u {py_script_path}")
             self._stream_output_until_prompt(timeout=120)
-            try:
-                os.remove(py_script_path)
-            except:
-                pass
+            # Files are kept until program restart for debugging purposes
         else:
             self.child.sendline(command)
             self._stream_output_until_prompt(timeout=120)
