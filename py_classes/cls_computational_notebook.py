@@ -17,7 +17,7 @@ class ComputationalNotebook:
         self.stderr_callback = stderr_callback or (lambda text: print(f"STDERR: {text}", end=''))
         self.input_prompt_handler = input_prompt_handler
 
-        self.bash_prompt_regex = r"([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:[^#$]*[#$]\s*)"
+        self.bash_prompt_regex = r"(\([^)]+\)\s+)?[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:[^#$]*[#$]\s*$"
 
         self.child = pexpect.spawn('bash', encoding='utf-8', timeout=30)
         self._expect_bash_prompt()
@@ -28,9 +28,12 @@ class ComputationalNotebook:
         self.stdout_callback(output)
 
     def _stream_output_until_prompt(self, timeout=30):
-        """Stream output until we get back to bash prompt."""
+        """Stream output and detect stalls, consulting LLM when output stops but process hasn't exited."""
         start_time = time.time()
         buffer = ""
+        last_output_time = time.time()
+        stall_threshold = 10  # seconds without new output before consulting LLM
+        command_completed = False
         
         while time.time() - start_time < timeout:
             try:
@@ -45,14 +48,56 @@ class ComputationalNotebook:
                         diff = new_output[len(buffer):]
                         if diff:
                             self.stdout_callback(diff)
+                            last_output_time = time.time()  # Reset stall timer
                     else:
                         self.stdout_callback(new_output)
+                        last_output_time = time.time()  # Reset stall timer
                     buffer = new_output
                 
-                # Check if we're back at bash prompt
-                if self.bash_prompt_regex and buffer:
-                    if re.search(self.bash_prompt_regex, buffer):
-                        break
+                # Check if we have a bash prompt at the end (command completed)
+                if buffer:
+                    # Look at the end of the buffer, accounting for potential trailing whitespace/newlines
+                    buffer_end = buffer.rstrip()
+                    if buffer_end:
+                        lines = buffer_end.split('\n')
+                        if lines:
+                            last_line = lines[-1].strip()
+                            # Check if last line looks like a bash prompt
+                            # Use re.search instead of re.match to be more flexible
+                            if re.search(self.bash_prompt_regex, last_line):
+                                command_completed = True
+                                break
+                
+                # Check for output stall (only if command hasn't completed)
+                if not command_completed:
+                    time_since_last_output = time.time() - last_output_time
+                    if time_since_last_output >= stall_threshold:
+                        # No output for stall_threshold seconds and process is still running
+                        # Ask LLM what to do
+                        if self.input_prompt_handler:
+                            decision = self.input_prompt_handler(buffer)
+                            
+                            # Handle the new return types: bool | str
+                            if decision is True:
+                                # True means continue without providing input (wait longer)
+                                last_output_time = time.time()  # Reset timer to wait longer
+                                stall_threshold = min(stall_threshold * 1.5, 60)  # Increase threshold, max 60s
+                            elif decision is False:
+                                # False means interrupt execution
+                                self.child.sendcontrol('c')
+                                self.stdout_callback("\n[Process interrupted by user]\n")
+                                break
+                            elif isinstance(decision, str):
+                                # String means send it as input to the process
+                                self.child.sendline(decision)
+                                self.stdout_callback(f"\n[Sent input: {decision}]\n")
+                                last_output_time = time.time()  # Reset timer
+                            else:
+                                # Fallback: treat any other response as "wait"
+                                last_output_time = time.time()
+                        else:
+                            # No input handler available, just continue waiting
+                            last_output_time = time.time()
                         
             except pexpect.TIMEOUT:
                 continue
@@ -68,8 +113,7 @@ sys.stderr.reconfigure(line_buffering=True)
 os.chdir('{os.getcwd()}')
 sys.path.append('{g.CLIAGENT_ROOT_PATH}')
 from py_classes.globals import g
-from utils import *
-print(f'> Python sandbox initialized successfully with working directory: {{os.getcwd()}}')
+from utils import *')
 """
 
     def execute(self, command: str, is_python_code: bool = False, persist_python_state: bool = True):

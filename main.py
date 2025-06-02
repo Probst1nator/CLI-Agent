@@ -436,7 +436,7 @@ Do not add any other text after this single-word verdict.""",
 def select_best_branch(
     assistant_responses: List[str],
     user_input: str,
-) -> int:
+) -> str:
     """
     Select the best branch from multiple full assistant responses.
     
@@ -516,8 +516,9 @@ def handle_multiline_input() -> str:
 async def get_user_input_with_bindings(
     args: argparse.Namespace,
     context_chat: Chat,
-    prompt: str = colored("💬 Enter your request: ", 'blue', attrs=["bold"])
-) -> bool:
+    prompt: str = colored("💬 Enter your request: ", 'blue', attrs=["bold"]),
+    input_override: str = None,
+) -> bool | str:
     """
     Gets user input, handling special keybindings.
 
@@ -527,6 +528,8 @@ async def get_user_input_with_bindings(
     while True:
         if prompt == "":
             user_input = ""
+        elif input_override:
+            user_input = input_override
         else:
             try:
                 # get user input from various sources if not already set (e.g., after screenshot)
@@ -543,6 +546,7 @@ async def get_user_input_with_bindings(
             except KeyboardInterrupt: # Handle Ctrl+C as exit
                 print(colored("\n# cli-agent: Exiting due to Ctrl+C.", "yellow"))
                 exit()
+        
 
         # USER INPUT HANDLING - BEGIN
         if user_input == "-r" or user_input == "--r":
@@ -632,24 +636,18 @@ async def get_user_input_with_bindings(
             if selected_utils and selected_utils[0] == "__add_new_tool__":
                 print(colored(f"# cli-agent: 'Add New Tool' option selected. Custom handling will be implemented by user.", "green"))
                 # You can add your custom handling here or trigger a separate function
-                author_util_chat = Chat("You are a coding agent, tasked with implementing a python script that precisely follows the constraints of the framework shown off by the example code. You always take your time to reason about your observations first and then provide a full working python script.")
-                author_util_chat.add_message(Role.USER, f"""Please understand the context of the conversation and try to understand what is happening. Do not implement anything yet, just understand the context and the conversation.
-{context_chat.print_chat(start_index=-3)}
-""")
-                response = LlmRouter.generate_completion(
-                    author_util_chat,
-                    g.SELECTED_LLMS,
-                )
-                author_util_chat.add_message(Role.ASSISTANT, response)
+                author_util_chat = context_chat.deep_copy()
+                author_util_chat.add_message(Role.USER, "I would like you to implement a utililty python class that achieves what we just did but more accessible for future reuse. I am going to provide you with some example utils and you will work off of them.")
                 
                 # Read utility example files from disk
                 utils_examples_files = [
                     "utils/searchweb.py",
                     "utils/tobool.py",
-                    "utils/generateimage.py"
+                    "utils/generateimage.py",
+                    "utils/imagetotext.py"
                 ]
                 
-                utils_examples = "Here are three examples of utility tools that follow our framework:\n\n"
+                utils_example_prompt = "Here are three examples of utility tools, learn from them what you can do yourself and then implement your own utility class:\n\n"
                 
                 for i, file_path in enumerate(utils_examples_files):
                     try:
@@ -659,26 +657,16 @@ async def get_user_input_with_bindings(
                             file_content = f.read()
                         
                         # Add the example with a header and code block
-                        utils_examples += f"# Example {i+1}: {os.path.basename(file_path).replace('.py', '')} Utility\n"
-                        utils_examples += f"```python\n{file_content}\n```\n\n"
+                        utils_example_prompt += f"# Example {i+1}: {os.path.basename(file_path).replace('.py', '')} Utility\n"
+                        utils_example_prompt += f"```python\n{file_content}\n```\n\n"
                     except Exception as e:
                         print(colored(f"Error reading utility file {file_path}: {e}", "red"))
-                
-                utils_examples += """All utility tools follow this common pattern:
-1. Import from the core framework classes
-2. Define a class that inherits from UtilBase
-3. Implement a static `run()` method with appropriate parameters
-4. Include comprehensive docstrings
-5. Return useful results in the expected format
 
-Your utility should follow this framework and implement functionality that addresses the specific need identified in the conversation."""
-
-                author_util_chat.add_message(Role.USER, f"""Now I'd like you to implement a Utility tool in python that achieves the same goal as the conversation above. The tool needs to fit into an existing framework of utility tools. To help you understand the framework I am going to show you examples of existing tools:
-{utils_examples}
-""")
+                author_util_chat.add_message(Role.USER, f"""Now I'd like you to implement a Utility tool in python that achieves the same goal as the conversation above. The tool needs to fit into an existing framework of utility tools. To help you understand the framework I am going to show you examples of existing tools:\n\n{utils_example_prompt}\n\nNow implement your own utility class.""")
                 response = LlmRouter.generate_completion(
                     author_util_chat,
                     g.SELECTED_LLMS,
+                    strengths=[AIStrengths.STRONG],
                 )
                 author_util_chat.add_message(Role.ASSISTANT, response)
                 
@@ -780,9 +768,7 @@ For any new code you write, be sure to make appropriate use of these selected ut
             print(colored("# -img: Take a screenshot using Spectacle (with automatic fallbacks if not available)", "yellow"))
             print(colored(f"# -mct: Toggle Monte Carlo Tree Search ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.mct else 'off'})", "cyan"))
-            print(colored(f"      Note: MCT is auto-enabled when multiple LLMs are selected", "cyan"))
-            print(colored("# -m: Enter multiline input (end with '--f' on a new line)", "yellow"))
-            print(colored("# --message: Pass messages via CLI (-m 'msg1' 'msg2'). If used without messages (-m), multiline input mode is activated.", "yellow"))
+            print(colored("# -m: Enter multiline input", "yellow"))
             print(colored(f"# -t: Select specific utility tools to be used ", "yellow"), end="")
             print(colored(f"(Current: {', '.join(g.SELECTED_UTILS) if g.SELECTED_UTILS else 'None'})", "cyan"))
             print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
@@ -791,8 +777,10 @@ For any new code you write, be sure to make appropriate use of these selected ut
             else:
                 print(colored("(No chat history)", "cyan"))
             print(colored("# --minimized: Start the application in a minimized state", "yellow"))
-            print(colored("# -e: Exit after all automatic messages have been processed", "yellow"))
+            print(colored("# -e: Exit the application", "yellow"))
             # Add other CLI args help here if needed
+            if (input_override):
+                return ""
             continue # Ask for input again
         # USER INPUT HANDLING - END
 
@@ -943,14 +931,6 @@ async def main() -> None:
         args = parse_cli_args()
         print(args)
 
-        # Check if -m flag was provided without messages and prompt for multiline input
-        if '-m' in sys.argv or '--message' in sys.argv:
-            if not args.message:  # Empty list means -m was provided without arguments
-                print(colored("# cli-agent: -m flag detected without messages. Entering multiline input mode.", "green"))
-                multiline_input = handle_multiline_input()
-                if multiline_input.strip():  # Only add if not empty
-                    args.message.append(multiline_input)
-
         # Override logging level if debug mode is enabled
         if args.debug:
             logging.getLogger().setLevel(logging.DEBUG)
@@ -1002,28 +982,39 @@ async def main() -> None:
             text = filter_cmd_output(text)
             print(colored(text, "red"), end="") # Print errors in red
             stderr_buffer += text
-        
-        def input_callback(prompt: str, previous_output: str) -> str:
-            print("CALLBACK DETECTED")
-            konsole_interaction_chat = context_chat.deep_copy()
+        def input_callback(previous_output: str) -> bool | str:
+            """
+            Callback function to handle interactive input during code execution.
             
-            if prompt == "TIMEOUT_DECISION":
-                # Special handling for timeout decisions
-                konsole_interaction_chat.add_message(Role.USER, f"""Your code execution has been idle (no new output) for a while. Based on the current state, decide whether to:
+            Args:
+                prompt: The prompt text from the execution environment
+                previous_output: The output that has been generated so far
+                
+            Returns:
+                bool | str: 
+                    - True to continue without providing input (e.g., effectively pressing Enter or waiting)
+                    - False to interrupt execution
+                    - A string to provide as input and continue execution
+            """
+            konsole_interaction_chat = context_chat.deep_copy()
+            konsole_interaction_chat.set_instruction_message("You are a konsole interaction assistant. You are being asked to decide what to do next based on a recent output of a code execution.")
+            konsole_interaction_chat.debug_title = "Konsole Interaction Chat"
+            
+            # Get the 10 most recent lines
+            lines = previous_output.splitlines()
+            recent_output = ('...\n' + '\n'.join(lines[-10:])) if len(lines) > 10 else previous_output
+            konsole_interaction_chat.add_message(Role.USER, f"""Your code execution has been idle (no new output) for a while. Based on the current state, decide whether to:
 
-1. WAIT LONGER: If the process might still be working (e.g., downloading, processing, thinking), respond with 'None' as the last line
-2. PROVIDE INPUT: If the process is waiting for user input, provide exactly what should be entered
+1. WAIT LONGER: If the process might still be working (e.g., downloading, processing, thinking), response in your last line with 'continue'
+2. PROVIDE INPUT: If the process is waiting for user input, provide the input as the last line of your response.
+3. INTERRUPT: If you believe the process is stuck or should be terminated, enter 'kill' as the last line of your response.
 
 Current execution state:
+```bash
+{recent_output}
 ```
-{previous_output}
-```
-
-If you decide to wait longer, end your response with exactly 'None' on a new line.
-If you decide to provide input, end your response with exactly what should be typed (no quotes, no explanations after it).""")
-            else:
-                # Original handling for other prompt types
-                konsole_interaction_chat.add_message(Role.USER, f"Your notebook execution was halted, please determine what keys to enter to continue execution. Provide the key or the string to enter as the last line of your response:\n```bash\n{previous_output}\n{prompt}```")
+To respond, simply ensure your response is thought through and your last line is the decision or the input you want to make.
+""")
             
             konsole_interaction_response = LlmRouter.generate_completion(
                 konsole_interaction_chat,
@@ -1036,74 +1027,39 @@ If you decide to provide input, end your response with exactly what should be ty
             
             # Handle empty or malformed responses gracefully
             if not konsole_interaction_response or not konsole_interaction_response.strip():
-                print("Warning: Empty response from LLM, returning 'None' for timeout decision")
-                return "None"
+                print("Warning: Empty response from LLM. Interpreting as 'continue without input'.")
+                return True # As per docstring: True to continue without providing input
             
             lines = konsole_interaction_response.split("\n")
+            # The following check for 'not lines' is redundant if the strip() check above passed,
+            # but kept for robustness in case of unusual string content.
             if not lines:
-                print("Warning: No lines in LLM response, returning 'None' for timeout decision")
-                return "None"
+                print("Warning: No lines in LLM response. Interpreting as 'continue without input'.")
+                return True # As per docstring: True to continue without providing input
             
-            # Get the last non-empty line, or "None" if all lines are empty
-            last_line = "None"
-            for line in reversed(lines):
-                if line.strip():
-                    last_line = line.strip()
+            # Get the last non-empty line
+            last_line_str = "" # Initialize to ensure it's defined
+            for line_content in reversed(lines):
+                if line_content.strip():
+                    last_line_str = line_content.strip()
                     break
             
-            return last_line
+            # If all lines were empty or whitespace (e.g. LLM returned "\n \n")
+            if not last_line_str:
+                print("Warning: LLM response contained only empty/whitespace lines. Interpreting as 'continue without input'.")
+                return True # As per docstring: True to continue without providing input
+
+            # Map LLM's textual decision to the required boolean or string return type
+            if last_line_str.lower() == "none":
+                return True  # Continue without providing input
+            elif last_line_str.lower() == "kill":
+                return False # Interrupt execution
+            else:
+                return last_line_str # Provide the string as input
         notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
             
-            # if args.test_x11:
-        
-        # # Minimize window if requested
-        # if args.minimized:
-        #     try:
-        #         # Get the PID of the current process
-        #         pid = os.getpid()
-        #         # Try to minimize the window using xdotool (if available)
-        #         try:
-        #             subprocess.run(
-        #                 ["xdotool", "search", "--pid", str(pid), "windowminimize"],
-        #                 stderr=subprocess.DEVNULL,
-        #                 stdout=subprocess.DEVNULL,
-        #                 check=False
-        #             )
-        #             print(colored("Application started in minimized state using xdotool", "cyan"))
-        #         except FileNotFoundError:
-        #             # Fallback to wmctrl if xdotool is not available
-        #             # Get the window ID using wmctrl
-        #             wmctrl_process = subprocess.Popen(
-        #                 ["wmctrl", "-l", "-p"],
-        #                 stdout=subprocess.PIPE,
-        #                 stderr=subprocess.PIPE,
-        #                 text=True
-        #             )
-        #             output, _ = wmctrl_process.communicate()
-                    
-        #             # Look for the window with our PID
-        #             for line in output.splitlines():
-        #                 if str(pid) in line:
-        #                     window_id = line.split()[0]
-        #                     # Minimize the window
-        #                     subprocess.run(
-        #                         ["wmctrl", "-i", "-r", window_id, "-b", "add,hidden"],
-        #                         stderr=subprocess.DEVNULL,
-        #                         stdout=subprocess.DEVNULL,
-        #                         check=False
-        #                     )
-        #                     print(colored("Application started in minimized state using wmctrl", "cyan"))
-        #                     break
-        #     except Exception as e:
-        #         if args.debug:
-        #             print(colored(f"Failed to minimize window: {str(e)}", "yellow"))
-        
         # Initialize tool manager
         utils_manager = UtilsManager()
-        # Print loaded agents
-        print(colored("Loaded utils:", "green"))
-        for util_name in utils_manager.get_util_names():
-            print(colored(f"  - {util_name}", "green"))
         
         # Initialize web server early if GUI mode is enabled
         web_server = None
@@ -1188,25 +1144,7 @@ You may read from the whole system but if you need to save or modify any files, 
 
 
 Now, I am going to run somethings to show you how your computational notebook works.
-```python
-import os
-print(f"Current working directory: {{os.getcwd()}}")
-print(f"First 5 files in current directory: {{os.listdir()[:5]}}")
-```
-<execution_output>
-Current working directory: {os.getcwd()}
-First 5 files in current directory: {os.listdir()[:5]}
-</execution_output>
-That succeeded, now let's check the current time:
-```bash
-import datetime
-print(f"Local time: {{datetime.datetime.now()}}")
-```
-<execution_output>
-Local time: {datetime.datetime.now()}
-</execution_output>
-
-Lastly, let's see the window manager and OS version of your users system::
+Let's see the window manager and OS version of your users system::
 ```bash
 echo "OS: $(lsb_release -ds)" && echo "Desktop: $XDG_CURRENT_DESKTOP" && echo "Window Manager: $(ps -eo comm | grep -E '^kwin|^mutter|^openbox|^i3|^dwm' | head -1)"
 ```
@@ -1216,6 +1154,29 @@ echo "OS: $(lsb_release -ds)" && echo "Desktop: $XDG_CURRENT_DESKTOP" && echo "W
 {subprocess.check_output(['echo', '$XDG_CURRENT_DESKTOP']).decode('utf-8')}
 {subprocess.check_output('ps aux | grep -i kwin', shell=True).decode('utf-8')}
 </execution_output>
+
+That succeeded, now let's see the current working directory and the first 5 files in it:
+```python
+import os
+print(f"Current working directory: {{os.getcwd()}}")
+print(f"Total files in current directory: {{len(os.listdir())}}")
+print(f"First 5 files in current directory: {{os.listdir()[:5]}}")
+```
+<execution_output>
+Current working directory: {os.getcwd()}
+Total files in current directory: {len(os.listdir())}
+First 5 files in current directory: {os.listdir()[:5]}
+</execution_output>
+
+That succeeded, now let's check the current time:
+```bash
+import datetime
+print(f"Current year and month: {{datetime.datetime.now().strftime('%Y-%m')}}")
+```
+<execution_output>
+Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
+</execution_output>
+
 """
             context_chat.add_message(Role.USER, kickstart_preprompt)
 
@@ -1231,6 +1192,21 @@ echo "OS: $(lsb_release -ds)" && echo "Desktop: $XDG_CURRENT_DESKTOP" && echo "W
         
         if args.llm:
             g.SELECTED_LLMS = [args.llm]
+        
+        # Print help page by default at startup
+        await get_user_input_with_bindings(args, context_chat, input_override="--h")
+        # Print loaded agents
+        print(colored("Loaded utils:", "green"))
+        for util_name in utils_manager.get_util_names():
+            print(colored(f"  - {util_name}", "green"))
+
+        # Check if -m flag was provided without messages and prompt for multiline input
+        if '-m' in sys.argv or '--message' in sys.argv:
+            if not args.message:  # Empty list means -m was provided without arguments
+                print(colored("# cli-agent: -m flag detected without messages. Entering multiline input mode.", "green"))
+                multiline_input = handle_multiline_input()
+                if multiline_input.strip():  # Only add if not empty
+                    args.message.append(multiline_input)
 
         # Main loop
         while True:
