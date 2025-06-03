@@ -500,7 +500,7 @@ The system includes several utility modules located in the `utils/` directory:
 
 ### Image and Media Utilities
 - `generateimage.py`: Image generation capabilities
-- `imagetotext.py`: Image-to-text conversion using vision-capable LLMs
+- `viewimage.py`: Image-to-text conversion using vision-capable LLMs
 
 ### General Utilities
 - `tobool.py`: Boolean conversion utilities

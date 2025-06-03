@@ -6,6 +6,8 @@ import socket
 import logging
 from termcolor import colored
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, TooManyRequests
+import google.generativeai as genai
+from google.generativeai import types
 from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
@@ -51,9 +53,6 @@ class GoogleAPI(AIProviderInterface):
         
         # Only configure if not already done
         if not _google_api_configured:
-            # Import google.generativeai only when needed
-            import google.generativeai as genai
-            
             api_key: Optional[str] = os.getenv('GOOGLE_API_KEY')
             if not api_key:
                 raise Exception("Google API key not found. Set the GOOGLE_API_KEY environment variable.")
@@ -90,9 +89,6 @@ class GoogleAPI(AIProviderInterface):
             TimeoutException: If the request times out.
             Exception: For other errors, to be handled by the router.
         """
-        # Import google.generativeai only when needed
-        import google.generativeai as genai
-        
         # Convert string to Chat object if needed
         if isinstance(chat, str):
             chat_obj = Chat()
@@ -193,9 +189,6 @@ class GoogleAPI(AIProviderInterface):
             Optional[Union[List[float], List[List[float]]]]: The generated embedding(s) or None if an error occurs.
         """
         try:
-            # Import google.generativeai only when needed
-            import google.generativeai as genai
-            
             # Configure the API if not already done
             GoogleAPI._configure_api()
             
@@ -269,9 +262,7 @@ class GoogleAPI(AIProviderInterface):
             Exception: If the API is not configured or if there is an error during generation.
         """
         try:
-            # Import necessary modules
-            from google import genai
-            from google.genai import types
+            # Imports are now at the top of the file
             
             # Configure the API if not already done
             GoogleAPI._configure_api()
@@ -282,7 +273,7 @@ class GoogleAPI(AIProviderInterface):
                 g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating speech...", force_print=True, prefix=prefix)
             
             # Create the client
-            client = genai.Client(
+            client = genai.Client( # Using genai from top-level import
                 api_key=os.environ.get("GOOGLE_API_KEY"),
             )
             
@@ -297,10 +288,10 @@ class GoogleAPI(AIProviderInterface):
             speaker_voice_configs = []
             for config in speaker_config:
                 speaker_voice_configs.append(
-                    types.SpeakerVoiceConfig(
+                    types.SpeakerVoiceConfig( # Using types from top-level import
                         speaker=config["speaker"],
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_config=types.VoiceConfig( # Using types from top-level import
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig( # Using types from top-level import
                                 voice_name=config["voice"]
                             )
                         ),
@@ -309,20 +300,20 @@ class GoogleAPI(AIProviderInterface):
             
             # Set up content for TTS
             contents = [
-                types.Content(
+                types.Content( # Using types from top-level import
                     role="user",
                     parts=[
-                        types.Part.from_text(text=text),
+                        types.Part.from_text(text=text), # Using types from top-level import
                     ],
                 ),
             ]
             
             # Configure TTS generation
-            generate_content_config = types.GenerateContentConfig(
+            generate_content_config = types.GenerateContentConfig( # Using types from top-level import
                 temperature=temperature,
                 response_modalities=["audio"],
-                speech_config=types.SpeechConfig(
-                    multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                speech_config=types.SpeechConfig( # Using types from top-level import
+                    multi_speaker_voice_config=types.MultiSpeakerVoiceConfig( # Using types from top-level import
                         speaker_voice_configs=speaker_voice_configs
                     ),
                 ),

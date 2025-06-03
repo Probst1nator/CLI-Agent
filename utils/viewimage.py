@@ -1,4 +1,4 @@
-from typing import Optional
+
 import base64
 import os
 
@@ -8,28 +8,27 @@ from py_classes.enum_ai_strengths import AIStrengths
 from py_classes.cls_util_base import UtilBase
 
 
-class ImageToText(UtilBase):
+class ViewImage(UtilBase):
     """
-    A utility for converting an image to a descriptive text.
+    A utility for viewing an image and getting a description of it.
     
-    This utility allows converting an image file into a detailed text 
-    description using vision-capable language models.
+    This utility allows viewing an image and getting a description of it.
     """
     
     @staticmethod
     def run(
         image_path: str,
-        prompt: Optional[str] = "This image shows a screenshot of the current screen. There should be a video player playing a video. What is the name of the video and whats the like to dislike ratio?"
+        prompt: str = "This image shows a screenshot of the current screen. There should be a video player playing a video. What is the name of the video and whats the like to dislike ratio?"
     ) -> str:
         """
-        Convert an image to descriptive text.
+        Inspect an image, optionally using a prompt.
         
         Args:
-            image_path: Path to the image file
-            prompt: Optional custom prompt to guide the image description and focus attention on specific features
+            image_path: str, Path to the image file
+            prompt: str, Prompt to guide the image description and focus attention on specific features
             
         Returns:
-            A text description of the image
+            str, A text description of the image
         """
         # Validate image path
         if not os.path.exists(image_path):
@@ -52,8 +51,7 @@ class ImageToText(UtilBase):
         Your description should be thorough but focused on what matters.
         """
         
-        # Create the chat object with the instruction
-        chat = Chat(instruction, debug_title="Image to Text")
+        chat = Chat(instruction, debug_title="Viewing Image")
         
         # Add user message with the custom prompt
         chat.add_message(Role.USER, prompt)
@@ -64,7 +62,7 @@ class ImageToText(UtilBase):
             base64_images=[base64_image],
             strengths=[AIStrengths.VISION],
             exclude_reasoning_tokens=True,
-            hidden_reason="Image to Text"
+            hidden_reason="Viewing Image"
         )
         
         return response
