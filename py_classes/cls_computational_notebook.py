@@ -46,6 +46,7 @@ class ComputationalNotebook:
         last_output_time = time.time()
         stall_threshold = 10  # seconds without new output before consulting LLM
         command_completed = False
+        potential_completion_time = None  # Track when we first see a bash prompt
         
         # CRITICAL FIX: Clear pexpect's internal 'before' buffer to prevent contamination from previous commands
         self.child.before = self.child.string_type()
@@ -67,19 +68,23 @@ class ComputationalNotebook:
                             self.stdout_callback(processed_output)
                             self.cumulative_output += truly_new
                             last_output_time = time.time()
+                            # Reset completion time since we got new output
+                            potential_completion_time = None
                     elif not self.cumulative_output or not new_output.startswith(self.cumulative_output):
                         # This is completely new output (first command or unrelated content)
                         processed_output = self._process_output_with_emoji(new_output)
                         self.stdout_callback(processed_output)
                         self.cumulative_output += new_output
                         last_output_time = time.time()
+                        # Reset completion time since we got new output
+                        potential_completion_time = None
                     
                     buffer = new_output
                     
                     # Clear before for the next iteration to only get new data
                     self.child.before = self.child.string_type()
                 
-                # Check if we have a bash prompt at the end (command completed)
+                # Check if we have a bash prompt at the end (potential command completion)
                 if buffer:
                     # Look at the end of the buffer, accounting for potential trailing whitespace/newlines
                     buffer_end = buffer.rstrip()
@@ -90,14 +95,23 @@ class ComputationalNotebook:
                             # Check if last line looks like a bash prompt
                             # Use re.search instead of re.match to be more flexible
                             if re.search(self.bash_prompt_regex, last_line):
-                                command_completed = True
-                                break
+                                if potential_completion_time is None:
+                                    # First time we see a bash prompt, start waiting
+                                    potential_completion_time = time.time()
+                                elif time.time() - potential_completion_time >= 3.0:
+                                    # We've seen a bash prompt for 3+ seconds with no new output
+                                    # This suggests the command is truly complete
+                                    command_completed = True
+                                    break
 
                 # Check for output stall (only if command hasn't completed)
                 if not command_completed:
                     time_since_last_output = time.time() - last_output_time
-                    if time_since_last_output >= stall_threshold:
-                        # No output for stall_threshold seconds and process is still running
+                    # If we have a potential completion but haven't waited long enough, use a shorter stall threshold
+                    current_stall_threshold = 5 if potential_completion_time else stall_threshold
+                    
+                    if time_since_last_output >= current_stall_threshold:
+                        # No output for current_stall_threshold seconds and process is still running
                         # Ask LLM what to do
                         if self.input_prompt_handler:
                             decision = self.input_prompt_handler(buffer)
@@ -107,6 +121,7 @@ class ComputationalNotebook:
                                 # True means continue without providing input (wait longer)
                                 last_output_time = time.time()  # Reset timer to wait longer
                                 stall_threshold = min(stall_threshold * 1.5, 60)  # Increase threshold, max 60s
+                                potential_completion_time = None  # Reset completion detection
                             elif decision is False:
                                 # False means interrupt execution
                                 self.child.sendcontrol('c')
@@ -117,9 +132,11 @@ class ComputationalNotebook:
                                 self.child.sendline(decision)
                                 self.stdout_callback(f"\n[Sent input: {decision}]\n")
                                 last_output_time = time.time()  # Reset timer
+                                potential_completion_time = None  # Reset completion detection
                             else:
                                 # Fallback: treat any other response as "wait"
                                 last_output_time = time.time()
+                                potential_completion_time = None  # Reset completion detection
                         else:
                             # No input handler available, just continue waiting
                             last_output_time = time.time()
@@ -153,7 +170,7 @@ from utils import *
             # Debug: confirm flag is set (remove this later)
             # Always use non-persistent execution for simplicity
             self.child.sendline(f"python3 -u {py_script_path}")
-            self._stream_output_until_prompt(timeout=120)
+            self._stream_output_until_prompt(timeout=600)  # Increased to 10 minutes for AI model operations
             self.is_executing_python = False
             # Debug: confirm flag is reset (remove this later)
             # Files are kept until program restart for debugging purposes
@@ -161,7 +178,7 @@ from utils import *
             # Set shell execution flag for bash commands
             self.is_executing_shell = True
             self.child.sendline(command)
-            self._stream_output_until_prompt(timeout=120)
+            self._stream_output_until_prompt(timeout=300)  # Increased to 5 minutes for shell commands
             self.is_executing_shell = False
 
     def close(self):

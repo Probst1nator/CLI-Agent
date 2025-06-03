@@ -71,16 +71,16 @@ def get_update_cmd_collection():
 
 # Try importing with a direct import
 try:
-    from utils.imagetotext import ImageToText
+    from utils.viewimage import ViewImage
 except ImportError:
     # Fallback to a direct import of the module
     import importlib.util
-    spec = importlib.util.spec_from_file_location("ImageToText", 
+    spec = importlib.util.spec_from_file_location("ViewImage", 
                                                  os.path.join(os.path.dirname(os.path.abspath(__file__)), 
-                                                             "utils", "imagetotext.py"))
-    imagetotext_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(imagetotext_module)
-    ImageToText = imagetotext_module.ImageToText
+                                                             "utils", "viewimage.py"))
+    viewimage_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(viewimage_module)
+    ViewImage = viewimage_module.ViewImage
 
 # Suppress TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -158,6 +158,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enable debug windows for chat contexts without full debug logging. Sets g.DEBUG_CHATS=True.")
     parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
                         help="Use private remote wake detection")
+    parser.add_argument("--local-exec-confirm", action="store_true", default=False,
+                        help="Use local LLM for auto-execution confirmation instead of cloud models.")
     
     parser.add_argument("--debug", action="store_true", default=False,
                         help="Enable debug logs")
@@ -420,7 +422,7 @@ Do not add any other text after this single-word verdict.""",
         else:
             analysis_prompt = f"Analyze these bash commands for safe execution and completeness:\n{code_to_execute}"
         execution_guard_chat.add_message(Role.USER, analysis_prompt)
-        safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, hidden_reason="Auto-execution guard")
+        safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, hidden_reason="Auto-execution guard", force_local=args.local_exec_confirm, strengths=[AIStrengths.SMALL] if args.local_exec_confirm else [])
         if safe_to_execute.lower().strip().endswith('yes'):
             print(colored("✅ Code execution permitted", "green"))
             return True
@@ -449,6 +451,11 @@ Do not add any other text after this single-word verdict.""",
         elif user_input.lower() == 'a':
             args.auto = not args.auto
             print(colored(f"# cli-agent: KeyBinding detected: Automatic execution toggled {'on' if args.auto else 'off'}, type (--h) for info", "green"))
+            return await confirm_code_execution(args, code_to_execute)
+        elif user_input.lower() == 'l':
+            args.auto = True
+            args.local_exec_confirm = True
+            print(colored(f"# cli-agent: KeyBinding detected: Local auto execution toggled {'on' if args.local_exec_confirm else 'off'}, type (--h) for info", "green"))
             return await confirm_code_execution(args, code_to_execute)
         else:
             print(colored("✅ Code execution permitted", "green"))
@@ -692,7 +699,7 @@ async def get_user_input_with_bindings(
                     "utils/searchweb.py",
                     "utils/tobool.py",
                     "utils/generateimage.py",
-                    "utils/imagetotext.py"
+                    "utils/viewimage.py"
                 ]
                 
                 utils_example_prompt = "Here are three examples of utility tools, learn from them what you can do yourself and then implement your own utility class:\n\n"
@@ -827,6 +834,8 @@ For any new code you write, be sure to make appropriate use of these selected ut
             else:
                 print(colored("(No chat history)", "cyan"))
             print(colored("# --minimized: Start the application in a minimized state", "yellow"))
+            print(colored(f"# --local-exec-confirm: Use local LLM for auto-execution confirmation ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.local_exec_confirm else 'off'})", "cyan"))
             print(colored("# -e: Exit the application", "yellow"))
             # Add other CLI args help here if needed
             if (input_override):
@@ -929,11 +938,11 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
     context_chat.add_message(Role.USER, f"""I am inquiring about a screenshot let's have a look at it.
 ```python
 image_path = '{screenshots_paths[0]}'
-description = ImageToText.run(image_path, "Describe the screenshot in detail, focusing on any text, images, or notable features.")
+description = ViewImage.run(image_path, "Describe the screenshot in detail, focusing on any text, images, or notable features.")
 print(f"Screenshot description: {{description}}")
 ```
 <execution_output>
-Screenshot description: {ImageToText.run(screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
+Screenshot description: {ViewImage.run(screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
 </execution_output>
 Perfect, use this description as needed for the next steps.\n""")
 
@@ -1031,6 +1040,7 @@ async def main() -> None:
             text = filter_cmd_output(text)
             print(colored(text, "red"), end="") # Print errors in red
             stderr_buffer += text
+
         def input_callback(previous_output: str) -> bool | str:
             """
             Callback function to handle interactive input during code execution.
@@ -1307,7 +1317,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                             response_buffer += char
                             if print_char:
                                 print(text_stream_painter.apply_color(char), end="", flush=True)
-                            if response_buffer.count("```") == 2:
+                            if response_buffer.count("```") % 2 == 0 and (response_buffer.count("```python") > 0 or response_buffer.count("```bash") > 0):
                                 final_response = response_buffer
                                 response_buffer = ""
                                 return final_response
