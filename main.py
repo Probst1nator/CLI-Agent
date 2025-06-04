@@ -862,7 +862,7 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
 
     base64_images: List[str] = []
     screenshots_paths: List[str] = []
-    max_attempts = 2
+    max_attempts = 3
 
     for attempt in range(1, max_attempts + 1):
         base64_images = [] # Reset for each attempt
@@ -909,7 +909,7 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
         # If this was not the last attempt and no images were captured, wait briefly before retrying
         if attempt < max_attempts and not base64_images:
             print(colored(f"Screenshot capture failed on attempt {attempt}. Retrying...", "yellow"))
-            await asyncio.sleep(1) # Optional: brief pause before retry
+            await asyncio.sleep(2) # Optional: brief pause before retry
 
     # After the loop (or break), process the results
     if base64_images:
