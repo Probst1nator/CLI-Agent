@@ -17,6 +17,7 @@ __pycache__/
 *.gif
 *.wav
 *.mp3
+*.pth
 *.stfolder
 *.deprecated
 
@@ -28,5 +29,6 @@ __pycache__/
 **.bin
 **.sqlite3
 **test_
+**test**
 
 run_screen_grabber.sh
