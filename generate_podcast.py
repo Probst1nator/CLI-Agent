@@ -115,7 +115,7 @@ def save_audio_files(audio_data, sample_rate: int, file_name_base: str) -> str:
 def _is_speaker_line(line: str) -> bool:
     return bool(re.match(r"^\s*[\w\s.-]+\s*\([\w\s.-]+\):", line))
 
-def _split_podcast_text_into_chunks(text: str, max_chars: int = 600, max_lines: int = 30, split_on_speakers: bool = True) -> list[str]:
+def _split_podcast_text_into_chunks(text: str, max_chars: int = 600) -> list[str]:
     chunks = []
     current_chunk_lines = []
     input_lines = text.splitlines()
@@ -123,12 +123,10 @@ def _split_podcast_text_into_chunks(text: str, max_chars: int = 600, max_lines: 
     for i, line_to_add in enumerate(input_lines):
         temp_prospective_lines = current_chunk_lines + [line_to_add]
         prospective_char_count = len("\n".join(temp_prospective_lines))
-        prospective_actual_line_count = len(temp_prospective_lines)
         must_split_before_adding_current_line = False
         if current_chunk_lines:
             if prospective_char_count > max_chars: must_split_before_adding_current_line = True
-            elif prospective_actual_line_count > max_lines: must_split_before_adding_current_line = True
-            elif split_on_speakers and _is_speaker_line(line_to_add): must_split_before_adding_current_line = True
+            elif _is_speaker_line(line_to_add): must_split_before_adding_current_line = True
         if must_split_before_adding_current_line:
             chunks.append("\n".join(current_chunk_lines))
             current_chunk_lines = []
@@ -147,10 +145,10 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         f.write(podcast_dialogue)
 
     if use_local_dia:
-        text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=600, max_lines=30, split_on_speakers=True)
+        text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=600)
         print(colored(f"[{title}] Successfully split into {len(text_chunks)} chunks for Dia.", "blue"))
     else:
-        text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=4500, max_lines=100, split_on_speakers=False)
+        text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=4500)
         print(colored(f"[{title}] Successfully split into {len(text_chunks)} chunks for Google TTS.", "blue"))
 
     if use_local_dia:
