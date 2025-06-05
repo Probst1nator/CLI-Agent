@@ -333,10 +333,103 @@ def create_wav_file(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: 
     wav_header = struct.pack("<4sI4s4sIHHIIHH4sI", riff_chunk_id, riff_chunk_size, wave_format, fmt_chunk_id, fmt_chunk_size, audio_format, num_channels, sample_rate, byte_rate, block_align, bits_per_sample, data_chunk_id, data_chunk_size)
     return wav_header + pcm_data
 
+def process_raw_content_to_dialogue(content: str) -> Tuple[str, str]:
+    """Process raw text content through analysis and dialogue generation.
+    Returns (dialogue, title)"""
+    print(colored("Analyzing content for summary and title...", "blue"))
+    try:
+        analysisResponse = LlmRouter.generate_completion(
+            f"For the following text snippet, please highlight key insights and lay out the fundamentals of the topic of concern. "
+            f"Explore analogies to other fields and highlight related concepts to manifest a constructive framework for the topic.\n"
+            f"Here's the raw unfiltered text snippet:\n{content}"
+        )
+        titleResponseText = LlmRouter.generate_completion(
+            f"I am going to provide you with a text and you should generate a descriptive title for whatever content it's about. "
+            f"Ensure it is a short fit for a file name. Please think about the contents first and then like this:\n"
+            f"Title: <title>\nThis is the text:\n{analysisResponse}"
+        )
+    except Exception as e:
+        print(colored(f"Error during LLM processing for analysis/title: {e}", "red"))
+        import traceback
+        traceback.print_exc()
+        exit(1)
+
+    # Extract and clean title
+    title_match = re.search(r"Title:\s*(.*)", titleResponseText, re.IGNORECASE)
+    extracted_title = title_match.group(1).strip() if title_match else titleResponseText.splitlines()[0].strip()
+    MAX_TITLE_LEN = 50 
+    if len(extracted_title) > MAX_TITLE_LEN: 
+        extracted_title = extracted_title[:MAX_TITLE_LEN]
+    extracted_title = re.sub(r'[^\w\s-]', '', extracted_title).strip()
+    extracted_title = re.sub(r'\s+', '_', extracted_title)
+    if not extracted_title: 
+        extracted_title = "Untitled_Podcast"
+
+    print(colored(f"Generated Title: {extracted_title}", "magenta"))
+    print(colored("Generating podcast dialogue...", "blue"))
+    
+    podcastGenPrompt = f"""Use a deepthinking subroutine before providing your final response to this query. Create a meditative and joyful expert discussion between an intelligent and very creative and educated student and an self-taught established expert.
+The discussion should revolve around powerful insights and intuitions that enable easy understanding and retention of the topic.
+To guide the emotional tone and style of the speech, include concise parenthetical cues like (laughs), (stutters), (happy), (sadly), (whispering), or (enthusiastically) directly within the dialogue.
+IMPORTANT: These cues are instructions for how the dialogue should be *spoken* by the text-to-speech system, and should NOT be spoken aloud themselves. They should only guide the voice's delivery. Because of this, do not use brackets for anything else.
+For example, if Chloe says something funny, write: Chloe: That's absolutely hilarious! (laughs)
+If Liam is hesitant: Liam: I, uh, (stutters) I'm not entirely sure about that.
+If Chloe is expressing joy: Chloe: I'm so glad we covered this topic! (happy)
+To provide the dialogue please use the following delimiters and this exact format:
+```txt
+Chloe: Welcome!
+Liam: It's great to be here, lets tackle the topic of {extracted_title}.
+...
+You don't need to use my example introduction, you can create a more fitting one for the topic.
+The topic of {extracted_title} has been automatically reviewed and the following insights were distilled and are provided to enhance the clarity and depth of the exchange:
+{analysisResponse}"""
+    
+    try:
+        podcastGenChat = Chat()
+        podcastGenChat.add_message(Role.USER, podcastGenPrompt)
+        podcastGenChat.add_message(Role.ASSISTANT, "<think>")
+        podcastDialogueResponse = LlmRouter.generate_completion(podcastGenChat)
+    except Exception as e: 
+        print(colored(f"Error during LLM processing for podcast dialogue: {e}", "red"))
+        exit(1)
+    
+    # Extract dialogue from response
+    from py_methods.utils import extract_blocks 
+    extracted_dialogue_blocks = extract_blocks(podcastDialogueResponse, ["txt", "text"])
+    podcastDialogue = ""
+    if extracted_dialogue_blocks:
+        podcastDialogue = "\n".join(block.strip() for block in extracted_dialogue_blocks if block.strip()) if isinstance(extracted_dialogue_blocks, list) else str(extracted_dialogue_blocks).strip()
+    else:
+        print(colored("Could not extract dialogue from LLM response using ```txt blocks. Using raw response after attempting cleanup.", "yellow"))
+        prompt_intro_for_cleanup = "Create a meditative expert discussion"
+        actual_dialogue_text_start = podcastDialogueResponse[podcastDialogueResponse.find(prompt_intro_for_cleanup):] if prompt_intro_for_cleanup in podcastDialogueResponse else podcastDialogueResponse
+        dialogue_start_markers = ["Liam:", "Chloe:", "[S1]", "[S2]"]
+        first_speaker_occurrence = -1
+        found_marker_pos = -1
+        for marker in dialogue_start_markers:
+            pos = actual_dialogue_text_start.find(marker)
+            if pos != -1 and (first_speaker_occurrence == -1 or pos < first_speaker_occurrence): 
+                first_speaker_occurrence = pos
+                found_marker_pos = pos
+        if found_marker_pos != -1: 
+            podcastDialogue = actual_dialogue_text_start[found_marker_pos:].strip()
+        elif analysisResponse in podcastDialogueResponse: 
+            podcastDialogue = podcastDialogueResponse.split(analysisResponse, 1)[-1].strip()
+        else: 
+            podcastDialogue = podcastDialogueResponse.strip()
+
+    if not podcastDialogue: 
+        print(colored("Error: Podcast dialogue is empty after extraction/processing.", "red"))
+        exit(1)
+        
+    return podcastDialogue, extracted_title
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a podcast using AI.")
     parser.add_argument("-l", "--local", action="store_true", help="Use local Dia TTS model instead of Google TTS.")
     parser.add_argument("-o", "--output-dir", type=str, help="Custom directory to save podcast files. Defaults to 'podcast_generations' in script directory.")
+    parser.add_argument("-i", "--input-file", type=str, help="Input text file to process into a podcast (alternative to clipboard).")
+    parser.add_argument("-t", "--transcript-file", type=str, help="Input transcript file with pre-formatted dialogue (skips analysis and dialogue generation).")
     args = parser.parse_args()
     
     if args.output_dir:
@@ -357,74 +450,69 @@ if __name__ == "__main__":
         print(colored("CRITICAL: pydub library not found. MP3 files cannot be generated. This script will likely fail to save audio.", "red"))
         print(colored("Install pydub with: pip install pydub", "yellow"))
         print(colored("Note: You may also need ffmpeg (or libav) installed on your system for pydub to perform MP3 conversion.", "yellow"))
-        # Consider exiting if MP3 is strictly required.
 
-    for i in range(5, 0, -1): print(colored(f"Generating podcast via clipboard in {i} seconds...", "green")); time.sleep(1)
     start_time = time.time()
-    clipboard_content = pyperclip.paste()
-    if not clipboard_content.strip(): print(colored("No text in clipboard", "red")); exit(1)
     
-    print(colored("Analyzing content for summary and title...", "blue"))
-    try:
-        analysisResponse = LlmRouter.generate_completion(f"For the following text snippet, please highlight key insights and lay out the fundamentals of the topic of concern. Explore analogies to other fields and highlight related concepts to manifest a constructive framework for the topic.\nHere's the raw unfiltered text snippet:\n{clipboard_content}")
-        titleResponseText = LlmRouter.generate_completion(f"I am going to provide you with a text and you should generate a descriptive title for whatever content it's about. Ensure it is a short fit for a file name. Please think about the contents first and then like this:\nTitle: <title>\nThis is the text:\n{analysisResponse}")
-    except Exception as e:
-        print(colored(f"Error during LLM processing for analysis/title: {e}", "red")); import traceback; traceback.print_exc(); exit(1)
-
-    title_match = re.search(r"Title:\s*(.*)", titleResponseText, re.IGNORECASE)
-    extracted_title = title_match.group(1).strip() if title_match else titleResponseText.splitlines()[0].strip()
-    MAX_TITLE_LEN = 50 
-    if len(extracted_title) > MAX_TITLE_LEN: extracted_title = extracted_title[:MAX_TITLE_LEN]
-    extracted_title = re.sub(r'[^\w\s-]', '', extracted_title).strip()
-    extracted_title = re.sub(r'\s+', '_', extracted_title)
-    if not extracted_title: extracted_title = "Untitled_Podcast"
-
-    print(colored(f"Generated Title: {extracted_title}", "magenta"))
-    print(colored("Generating podcast dialogue...", "blue"))
-    podcastGenPrompt = f"""Use a deepthinking subroutine before providing your final response to this query. Create a meditative and joyful expert discussion between an intelligent and very creative and educated student and an self-taught established expert.
-The discussion should revolve around powerful insights and intuitions that enable easy understanding and retention of the topic.
-To guide the emotional tone and style of the speech, include concise parenthetical cues like (laughs), (stutters), (happy), (sadly), (whispering), or (enthusiastically) directly within the dialogue.
-IMPORTANT: These cues are instructions for how the dialogue should be *spoken* by the text-to-speech system, and should NOT be spoken aloud themselves. They should only guide the voice's delivery. Because of this, do not use brackets for anything else.
-For example, if Chloe says something funny, write: Chloe: That's absolutely hilarious! (laughs)
-If Liam is hesitant: Liam: I, uh, (stutters) I'm not entirely sure about that.
-If Chloe is expressing joy: Chloe: I'm so glad we covered this topic! (happy)
-To provide the dialogue please use the following delimiters and this exact format:
-```txt
-Chloe: Welcome!
-Liam: It's great to be here, lets tackle the topic of {extracted_title}.
-...
-You don't need to use my example introduction, you can create a more fitting one for the topic.
-The topic of {extracted_title} has been automatically reviewed and the following insights were distilled and are provided to enhance the clarity and depth of the exchange:
-{analysisResponse}"""
-    if args.local: print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
+    # Step 1: Get input content and determine processing mode
+    if args.transcript_file:
+        # Use pre-formatted transcript file
+        if not os.path.exists(args.transcript_file):
+            print(colored(f"Error: Transcript file not found: {args.transcript_file}", "red"))
+            exit(1)
         
-    try:
-        podcastGenChat = Chat()
-        podcastGenChat.add_message(Role.USER, podcastGenPrompt)
-        podcastGenChat.add_message(Role.ASSISTANT, "<think>")
-        podcastDialogueResponse = LlmRouter.generate_completion(podcastGenChat)
-    except Exception as e: print(colored(f"Error during LLM processing for podcast dialogue: {e}", "red")); exit(1)
-    
-    from py_methods.utils import extract_blocks 
-    extracted_dialogue_blocks = extract_blocks(podcastDialogueResponse, ["txt", "text"])
-    podcastDialogue = ""
-    if extracted_dialogue_blocks:
-        podcastDialogue = "\n".join(block.strip() for block in extracted_dialogue_blocks if block.strip()) if isinstance(extracted_dialogue_blocks, list) else str(extracted_dialogue_blocks).strip()
+        print(colored(f"Reading pre-formatted transcript from: {args.transcript_file}", "cyan"))
+        with open(args.transcript_file, 'r', encoding='utf-8') as f:
+            podcastDialogue = f.read().strip()
+        
+        if not podcastDialogue:
+            print(colored("Error: Transcript file is empty", "red"))
+            exit(1)
+        
+        # Extract title from filename
+        base_filename = os.path.splitext(os.path.basename(args.transcript_file))[0]
+        extracted_title = re.sub(r'[^\w\s-]', '', base_filename).strip()
+        extracted_title = re.sub(r'\s+', '_', extracted_title)
+        if not extracted_title:
+            extracted_title = "Transcript_Podcast"
+        
+        print(colored(f"Using title from filename: {extracted_title}", "magenta"))
+        
+    elif args.input_file:
+        # Use input file instead of clipboard
+        if not os.path.exists(args.input_file):
+            print(colored(f"Error: Input file not found: {args.input_file}", "red"))
+            exit(1)
+        
+        print(colored(f"Reading input text from: {args.input_file}", "cyan"))
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+        
+        if not content:
+            print(colored("Error: Input file is empty", "red"))
+            exit(1)
+            
+        # Process raw content to dialogue
+        if args.local: 
+            print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
+        podcastDialogue, extracted_title = process_raw_content_to_dialogue(content)
+        
     else:
-        print(colored("Could not extract dialogue from LLM response using ```txt blocks. Using raw response after attempting cleanup.", "yellow"))
-        prompt_intro_for_cleanup = "Create a meditative expert discussion"
-        actual_dialogue_text_start = podcastDialogueResponse[podcastDialogueResponse.find(prompt_intro_for_cleanup):] if prompt_intro_for_cleanup in podcastDialogueResponse else podcastDialogueResponse
-        dialogue_start_markers = ["Liam:", "Chloe:", "[S1]", "[S2]"]
-        first_speaker_occurrence = -1; found_marker_pos = -1
-        for marker in dialogue_start_markers:
-            pos = actual_dialogue_text_start.find(marker)
-            if pos != -1 and (first_speaker_occurrence == -1 or pos < first_speaker_occurrence): first_speaker_occurrence = pos; found_marker_pos = pos
-        if found_marker_pos != -1: podcastDialogue = actual_dialogue_text_start[found_marker_pos:].strip()
-        elif analysisResponse in podcastDialogueResponse: podcastDialogue = podcastDialogueResponse.split(analysisResponse, 1)[-1].strip()
-        else: podcastDialogue = podcastDialogueResponse.strip()
+        # Default behavior: use clipboard
+        for i in range(5, 0, -1): 
+            print(colored(f"Generating podcast via clipboard in {i} seconds...", "green"))
+            time.sleep(1)
+        
+        content = pyperclip.paste()
+        if not content.strip(): 
+            print(colored("No text in clipboard", "red"))
+            exit(1)
+        
+        # Process raw content to dialogue
+        if args.local: 
+            print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
+        podcastDialogue, extracted_title = process_raw_content_to_dialogue(content)
 
-    if not podcastDialogue: print(colored("Error: Podcast dialogue is empty after extraction/processing.", "red")); exit(1)
-
+    # Step 2: Generate the podcast audio
     mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
 
     if mp3_file_location:
@@ -432,4 +520,5 @@ The topic of {extracted_title} has been automatically reviewed and the following
         print(colored(f"Podcast generation complete. Final MP3: {mp3_file_location}", "green"))
         print(colored(f"Total time taken: {end_time - start_time:.2f} seconds", "green"))
     else:
-        print(colored("Podcast generation failed or no MP3 file was produced.", "red")); exit(1)
+        print(colored("Podcast generation failed or no MP3 file was produced.", "red"))
+        exit(1)
