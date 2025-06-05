@@ -74,15 +74,11 @@ class Globals:
                     self._user_config = json.load(f)
             else:
                 # Initialize with default values
-                self._user_config = {
-                    'podcast_save_location': self._get_default_podcast_location()
-                }
+                self._user_config = {}
                 self.save_user_config()
         except Exception as e:
             logging.error(f"Failed to load user config: {e}")
-            self._user_config = {
-                'podcast_save_location': self._get_default_podcast_location()
-            }
+            self._user_config = {}
         return self._user_config
     
     def save_user_config(self) -> None:
@@ -106,21 +102,6 @@ class Globals:
             self.load_user_config()
         self._user_config[key] = value
         self.save_user_config()
-    
-    def get_podcast_save_location(self) -> str:
-        """Get the podcast save location from configuration or default."""
-        return self.get_config_value('podcast_save_location', self._get_default_podcast_location())
-    
-    def set_podcast_save_location(self, path: str) -> None:
-        """Set the podcast save location in configuration."""
-        self.set_config_value('podcast_save_location', path)
-    
-    def _get_default_podcast_location(self) -> str:
-        """Get the default podcast save location."""
-        # Default to a podcast_generations folder in the CLI-Agent directory
-        default_path = os.path.join(self.CLIAGENT_ROOT_PATH, "podcast_generations")
-        os.makedirs(default_path, exist_ok=True)
-        return default_path
     
     def cleanup_temp_py_files(self):
         """Remove temporary Python files from previous runs."""
