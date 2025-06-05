@@ -266,7 +266,8 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         auto_retry_seconds = 30
         max_retries = 3
         total_chunks = len(text_chunks)
-        for i, chunk in enumerate(text_chunks):
+        for i, l_chunk in enumerate(text_chunks):
+            chunk = f"TTS the following conversation between Liam and Chloe, do not TTS ANYTHING that is in brackets, those are instructions guiding the tone and delivery of the dialogue:\n{l_chunk}"
             if not chunk.strip(): continue
             print(colored(f"[{title}] Google TTS: Generating audio for chunk {i+1}/{total_chunks} ({len(chunk)} chars)...", "green"))
             retry_count = 0
@@ -388,7 +389,7 @@ If Chloe is expressing joy: Chloe: I'm so glad we covered this topic! (happy)
 To provide the dialogue please use the following delimiters and this exact format:
 ```txt
 Chloe: Welcome!
-Liam: It's great to be here, lets attack the topic of {extracted_title}.
+Liam: It's great to be here, lets tackle the topic of {extracted_title}.
 ...
 You don't need to use my example introduction, you can create a more fitting one for the topic.
 The topic of {extracted_title} has been automatically reviewed and the following insights were distilled and are provided to enhance the clarity and depth of the exchange:
@@ -396,7 +397,9 @@ The topic of {extracted_title} has been automatically reviewed and the following
     if args.local: print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
         
     try:
-        podcastGenChat = Chat(); podcastGenChat.add_message(Role.USER, podcastGenPrompt); podcastGenChat.add_message(Role.ASSISTANT, "<think>")
+        podcastGenChat = Chat()
+        podcastGenChat.add_message(Role.USER, podcastGenPrompt)
+        podcastGenChat.add_message(Role.ASSISTANT, "<think>")
         podcastDialogueResponse = LlmRouter.generate_completion(podcastGenChat)
     except Exception as e: print(colored(f"Error during LLM processing for podcast dialogue: {e}", "red")); exit(1)
     
