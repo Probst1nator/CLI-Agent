@@ -653,32 +653,6 @@ async def get_user_input_with_bindings(
             print(colored(f"# cli-agent: KeyBinding detected: Online mode toggled {'on' if args.online else 'off'}, type (--h) for info", "green"))
             continue
         
-        elif user_input == "-pp" or user_input == "--podcast-path":
-            print(colored("# cli-agent: KeyBinding detected: Setting podcast save location, type (--h) for info", "green"))
-            current_path = g.get_podcast_save_location()
-            print(colored(f"Current podcast save location: {current_path}", "cyan"))
-            try:
-                new_path = input(colored("Enter new podcast save location (press Enter to keep current): ", "blue"))
-                if new_path.strip():
-                    # Expand user path (~)
-                    expanded_path = os.path.expanduser(new_path.strip())
-                    # Convert to absolute path
-                    absolute_path = os.path.abspath(expanded_path)
-                    
-                    # Validate the path
-                    try:
-                        os.makedirs(absolute_path, exist_ok=True)
-                        g.set_podcast_save_location(absolute_path)
-                        print(colored(f"Podcast save location updated to: {absolute_path}", "green"))
-                    except OSError as e:
-                        print(colored(f"Error: Could not create or access directory '{absolute_path}': {e}", "red"))
-                        print(colored("Podcast save location not changed.", "yellow"))
-                else:
-                    print(colored("Podcast save location unchanged.", "yellow"))
-            except KeyboardInterrupt:
-                print(colored("\nPodcast save location configuration cancelled.", "yellow"))
-            continue
-        
         elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
             print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
             exit(0)
@@ -826,8 +800,6 @@ For any new code you write, be sure to make appropriate use of these selected ut
             print(colored("# -m: Enter multiline input", "yellow"))
             print(colored(f"# -t: Select specific utility tools to be used ", "yellow"), end="")
             print(colored(f"(Current: {', '.join(g.SELECTED_UTILS) if g.SELECTED_UTILS else 'None'})", "cyan"))
-            print(colored(f"# -pp: Set custom podcast save location ", "yellow"), end="")
-            print(colored(f"(Current: {g.get_podcast_save_location()})", "cyan"))
             print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
             if context_chat:
                 print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
