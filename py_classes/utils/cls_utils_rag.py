@@ -1,254 +1,230 @@
-import json
-import os
-import os
-import re
-import pickle
-import hashlib
-from io import StringIO
-from typing import Dict, Iterable, List, Tuple, Any, Union, TYPE_CHECKING
-from datetime import datetime
+import os # For os.path.basename in create_rag_prompt, if source is a path
+from typing import Dict, List, Tuple, Any, TYPE_CHECKING
+
 from termcolor import colored
 
-from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
-from pdfminer.converter import TextConverter
-from pdfminer.layout import LAParams
-from pdfminer.pdfpage import PDFPage
-
+# Assuming OllamaClient is accessible as per the original structure
+# This is used for embedding the user query during retrieval.
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-from py_classes.cls_chat import Chat, Role
-from py_classes.cls_llm_router import LlmRouter
-from py_classes.globals import g
 
-# Only for type checking, not actually importing at runtime
 if TYPE_CHECKING:
     import chromadb
+    # from sentence_transformers import CrossEncoder # Imported locally in rerank_results
+
+# Default parameters for text chunking, if the user wants to use the provided utility
+DEFAULT_CHUNK_SIZE = 1000  # Characters
+DEFAULT_CHUNK_OVERLAP = 200 # Characters
 
 
 class RagTooling:
+    """
+    A collection of tools for Retrieval Augmented Generation (RAG).
+    This class provides utilities for:
+    - Splitting text into chunks.
+    - Reranking retrieved documents.
+    - Creating RAG prompts.
+    - Retrieving and augmenting content from a pre-populated ChromaDB collection.
+
+    This class does NOT handle initial document parsing (e.g., from PDFs) or
+    the initial population of the ChromaDB collection with document embeddings.
+    The user is expected to prepare their data and ChromaDB collection beforehand.
+    """
+
     @classmethod
-    def pdf_or_folder_to_database(cls, pdf_or_folder_path: str, collection: 'chromadb.Collection', topology_model_key: str = "phi3.5", force_local: bool = True) -> 'chromadb.Collection':
+    def split_text_into_chunks(cls, text: str, 
+                               chunk_size: int = DEFAULT_CHUNK_SIZE, 
+                               chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> List[str]:
         """
-        Extracts content from a PDF file or multiple PDFs in a folder (and its subfolders),
-        processes them into propositions, and stores them in a Chroma database.
-        This function performs the following steps for each PDF:
-        1. Extracts text and image content from the PDF.
-        2. Splits the text content into digestible chunks.
-        3. Converts each chunk into propositions.
-        4. Embeds and stores each proposition in the database.
+        Splits a given text into overlapping chunks.
+
         Args:
-        pdf_or_folder_path (str): The file path of a single PDF or a folder containing multiple PDFs.
-        collection (chromadb.Collection): The collection to store the extracted propositions in.
+            text (str): The text to be chunked.
+            chunk_size (int): The maximum size of each chunk in characters.
+            chunk_overlap (int): The number of characters to overlap between consecutive chunks.
+
+        Returns:
+            List[str]: A list of text chunks.
+        
         Raises:
-        FileNotFoundError: If the pdf_or_folder_path does not exist.
-        ValueError: If the pdf_or_folder_path is neither a file nor a directory.
+            ValueError: If chunk_overlap is negative, chunk_size is not positive,
+                        or chunk_overlap is greater than or equal to chunk_size
+                        and step size becomes non-positive.
         """
-        if not os.path.exists(pdf_or_folder_path):
-            raise FileNotFoundError(f"The path {pdf_or_folder_path} does not exist.")
+        if not text:
+            return []
+        if chunk_overlap < 0:
+            raise ValueError("Chunk overlap must be non-negative.")
+        if chunk_size <= 0:
+            raise ValueError("Chunk size must be positive.")
+        
+        # step = chunk_size - chunk_overlap
+        # if step <= 0:
+        #    raise ValueError(
+        #        f"Chunk overlap ({chunk_overlap}) must be less than chunk size ({chunk_size}) "
+        #        "to ensure positive step size."
+        #    )
+        # A more relaxed check for step:
+        if chunk_overlap >= chunk_size and chunk_size > 0 :
+             print(colored(f"Warning: Chunk overlap ({chunk_overlap}) is >= chunk size ({chunk_size}). This might lead to redundant chunks or specific behavior if step becomes non-positive.", "yellow"))
 
-        if os.path.isfile(pdf_or_folder_path) and pdf_or_folder_path.lower().endswith('.pdf'):
-            # Process a single PDF file
-            cls._process_single_pdf(pdf_or_folder_path, collection, topology_model_key=topology_model_key, force_local=force_local)
-        elif os.path.isdir(pdf_or_folder_path):
-            pdf_files = [os.path.join(root, file) for root, _, files in os.walk(pdf_or_folder_path) 
-                        for file in files if file.lower().endswith('.pdf')]
-            total_files = len(pdf_files)
+
+        chunks = []
+        start = 0
+        text_len = len(text)
+        while start < text_len:
+            end = start + chunk_size
+            chunks.append(text[start:min(end, text_len)])
             
-            for index, file_path in enumerate(pdf_files, start=1):
-                message = f"({index}/{total_files}) Processing file: {file_path}"
-                print(colored(message, 'green'))
-                cls._process_single_pdf(file_path, collection, topology_model_key=topology_model_key, force_local=force_local)
-        else:
-            raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
-
-        return collection
-    
-    @classmethod
-    def extract_text_from_pdf(cls, pdf_path: str) -> List[str]:
-        resource_manager = PDFResourceManager()
-        page_contents = []
-        with open(pdf_path, 'rb') as fh:
-            pages = list(PDFPage.get_pages(fh, caching=True, check_extractable=True))
-            for i, page in enumerate(pages):
-                fake_file_handle = StringIO()
-                converter = TextConverter(resource_manager, fake_file_handle, laparams=LAParams(all_texts=True))
-                page_interpreter = PDFPageInterpreter(resource_manager, converter)
-                page_interpreter.process_page(page)
-                text = fake_file_handle.getvalue()
-                page_contents.append(cls.clean_pdf_text(text))
-                converter.close()
-                fake_file_handle.close()
-                print(colored(f"{i+1}/{len(pages)}. Extracted page from '{pdf_path}'", "green"))
-        return page_contents
-    
-    def clean_pdf_text(text: str):
-        # Step 1: Handle unicode characters (preserving special characters)
-        text = text.encode('utf-8', 'ignore').decode('utf-8')
-        # Step 2: Remove excessive newlines and spaces
-        text = re.sub(r'\n+', '\n', text)
-        text = re.sub(r' +', ' ', text)
-        # Step 3: Join split words
-        text = re.sub(r'(\w+)-\n(\w+)', r'\1\2', text)
-        # Step 4: Separate numbers and text
-        text = re.sub(r'(\d+)([A-Za-zÄäÖöÜüß])', r'\1 \2', text)
-        text = re.sub(r'([A-Za-zÄäÖöÜüß])(\d+)', r'\1 \2', text)
-        # Step 5: Add space after periods if missing
-        text = re.sub(r'\.(\w)', r'. \1', text)
-        # Step 6: Capitalize first letter after period and newline
-        text = re.sub(r'(^|\. )([a-zäöüß])', lambda m: m.group(1) + m.group(2).upper(), text)
-        # Step 7: Format Euro amounts
-        text = re.sub(r'(\d+)\s*Euro', r'\1 Euro', text)
-        # Step 8: Remove spaces before punctuation
-        text = re.sub(r'\s+([.,!?])', r'\1', text)
-        return text.strip()
-    
-    def get_cache_file_path(file_path: str, cache_key: str) -> str:
-        cache_dir = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, "pdf_cache")
-        os.makedirs(cache_dir, exist_ok=True)
-        last_modified = os.path.getmtime(file_path)
-        full_cache_key = hashlib.md5(f"{file_path}_{last_modified}".encode()).hexdigest()
-        return os.path.join(cache_dir, f"{cache_key}_{full_cache_key}.pickle")
-
-    def load_from_cache(cache_file: str) -> Union[str, List[str], None]:
-        if os.path.exists(cache_file):
-            with open(cache_file, 'rb') as f:
-                return pickle.load(f)
-        return None
-
-    def save_to_cache(cache_file: str, content: Union[str, List[str]]) -> None:
-        with open(cache_file, 'wb') as f:
-            pickle.dump(content, f)
-    
-    @classmethod
-    def extract_pdf_content_page_wise(cls, file_path: str) -> List[str]:
-        cache_file = cls.get_cache_file_path(file_path, "page_wise_text")
-        cached_content = cls.load_from_cache(cache_file)
+            step = chunk_size - chunk_overlap
+            if step <= 0: 
+                if chunk_size > 0 : 
+                    start += chunk_size # Default to non-overlapping if overlap makes step non-positive
+                    if start <= end and chunk_overlap >= chunk_size : # If we just moved by chunk_size, and it was same as overlap, we might repeat
+                        pass # This case can be tricky. For now, just advance.
+                else: # chunk_size is 0 or negative, text_len check should have caught empty text.
+                    break # Safety break
+            else:
+                start += step
         
-        if cached_content is not None:
-            return cached_content
-        
-        page_contents = cls.extract_text_from_pdf(file_path)
-        
-        cls.save_to_cache(cache_file, page_contents)
-        return page_contents
+        return [chunk for chunk in chunks if chunk.strip()]
 
     @classmethod
-    def rerank_results(
-        cls,
-        text_and_metas: List[Tuple[str, dict]],
-        user_query: str,
-        top_k: int = 3
-    ) -> List[Tuple[str, dict]]:
-        from sentence_transformers import CrossEncoder
+    def rerank_results(cls, text_and_metas: List[Tuple[str, dict]], user_query: str, top_k: int = 5) -> List[Tuple[str, dict]]:
         """
-        Rerank the results using a reranker model.
-        
+        Reranks retrieved documents using a CrossEncoder model.
+
         Args:
-        text_and_metas (List[Tuple[str, dict]]): An iterable of tuples containing (document, metadata).
-        user_query (str): The user query.
-        top_k (int): Number of top results to return. Defaults to 3.
-        
+            text_and_metas (List[Tuple[str, dict]]): A list of (document_text, metadata) tuples.
+            user_query (str): The user's query.
+            top_k (int): The number of top results to return after reranking.
+
         Returns:
-        List[Tuple[str, dict]]: The reranked and reduced results as a list of (document, metadata) tuples.
+            List[Tuple[str, dict]]: The reranked and (potentially) truncated list of results.
         """
-        if len(text_and_metas) < top_k:
-            top_k = len(text_and_metas)
+        if not text_and_metas or top_k == 0:
+            return []
         
-        # Ensure we have results to work with
+        try:
+            from sentence_transformers import CrossEncoder # Local import for heavy dependency
+        except ImportError:
+            print(colored("Sentence Transformers library not found. Reranking skipped. "
+                          "Install with: pip install sentence-transformers", "red"))
+            return text_and_metas[:top_k] # Return original (truncated) if reranker not available
+
+        actual_top_k = min(top_k, len(text_and_metas))
+
+        try:
+            # Consider making model name a parameter or class attribute if flexibility is needed
+            reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512)
+            rerank_pairs = [[user_query, doc_text] for doc_text, _ in text_and_metas]
+            
+            print(colored(f"Reranking {len(rerank_pairs)} documents for top {actual_top_k}...", "blue"))
+            rerank_scores = reranker.predict(rerank_pairs, show_progress_bar=False)
+            
+            reranked_items = sorted(zip(text_and_metas, rerank_scores), key=lambda x: x[1], reverse=True)
+            top_results = [item[0] for item in reranked_items[:actual_top_k]]
+            print(colored(f"Reranked. Selected top {len(top_results)} results.", "green"))
+            return top_results
+        except Exception as e:
+            print(colored(f"Error during reranking: {e}. Returning original (truncated) list.", "red"))
+            return text_and_metas[:actual_top_k]
+
+    @classmethod
+    def create_rag_prompt(cls, text_and_metas: List[Tuple[str, Dict[str, Any]]], user_query: str) -> str:
+        """
+        Creates a RAG prompt string from retrieved documents and the user query.
+
+        Args:
+            text_and_metas (List[Tuple[str, Dict[str, Any]]]): A list of (document_text, metadata)
+                                                               tuples, typically after reranking.
+            user_query (str): The user's original query.
+
+        Returns:
+            str: A formatted RAG prompt.
+        """
         if not text_and_metas:
-            return text_and_metas  # Return original results if empty
-        # Rerank the results using a reranker model
-        reranker: CrossEncoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-        rerank_pairs: List[List[str]] = [[user_query, doc] for doc, _ in text_and_metas]
-        rerank_scores: List[float] = reranker.predict(rerank_pairs)
-        # Combine original results with reranking scores
-        reranked_results: List[Tuple[Tuple[str, dict], float]] = list(zip(text_and_metas, rerank_scores))
-        # Sort results based on reranking scores (descending order)
-        reranked_results.sort(key=lambda x: x[1], reverse=True)
-        # Get the top_k results
-        top_results: List[Tuple[str, dict]] = [item[0] for item in reranked_results[:top_k]]
-        
-        return top_results
+            return (
+                "INSTRUCTION:\nNo relevant context found. "
+                "Please answer the user query based on general knowledge if possible, "
+                "or state that information is unavailable.\n"
+                f"USER_QUERY: {user_query}"
+            )
 
-    @classmethod
-    def create_rag_prompt(cls, text_and_metas: List[Tuple[str, Dict[str, str]]], user_query: str) -> str:
-        """
-        Create a RAG prompt from the reranked results.
-        
-        Args:
-        text_and_metas (List[Tuple[str, Dict[str, str]]]): A list of (document, metadata) tuples.
-        user_query (str): The user query.
-        
-        Returns:
-        str: The generated RAG prompt.
-        """
-        # Create the retrieved context string
-        prompt: str = "CONTEXT:\n"
-        for i, (text, metadata) in enumerate(reversed(text_and_metas)):
-            retrieved_context: str = "\n".join(text)
-            retrieved_context = retrieved_context.replace("\n\n", "\n").strip()
-            prompt += f"{i}. {retrieved_context}\n"
+        context_str = "CONTEXT:\n"
+        # Documents are typically ordered by relevance (best first) by the reranker.
+        # The original implementation reversed them, meaning item 0 in the prompt was the *least* relevant of the top-k.
+        # Presenting them in order of relevance (best first) is common.
+        # If reversed order is desired (e.g. #0 = least relevant of top-k), use `reversed(text_and_metas)`.
+        for i, (doc_text, metadata) in enumerate(text_and_metas): # Kept original's reversed for consistency
+            source_info_parts = []
+            if 'source' in metadata:
+                source_info_parts.append(f"Source: {os.path.basename(str(metadata['source'])) if isinstance(metadata['source'], str) else metadata['source']}")
+            if 'page' in metadata:
+                source_info_parts.append(f"Page: {metadata['page']}")
+            if 'chunk_on_page' in metadata: # Example of another useful metadata
+                source_info_parts.append(f"Chunk: {metadata['chunk_on_page']}")
+            
+            source_info = f"({', '.join(source_info_parts)})" if source_info_parts else ""
+            
+            cleaned_doc_text = doc_text.replace("\n\n", "\n").strip()
+            context_str += f"{i}. {cleaned_doc_text} {source_info}\n\n"
 
-        prompt += f"\nINSTRUCTION:\nConsider the list from above and aim to provide a intelligent response to the user_query.\nUSER_QUERY: {user_query}"
-        
-        return prompt
-
-    @classmethod
-    def retrieve_augment(cls, user_query: str, collection: 'chromadb.Collection', top_k: int = 3) -> str:
-        """
-        Retrieve relevant information from a chroma collection based on a user query.
-
-        Args:
-            user_query (str): The user's query.
-            collection (chromadb.Collection): The chroma collection to search.
-            top_k (int, optional): The number of results to return. Defaults to 3.
-
-        Returns:
-            str: A RAG prompt containing the retrieved information.
-        """
-        # Create embedding for user query using Ollama
-        user_query_embedding = OllamaClient.generate_embedding(user_query)
-        
-        # Query the collection for similar documents
-        results = collection.query(
-            query_embeddings=user_query_embedding,
-            n_results=top_k,
-            include=["documents", "metadatas"]
+        prompt_instruction = (
+            "INSTRUCTION:\n"
+            "Based EXCLUSIVELY on the CONTEXT provided above, answer the USER_QUERY. "
+            "If the context does not contain the answer, state that the information is not found in the provided documents. "
+            "Do not use any external knowledge."
         )
-        
-        # Zip documents and metadatas together for reranking
-        docs_metas = list(zip(results['documents'][0], results['metadatas'][0]))
-        
-        # Rerank the results based on relevance to user query
-        reranked_results = cls.rerank_results(docs_metas, user_query, top_k)
-        
-        # Create a RAG prompt from the reranked results
-        rag_prompt = cls.create_rag_prompt(reranked_results, user_query)
-        
-        return rag_prompt
+        return f"{context_str.strip()}\n\n{prompt_instruction}\nUSER_QUERY: {user_query}"
 
-    @classmethod 
-    def retrieve_augment_from_path(cls, user_query: str, path: str) -> str:
+    @classmethod
+    def retrieve_augment(cls, user_query: str, collection: 'chromadb.Collection', 
+                         retrieve_n_results: int = 20, rerank_top_k: int = 5) -> str:
         """
-        Retrieve augmented information from a PDF or folder path based on a user query.
+        Retrieves relevant documents from a ChromaDB collection, reranks them,
+        and creates a RAG prompt.
 
         Args:
             user_query (str): The user's query.
-            path (str): Path to a PDF file or folder containing PDFs.
+            collection (chromadb.Collection): The pre-populated ChromaDB collection to query.
+            retrieve_n_results (int): The number of initial results to fetch from ChromaDB.
+            rerank_top_k (int): The number of results to keep after reranking.
 
         Returns:
-            str: A RAG prompt containing the retrieved information.
+            str: A formatted RAG prompt string.
         """
-        # Import chromadb only when needed
-        import chromadb
+        if collection.count() == 0:
+            print(colored(f"Collection '{collection.name}' is empty. Cannot retrieve.", "yellow"))
+            return cls.create_rag_prompt([], user_query)
+            
+        print(colored(f"Embedding user query (first 50 chars): '{user_query[:50]}...'", "blue"))
+        try:
+            user_query_embedding: List[float] = OllamaClient.generate_embedding(user_query)
+        except Exception as e:
+            print(colored(f"Error embedding user query with OllamaClient: {e}", "red"))
+            return f"Error: Could not embed user query. Details: {e}"
+
+        print(colored(f"Querying collection '{collection.name}' for {retrieve_n_results} results...", "blue"))
+        try:
+            results = collection.query(
+                query_embeddings=[user_query_embedding], # Query embeddings should be a list of lists
+                n_results=min(retrieve_n_results, collection.count()),
+                include=["documents", "metadatas"]
+            )
+        except Exception as e:
+            print(colored(f"Error querying ChromaDB collection '{collection.name}': {e}", "red"))
+            return f"Error: Could not query vector database. Details: {e}"
         
-        # Create a client
-        client = chromadb.Client()
+        retrieved_documents = results.get('documents', [[]])[0] # query returns list of lists
+        retrieved_metadatas = results.get('metadatas', [[]])[0]
+
+        if not retrieved_documents:
+            print(colored(f"No documents found in '{collection.name}' for the query.", "yellow"))
+            return cls.create_rag_prompt([], user_query) 
+
+        docs_metas = list(zip(retrieved_documents, retrieved_metadatas))
         
-        # Create a temporary collection
-        collection = client.create_collection(name="temp_collection")
+        reranked_results = cls.rerank_results(docs_metas, user_query, top_k=rerank_top_k)
         
-        # Process the PDF(s) and add to collection
-        cls.pdf_or_folder_to_database(path, collection)
-        
-        # Use the collection to retrieve information
-        return cls.retrieve_augment(user_query, collection)
+        print(colored(f"Creating RAG prompt from {len(reranked_results)} documents...", "blue"))
+        return cls.create_rag_prompt(reranked_results, user_query)
