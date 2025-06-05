@@ -139,9 +139,13 @@ def _split_podcast_text_into_chunks(text: str, max_chars: int = 600, max_lines: 
 
 def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = False) -> str:
     safe_title_for_filename = re.sub(r'[^\w_-]+', '', title.replace(' ', '_')).strip('_')
-    if not safe_title_for_filename: safe_title_for_filename = "podcast_episode"
     os.makedirs(PODCAST_SAVE_LOCATION, exist_ok=True)
-    
+    os.makedirs(os.path.join(PODCAST_SAVE_LOCATION, "transcripts"), exist_ok=True)
+
+    # save text to file
+    with open(os.path.join(PODCAST_SAVE_LOCATION, "transcripts", f"{safe_title_for_filename}.txt"), "w") as f:
+        f.write(podcast_dialogue)
+
     if use_local_dia:
         text_chunks = _split_podcast_text_into_chunks(podcast_dialogue, max_chars=600, max_lines=30, split_on_speakers=True)
         print(colored(f"[{title}] Successfully split into {len(text_chunks)} chunks for Dia.", "blue"))
