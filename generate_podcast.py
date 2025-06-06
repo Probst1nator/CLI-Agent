@@ -217,7 +217,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                 
                 file_extension_for_numbering = ".mp3"
                 highest_num = 0
-                file_pattern = re.compile(rf"(\d+)_{re.escape(safe_title_for_filename)}\{re.escape(file_extension_for_numbering)}")
+                file_pattern = re.compile(rf"(\d+)_.*{re.escape(file_extension_for_numbering)}$")
                 # Ensure PODCAST_SAVE_LOCATION exists before listing its directory
                 if os.path.exists(PODCAST_SAVE_LOCATION):
                     for f_name in os.listdir(PODCAST_SAVE_LOCATION):
@@ -309,7 +309,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
 
         file_extension_for_numbering = ".mp3"
         highest_num = 0
-        file_pattern = re.compile(rf"(\d+)_{re.escape(safe_title_for_filename)}\{re.escape(file_extension_for_numbering)}")
+        file_pattern = re.compile(rf"(\d+)_.*{re.escape(file_extension_for_numbering)}$")
         if os.path.exists(PODCAST_SAVE_LOCATION): # Ensure dir exists before listing
             for f_name in os.listdir(PODCAST_SAVE_LOCATION):
                 match = file_pattern.match(f_name)
