@@ -153,7 +153,7 @@ class AIProviderInterface(BaseProviderInterface):
     
     @abstractmethod
     def generate_response(self, chat: Union['Chat', str], model_key: str,
-                         silent_reason: str = "") -> Any:
+                         temperature: Optional[float] = None, silent_reason: str = "") -> Any:
         """
         Generates a response stream based on the provided chat and model.
 

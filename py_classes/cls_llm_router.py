@@ -93,6 +93,11 @@ class Llm:
         """Returns whether the model has vision capabilities."""
         return any(s == AIStrengths.VISION for s in self.strengths)
     
+    @property
+    def is_small_model(self) -> bool:
+        """Returns whether this is a small/fast model."""
+        return any(s == AIStrengths.SMALL for s in self.strengths)
+    
     @classmethod
     def get_available_llms(cls, exclude_guards: bool = False) -> List["Llm"]:
         """
@@ -117,20 +122,21 @@ class Llm:
             
             # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
+            # Llm(OllamaClient(), "gemma3n:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
+            # Llm(OllamaClient(), "qwen2.5vl:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
             Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
             Llm(OllamaClient(), "qwen3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+            # Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             
             
             Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
             Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            
             Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
             Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION, AIStrengths.STRONG]),
             Llm(OllamaClient(), "devstral:24b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-            Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "DeepHermes-Egregore-v2-RLAIF-8b-Atropos-Q4:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
@@ -684,7 +690,12 @@ class LlmRouter:
         
         # Provider-specific error handling
         if "OllamaClient" in provider_name:
-            g.debug_log(f"\nOllama-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+            # Provide more helpful error messages for common Ollama issues
+            if "No valid host found" in error_msg:
+                # Only show this as yellow warning since the system may succeed with another model
+                g.debug_log(f"Ollama-Api: {error_msg}", "yellow", prefix=prefix)
+            else:
+                g.debug_log(f"Ollama-Api: Failed to generate response with model {model_key}: {e}", "yellow", prefix=prefix)
             # Add to unreachable hosts if applicable
             if model and hasattr(model.provider, "unreachable_hosts") and hasattr(model.provider, "_client"):
                 try:
@@ -824,6 +835,10 @@ class LlmRouter:
                 try:
                     # Get the stream from the provider
                     stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason)
+                    
+                    # Check if stream is None before processing
+                    if stream is None:
+                        raise Exception(f"Model {model.model_key} returned None stream")
                     
                     # MODIFIED LINE: Pass model.provider to _process_stream
                     full_response = cls._process_stream(stream, model.provider, hidden_reason, generation_stream_callback)

@@ -69,7 +69,7 @@ class OllamaClient(AIProviderInterface):
             return False
 
     @staticmethod
-    def get_valid_client(model_key: str, chat: Optional[Chat] = None, auto_download: bool = True) -> Tuple[ollama.Client|None, str]:
+    def get_valid_client(model_key: str, chat: Optional[Chat] = None, auto_download: bool = True, is_small_model: bool = False) -> Tuple[ollama.Client|None, str]:
         """
         Returns a valid client for the given model, pulling the model if necessary on auto-download hosts.
         
@@ -77,6 +77,7 @@ class OllamaClient(AIProviderInterface):
             model_key (str): The model to find a valid client for.
             chat (Optional[Chat]): Chat object for debug printing with title.
             auto_download (bool): Whether to automatically download models if not found.
+            is_small_model (bool): Whether this is a small/fast model.
         
         Returns:
             Tuple[Optional[ollama.Client], str]: [A valid client or None, found model_key].
@@ -94,10 +95,25 @@ class OllamaClient(AIProviderInterface):
                 pass
         
         auto_download_hosts = set(os.getenv("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS", "").split(","))
+        small_only_hosts = set(os.getenv("OLLAMA_HOST_ONLY_SMALL_MODELS", "").split(","))
+        
+        # If no auto_download hosts are set, default to all hosts for local development
+        if not auto_download_hosts or (len(auto_download_hosts) == 1 and "" in auto_download_hosts):
+            auto_download_hosts = set(ollama_hosts)
+        
+        # Remove empty strings from fast_only_hosts
+        small_only_hosts.discard("")
+        
+        # Track failed hosts for this specific attempt to reduce noise
+        failed_hosts_this_attempt = []
         
         for host in ollama_hosts:
             host = host.strip()
             if not host:
+                continue
+            
+            # Skip hosts that are restricted to fast models if this isn't a small model
+            if host in small_only_hosts and not is_small_model:
                 continue
                 
             if host not in OllamaClient.reached_hosts and host not in OllamaClient.unreachable_hosts:
@@ -105,6 +121,7 @@ class OllamaClient(AIProviderInterface):
                     OllamaClient.reached_hosts.append(host)
                 else:
                     OllamaClient.unreachable_hosts.append(host)
+                    failed_hosts_this_attempt.append(host)
             
             if host in OllamaClient.reached_hosts and host not in OllamaClient.unreachable_hosts:
                 client = ollama.Client(host=f'http://{host}:11434')
@@ -216,6 +233,13 @@ class OllamaClient(AIProviderInterface):
                     else:
                         print(f"Error checking models on host {host}: {e}")
                     OllamaClient.unreachable_hosts.append(host)
+                    failed_hosts_this_attempt.append(host)
+        
+        # Only show summary error if no hosts were reachable and we actually tried some
+        if failed_hosts_this_attempt and len(failed_hosts_this_attempt) == len([h.strip() for h in ollama_hosts if h.strip() and (not small_only_hosts or h.strip() not in small_only_hosts or is_small_model)]):
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"No reachable Ollama hosts found for model {model_key}", "yellow", prefix=prefix)
         
         return None, None
 
@@ -249,14 +273,38 @@ class OllamaClient(AIProviderInterface):
         else:
             chat_inner = chat
             
+        # Store original model_key for error messages
+        original_model_key = model_key
+        
+        # Determine if this is a small model by checking the LlmRouter's model definitions
+        is_small_model = False
+        try:
+            # Import here to avoid circular imports
+            from py_classes.cls_llm_router import Llm
+            from py_classes.enum_ai_strengths import AIStrengths
+            
+            # Find the model in the available LLMs list
+            available_llms = Llm.get_available_llms()
+            matching_llm = next((llm for llm in available_llms if model_key in llm.model_key), None)
+            
+            if matching_llm:
+                is_small_model = any(s == AIStrengths.SMALL for s in matching_llm.strengths)
+            else:
+                # Fallback to name-based detection if model not found in definitions
+                is_small_model = any(size in model_key.lower() for size in ['1b', '2b', '3b', '4b', '7b', '8b']) or 'small' in model_key.lower()
+        except ImportError:
+            # Fallback to name-based detection if import fails
+            is_small_model = any(size in model_key.lower() for size in ['1b', '2b', '3b', '4b', '7b', '8b']) or 'small' in model_key.lower()
+        
         client: ollama.Client | None
-        client, model_key = OllamaClient.get_valid_client(model_key, chat_inner)
+        client, found_model_key = OllamaClient.get_valid_client(model_key, chat_inner, is_small_model=is_small_model)
         if not client:
-            # Still handle this specific error locally since it's a configuration issue
-            error_msg = f"No valid host found for model {model_key}"
-            prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
-            g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
-            return None
+            # Raise exception to be handled by the router instead of returning None
+            error_msg = f"No valid host found for model {original_model_key}"
+            raise Exception(error_msg)
+        
+        # Use the found model key (which might be slightly different than requested)
+        model_key = found_model_key or original_model_key
             
         assert client is not None
         host: str = client._client.base_url.host
@@ -303,7 +351,8 @@ class OllamaClient(AIProviderInterface):
         if isinstance(text, list) and (len(text) == 0 or all(len(t) < 3 for t in text)):
             return None
 
-        client, model_key = OllamaClient.get_valid_client(model, chat)
+        # Embedding models are typically small, so mark as small model
+        client, model_key = OllamaClient.get_valid_client(model, chat, is_small_model=True)
         if not client:
             error_msg = f"No valid host found for model {model}"
             if chat:
