@@ -113,11 +113,11 @@ class Llm:
             Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
             Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
             Llm(GoogleAPI(), "gemini-2.5-pro-exp-03-25", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
-            Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
+            Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE]),
-            Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE]),
+            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
+            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE, AIStrengths.SMALL]),
+            Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.SMALL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
             
             # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
@@ -140,6 +140,7 @@ class Llm:
             Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "DeepHermes-Egregore-v2-RLAIF-8b-Atropos-Q4:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "gemma3:1b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
             
             # Guard models
             Llm(GroqAPI(), "llama-guard-4-12b", None, 128000, [AIStrengths.GUARD]),
@@ -403,9 +404,15 @@ class LlmRouter:
 
         # If no preferred candidates and force_preferred_model is True
         if not candidate_models and force_preferred_model:
-            if force_local:
-                # return a dummy model to force Ollama to download it
+            # Check if the preferred model looks like a local model (contains ':' or common model naming patterns)
+            model_name = preferred_models[0].lower()
+            is_likely_local = (':' in model_name or 
+                             any(pattern in model_name for pattern in ['llama', 'qwen', 'gemma', 'phi', 'mistral', 'cogito', 'devstral']))
+            
+            if force_local or is_likely_local:
+                # return a dummy model to force Ollama to try downloading it
                 return Llm(OllamaClient(), preferred_models[0], 0, 8192, [AIStrengths.GENERAL, AIStrengths.LOCAL])
+            
             print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
             return None
         
@@ -626,6 +633,31 @@ class LlmRouter:
         return cached_completion
 
     @classmethod
+    def _get_descriptive_error(cls, error_msg: str, model_key: str) -> str:
+        """
+        Convert generic error messages into more descriptive ones.
+        
+        Args:
+            error_msg (str): The original error message
+            model_key (str): The model that failed
+            
+        Returns:
+            str: A more descriptive error message
+        """
+        if "timeout" in error_msg.lower():
+            return f"Model {model_key} timed out during generation (possibly stuck in loop)"
+        elif "empty response" in error_msg.lower():
+            return f"Model {model_key} returned empty response (generation failure)"
+        elif "connection" in error_msg.lower():
+            return f"Connection failed to model {model_key}: {error_msg}"
+        elif "rate" in error_msg.lower() and "limit" in error_msg.lower():
+            return f"Rate limit exceeded for model {model_key}"
+        elif "model not found" in error_msg.lower():
+            return f"Model {model_key} not found (trying next model)"
+        else:
+            return f"Failed to generate response with model {model_key}: {error_msg}"
+
+    @classmethod
     def _handle_model_error(
         cls,
         e: Exception,
@@ -690,12 +722,17 @@ class LlmRouter:
         
         # Provider-specific error handling
         if "OllamaClient" in provider_name:
-            # Provide more helpful error messages for common Ollama issues
-            if "No valid host found" in error_msg:
-                # Only show this as yellow warning since the system may succeed with another model
-                g.debug_log(f"Ollama-Api: {error_msg}", "yellow", prefix=prefix)
+            # Provide more detailed error messages for common Ollama issues
+            if "timeout" in error_msg.lower():
+                g.debug_log(f"❌ Ollama-Api: Model {model_key} timed out during generation (stream may be stuck)", "red", is_error=True, prefix=prefix)
+            elif "empty response" in error_msg.lower():
+                g.debug_log(f"❌ Ollama-Api: Model {model_key} returned empty response (generation failure)", "red", is_error=True, prefix=prefix)
+            elif "No valid host found" in error_msg:
+                g.debug_log(f"⚠️  Ollama-Api: {error_msg} (trying next model)", "yellow", prefix=prefix)
+            elif "model not found" in error_msg.lower():
+                g.debug_log(f"⚠️  Ollama-Api: Model {model_key} not found (trying next model)", "yellow", prefix=prefix)
             else:
-                g.debug_log(f"Ollama-Api: Failed to generate response with model {model_key}: {e}", "yellow", prefix=prefix)
+                g.debug_log(f"❌ Ollama-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
             # Add to unreachable hosts if applicable
             if model and hasattr(model.provider, "unreachable_hosts") and hasattr(model.provider, "_client"):
                 try:
@@ -704,23 +741,30 @@ class LlmRouter:
                 except Exception:
                     pass
         elif "GroqAPI" in provider_name:
-            g.debug_log(f"\nGroq-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+            descriptive_error = cls._get_descriptive_error(error_msg, model_key)
+            g.debug_log(f"❌ Groq-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "GoogleAPI" in provider_name:
-            g.debug_log(f"\nGoogle-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+            descriptive_error = cls._get_descriptive_error(error_msg, model_key)
+            g.debug_log(f"❌ Google-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "OpenAIAPI" in provider_name:
-            g.debug_log(f"\nOpenAI-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+            descriptive_error = cls._get_descriptive_error(error_msg, model_key)
+            g.debug_log(f"❌ OpenAI-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "AnthropicAPI" in provider_name:
-            g.debug_log(f"\nAnthropic-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+            descriptive_error = cls._get_descriptive_error(error_msg, model_key)
+            g.debug_log(f"❌ Anthropic-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "NvidiaAPI" in provider_name:
-            g.debug_log(f"\nNVIDIA-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+            descriptive_error = cls._get_descriptive_error(error_msg, model_key)
+            g.debug_log(f"❌ NVIDIA-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "HumanAPI" in provider_name:
-            g.debug_log(f"\nHuman-Api: Failed to generate response: {e}", "red", is_error=True, prefix=prefix)
+            g.debug_log(f"❌ Human-Api: Failed to generate response: {e}", "red", is_error=True, prefix=prefix)
         else:
             # Generic error handling for unknown providers or when model is None
             if model is not None:
-                g.debug_log(f"\ngenerate_completion error with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
+                descriptive_error = cls._get_descriptive_error(error_msg, model_key)
+                g.debug_log(f"❌ Generation error with model {model_key}: {descriptive_error}", "red", is_error=True, prefix=prefix)
             else:
-                g.debug_log(f"\ngenerate_completion error: {e}", "red", is_error=True, prefix=prefix)
+                g.debug_log(f"❌ Generation error: {e}", "red", is_error=True, prefix=prefix)
+            time.sleep(1)
 
     @classmethod
     def generate_completion(
@@ -802,7 +846,9 @@ class LlmRouter:
             chat.add_message(Role.USER, prompt)
         
         # Find llm and generate response, excepts on user interruption, or total failure
-        while True:
+        retry_count = 0
+        max_retries = 3
+        while retry_count < max_retries:
             try:
                 if not preferred_models or (preferred_models and isinstance(preferred_models[0], str)):
                     # Get an appropriate model
@@ -815,12 +861,31 @@ class LlmRouter:
                 
                 # If no model is available, clear failed models and retry
                 if not model:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        break  # Exit the retry loop
+                    
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    g.debug_log("# # # Could not find valid model # # # RETRYING... # # #", "red", is_error=True, prefix=prefix)
+                    g.debug_log(f"# # # Could not find valid model # # # RETRYING... ({retry_count}/{max_retries}) # # #", "red", is_error=True, prefix=prefix)
                     instance.failed_models.clear()
+                    
+                    # Also reset OllamaClient host cache to allow trying different hosts
+                    try:
+                        from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+                        OllamaClient.reset_host_cache()
+                    except ImportError:
+                        pass  # OllamaClient not available
+                    
                     if preferred_models and isinstance(preferred_models[0], str):
                         model = instance.get_model(strengths=strengths, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
+                    continue  # Continue the retry loop
 
+                # Check if model is still None after retry
+                if not model:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log("No valid model found after retry, exiting", "red", is_error=True, prefix=prefix)
+                    raise Exception("No valid model available")
+                
                 enable_caching = False
                 instance.last_used_model = model.model_key
                 
@@ -840,8 +905,26 @@ class LlmRouter:
                     if stream is None:
                         raise Exception(f"Model {model.model_key} returned None stream")
                     
-                    # MODIFIED LINE: Pass model.provider to _process_stream
-                    full_response = cls._process_stream(stream, model.provider, hidden_reason, generation_stream_callback)
+                    # MODIFIED LINE: Pass model.provider to _process_stream with timeout
+                    import signal
+                    import time
+                    
+                    def timeout_handler(signum, frame):
+                        raise Exception(f"Stream processing timeout after 60 seconds for model {model.model_key}")
+                    
+                    # Set timeout for stream processing
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(60)  # 60 second timeout
+                    
+                    try:
+                        full_response = cls._process_stream(stream, model.provider, hidden_reason, generation_stream_callback)
+                        
+                        # Check for empty responses
+                        if not full_response or not full_response.strip():
+                            raise Exception(f"Model {model.model_key} returned empty response - possible generation failure")
+                            
+                    finally:
+                        signal.alarm(0)  # Clear the alarm
                     
                     if (not full_response.endswith("\n") and not hidden_reason):
                         print()
@@ -867,6 +950,9 @@ class LlmRouter:
                 raise
             except Exception as e:
                 cls._handle_model_error(e, model, instance, chat)
+        
+        # If we've exhausted all retries, raise an exception
+        raise Exception(f"Failed to find a valid model after {max_retries} retries")
 
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """

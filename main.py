@@ -623,7 +623,7 @@ async def get_user_input_with_bindings(
             context_chat.messages.pop() # Remove last AI response
             user_input = ""
 
-        elif user_input == "-l" or user_input == "--l" or user_input == "--llm" or user_input == "--local":
+        elif user_input == "-l" or user_input == "--l" or user_input == "-llm" or user_input == "--llm" or user_input == "--local":
             print(colored("# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
             selected_llms = await llm_selection(args, preselected_llms=None)  # Load from persistent storage
             # Store the selected LLMs in globals for later use
@@ -823,7 +823,7 @@ For any new code you write, be sure to make appropriate use of these selected ut
             print(colored("# KeyBindings:", "yellow"))
             print(colored("# -h: Show this help message", "yellow"))
             print(colored("# -r: Regenerate the last response", "yellow"))
-            print(colored(f"# -l: Pick different LLMs (supports multi-selection) ", "yellow"), end="")
+            print(colored(f"# -l/-llm: Pick different LLMs (supports multi-selection) ", "yellow"), end="")
             print(colored(f"(Current: {', '.join(g.SELECTED_LLMS) if g.SELECTED_LLMS else args.llm or 'Auto'})", "cyan"))
             print(colored(f"# -a: Toggle automatic code execution ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.auto else 'off'})", "cyan"))
@@ -1068,8 +1068,8 @@ async def main() -> None:
                     - A string to provide as input and continue execution
             """
             konsole_interaction_chat = context_chat.deep_copy()
-            konsole_interaction_chat.set_instruction_message("You are a konsole interaction assistant. You are being asked to decide what to do next based on a recent output of a code execution.")
-            konsole_interaction_chat.debug_title = "Konsole Interaction Chat"
+            konsole_interaction_chat.set_instruction_message("You are console interaction assistant. You are being asked to decide what to do next based on a recent output of a code execution.")
+            konsole_interaction_chat.debug_title = "Bash Interaction Chat"
             
             # Get the 10 most recent lines
             lines = previous_output.splitlines()
@@ -1354,51 +1354,78 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
                             assistant_response = "" # Clear buffer after adding
 
-                        # ! Agent turn
+                        # ! Agent turn - with enhanced branch execution monitoring
                         for i in range(3 if (args.mct and len(g.SELECTED_LLMS)==1) else len(g.SELECTED_LLMS) if g.SELECTED_LLMS else 1):
                             response_buffer = "" # Reset buffer for each branch
                             
                             temperature = 0.85 if args.mct else 0
+                            branch_start_time = time.time()
                             
-                            # If multi-LLM mode is active and there are selected LLMs
-                            if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1:
-                                # If this is the first iteration, just use the selected LLMs instead of temperature variations
-                                if i < len(g.SELECTED_LLMS):
-                                    current_model = g.SELECTED_LLMS[i]
-                                    if args.mct:
-                                        context_chat.debug_title = f"MCT Branching ({i+1}/{len(g.SELECTED_LLMS)})"
-                                    current_branch_response = LlmRouter.generate_completion(
-                                        context_chat,
-                                        [current_model],
-                                        temperature=0,
-                                        base64_images=base64_images,
-                                        generation_stream_callback=update_python_environment,
-                                        strengths=g.LLM_STRENGTHS
-                                    )
+                            try:
+                                # If multi-LLM mode is active and there are selected LLMs
+                                if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1:
+                                    # If this is the first iteration, just use the selected LLMs instead of temperature variations
+                                    if i < len(g.SELECTED_LLMS):
+                                        current_model = g.SELECTED_LLMS[i]
+                                        if args.mct:
+                                            context_chat.debug_title = f"MCT Branching ({i+1}/{len(g.SELECTED_LLMS)})"
+                                        print(colored(f"🌿 Starting Branch {i+1}/{len(g.SELECTED_LLMS)} with model: {current_model}", "cyan"))
+                                        current_branch_response = LlmRouter.generate_completion(
+                                            context_chat,
+                                            [current_model],
+                                            force_preferred_model=True,
+                                            temperature=0,
+                                            base64_images=base64_images,
+                                            generation_stream_callback=update_python_environment,
+                                            strengths=g.LLM_STRENGTHS
+                                        )
+                                    else:
+                                        # If we've already used all selected LLMs, use the first one with different temperatures
+                                        print(colored(f"🌿 Branch {i+1} using first model ({g.SELECTED_LLMS[0]}) with temperature variation", "cyan"))
+                                        current_branch_response = LlmRouter.generate_completion(
+                                            context_chat,
+                                            [g.SELECTED_LLMS[0]],
+                                            temperature=temperature,
+                                            base64_images=base64_images,
+                                            generation_stream_callback=update_python_environment,
+                                            strengths=g.LLM_STRENGTHS
+                                        )
                                 else:
-                                    # If we've already used all selected LLMs, use the first one with different temperatures
-                                    print(colored(f"Using first model ({g.SELECTED_LLMS[0]}) with temperature variation", "cyan"))
+                                    # Standard single-LLM mode (or no specific LLM selection)
+                                    if args.mct:
+                                        print(colored(f"🌿 Starting Branch {i+1}/3", "cyan"))
+                                    if (base64_images):
+                                        print(colored("Base64 images being included", "yellow"))
                                     current_branch_response = LlmRouter.generate_completion(
                                         context_chat,
-                                        [g.SELECTED_LLMS[0]],
+                                        [g.SELECTED_LLMS] if g.SELECTED_LLMS else [],
                                         temperature=temperature,
                                         base64_images=base64_images,
                                         generation_stream_callback=update_python_environment,
                                         strengths=g.LLM_STRENGTHS
                                     )
-                            else:
-                                # Standard single-LLM mode (or no specific LLM selection)
-                                if (base64_images):
-                                    print(colored("Base64 images being included", "yellow"))
-                                current_branch_response = LlmRouter.generate_completion(
-                                    context_chat,
-                                    [g.SELECTED_LLMS] if g.SELECTED_LLMS else [],
-                                    temperature=temperature,
-                                    base64_images=base64_images,
-                                    generation_stream_callback=update_python_environment,
-                                    strengths=g.LLM_STRENGTHS
-                                )
-                            response_branches.append(current_branch_response)
+                                
+                                # Check for successful completion
+                                branch_duration = time.time() - branch_start_time
+                                if current_branch_response and current_branch_response.strip():
+                                    model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
+                                    print(colored(f"✅ Branch {i+1} completed successfully in {branch_duration:.1f}s (model: {model_name})", "green"))
+                                    response_branches.append(current_branch_response)
+                                else:
+                                    print(colored(f"❌ Branch {i+1} failed: returned empty response after {branch_duration:.1f}s", "red"))
+                                    response_branches.append("Error: Branch failed to generate content")
+                                    
+                            except Exception as branch_error:
+                                branch_duration = time.time() - branch_start_time
+                                error_msg = str(branch_error)
+                                model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
+                                
+                                if "timeout" in error_msg.lower():
+                                    print(colored(f"❌ Branch {i+1} failed: Timed out after {branch_duration:.1f}s (model: {model_name} may be stuck)", "red"))
+                                else:
+                                    print(colored(f"❌ Branch {i+1} failed: {error_msg} (model: {model_name})", "red"))
+                                
+                                response_branches.append(f"Error: Branch {i+1} failed - {error_msg}")
                         
                         base64_images = [] # Clear images after use
                         context_chat.debug_title = "Main Context Chat"
