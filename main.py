@@ -107,6 +107,30 @@ def get_local_ip():
         logging.warning(f"Could not determine local IP: {e}")
         return None
 
+def save_selected_llms(selected_llms: List[str]) -> None:
+    """Save the selected LLMs to persistent storage."""
+    try:
+        llm_selection_file = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, "selected_llms.json")
+        os.makedirs(g.CLIAGENT_PERSISTENT_STORAGE_PATH, exist_ok=True)
+        
+        with open(llm_selection_file, 'w') as f:
+            json.dump(selected_llms, f)
+    except Exception as e:
+        logging.warning(f"Could not save selected LLMs: {e}")
+
+def load_selected_llms() -> List[str]:
+    """Load the previously selected LLMs from persistent storage."""
+    try:
+        llm_selection_file = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, "selected_llms.json")
+        
+        if os.path.exists(llm_selection_file):
+            with open(llm_selection_file, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logging.warning(f"Could not load selected LLMs: {e}")
+    
+    return []
+
 
 def parse_cli_args() -> argparse.Namespace:
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
@@ -145,15 +169,13 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-o", "--online", action="store_true", default=False,
                         help="Force use of cloud AI.")
     
-    parser.add_argument("-llm", "--llm", type=str, default=None,
-                        help="Specify the LLM model key to use (e.g., 'gpt-4', 'gemini-pro').")
+    parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None,
+                        help="Specify the LLM model key to use (e.g., 'gpt-4', 'gemini-pro'). Use without value to open selection menu.")
     
     parser.add_argument("--preload", action="store_true", default=False,
                         help="Preload systems like embeddings and other resources.")
     parser.add_argument("--gui", action="store_true", default=False,
                         help="Open a web interface for the chat")
-    parser.add_argument("--minimized", action="store_true", default=False,
-                        help="Start the application in a minimized state")
     parser.add_argument("--debug-chats", action="store_true", default=False,
                         help="Enable debug windows for chat contexts without full debug logging. Sets g.DEBUG_CHATS=True.")
     parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
@@ -178,12 +200,13 @@ def parse_cli_args() -> argparse.Namespace:
     
     return args
 
-async def llm_selection(args: argparse.Namespace) -> List[str]:
+async def llm_selection(args: argparse.Namespace, preselected_llms: List[str] = None) -> List[str]:
     """
     Handles the LLM selection process, supporting multi-selection mode.
     
     Args:
         args: The parsed command line arguments containing auto mode settings
+        preselected_llms: Optional list of LLMs to preselect. If None, loads from persistent storage.
         
     Returns:
         List of selected LLM model keys or special identifiers
@@ -215,8 +238,18 @@ async def llm_selection(args: argparse.Namespace) -> List[str]:
     })
     
     # Use CheckboxList instead of RadioList to allow multiple selections
+    # Set default selected values - use preselected_llms if provided, otherwise load from storage
+    default_selected = []
+    if preselected_llms is not None:
+        default_selected = [llm for llm in preselected_llms if llm in [choice[0] for choice in llm_choices]]
+    else:
+        # Load previously saved selection
+        saved_llms = load_selected_llms()
+        default_selected = [llm for llm in saved_llms if llm in [choice[0] for choice in llm_choices]]
+    
     checkbox_list = CheckboxList(
-        values=llm_choices
+        values=llm_choices,
+        default_values=default_selected
     )
     bindings = KeyBindings()
 
@@ -246,6 +279,9 @@ async def llm_selection(args: argparse.Namespace) -> List[str]:
         selected_llms = await app.run_async()
         
         if selected_llms is not None and len(selected_llms) > 0:
+            # Save the selection to persistent storage
+            save_selected_llms(selected_llms)
+            
             # Check if "Any but local" was selected
             if "any_local" in selected_llms:
                 g.FORCE_LOCAL = True
@@ -589,7 +625,7 @@ async def get_user_input_with_bindings(
 
         elif user_input == "-l" or user_input == "--l" or user_input == "--llm" or user_input == "--local":
             print(colored("# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
-            selected_llms = await llm_selection(args)
+            selected_llms = await llm_selection(args, preselected_llms=None)  # Load from persistent storage
             # Store the selected LLMs in globals for later use
             g.SELECTED_LLMS = selected_llms
             continue
@@ -656,6 +692,11 @@ async def get_user_input_with_bindings(
         elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
             print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
             exit(0)
+        
+        elif user_input == "--local-exec-confirm":
+            args.local_exec_confirm = not args.local_exec_confirm
+            print(colored(f"# cli-agent: KeyBinding detected: Local auto-execution confirmation toggled {'on' if args.local_exec_confirm else 'off'}, type (--h) for info", "green"))
+            continue
         
         elif user_input == "-t" or user_input == "--t" or user_input == "-tool" or user_input == "--tool":
             print(colored("# cli-agent: KeyBinding detected: Showing utils selection, type (--h) for info", "green"))
@@ -802,10 +843,9 @@ For any new code you write, be sure to make appropriate use of these selected ut
             print(colored(f"(Current: {', '.join(g.SELECTED_UTILS) if g.SELECTED_UTILS else 'None'})", "cyan"))
             print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
             if context_chat:
-                print(colored(f"(Chars: {len(context_chat.joined_messages())})", "cyan"))
+                print(colored(f"(length: {len(context_chat.joined_messages())} chars)", "cyan"))
             else:
                 print(colored("(No chat history)", "cyan"))
-            print(colored("# --minimized: Start the application in a minimized state", "yellow"))
             print(colored(f"# --local-exec-confirm: Use local LLM for auto-execution confirmation ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.local_exec_confirm else 'off'})", "cyan"))
             print(colored("# -e: Exit the application", "yellow"))
@@ -1222,7 +1262,13 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
             base64_images = await handle_screenshot_capture(context_chat)
             args.image = False  # Reset the flag after handling
         
-        if args.llm:
+        # Handle LLM selection at startup if --llm was passed without value
+        if args.llm == "__select__":
+            print(colored("# cli-agent: --llm flag detected without value. Opening LLM selection...", "green"))
+            selected_llms = await llm_selection(args, preselected_llms=None)  # Load from persistent storage
+            g.SELECTED_LLMS = selected_llms
+            args.llm = None  # Reset to None after selection
+        elif args.llm:
             g.SELECTED_LLMS = [args.llm]
         
         # Print help page by default at startup
@@ -1309,7 +1355,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                             assistant_response = "" # Clear buffer after adding
 
                         # ! Agent turn
-                        for i in range(3 if args.mct else 1):
+                        for i in range(3 if (args.mct and len(g.SELECTED_LLMS)==1) else len(g.SELECTED_LLMS) if g.SELECTED_LLMS else 1):
                             response_buffer = "" # Reset buffer for each branch
                             
                             temperature = 0.85 if args.mct else 0
@@ -1319,7 +1365,8 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 # If this is the first iteration, just use the selected LLMs instead of temperature variations
                                 if i < len(g.SELECTED_LLMS):
                                     current_model = g.SELECTED_LLMS[i]
-                                    print(colored(f"Generating response from model: {current_model}", "cyan"))
+                                    if args.mct:
+                                        context_chat.debug_title = f"MCT Branching ({i+1}/{len(g.SELECTED_LLMS)})"
                                     current_branch_response = LlmRouter.generate_completion(
                                         context_chat,
                                         [current_model],
@@ -1354,7 +1401,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                             response_branches.append(current_branch_response)
                         
                         base64_images = [] # Clear images after use
-
+                        context_chat.debug_title = "Main Context Chat"
 
                     except Exception as e:
                         LlmRouter.clear_unconfirmed_finetuning_data()

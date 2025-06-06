@@ -17,25 +17,25 @@ class ViewImage(UtilBase):
     
     @staticmethod
     def run(
-        image_path: str,
+        file_path: str,
         prompt: str = "This image shows a screenshot of the current screen. There should be a video player playing a video. What is the name of the video and whats the like to dislike ratio?"
     ) -> str:
         """
         Inspect an image, optionally using a prompt.
         
         Args:
-            image_path: str, Path to the image file
+            file_path: str, Path to the image file
             prompt: str, Prompt to guide the image description and focus attention on specific features
             
         Returns:
             str, A text description of the image
         """
         # Validate image path
-        if not os.path.exists(image_path):
-            raise FileNotFoundError(f"Image file not found: {image_path}")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Image file not found: {file_path}")
         
         # Convert image file to base64
-        with open(image_path, "rb") as image_file:
+        with open(file_path, "rb") as image_file:
             base64_image = base64.b64encode(image_file.read()).decode("utf-8")
         
         # Create instruction for image analysis
