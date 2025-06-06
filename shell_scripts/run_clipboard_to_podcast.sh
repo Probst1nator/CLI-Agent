@@ -4,6 +4,7 @@ source "$(grep PYTHON_ENV_PATH ~/repos/CLI-Agent/.env | cut -d '=' -f2)"
 
 # Run generate_podcast.py with a custom output directory
 python3 ~/repos/CLI-Agent/generate_podcast.py -o /home/user/OneDrive/Podcasts
+python3 ~/repos/CLI-Agent/generate_podcast.py -o /home/user/OneDrive/Podcasts --llms "gemma3:1b"
 
 # Print a message to the console
 echo "Script execution completed."

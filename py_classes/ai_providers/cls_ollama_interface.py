@@ -37,6 +37,13 @@ class OllamaClient(AIProviderInterface):
     """
     reached_hosts: List[str] = []
     unreachable_hosts: List[str] = []
+    
+    @classmethod
+    def reset_host_cache(cls):
+        """Reset the host reachability cache to allow retrying all hosts."""
+        cls.reached_hosts.clear()
+        cls.unreachable_hosts.clear()
+        # Note: unreachable_hosts now also contains host:model combinations
 
     @classmethod
     def check_host_reachability(cls, host: str, chat: Optional[Chat] = None) -> bool:
@@ -114,6 +121,11 @@ class OllamaClient(AIProviderInterface):
             
             # Skip hosts that are restricted to fast models if this isn't a small model
             if host in small_only_hosts and not is_small_model:
+                continue
+            
+            # Skip host+model combinations that have recently failed with connection issues
+            problematic_identifier = f"{host}:{model_key}"
+            if problematic_identifier in OllamaClient.unreachable_hosts:
                 continue
                 
             if host not in OllamaClient.reached_hosts and host not in OllamaClient.unreachable_hosts:
@@ -232,8 +244,13 @@ class OllamaClient(AIProviderInterface):
                         g.debug_log(f"Error checking models on host {host}: {e}", "red", is_error=True, prefix=prefix)
                     else:
                         print(f"Error checking models on host {host}: {e}")
-                    OllamaClient.unreachable_hosts.append(host)
-                    failed_hosts_this_attempt.append(host)
+                    # Only mark host as unreachable if it's a connection issue, not a model issue
+                    error_str = str(e).lower()
+                    if any(conn_error in error_str for conn_error in ['connection', 'timeout', 'refused', 'unreachable', 'network']):
+                        OllamaClient.unreachable_hosts.append(host)
+                        failed_hosts_this_attempt.append(host)
+                    # If it's just a model not found or other non-connection error, continue to next host
+                    # but don't mark this host as completely unreachable
         
         # Only show summary error if no hosts were reachable and we actually tried some
         if failed_hosts_this_attempt and len(failed_hosts_this_attempt) == len([h.strip() for h in ollama_hosts if h.strip() and (not small_only_hosts or h.strip() not in small_only_hosts or is_small_model)]):
@@ -325,11 +342,36 @@ class OllamaClient(AIProviderInterface):
             g.debug_log(f"Ollama-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<' + host + '>', 'green')}{temp_str} to generate a response...", force_print=True, prefix=prefix)
         
         # Let any errors here bubble up to the router for centralized handling
-        is_chat = isinstance(chat, Chat)
-        if is_chat:
-            return client.chat(model=model_key, messages=chat.to_ollama(), stream=True, keep_alive=1800, options=options)
-        else:
-            return client.generate(model=model_key, prompt=chat, stream=True, keep_alive=1800, options=options)
+        is_chat = isinstance(chat_inner, Chat)
+        
+        # Add timeout to prevent hanging on connection issues
+        import signal
+        import time
+        
+        def ollama_timeout_handler(signum, frame):
+            raise Exception(f"Ollama client timeout after 30 seconds for model {model_key} on host {host}")
+        
+        # Set a 30-second timeout for the ollama client call
+        signal.signal(signal.SIGALRM, ollama_timeout_handler)
+        signal.alarm(30)
+        
+        try:
+            if is_chat:
+                result = client.chat(model=model_key, messages=chat_inner.to_ollama(), stream=True, keep_alive=1800, options=options)
+            else:
+                result = client.generate(model=model_key, prompt=chat_inner, stream=True, keep_alive=1800, options=options)
+            signal.alarm(0)  # Clear the alarm if successful
+            return result
+        except Exception as e:
+            signal.alarm(0)  # Clear the alarm on error
+            # Check if this is an EOF or connection error that should mark the host as problematic
+            error_str = str(e).lower()
+            if any(issue in error_str for issue in ['eof', 'connection', 'timeout', 'refused', 'unreachable']):
+                # Add this host+model combo to unreachable list temporarily
+                problematic_identifier = f"{host}:{model_key}"
+                if problematic_identifier not in OllamaClient.unreachable_hosts:
+                    OllamaClient.unreachable_hosts.append(problematic_identifier)
+            raise
 
     @staticmethod
     def generate_embedding(text: Union[str, List[str]], model: str = "bge-m3", chat: Optional[Chat] = None) -> Optional[Union[List[float], List[List[float]]]]:
@@ -410,7 +452,7 @@ class OllamaClient(AIProviderInterface):
                 print(colored(error_msg, "red"))
                 logger.error(f"Ollama-Api: Failed to generate embedding(s) using <{host}> with model <{model}>: {e}")
             
-            OllamaClient.unreachable_hosts.append(f"{host}{model}")
+            # Don't mark host as unreachable for embedding failures - could be model-specific
             return None
 
 @dataclass

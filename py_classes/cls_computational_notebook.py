@@ -44,7 +44,7 @@ class ComputationalNotebook:
         start_time = time.time()
         buffer = ""
         last_output_time = time.time()
-        stall_threshold = 10  # seconds without new output before consulting LLM
+        stall_threshold = 30  # seconds without new output before consulting LLM
         command_completed = False
         potential_completion_time = None  # Track when we first see a bash prompt
         
@@ -120,7 +120,7 @@ class ComputationalNotebook:
                             if decision is True:
                                 # True means continue without providing input (wait longer)
                                 last_output_time = time.time()  # Reset timer to wait longer
-                                stall_threshold = min(stall_threshold * 1.5, 60)  # Increase threshold, max 60s
+                                stall_threshold = min(stall_threshold * 1.2, 120)  # Increase threshold, max 120s
                                 potential_completion_time = None  # Reset completion detection
                             elif decision is False:
                                 # False means interrupt execution

@@ -106,12 +106,20 @@ If sources conflict or information seems outdated, note this in your summary.
         chat = Chat(inst)
         chat.add_message(Role.USER, summarization_prompt)
         
-        summary = LlmRouter.generate_completion(
-            chat,
-            strengths=[AIStrengths.GENERAL],
-            exclude_reasoning_tokens=True,
-            hidden_reason="SearchWebUtil: summarizing"
-        )
+        try:
+            summary = LlmRouter.generate_completion(
+                chat,
+                strengths=[AIStrengths.GENERAL],
+                exclude_reasoning_tokens=True,
+                hidden_reason="SearchWebUtil: summarizing"
+            )
+            print(f"SearchWeb: Generated summary with {len(summary)} characters")
+        except Exception as e:
+            print(f"❌ SearchWeb: Failed to generate summary: {str(e)}")
+            # Fallback to simple concatenation of results
+            summary = "Search results summary failed to generate. Raw results:\n\n"
+            for i, (result, url) in enumerate(all_results, 1):
+                summary += f"{i}. {url}\n{result[:200]}...\n\n"
         
         # Check if the summary is relevant to the queries
         is_relevant_instruction = f"""You are a helpful assistant that checks if a summary is relevant to a list of search queries. 
@@ -143,12 +151,17 @@ Your suggested queries should be more specific or use alternative terminology th
             role=Role.USER,
             content=is_relevant_prompt
         )
-        is_relevant_tool_response = LlmRouter.generate_completion(
-            is_relevant_chat,
-            strengths=[AIStrengths.REASONING, AIStrengths.SMALL],
-            exclude_reasoning_tokens=True,
-            hidden_reason="SearchWebUtil: verifying relevance"
-        )
+        try:
+            is_relevant_tool_response = LlmRouter.generate_completion(
+                is_relevant_chat,
+                strengths=[AIStrengths.REASONING, AIStrengths.SMALL],
+                exclude_reasoning_tokens=True,
+                hidden_reason="SearchWebUtil: verifying relevance"
+            )
+        except Exception as e:
+            print(f"❌ SearchWeb: Failed to verify relevance: {str(e)}")
+            # Default to returning the summary as-is
+            is_relevant_tool_response = "return_summary_with_success()"
         
         def extract_relevance_action(response: str) -> Dict[str, Any]:
             """Extract action from relevance response"""
@@ -169,6 +182,9 @@ Your suggested queries should be more specific or use alternative terminology th
         if relevance_action['action'] == 'rerun_search' and 'new_queries' in relevance_action:
             print(f"SearchWebUtil: Summary not relevant, rerunning with new queries: {relevance_action['new_queries']}")
             summary = SearchWeb.run(relevance_action['new_queries'])
+        else:
+            print("SearchWeb: Summary deemed relevant, returning results")
         
-        # Return a clean response with the summary as a string
-        return summary
+        # Return a clean response with the summary as a string with clear formatting
+        formatted_summary = f"\n{'='*60}\nSEARCH RESULTS SUMMARY\n{'='*60}\n\n{summary}\n\n{'='*60}\n"
+        return formatted_summary

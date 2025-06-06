@@ -8,6 +8,8 @@ import time
 import tempfile # Added for temporary file/directory management
 from dotenv import load_dotenv
 
+from py_classes.enum_ai_strengths import AIStrengths
+
 # Google imports
 try:
     from google import genai
@@ -322,6 +324,176 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         else: print(colored(f"[{title}] Google TTS podcast MP3 generation failed.", "red"))
         return mp3_final_path
 
+def _generate_llm_conversation(content: str, llms: List[str]) -> Tuple[str, str]:
+    """Generate a conversation between two LLMs about the given content.
+    Returns (dialogue, title)"""
+    
+    # First, generate a title for the content
+    print(colored("Generating title for LLM conversation...", "blue"))
+    try:
+        title_response = LlmRouter.generate_completion(
+            f"Generate a very, descriptive title (3-5 words) for a podcast discussion about the following content. "
+            f"The title should be suitable for a filename (no special characters). "
+            f"Respond with just the title, nothing else.\n\n{content[:1000]}..."  # Limit content for title generation
+        )
+        extracted_title = re.sub(r'[^\w\s-]', '', title_response.strip()).strip()
+        extracted_title = re.sub(r'\s+', '_', extracted_title)
+        if not extracted_title or len(extracted_title) > 50:
+            extracted_title = "LLM_Conversation_Podcast"
+    except Exception as e:
+        print(colored(f"Error generating title: {e}", "red"))
+        extracted_title = "LLM_Conversation_Podcast"
+    
+    print(colored(f"Generated Title: {extracted_title}", "magenta"))
+    
+    # Set up the conversation
+    chloe_llm = llms[0]
+    liam_llm = llms[1] if len(llms) > 1 else None
+    
+    chloe_model_info = f"Chloe ({chloe_llm})"
+    liam_model_info = f"Liam ({liam_llm})" if liam_llm else "Liam (default LLM)"
+    
+    print(colored(f"Setting up conversation between {chloe_model_info} and {liam_model_info}", "blue"))
+    
+    # Initialize conversation context
+    conversation_context = f"""You are participating in a podcast conversation about the following content:
+
+{content}
+
+You should engage in a natural, flowing discussion that explores the key insights, concepts, and implications of this content. Keep your responses conversational and engaging, as this will be converted to audio.
+
+Include natural speech patterns and occasional parenthetical cues for emotional tone like (laughs), (thoughtfully), (enthusiastically), etc.
+
+Focus on making the content accessible and interesting to listeners."""
+
+    # Initialize chat objects for both LLMs
+    chloe_chat = Chat()
+    liam_chat = Chat()
+    
+    # Set up initial system messages
+    chloe_system_prompt = f"""You are Chloe, an intelligent and creative student in a podcast conversation with Liam. {conversation_context}
+
+CRITICAL: Provide ONLY ONE response per turn. Do not continue speaking or create multiple paragraphs or responses.
+
+You should:
+- You attempt to grasp the intuition of your partner and question their ideas
+- Keep responses to 1-5 sentences maximum
+- Use the name Liam when addressing your conversation partner
+- Stop after your single response and wait for Liam to reply"""
+
+    liam_system_prompt = f"""You are Liam, a self-taught established expert in a podcast conversation with Chloe. {conversation_context}
+
+CRITICAL: Provide ONLY ONE response per turn. Do not continue speaking or create multiple paragraphs or responses.
+
+You should:
+- Understand your partner, clarify ideas, and ask questions to deepen the conversation
+- Answer questions carefully and think out loud when you do
+- Keep responses to 1-4 sentences maximum
+- Use the name Chloe when addressing your conversation partner
+- Stop after your single response and wait for Chloe to reply"""
+
+    # Determine who starts based on whether only 1 LLM was provided
+    only_one_llm_provided = len(llms) == 1
+    
+    # Add system prompts as USER messages to set up the context
+    if only_one_llm_provided:
+        # Liam (default LLM) starts when only 1 LLM is provided
+        liam_chat.add_message(Role.USER, f"{liam_system_prompt}\n\nProvide ONLY a single, short welcome message (1-2 sentences) to start the podcast and introduce the topic. Do not continue speaking or add multiple paragraphs. End your response and wait for Chloe to reply.")
+        chloe_chat.add_message(Role.USER, f"{chloe_system_prompt}\n\nWait for Liam to start, then respond naturally to continue the conversation.")
+        print(colored("Liam (default LLM) will start the conversation.", "yellow"))
+    else:
+        # Chloe starts when 2 LLMs are provided
+        chloe_chat.add_message(Role.USER, f"{chloe_system_prompt}\n\nProvide ONLY a single, short welcome message (1-2 sentences) to start the podcast and introduce the topic. Do not continue speaking or add multiple paragraphs. End your response and wait for Liam to reply.")
+        liam_chat.add_message(Role.USER, f"{liam_system_prompt}\n\nWait for Chloe to start, then respond naturally to continue the conversation.")
+        print(colored("Chloe will start the conversation.", "yellow"))
+    
+    # Start the conversation
+    dialogue_lines = []
+    
+    print(colored("Starting multi llm podcast conversation...", "green"))
+    
+    for exchange in range(100):
+        try:
+            liam_chat.debug_title = f"Podcast exchange {exchange + 1}"
+            chloe_chat.debug_title = f"Podcast exchange {exchange + 1}"
+            if exchange > 15:
+                response = LlmRouter.generate_completion(f"Decide if the conversation is finished. If you are highly certain it can be ended without it feeling abrupt, respond with 'finished'. If it is not, respond with 'continue'.", strengths=[AIStrengths.SMALL])
+                if "finished" in response.lower():
+                    print(colored("Conversation was detected as finished.", "green"))
+                    break
+            
+            if only_one_llm_provided:
+                # Liam starts when only 1 LLM provided
+                # Liam's turn first
+                if liam_llm:
+                    liam_response = LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm])
+                else:
+                    liam_response = LlmRouter.generate_completion(liam_chat)  # Use default LLM
+                liam_chat.add_message(Role.ASSISTANT, liam_response)
+                dialogue_lines.append(f"Liam: {liam_response.strip()}")
+                
+                # Add Liam's response as USER message to Chloe's chat
+                chloe_chat.add_message(Role.USER, liam_response)
+                
+                # Chloe's turn
+                chloe_response = LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm], temperature=1.3)
+                chloe_chat.add_message(Role.ASSISTANT, chloe_response)
+                dialogue_lines.append(f"Chloe: {chloe_response.strip()}")
+                
+                # Add Chloe's response as USER message to Liam's chat
+                liam_chat.add_message(Role.USER, chloe_response)
+            else:
+                # Chloe starts when 2 LLMs provided (original behavior)
+                # Chloe's turn first
+                chloe_response = LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm])
+                chloe_chat.add_message(Role.ASSISTANT, chloe_response)
+                dialogue_lines.append(f"Chloe: {chloe_response.strip()}")
+                
+                # Add Chloe's response as USER message to Liam's chat
+                liam_chat.add_message(Role.USER, chloe_response)
+                
+                # Liam's turn
+                if liam_llm:
+                    liam_response = LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm])
+                else:
+                    liam_response = LlmRouter.generate_completion(liam_chat)  # Use default LLM
+                liam_chat.add_message(Role.ASSISTANT, liam_response)
+                dialogue_lines.append(f"Liam: {liam_response.strip()}")
+                
+                # Add Liam's response as USER message to Chloe's chat
+                chloe_chat.add_message(Role.USER, liam_response)
+            
+        except Exception as e:
+            print(colored(f"Error in exchange {exchange + 1}: {e}", "red"))
+            # Try to continue with a generic response
+            if only_one_llm_provided:
+                # Liam speaks first when only 1 LLM provided
+                if exchange % 2 == 0:  # Liam's turn (first speaker)
+                    fallback_response = "I completely agree. Let's explore that further."
+                    dialogue_lines.append(f"Liam: {fallback_response}")
+                    chloe_chat.add_message(Role.USER, fallback_response)
+                else:  # Chloe's turn
+                    fallback_response = "That's a fascinating point. (thoughtfully)"
+                    dialogue_lines.append(f"Chloe: {fallback_response}")
+                    liam_chat.add_message(Role.USER, fallback_response)
+            else:
+                # Chloe speaks first when 2 LLMs provided
+                if exchange % 2 == 0:  # Chloe's turn (first speaker)
+                    fallback_response = "That's a fascinating point. (thoughtfully)"
+                    dialogue_lines.append(f"Chloe: {fallback_response}")
+                    liam_chat.add_message(Role.USER, fallback_response)
+                else:  # Liam's turn
+                    fallback_response = "I completely agree. Let's explore that further."
+                    dialogue_lines.append(f"Liam: {fallback_response}")
+                    chloe_chat.add_message(Role.USER, fallback_response)
+            continue
+    
+    final_dialogue = "\n".join(dialogue_lines)
+    print(colored("LLM conversation generation complete!", "green"))
+    
+    return final_dialogue, extracted_title
+
+
 def create_wav_file(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: int = 16, num_channels: int = 1) -> bytes:
     data_size = len(pcm_data)
     bytes_per_sample = bits_per_sample // 8
@@ -333,10 +505,17 @@ def create_wav_file(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: 
     wav_header = struct.pack("<4sI4s4sIHHIIHH4sI", riff_chunk_id, riff_chunk_size, wave_format, fmt_chunk_id, fmt_chunk_size, audio_format, num_channels, sample_rate, byte_rate, block_align, bits_per_sample, data_chunk_id, data_chunk_size)
     return wav_header + pcm_data
 
-def process_raw_content_to_dialogue(content: str) -> Tuple[str, str]:
+def process_raw_content_to_dialogue(content: str, llms: List[str] = None) -> Tuple[str, str]:
     """Process raw text content through analysis and dialogue generation.
     Returns (dialogue, title)"""
-    print(colored("Analyzing content for summary and title...", "blue"))
+    if llms:
+        print(colored(f"Using LLMs for conversation: {llms}", "magenta"))
+        if len(llms) < 1 or len(llms) > 2:
+            print(colored("Error: Provide 1 LLM (other speaker uses default) or 2 LLMs for conversation", "red"))
+            exit(1)
+        return _generate_llm_conversation(content, llms)
+    else:
+        print(colored("Analyzing content for summary and title...", "blue"))
     try:
         analysisResponse = LlmRouter.generate_completion(
             f"For the following text snippet, please highlight key insights and lay out the fundamentals of the topic of concern. "
@@ -430,6 +609,7 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output-dir", type=str, help="Custom directory to save podcast files. Defaults to 'podcast_generations' in script directory.")
     parser.add_argument("-i", "--input-file", type=str, help="Input text file to process into a podcast (alternative to clipboard).")
     parser.add_argument("-t", "--transcript-file", type=str, help="Input transcript file with pre-formatted dialogue (skips analysis and dialogue generation).")
+    parser.add_argument("--llms", nargs='+', metavar=("LLM1", "LLM2"), help="Use specific LLMs for conversation. Provide 1 LLM (other speaker uses default) or 2 LLMs (e.g., --llms gpt-4 or --llms gpt-4 claude-3).")
     args = parser.parse_args()
     
     if args.output_dir:
@@ -494,7 +674,7 @@ if __name__ == "__main__":
         # Process raw content to dialogue
         if args.local: 
             print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-        podcastDialogue, extracted_title = process_raw_content_to_dialogue(content)
+        podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
         
     else:
         # Default behavior: use clipboard
@@ -510,7 +690,7 @@ if __name__ == "__main__":
         # Process raw content to dialogue
         if args.local: 
             print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-        podcastDialogue, extracted_title = process_raw_content_to_dialogue(content)
+        podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
 
     # Step 2: Generate the podcast audio
     mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
