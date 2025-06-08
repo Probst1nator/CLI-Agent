@@ -375,8 +375,8 @@ Focus on making the content accessible and interesting to listeners."""
 
 CRITICAL: Provide ONLY ONE response per turn. Do not continue speaking or create multiple paragraphs or responses.
 
-You should:
-- You attempt to grasp the intuition of your partner and question their ideas
+- You are a learning student
+- You attempt to grasp the intuition of your partner and rephrase their ideas to have them validated by the expert
 - Keep responses to 1-5 sentences maximum
 - Use the name Liam when addressing your conversation partner
 - Stop after your single response and wait for Liam to reply"""
@@ -386,8 +386,9 @@ You should:
 CRITICAL: Provide ONLY ONE response per turn. Do not continue speaking or create multiple paragraphs or responses.
 
 You should:
-- Understand your partner, clarify ideas, and ask questions to deepen the conversation
+- Understand your partner, clarify ideas, and expand the educational content of the dialogue
 - Answer questions carefully and think out loud when you do
+- Avoid simply agreeing with your partner without adding any more directed content to guide the educational content of the dialogue
 - Keep responses to 1-4 sentences maximum
 - Use the name Chloe when addressing your conversation partner
 - Stop after your single response and wait for Chloe to reply"""
@@ -610,6 +611,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input-file", type=str, help="Input text file to process into a podcast (alternative to clipboard).")
     parser.add_argument("-t", "--transcript-file", type=str, help="Input transcript file with pre-formatted dialogue (skips analysis and dialogue generation).")
     parser.add_argument("--llms", nargs='+', metavar=("LLM1", "LLM2"), help="Use specific LLMs for conversation. Provide 1 LLM (other speaker uses default) or 2 LLMs (e.g., --llms gpt-4 or --llms gpt-4 claude-3).")
+    parser.add_argument("--clipboard-content", type=str, help="Clipboard content to process (overrides built-in clipboard reading).")
     args = parser.parse_args()
     
     if args.output_dir:
@@ -677,12 +679,19 @@ if __name__ == "__main__":
         podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
         
     else:
-        # Default behavior: use clipboard
-        for i in range(5, 0, -1): 
-            print(colored(f"Generating podcast via clipboard in {i} seconds...", "green"))
-            time.sleep(1)
+        # Default behavior: use clipboard content or read from clipboard
+        if args.clipboard_content:
+            # Use provided clipboard content (from shell script)
+            content = args.clipboard_content
+            print(colored("Using clipboard content provided via argument", "cyan"))
+        else:
+            # Default behavior: read from clipboard with countdown
+            for i in range(5, 0, -1): 
+                print(colored(f"Generating podcast via clipboard in {i} seconds...", "green"))
+                time.sleep(1)
+            
+            content = pyperclip.paste()
         
-        content = pyperclip.paste()
         if not content.strip(): 
             print(colored("No text in clipboard", "red"))
             exit(1)

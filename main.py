@@ -1369,7 +1369,6 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                         current_model = g.SELECTED_LLMS[i]
                                         if args.mct:
                                             context_chat.debug_title = f"MCT Branching ({i+1}/{len(g.SELECTED_LLMS)})"
-                                        print(colored(f"🌿 Starting Branch {i+1}/{len(g.SELECTED_LLMS)} with model: {current_model}", "cyan"))
                                         current_branch_response = LlmRouter.generate_completion(
                                             context_chat,
                                             [current_model],
@@ -1381,7 +1380,6 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                         )
                                     else:
                                         # If we've already used all selected LLMs, use the first one with different temperatures
-                                        print(colored(f"🌿 Branch {i+1} using first model ({g.SELECTED_LLMS[0]}) with temperature variation", "cyan"))
                                         current_branch_response = LlmRouter.generate_completion(
                                             context_chat,
                                             [g.SELECTED_LLMS[0]],
@@ -1392,10 +1390,6 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                         )
                                 else:
                                     # Standard single-LLM mode (or no specific LLM selection)
-                                    if args.mct:
-                                        print(colored(f"🌿 Starting Branch {i+1}/3", "cyan"))
-                                    if (base64_images):
-                                        print(colored("Base64 images being included", "yellow"))
                                     current_branch_response = LlmRouter.generate_completion(
                                         context_chat,
                                         [g.SELECTED_LLMS] if g.SELECTED_LLMS else [],
@@ -1409,10 +1403,9 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 branch_duration = time.time() - branch_start_time
                                 if current_branch_response and current_branch_response.strip():
                                     model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
-                                    print(colored(f"✅ Branch {i+1} completed successfully in {branch_duration:.1f}s (model: {model_name})", "green"))
                                     response_branches.append(current_branch_response)
                                 else:
-                                    print(colored(f"❌ Branch {i+1} failed: returned empty response after {branch_duration:.1f}s", "red"))
+                                    print(colored(f"❌ Model generation failed: returned empty response after {branch_duration:.1f}s", "red"))
                                     response_branches.append("Error: Branch failed to generate content")
                                     
                             except Exception as branch_error:

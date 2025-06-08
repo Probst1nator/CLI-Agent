@@ -199,10 +199,49 @@ def listen_microphone(
                 temp_audio_file_path = temp_audio_file.name
 
                 # Transcribe the audio from the temporary file
+                transcription = ""
+                detected_language = ""
+                
                 if g.FORCE_LOCAL:
                     transcription, detected_language = PyAiHost.transcribe_audio(temp_audio_file_path)
                 else:
-                    transcription, detected_language = GroqAPI.transcribe_audio(temp_audio_file_path)
+                    # Try cloud-based transcription with multiple fallbacks
+                    cloud_success = False
+                    
+                    # First try Groq API
+                    try:
+                        transcription, detected_language = GroqAPI.transcribe_audio(temp_audio_file_path)
+                        print(colored("✅ Groq cloud transcription successful", "green"))
+                        cloud_success = True
+                    except Exception as groq_error:
+                        print(colored(f"⚠️ Groq transcription failed: {str(groq_error)}", "yellow"))
+                    
+                    # If Groq failed, try OpenAI as secondary cloud option
+                    if not cloud_success:
+                        try:
+                            # Convert file to AudioData format for OpenAI API
+                            import speech_recognition as sr
+                            r = sr.Recognizer()
+                            with sr.AudioFile(temp_audio_file_path) as source:
+                                audio_data = r.record(source)
+                            
+                            from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
+                            transcription, detected_language = OpenAIAPI.transcribe_audio(audio_data)
+                            print(colored("✅ OpenAI cloud transcription successful", "green"))
+                            cloud_success = True
+                        except Exception as openai_error:
+                            print(colored(f"⚠️ OpenAI transcription failed: {str(openai_error)}", "yellow"))
+                    
+                    # If all cloud services failed, fallback to local
+                    if not cloud_success:
+                        print(colored("🔄 All cloud services failed. Falling back to local Whisper transcription...", "blue"))
+                        try:
+                            # Fallback to local transcription
+                            transcription, detected_language = PyAiHost.transcribe_audio(temp_audio_file_path)
+                            print(colored("✅ Local transcription successful", "green"))
+                        except Exception as local_error:
+                            print(colored(f"❌ Local transcription also failed: {str(local_error)}", "red"))
+                            transcription, detected_language = "", ""
 
                 print("Whisper transcription: " + colored(transcription, "green"))
 

@@ -12,7 +12,8 @@ from py_methods.utils_audio import (
     transcribe_audio as utils_transcribe_audio,
     play_notification,
     play_audio,
-    record_audio
+    record_audio,
+    text_to_speech
 )
 
 class WhisperInterface(AudioProviderInterface):
@@ -132,6 +133,33 @@ class WhisperInterface(AudioProviderInterface):
             # Clean up the temporary file
             if 'temp_audio_file_path' in locals() and os.path.exists(temp_audio_file_path):
                 os.remove(temp_audio_file_path)
+    
+    def speak(self,
+             text: str,
+             voice: str = "af_heart",
+             speed: float = 1.0,
+             output_path: Optional[str] = None,
+             play: bool = True) -> Union[List[str], None]:
+        """
+        Converts text to speech using Kokoro TTS.
+        
+        Args:
+            text: Text to convert to speech
+            voice: Voice identifier (default: af_heart)
+            speed: Speaking speed (default: 1.0)
+            output_path: Optional path to save audio file
+            play: Whether to play the audio (default: True)
+            
+        Returns:
+            Union[List[str], None]: List of generated audio file paths if output_path is provided, None otherwise
+        """
+        return text_to_speech(
+            text=text,
+            voice=voice,
+            speed=speed,
+            output_path=output_path,
+            play=play
+        )
     
     def play_notification_sound(self) -> None:
         """Play a notification sound to indicate when to start speaking."""
