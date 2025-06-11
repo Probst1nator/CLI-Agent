@@ -6,16 +6,8 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 # Import base class and globals
-# Assuming UtilBase and g are defined elsewhere as in the original snippet
-# from py_classes.cls_util_base import UtilBase
-# from py_classes.globals import g
-
-# Placeholder for UtilBase and g for standalone execution
-class UtilBase:
-    pass
-
-class g:
-    CLIAGENT_PERSISTENT_STORAGE_PATH = "." # Example path for standalone
+from py_classes.cls_util_base import UtilBase
+from py_classes.globals import g
 
 class HomeAssistant(UtilBase):
     """

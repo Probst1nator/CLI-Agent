@@ -1074,17 +1074,17 @@ async def main() -> None:
             # Get the 10 most recent lines
             lines = previous_output.splitlines()
             recent_output = ('...\n' + '\n'.join(lines[-10:])) if len(lines) > 10 else previous_output
-            konsole_interaction_chat.add_message(Role.USER, f"""Your code execution has been idle (no new output) for a while. Based on the current state, decide whether to:
+            konsole_interaction_chat.add_message(Role.USER, f"""Your code execution has been idle (no new output) for a while. You are console interaction assistant. You are being asked to decide what to do next based on the current intermediate output of your code execution. Based on the current state, decide whether to:
 
-1. WAIT LONGER: If the process might still be working (e.g., downloading, processing, thinking), response in your last line with 'continue'
-2. PROVIDE INPUT: If the process is waiting for user input, provide the input as the last line of your response.
-3. INTERRUPT: If you believe the process is stuck or should be terminated, enter 'kill' as the last line of your response.
+1. WAIT LONGER: If the process might still be working (e.g., downloading, processing, thinking), respond with an empty bash block.
+2. PROVIDE INPUT: If the process is waiting for user input, provide the input as the last line of your response in a bash block.
+3. INTERRUPT: If you believe the process is stuck or should be terminated, enter ctrl+c in a bash block.
 
 Current execution state:
 ```bash
 {recent_output}
 ```
-To respond, simply ensure your response is thought through and your last line is the decision or the input you want to make.
+To respond, simply ensure your response is thought through and you put your input into a bash block.
 """)
             
             konsole_interaction_response = LlmRouter.generate_completion(
@@ -1101,33 +1101,21 @@ To respond, simply ensure your response is thought through and your last line is
                 print("Warning: Empty response from LLM. Interpreting as 'continue without input'.")
                 return True # As per docstring: True to continue without providing input
             
-            lines = konsole_interaction_response.split("\n")
-            # The following check for 'not lines' is redundant if the strip() check above passed,
-            # but kept for robustness in case of unusual string content.
-            if not lines:
-                print("Warning: No lines in LLM response. Interpreting as 'continue without input'.")
+            extracted_bash_blocks = get_extract_blocks()(konsole_interaction_response, "bash")
+            if len(extracted_bash_blocks) == 0:
+                print("Warning: No bash blocks found in LLM response. Continuing to wait.")
                 return True # As per docstring: True to continue without providing input
             
-            # Get the last non-empty line
-            last_line_str = "" # Initialize to ensure it's defined
-            for line_content in reversed(lines):
-                if line_content.strip():
-                    last_line_str = line_content.strip()
-                    break
+            bash_code = extracted_bash_blocks[0]
             
-            # If all lines were empty or whitespace (e.g. LLM returned "\n \n")
-            if not last_line_str:
-                print("Warning: LLM response contained only empty/whitespace lines. Interpreting as 'continue without input'.")
+            if bash_code == "":
+                # Empty bash block means "wait longer" - this is the correct response
                 return True # As per docstring: True to continue without providing input
-
-            # Map LLM's textual decision to the required boolean or string return type
-            if last_line_str.lower() == "none":
-                return True  # Continue without providing input
-            elif last_line_str.lower() == "kill":
+            elif bash_code == "ctrl+c":
                 print(colored("🚧 Code execution terminated by LLM", "red"))
                 return False # Interrupt execution
             else:
-                return last_line_str # Provide the string as input
+                return bash_code # Provide the string as input
         notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
             
         # Initialize tool manager
@@ -1392,7 +1380,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                     # Standard single-LLM mode (or no specific LLM selection)
                                     current_branch_response = LlmRouter.generate_completion(
                                         context_chat,
-                                        [g.SELECTED_LLMS] if g.SELECTED_LLMS else [],
+                                        g.SELECTED_LLMS if g.SELECTED_LLMS else [],
                                         temperature=temperature,
                                         base64_images=base64_images,
                                         generation_stream_callback=update_python_environment,
