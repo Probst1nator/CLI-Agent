@@ -18,6 +18,8 @@ class ComputationalNotebook:
         self.input_prompt_handler = input_prompt_handler
 
         self.bash_prompt_regex = r"(\([^)]+\)\s+)?[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:[^#$]*[#$]\s*$"
+        # Alternative simpler regex for just detecting the prompt end
+        self.bash_prompt_end_regex = r"^\s*[#$]\s*$"
         
         # Track cumulative output to avoid re-displaying
         self.cumulative_output = ""
@@ -42,65 +44,89 @@ class ComputationalNotebook:
     def _stream_output_until_prompt(self, timeout=30):
         """Stream output and detect stalls, consulting LLM when output stops but process hasn't exited."""
         start_time = time.time()
-        buffer = ""
+        cumulative_output = ""  # Track all output received so far
         last_output_time = time.time()
         stall_threshold = 30  # seconds without new output before consulting LLM
         command_completed = False
         potential_completion_time = None  # Track when we first see a bash prompt
         
-        # CRITICAL FIX: Clear pexpect's internal 'before' buffer to prevent contamination from previous commands
+        # Clear pexpect's internal buffer and consume any existing output
         self.child.before = self.child.string_type()
+        # Also consume and discard any pending output from previous commands
+        try:
+            self.child.read_nonblocking(size=1000000, timeout=0.1)
+        except:
+            pass  # No pending output, which is fine
         
         while time.time() - start_time < timeout:
             try:
                 # Try to read any available data
                 self.child.expect([pexpect.TIMEOUT], timeout=0.1)
                 
-                # Get the new output since last read
-                new_output = str(self.child.before)
-                if new_output and new_output != buffer:
-                    # Filter out content we've already displayed
-                    if self.cumulative_output and new_output.startswith(self.cumulative_output):
-                        # Only show the truly new part that we haven't seen before
-                        truly_new = new_output[len(self.cumulative_output):]
-                        if truly_new:
-                            processed_output = self._process_output_with_emoji(truly_new)
-                            self.stdout_callback(processed_output)
-                            self.cumulative_output += truly_new
-                            last_output_time = time.time()
-                            # Reset completion time since we got new output
-                            potential_completion_time = None
-                    elif not self.cumulative_output or not new_output.startswith(self.cumulative_output):
-                        # This is completely new output (first command or unrelated content)
-                        processed_output = self._process_output_with_emoji(new_output)
-                        self.stdout_callback(processed_output)
-                        self.cumulative_output += new_output
-                        last_output_time = time.time()
-                        # Reset completion time since we got new output
-                        potential_completion_time = None
+                # Get the current cumulative output
+                current_output = str(self.child.before)
+                if current_output and len(current_output) > len(cumulative_output):
+                    # Extract only the new portion of output
+                    new_output = current_output[len(cumulative_output):]
                     
-                    buffer = new_output
+                    # Process and display only the new output
+                    processed_output = self._process_output_with_emoji(new_output)
+                    self.stdout_callback(processed_output)
+                    last_output_time = time.time()
+                    potential_completion_time = None
                     
-                    # Clear before for the next iteration to only get new data
+                    # Update our tracking of cumulative output
+                    cumulative_output = current_output
+                    
+                    # Clear 'before' for next iteration
                     self.child.before = self.child.string_type()
                 
                 # Check if we have a bash prompt at the end (potential command completion)
-                if buffer:
+                if cumulative_output:
                     # Look at the end of the buffer, accounting for potential trailing whitespace/newlines
-                    buffer_end = buffer.rstrip()
+                    buffer_end = cumulative_output.rstrip()
                     if buffer_end:
                         lines = buffer_end.split('\n')
                         if lines:
                             last_line = lines[-1].strip()
-                            # Check if last line looks like a bash prompt
-                            # Use re.search instead of re.match to be more flexible
+                            is_prompt = False
+                            
+                            # Method 1: Try the full regex for single-line prompts
                             if re.search(self.bash_prompt_regex, last_line):
+                                is_prompt = True
+                            
+                            # Method 2: Check for multi-line prompts
+                            # Look for pattern where last line is just "$ " or "# " and previous lines contain user@host
+                            elif re.match(r'^\s*[#$]\s*$', last_line) and len(lines) >= 2:
+                                # Check the last few lines for username@hostname pattern
+                                for line in lines[-4:]:  # Check last 4 lines
+                                    if '@' in line and (':' in line or '~' in line):
+                                        is_prompt = True
+                                        break
+                            
+                            # Method 3: More flexible - look for bash prompt patterns in the last few lines combined
+                            if not is_prompt and len(lines) >= 2:
+                                # Join last 2-3 lines and see if they form a complete prompt
+                                last_few_lines = ' '.join(lines[-3:]).strip()
+                                if re.search(self.bash_prompt_regex, last_few_lines):
+                                    is_prompt = True
+                            
+                            if is_prompt:
                                 if potential_completion_time is None:
                                     # First time we see a bash prompt, start waiting
                                     potential_completion_time = time.time()
-                                elif time.time() - potential_completion_time >= 3.0:
-                                    # We've seen a bash prompt for 3+ seconds with no new output
+                                elif time.time() - potential_completion_time >= 0.5:  # Further reduced to 0.5 seconds
+                                    # We've seen a bash prompt for 0.5+ seconds with no new output
                                     # This suggests the command is truly complete
+                                    command_completed = True
+                                    break
+                            
+                            # Additional check: if we see "$ " or "# " as the last line and no new output for 2 seconds, assume completion
+                            elif re.match(r'^\s*[#$]\s*$', last_line):
+                                if potential_completion_time is None:
+                                    potential_completion_time = time.time()
+                                elif time.time() - potential_completion_time >= 2.0:
+                                    # Even if we're not 100% sure it's a prompt, if we see $ and no output for 2s, assume done
                                     command_completed = True
                                     break
 
@@ -114,7 +140,7 @@ class ComputationalNotebook:
                         # No output for current_stall_threshold seconds and process is still running
                         # Ask LLM what to do
                         if self.input_prompt_handler:
-                            decision = self.input_prompt_handler(buffer)
+                            decision = self.input_prompt_handler(cumulative_output)
                             
                             # Handle the new return types: bool | str
                             if decision is True:
@@ -160,6 +186,7 @@ from utils import *
 
     def execute(self, command: str, is_python_code: bool = False, persist_python_state: bool = True):
         """Execute a command with real-time output streaming."""
+        
         if is_python_code:
             py_script_path = os.path.join(g.CLIAGENT_TEMP_STORAGE_PATH, f'{datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.py')
             with open(py_script_path, 'w') as py_file:

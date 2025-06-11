@@ -850,6 +850,7 @@ class LlmRouter:
         max_retries = 3
         while retry_count < max_retries:
             try:
+                model = None  # Initialize model variable to avoid UnboundLocalError
                 if not preferred_models or (preferred_models and isinstance(preferred_models[0], str)):
                     # Get an appropriate model
                     model = instance.get_model(strengths=strengths, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
