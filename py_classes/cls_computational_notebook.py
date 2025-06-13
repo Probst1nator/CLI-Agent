@@ -46,7 +46,6 @@ class ComputationalNotebook:
         start_time = time.time()
         last_output_time = time.time()
         stall_threshold = 30
-        command_completed = False
         all_output_for_context = ""
 
         # Before starting, clear any lingering output in pexpect's buffer
@@ -61,25 +60,25 @@ class ComputationalNotebook:
                 # Expect either the prompt or a timeout
                 index = self.child.expect([self.bash_prompt_regex, pexpect.TIMEOUT], timeout=1)
 
-                # self.child.before contains the output received since the last call to expect().
-                # This gives us a naturally incremental stream.
-                new_output = self.child.before
-                if new_output:
-                    processed_output = self._process_output_with_emoji(new_output)
-                    self.stdout_callback(processed_output)
-                    all_output_for_context += new_output
-                    last_output_time = time.time()
-
                 if index == 0:
-                    # Matched the bash prompt, the command is finished.
-                    # The prompt itself is in self.child.after. We can display it too.
-                    prompt_text = self._process_output_with_emoji(self.child.after)
-                    self.stdout_callback(prompt_text)
-                    command_completed = True
+                    # Matched the bash prompt. The command is finished.
+                    # The complete output is everything before the prompt, plus the prompt itself.
+                    final_output = self.child.before + self.child.after
+                    if final_output:
+                        processed_output = self._process_output_with_emoji(final_output)
+                        self.stdout_callback(processed_output)
                     break
                 elif index == 1:
-                    # A timeout occurred, meaning the command is still running.
-                    # We check for a stall.
+                    # A timeout occurred. This means the command is still running and has produced
+                    # some output, but not the final prompt yet.
+                    new_output = self.child.before
+                    if new_output:
+                        processed_output = self._process_output_with_emoji(new_output)
+                        self.stdout_callback(processed_output)
+                        all_output_for_context += new_output
+                        last_output_time = time.time()
+                    
+                    # Check for a stall.
                     time_since_last_output = time.time() - last_output_time
                     if time_since_last_output > stall_threshold:
                         if self.input_prompt_handler:
@@ -149,32 +148,17 @@ from utils import *
         self.stdout_callback("\n[Session closed]\n")
 
     def _process_output_with_emoji(self, text: str) -> str:
-        """Add ⚙️ emoji before newlines during Python or shell execution."""
+        """Add 🐍 emoji for Python or ⚙️ for shell commands before each line."""
         if not (self.is_executing_python or self.is_executing_shell):
             return text
+
+        emoji = '🐍' if self.is_executing_python else '⚙️'
+
+        # Add emoji to the start and after every newline,
+        # ensuring that we don't add an emoji to a blank line if the text ends with one.
+        if text.endswith('\n'):
+            processed_text = f'{emoji}  ' + text[:-1].replace('\n', f'\n{emoji}  ') + '\n'
+        else:
+            processed_text = f'{emoji}  ' + text.replace('\n', f'\n{emoji}  ')
         
-        # Split into lines and add emoji before each line
-        lines = text.split('\n')
-        processed_lines = []
-        
-        for i, line in enumerate(lines):
-            # Hide everything before $ sign in bash prompts
-            if '$' in line:
-                # Find the last occurrence of $ and keep from there
-                dollar_index = line.rfind('$')
-                if dollar_index != -1:
-                    line = '$' + line[dollar_index + 1:]
-            
-            if i == 0:
-                # First line - add emoji at the start
-                processed_lines.append('⚙️  ' + line)
-            else:
-                # Subsequent lines - add emoji after newline
-                processed_lines.append('\n⚙️  ' + line)
-        
-        # Join and handle final newline correctly
-        result = ''.join(processed_lines)
-        if text.endswith('\n') and not result.endswith('\n'):
-            result += '\n'
-        
-        return result
+        return processed_text
