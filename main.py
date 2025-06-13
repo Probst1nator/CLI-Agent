@@ -10,6 +10,7 @@ import traceback
 from typing import List, Optional, Tuple
 from pyfiglet import figlet_format
 from dotenv import load_dotenv
+import pyperclip
 from termcolor import colored
 import argparse
 import sys
@@ -900,7 +901,9 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
                 # Convert to base64 and add to list
                 base64_img = base64.b64encode(png_data).decode('utf-8')
                 base64_images = [base64_img]
-                print(colored(f"Screenshot captured with Spectacle successfully.", "green"))
+                # copy img to clipboard
+                pyperclip.copy(base64_img)
+                print(colored(f"Screenshot captured with Spectacle successfully. (+Copied to clipboard)", "green"))
 
             else:
                 print(colored(f"No screenshot was captured with Spectacle or operation was cancelled on attempt {attempt}.", "yellow"))
