@@ -42,134 +42,69 @@ class ComputationalNotebook:
         self.stdout_callback(output)
 
     def _stream_output_until_prompt(self, timeout=30):
-        """Stream output and detect stalls, consulting LLM when output stops but process hasn't exited."""
+        """Stream output using pexpect.expect for robust prompt detection."""
         start_time = time.time()
-        cumulative_output = ""  # Track all output received so far
         last_output_time = time.time()
-        stall_threshold = 30  # seconds without new output before consulting LLM
+        stall_threshold = 30
         command_completed = False
-        potential_completion_time = None  # Track when we first see a bash prompt
-        
-        # Clear pexpect's internal buffer and consume any existing output
-        self.child.before = self.child.string_type()
-        # Also consume and discard any pending output from previous commands
+        all_output_for_context = ""
+
+        # Before starting, clear any lingering output in pexpect's buffer
         try:
-            self.child.read_nonblocking(size=1000000, timeout=0.1)
-        except:
-            pass  # No pending output, which is fine
-        
+            self.child.read_nonblocking(size=100000, timeout=0.1)
+        except (pexpect.TIMEOUT, pexpect.EOF):
+            pass
+        self.child.before = ""
+
         while time.time() - start_time < timeout:
             try:
-                # Try to read any available data
-                self.child.expect([pexpect.TIMEOUT], timeout=0.1)
-                
-                # Get the current cumulative output
-                current_output = str(self.child.before)
-                if current_output and len(current_output) > len(cumulative_output):
-                    # Extract only the new portion of output
-                    new_output = current_output[len(cumulative_output):]
-                    
-                    # Process and display only the new output
+                # Expect either the prompt or a timeout
+                index = self.child.expect([self.bash_prompt_regex, pexpect.TIMEOUT], timeout=1)
+
+                # self.child.before contains the output received since the last call to expect().
+                # This gives us a naturally incremental stream.
+                new_output = self.child.before
+                if new_output:
                     processed_output = self._process_output_with_emoji(new_output)
                     self.stdout_callback(processed_output)
+                    all_output_for_context += new_output
                     last_output_time = time.time()
-                    potential_completion_time = None
-                    
-                    # Update our tracking of cumulative output
-                    cumulative_output = current_output
-                    
-                    # Clear 'before' for next iteration
-                    self.child.before = self.child.string_type()
-                
-                # Check if we have a bash prompt at the end (potential command completion)
-                if cumulative_output:
-                    # Look at the end of the buffer, accounting for potential trailing whitespace/newlines
-                    buffer_end = cumulative_output.rstrip()
-                    if buffer_end:
-                        lines = buffer_end.split('\n')
-                        if lines:
-                            last_line = lines[-1].strip()
-                            is_prompt = False
-                            
-                            # Method 1: Try the full regex for single-line prompts
-                            if re.search(self.bash_prompt_regex, last_line):
-                                is_prompt = True
-                            
-                            # Method 2: Check for multi-line prompts
-                            # Look for pattern where last line is just "$ " or "# " and previous lines contain user@host
-                            elif re.match(r'^\s*[#$]\s*$', last_line) and len(lines) >= 2:
-                                # Check the last few lines for username@hostname pattern
-                                for line in lines[-4:]:  # Check last 4 lines
-                                    if '@' in line and (':' in line or '~' in line):
-                                        is_prompt = True
-                                        break
-                            
-                            # Method 3: More flexible - look for bash prompt patterns in the last few lines combined
-                            if not is_prompt and len(lines) >= 2:
-                                # Join last 2-3 lines and see if they form a complete prompt
-                                last_few_lines = ' '.join(lines[-3:]).strip()
-                                if re.search(self.bash_prompt_regex, last_few_lines):
-                                    is_prompt = True
-                            
-                            if is_prompt:
-                                if potential_completion_time is None:
-                                    # First time we see a bash prompt, start waiting
-                                    potential_completion_time = time.time()
-                                elif time.time() - potential_completion_time >= 0.5:  # Further reduced to 0.5 seconds
-                                    # We've seen a bash prompt for 0.5+ seconds with no new output
-                                    # This suggests the command is truly complete
-                                    command_completed = True
-                                    break
-                            
-                            # Additional check: if we see "$ " or "# " as the last line and no new output for 2 seconds, assume completion
-                            elif re.match(r'^\s*[#$]\s*$', last_line):
-                                if potential_completion_time is None:
-                                    potential_completion_time = time.time()
-                                elif time.time() - potential_completion_time >= 2.0:
-                                    # Even if we're not 100% sure it's a prompt, if we see $ and no output for 2s, assume done
-                                    command_completed = True
-                                    break
 
-                # Check for output stall (only if command hasn't completed)
-                if not command_completed:
+                if index == 0:
+                    # Matched the bash prompt, the command is finished.
+                    # The prompt itself is in self.child.after. We can display it too.
+                    prompt_text = self._process_output_with_emoji(self.child.after)
+                    self.stdout_callback(prompt_text)
+                    command_completed = True
+                    break
+                elif index == 1:
+                    # A timeout occurred, meaning the command is still running.
+                    # We check for a stall.
                     time_since_last_output = time.time() - last_output_time
-                    # If we have a potential completion but haven't waited long enough, use a shorter stall threshold
-                    current_stall_threshold = 5 if potential_completion_time else stall_threshold
-                    
-                    if time_since_last_output >= current_stall_threshold:
-                        # No output for current_stall_threshold seconds and process is still running
-                        # Ask LLM what to do
+                    if time_since_last_output > stall_threshold:
                         if self.input_prompt_handler:
-                            decision = self.input_prompt_handler(cumulative_output)
-                            
-                            # Handle the new return types: bool | str
-                            if decision is True:
-                                # True means continue without providing input (wait longer)
-                                last_output_time = time.time()  # Reset timer to wait longer
-                                stall_threshold = min(stall_threshold * 1.2, 120)  # Increase threshold, max 120s
-                                potential_completion_time = None  # Reset completion detection
-                            elif decision is False:
-                                # False means interrupt execution
+                            decision = self.input_prompt_handler(all_output_for_context)
+                            if decision is True: # Wait longer
+                                last_output_time = time.time()
+                                stall_threshold = min(stall_threshold * 1.2, 120)
+                            elif decision is False: # Interrupt
                                 self.child.sendcontrol('c')
                                 self.stdout_callback("\n[Process interrupted by user]\n")
                                 break
-                            elif isinstance(decision, str):
-                                # String means send it as input to the process
+                            elif isinstance(decision, str): # Send input
                                 self.child.sendline(decision)
-                                self.stdout_callback(f"\n[Sent input: {decision}]\n")
-                                last_output_time = time.time()  # Reset timer
-                                potential_completion_time = None  # Reset completion detection
-                            else:
-                                # Fallback: treat any other response as "wait"
+                                all_output_for_context = "" # Reset context after input
                                 last_output_time = time.time()
-                                potential_completion_time = None  # Reset completion detection
                         else:
-                            # No input handler available, just continue waiting
+                            # No handler, just wait
                             last_output_time = time.time()
-                        
-            except pexpect.TIMEOUT:
-                continue
+
             except pexpect.EOF:
+                self.stdout_callback("\n[Process finished unexpectedly]\n")
+                break
+            except pexpect.TIMEOUT:
+                # This can happen if the outer loop timeout is reached
+                self.stdout_callback("\n[Command timed out]\n")
                 break
 
     def get_initialization_code(self) -> str:
