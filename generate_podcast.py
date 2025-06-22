@@ -40,6 +40,14 @@ except ImportError:
     PYDUB_AVAILABLE = False
     AudioSegment = None
 
+# Add PyMuPDF for PDF text extraction
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    fitz = None
+
 # Add the parent directory to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from py_methods.dia_helper import get_dia_model
@@ -135,6 +143,27 @@ def _split_podcast_text_into_chunks(text: str, max_chars: int = 600) -> list[str
         current_chunk_lines.append(line_to_add)
     if current_chunk_lines: chunks.append("\n".join(current_chunk_lines))
     return [chunk for chunk in chunks if chunk.strip()]
+
+
+def extract_text_from_pdf(pdf_path: str) -> str:
+    """Extract text content from a PDF file using PyMuPDF.
+    Returns the extracted text as a string."""
+    if not PYMUPDF_AVAILABLE:
+        raise ImportError("PyMuPDF (fitz) is required for PDF support. Install with: pip install PyMuPDF")
+    
+    try:
+        doc = fitz.open(pdf_path)
+        text_content = ""
+        
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            text_content += page.get_text() + "\n"
+        
+        doc.close()
+        return text_content.strip()
+    
+    except Exception as e:
+        raise Exception(f"Error extracting text from PDF: {e}")
 
 
 def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = False) -> str:
@@ -506,6 +535,126 @@ def create_wav_file(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: 
     wav_header = struct.pack("<4sI4s4sIHHIIHH4sI", riff_chunk_id, riff_chunk_size, wave_format, fmt_chunk_id, fmt_chunk_size, audio_format, num_channels, sample_rate, byte_rate, block_align, bits_per_sample, data_chunk_id, data_chunk_size)
     return wav_header + pcm_data
 
+def analyze_content_for_subtopics(content: str) -> List[Dict[str, str]]:
+    """Analyze content to identify distinct subtopics and extract relevant sections.
+    Returns list of dictionaries with 'title' and 'content' keys."""
+    
+    print(colored("Analyzing content to identify distinct subtopics...", "blue"))
+    
+    try:
+        analysis_prompt = f"""Analyze the following content and identify distinct, separable subtopics that could each warrant their own focused discussion or podcast episode.
+
+For each subtopic you identify:
+1. Provide a descriptive title (3-6 words, suitable for a filename)
+2. Extract the most relevant content sections that relate to that subtopic
+3. Ensure each subtopic has enough substance for a meaningful discussion (at least 200-300 words of content)
+
+Format your response as a JSON array where each object has:
+- "title": "Descriptive Title"
+- "content": "Relevant extracted content for this subtopic"
+
+Only identify subtopics that are truly distinct and substantial. If the content is better suited as a single topic, return only one subtopic.
+
+Content to analyze:
+{content}
+
+Respond with ONLY the JSON array, no additional text."""
+
+        response = LlmRouter.generate_completion(analysis_prompt)
+        
+        # Try to extract JSON from the response
+        import json
+        try:
+            # Look for JSON array in the response
+            start = response.find('[')
+            end = response.rfind(']') + 1
+            if start != -1 and end != 0:
+                json_str = response[start:end]
+                subtopics = json.loads(json_str)
+                
+                # Validate the structure
+                valid_subtopics = []
+                for subtopic in subtopics:
+                    if isinstance(subtopic, dict) and 'title' in subtopic and 'content' in subtopic:
+                        if len(subtopic['content'].strip()) >= 200:  # Minimum content length
+                            valid_subtopics.append({
+                                'title': subtopic['title'].strip(),
+                                'content': subtopic['content'].strip()
+                            })
+                        else:
+                            print(colored(f"Skipping subtopic '{subtopic.get('title', 'Unknown')}' - insufficient content", "yellow"))
+                
+                if valid_subtopics:
+                    print(colored(f"Identified {len(valid_subtopics)} substantial subtopics", "green"))
+                    for i, subtopic in enumerate(valid_subtopics, 1):
+                        print(colored(f"  {i}. {subtopic['title']} ({len(subtopic['content'])} chars)", "cyan"))
+                    return valid_subtopics
+                else:
+                    print(colored("No substantial subtopics identified, treating as single topic", "yellow"))
+                    return [{'title': 'Complete_Discussion', 'content': content}]
+            else:
+                raise ValueError("No JSON array found in response")
+                
+        except (json.JSONDecodeError, ValueError) as e:
+            print(colored(f"Could not parse subtopics from LLM response: {e}", "yellow"))
+            print(colored("Treating content as single topic", "yellow"))
+            return [{'title': 'Complete_Discussion', 'content': content}]
+            
+    except Exception as e:
+        print(colored(f"Error analyzing content for subtopics: {e}", "red"))
+        print(colored("Falling back to single topic processing", "yellow"))
+        return [{'title': 'Complete_Discussion', 'content': content}]
+
+def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_dia: bool = False) -> List[str]:
+    """Generate multiple podcasts for different subtopics identified in the content.
+    Returns list of generated MP3 file paths."""
+    
+    subtopics = analyze_content_for_subtopics(content)
+    
+    if len(subtopics) == 1:
+        print(colored("Content identified as single topic, generating one podcast", "blue"))
+        # Use the existing single podcast generation
+        dialogue, title = process_raw_content_to_dialogue(content, llms)
+        mp3_path = generate_podcast(dialogue, title, use_local_dia)
+        return [mp3_path] if mp3_path else []
+    
+    print(colored(f"Generating {len(subtopics)} separate podcasts for identified subtopics...", "magenta"))
+    
+    generated_files = []
+    
+    for i, subtopic in enumerate(subtopics, 1):
+        print(colored(f"\n--- Processing subtopic {i}/{len(subtopics)}: {subtopic['title']} ---", "magenta"))
+        
+        try:
+            # Generate dialogue for this subtopic
+            dialogue, title = process_raw_content_to_dialogue(subtopic['content'], llms)
+            
+            # Use the subtopic title, but add a prefix to distinguish it
+            subtopic_title = f"Subtopic_{i:02d}_{subtopic['title']}"
+            
+            # Generate the podcast
+            mp3_path = generate_podcast(dialogue, subtopic_title, use_local_dia)
+            
+            if mp3_path:
+                generated_files.append(mp3_path)
+                print(colored(f"✓ Completed subtopic {i}: {mp3_path}", "green"))
+            else:
+                print(colored(f"✗ Failed to generate podcast for subtopic {i}: {subtopic['title']}", "red"))
+                
+        except Exception as e:
+            print(colored(f"✗ Error processing subtopic {i} ({subtopic['title']}): {e}", "red"))
+            continue
+    
+    if generated_files:
+        print(colored(f"\n🎉 Successfully generated {len(generated_files)} podcasts!", "green"))
+        print(colored("Generated files:", "green"))
+        for file_path in generated_files:
+            print(colored(f"  📄 {file_path}", "cyan"))
+    else:
+        print(colored("❌ No podcasts were successfully generated", "red"))
+    
+    return generated_files
+
 def process_raw_content_to_dialogue(content: str, llms: List[str] = None) -> Tuple[str, str]:
     """Process raw text content through analysis and dialogue generation.
     Returns (dialogue, title)"""
@@ -608,9 +757,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a podcast using AI.")
     parser.add_argument("-l", "--local", action="store_true", help="Use local Dia TTS model instead of Google TTS.")
     parser.add_argument("-o", "--output-dir", type=str, help="Custom directory to save podcast files. Defaults to 'podcast_generations' in script directory.")
-    parser.add_argument("-i", "--input-file", type=str, help="Input text file to process into a podcast (alternative to clipboard).")
+    parser.add_argument("-i", "--input-file", type=str, help="Input text or PDF file to process into a podcast (alternative to clipboard).")
     parser.add_argument("-t", "--transcript-file", type=str, help="Input transcript file with pre-formatted dialogue (skips analysis and dialogue generation).")
-    parser.add_argument("--llms", nargs='+', metavar=("LLM1", "LLM2"), help="Use specific LLMs for conversation. Provide 1 LLM (other speaker uses default) or 2 LLMs (e.g., --llms gpt-4 or --llms gpt-4 claude-3).")
+    parser.add_argument("-a", "--auto", action="store_true", help="Automatically identify distinct subtopics and generate separate podcasts for each.")
+    parser.add_argument("--llms", nargs='+', metavar=("LLM1", "LLM2"), help="Use specific LLMs for conversation. Provide 1 LLM (other speaker uses default) or 2 LLMs (e.g., --llms gemini-2.0-flash or --llms gemini-2.0-flash qwen3:4b).")
     parser.add_argument("--clipboard-content", type=str, help="Clipboard content to process (overrides built-in clipboard reading).")
     args = parser.parse_args()
     
@@ -642,6 +792,10 @@ if __name__ == "__main__":
             print(colored(f"Error: Transcript file not found: {args.transcript_file}", "red"))
             exit(1)
         
+        if args.auto:
+            print(colored("Warning: Auto mode is not compatible with transcript files (which are pre-formatted dialogues)", "yellow"))
+            print(colored("Proceeding with single transcript processing", "yellow"))
+        
         print(colored(f"Reading pre-formatted transcript from: {args.transcript_file}", "cyan"))
         with open(args.transcript_file, 'r', encoding='utf-8') as f:
             podcastDialogue = f.read().strip()
@@ -659,24 +813,68 @@ if __name__ == "__main__":
         
         print(colored(f"Using title from filename: {extracted_title}", "magenta"))
         
+        # For transcript files, always use single podcast mode
+        mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
+        mp3_files = [mp3_file_location] if mp3_file_location else []
+        
     elif args.input_file:
         # Use input file instead of clipboard
         if not os.path.exists(args.input_file):
             print(colored(f"Error: Input file not found: {args.input_file}", "red"))
             exit(1)
         
-        print(colored(f"Reading input text from: {args.input_file}", "cyan"))
-        with open(args.input_file, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
+        # Determine file type and extract content
+        file_extension = os.path.splitext(args.input_file)[1].lower()
+        
+        if file_extension == '.pdf':
+            print(colored(f"Extracting text from PDF: {args.input_file}", "cyan"))
+            try:
+                content = extract_text_from_pdf(args.input_file)
+            except ImportError as e:
+                print(colored(str(e), "red"))
+                print(colored("Install PyMuPDF with: pip install PyMuPDF", "yellow"))
+                exit(1)
+            except Exception as e:
+                print(colored(f"Error processing PDF file: {e}", "red"))
+                exit(1)
+        else:
+            # Assume it's a text file
+            print(colored(f"Reading input text from: {args.input_file}", "cyan"))
+            try:
+                with open(args.input_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+            except UnicodeDecodeError:
+                # Try with different encoding
+                try:
+                    with open(args.input_file, 'r', encoding='latin-1') as f:
+                        content = f.read().strip()
+                    print(colored("Used latin-1 encoding for text file", "yellow"))
+                except Exception as e:
+                    print(colored(f"Error reading text file: {e}", "red"))
+                    exit(1)
+            except Exception as e:
+                print(colored(f"Error reading text file: {e}", "red"))
+                exit(1)
         
         if not content:
-            print(colored("Error: Input file is empty", "red"))
+            print(colored("Error: Input file appears to be empty or contains no extractable text", "red"))
             exit(1)
             
-        # Process raw content to dialogue
-        if args.local: 
-            print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-        podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
+        print(colored(f"Extracted {len(content)} characters from input file", "green"))
+            
+        # Process content based on auto mode
+        if args.auto:
+            print(colored("Auto mode enabled - will analyze content for multiple subtopics", "magenta"))
+            if args.local:
+                print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
+            mp3_files = generate_multiple_podcasts(content, args.llms, use_local_dia=args.local)
+        else:
+            # Single podcast mode
+            if args.local: 
+                print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
+            podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
+            mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
+            mp3_files = [mp3_file_location] if mp3_file_location else []
         
     else:
         # Default behavior: use clipboard content or read from clipboard
@@ -696,18 +894,32 @@ if __name__ == "__main__":
             print(colored("No text in clipboard", "red"))
             exit(1)
         
-        # Process raw content to dialogue
-        if args.local: 
-            print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-        podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
+        # Process content based on auto mode
+        if args.auto:
+            print(colored("Auto mode enabled - will analyze content for multiple subtopics", "magenta"))
+            if args.local:
+                print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
+            mp3_files = generate_multiple_podcasts(content, args.llms, use_local_dia=args.local)
+        else:
+            # Single podcast mode
+            if args.local: 
+                print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
+            podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
+            mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
+            mp3_files = [mp3_file_location] if mp3_file_location else []
 
-    # Step 2: Generate the podcast audio
-    mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
-
-    if mp3_file_location:
-        end_time = time.time()
-        print(colored(f"Podcast generation complete. Final MP3: {mp3_file_location}", "green"))
+    # Step 2: Report results
+    end_time = time.time()
+    
+    if mp3_files and any(mp3_files):
+        successful_files = [f for f in mp3_files if f]
+        if len(successful_files) == 1:
+            print(colored(f"Podcast generation complete. Final MP3: {successful_files[0]}", "green"))
+        else:
+            print(colored(f"Podcast generation complete. Generated {len(successful_files)} MP3 files:", "green"))
+            for i, file_path in enumerate(successful_files, 1):
+                print(colored(f"  {i}. {file_path}", "cyan"))
         print(colored(f"Total time taken: {end_time - start_time:.2f} seconds", "green"))
     else:
-        print(colored("Podcast generation failed or no MP3 file was produced.", "red"))
+        print(colored("Podcast generation failed or no MP3 files were produced.", "red"))
         exit(1)
