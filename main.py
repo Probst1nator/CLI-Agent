@@ -904,7 +904,6 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
                 # copy img to clipboard
                 pyperclip.copy(base64_img)
                 print(colored(f"Screenshot captured with Spectacle successfully. (+Copied to clipboard)", "green"))
-
             else:
                 print(colored(f"No screenshot was captured with Spectacle or operation was cancelled on attempt {attempt}.", "yellow"))
 

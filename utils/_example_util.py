@@ -10,14 +10,14 @@ class ExampleUtil(UtilBase):
     """
     
     @staticmethod
-    async def run(operation: str = "add", values: Dict[str, Any] = None, **kwargs: Any) -> Any:
+    async def run(operation: str = "add", values: Dict[str, Any] = None) -> Any:
         """
         Perform a basic operation based on the input parameters.
+        The run methods args are needed to be kept minimal to reduce usage complexity.
         
         Args:
             operation: The operation to perform ("add", "multiply", "concat")
             values: Dictionary of values to use in the operation
-            **kwargs: Additional keyword arguments
             
         Returns:
             The result of the operation
