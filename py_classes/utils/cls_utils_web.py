@@ -127,9 +127,7 @@ class WebTools:
         Returns:
             List[Tuple[str, str]]: List of (document, url) tuples for most relevant chunks
         """
-        print(colored(f"BRAVE: Searching {num_results} websites for: {query}", "green"))
         
-
         # Create a new collection for this search
         collection_name = f"brave_search_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         collection = self.chroma_client.create_collection(
@@ -198,11 +196,16 @@ class WebTools:
             n_results=top_k
         )
         
-        # Combine documents and metadata
-        if results["documents"] and results["metadatas"]:
+        # Process results and then clean up
+        relevant_chunks_with_source = []
+        if results and 'documents' in results and results['documents']:
             urls = [metadata["source_url"] for metadata in results["metadatas"][0]]
-            return list(zip(results["documents"][0], urls))
-        return []
+            relevant_chunks_with_source = list(zip(results["documents"][0], urls))
+        
+        # Clean up the collection
+        self.chroma_client.delete_collection(name=collection_name)
+        
+        return relevant_chunks_with_source
 
 
 # Example usage:

@@ -1,3 +1,4 @@
+from termcolor import colored
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.enum_ai_strengths import AIStrengths
@@ -26,7 +27,6 @@ class SearchWeb(UtilBase):
         if cls.web_tools is None:
             try:
                 cls.web_tools = WebTools()
-                print("SearchWeb: WebTools initialized successfully")
             except Exception as e:
                 print(f"SearchWeb: Error initializing WebTools: {e}")
                 # Create a minimal fallback implementation
@@ -36,7 +36,7 @@ class SearchWeb(UtilBase):
                 cls.web_tools = MinimalWebTools()
     
     @staticmethod
-    def run(queries: List[str]) -> str:
+    def run(queries: List[str], depth: int = 0) -> str:
         """
         Perform a web search and receive a summary of the results.
         
@@ -46,6 +46,8 @@ class SearchWeb(UtilBase):
         Returns:
             A summary of the search results
         """
+        MAX_RECURSION_DEPTH = 1
+
         # Initialize WebTools if not already done
         SearchWeb.initialize()
         
@@ -63,6 +65,7 @@ class SearchWeb(UtilBase):
 
         for query in queries:
             try:
+                print(colored(f"BRAVE: Searching {num_results} websites for: {query}", "green"))
                 query_results = SearchWeb.web_tools.search_brave(query, num_results=num_results)
                 if query_results:
                     all_results.extend(query_results)
@@ -103,7 +106,7 @@ If sources conflict or information seems outdated, note this in your summary.
             failed_query_list = ", ".join([f"'{q}'" for q, _ in failed_queries])
             summarization_prompt += f"\n\nNote: Unable to retrieve results for the following queries: {failed_query_list}. The summary is based only on the available results."
 
-        chat = Chat(inst)
+        chat = Chat(inst, "SearchWebUtil")
         chat.add_message(Role.USER, summarization_prompt)
         
         try:
@@ -111,9 +114,8 @@ If sources conflict or information seems outdated, note this in your summary.
                 chat,
                 strengths=[AIStrengths.GENERAL],
                 exclude_reasoning_tokens=True,
-                hidden_reason="SearchWebUtil: summarizing"
+                hidden_reason="Condensing search results"
             )
-            print(f"SearchWeb: Generated summary with {len(summary)} characters")
         except Exception as e:
             print(f"❌ SearchWeb: Failed to generate summary: {str(e)}")
             # Fallback to simple concatenation of results
@@ -179,12 +181,12 @@ Your suggested queries should be more specific or use alternative terminology th
         
         relevance_action = extract_relevance_action(is_relevant_tool_response)
         
-        if relevance_action['action'] == 'rerun_search' and 'new_queries' in relevance_action:
+        if relevance_action['action'] == 'rerun_search' and 'new_queries' in relevance_action and depth < MAX_RECURSION_DEPTH:
             print(f"SearchWebUtil: Summary not relevant, rerunning with new queries: {relevance_action['new_queries']}")
-            summary = SearchWeb.run(relevance_action['new_queries'])
+            summary = SearchWeb.run(relevance_action['new_queries'], depth=depth + 1)
         else:
-            print("SearchWeb: Summary deemed relevant, returning results")
+            pass
         
         # Return a clean response with the summary as a string with clear formatting
-        formatted_summary = f"\n{'='*60}\nSEARCH RESULTS SUMMARY\n{'='*60}\n\n{summary}\n\n{'='*60}\n"
+        formatted_summary = f"SEARCH RESULT SUMMARY 1:\n{summary}\n"
         return formatted_summary

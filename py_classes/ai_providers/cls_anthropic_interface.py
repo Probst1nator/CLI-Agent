@@ -20,7 +20,7 @@ class AnthropicAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model_key: str = "claude-3-5-sonnet-latest", temperature: float = 0.7, silent_reason: str = "") -> Any:
+    def generate_response(chat: Chat, model_key: str = "claude-3-5-sonnet-latest", temperature: float = 0.7, silent_reason: str = "", thinking_budget: Optional[int] = None) -> Any:
         """
         Generates a response using the Anthropic API.
 
@@ -29,6 +29,7 @@ class AnthropicAPI(AIProviderInterface):
             model_key (str): The model identifier.
             temperature (float): The temperature setting for the model.
             silent_reason (str): Reason for suppressing print statements.
+            thinking_budget (Optional[int]): Token budget for reasoning (ignored by Anthropic).
 
         Returns:
             Any: A stream object that yields response chunks.

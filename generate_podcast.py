@@ -6,7 +6,16 @@ import re
 import struct
 import time
 import tempfile # Added for temporary file/directory management
+import threading
+import sys
+import asyncio
 from dotenv import load_dotenv
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import HSplit, Layout
+from prompt_toolkit.widgets import CheckboxList, Frame, Label
+from prompt_toolkit.styles import Style
+from prompt_toolkit.formatted_text import HTML
 
 from py_classes.enum_ai_strengths import AIStrengths
 
@@ -30,7 +39,6 @@ from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 import numpy as np
 from enum import Enum
-import sys
 
 # Add pydub for MP3 conversion
 try:
@@ -57,6 +65,164 @@ load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
 DEFAULT_PODCAST_SAVE_LOCATION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "podcast_generations")
 PODCAST_SAVE_LOCATION = DEFAULT_PODCAST_SAVE_LOCATION
 GOOGLE_TTS_MODEL_NAME = "gemini-2.5-flash-preview-tts"
+
+async def show_interactive_options() -> Tuple[bool, bool, bool, bool]:
+    """
+    Show interactive checkbox options using prompt_toolkit with auto-confirm after 10 seconds.
+    Returns (multiple_podcasts, single_model, multiple_model, full_local) as booleans.
+    Default: multiple_podcasts=False, single_model=True, multiple_model=True, full_local=False
+    
+    Controls:
+    - Arrow keys: Navigate between options
+    - Space: Toggle selected option
+    - 'e': Confirm selection
+    - 'a': Abort selection
+    - Auto-confirms after 10 seconds if no input
+    """
+    
+    # Create styled podcast option choices
+    option_choices = [
+        ("multiple_podcasts", HTML('<option>Multiple podcasts</option> - <description>Generate separate podcasts for subtopics</description>')),
+        ("single_model", HTML('<option>Single model generation</option> - <description>Use one LLM with analysis for podcast creation</description>')),
+        ("multiple_model", HTML('<option>Multiple model conversation</option> - <description>Use different LLMs for dialogue</description>')),
+        ("full_local", HTML('<option>Full local processing</option> - <description>Use Dia TTS locally</description>'))
+    ]
+    
+    # Define the style
+    style = Style.from_dict({
+        'option': 'ansicyan',
+        'description': 'ansigreen',
+    })
+    
+    # Set default selected values (both single and multiple model enabled by default)
+    default_selected = ["single_model", "multiple_model"]
+    
+    checkbox_list = CheckboxList(
+        values=option_choices,
+        default_values=default_selected
+    )
+    
+    # Track if user has interacted
+    user_interacted = False
+    
+    bindings = KeyBindings()
+
+    @bindings.add("e")
+    def _execute(event) -> None:
+        nonlocal user_interacted
+        user_interacted = True
+        # Extract the selected values
+        selected = []
+        for value, _ in option_choices:
+            if value in checkbox_list.current_values:
+                selected.append(value)
+        app.exit(result=selected)
+
+    @bindings.add("a")
+    def _abort(event) -> None:
+        nonlocal user_interacted
+        user_interacted = True
+        app.exit(result=None)
+    
+    # Add bindings for any other key to mark user interaction
+    @bindings.add('<any>')
+    def _any_key(event) -> None:
+        nonlocal user_interacted
+        user_interacted = True
+
+    # Create a countdown label that updates
+    countdown_text = "Auto-confirming in 10.0s... (Press any key to interact)"
+    instructions = Label(text=f"Use arrow keys to navigate, Space to select/deselect options, 'e' to confirm or 'a' to abort\n{countdown_text}")
+    
+    root_container = HSplit([
+        Frame(title="🎧 Podcast Generation Options", body=checkbox_list),
+        instructions
+    ])
+    layout = Layout(root_container)
+    app = Application(layout=layout, key_bindings=bindings, full_screen=False, style=style)
+    
+    # Create timeout task
+    async def timeout_task():
+        nonlocal user_interacted
+        start_time = time.time()
+        while time.time() - start_time < 10.0:
+            if user_interacted:
+                return  # User interacted, stop countdown
+            
+            remaining = 10.0 - (time.time() - start_time)
+            countdown_text = f"Auto-confirming in {remaining:.1f}s... (Press any key to interact)"
+            instructions.text = f"Use arrow keys to navigate, Space to select/deselect options, 'e' to confirm or 'a' to abort\n{countdown_text}"
+            
+            # Invalidate the app to refresh display
+            try:
+                app.invalidate()
+            except:
+                pass  # App might not be running yet
+            
+            await asyncio.sleep(0.1)
+        
+        # Timeout reached, auto-confirm with current selection
+        if not user_interacted:
+            selected = []
+            for value, _ in option_choices:
+                if value in checkbox_list.current_values:
+                    selected.append(value)
+            app.exit(result=selected)
+    
+    try:
+        # Create tasks explicitly
+        timeout_task_obj = asyncio.create_task(timeout_task())
+        app_task_obj = asyncio.create_task(app.run_async())
+        
+        # Wait for either the app to complete or timeout
+        done, pending = await asyncio.wait(
+            [app_task_obj, timeout_task_obj], 
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Cancel any pending tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        
+        # Get the result from the completed app task
+        selected_options = None
+        for task in done:
+            if not task.cancelled():
+                try:
+                    selected_options = task.result()
+                except:
+                    pass
+        
+        if selected_options is not None:
+            # Convert selection to boolean tuple
+            multiple_podcasts = "multiple_podcasts" in selected_options
+            single_model = "single_model" in selected_options
+            multiple_model = "multiple_model" in selected_options
+            full_local = "full_local" in selected_options
+            
+            # Show final configuration
+            print(colored("🎧 FINAL PODCAST CONFIGURATION", "cyan", attrs=['bold']))
+            print(colored("="*50, "cyan"))
+            print(colored(f"☑ Multiple podcasts: {'ENABLED' if multiple_podcasts else 'DISABLED'}", "green" if multiple_podcasts else "red"))
+            print(colored(f"☑ Single model: {'ENABLED' if single_model else 'DISABLED'}", "green" if single_model else "red"))
+            print(colored(f"☑ Multiple model: {'ENABLED' if multiple_model else 'DISABLED'}", "green" if multiple_model else "red"))
+            print(colored(f"☑ Full local: {'ENABLED' if full_local else 'DISABLED'}", "green" if full_local else "red"))
+            print(colored("="*50, "cyan"))
+            print()
+            
+            return multiple_podcasts, single_model, multiple_model, full_local
+        else:
+            print(colored("# cli-agent: Selection cancelled, using defaults", "yellow"))
+            return False, True, True, False  # Default values
+            
+    except Exception as e:
+        print(colored(f"# cli-agent: Error during option selection: {str(e)}", "red"))
+        print(colored("# cli-agent: Using default options", "yellow"))
+        return False, True, True, False  # Default values
 
 def save_binary_file(file_name, data):
     # This function is fine, as it's used for the final binary WAV before pydub
@@ -124,6 +290,10 @@ def save_audio_files(audio_data, sample_rate: int, file_name_base: str) -> str:
 
 def _is_speaker_line(line: str) -> bool:
     return bool(re.match(r"^\s*[\w\s.-]+\s*\([\w\s.-]+\):", line))
+
+def _is_quota_exhausted_error(error_message: str) -> bool:
+    """Check if an error message indicates Google TTS quota exhaustion."""
+    return "429" in error_message and "RESOURCE_EXHAUSTED" in error_message
 
 def _split_podcast_text_into_chunks(text: str, max_chars: int = 600) -> list[str]:
     chunks = []
@@ -324,11 +494,30 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                     error_message = str(e)
                     if "stop" in error_message.lower() or "candidate" in error_message.lower():
                         print(colored(f"[{title}] Generation stopped for chunk {i+1}: {e}", "red")); break
-                    else: print(colored(f"[{title}] Error generating audio for chunk {i+1}: {e}", "red"))
+                    elif _is_quota_exhausted_error(error_message):
+                        print(colored(f"[{title}] Google TTS quota exhausted for chunk {i+1}: {e}", "red"))
+                        # Check if local Dia fallback is possible
+                        try:
+                            from py_methods.dia_helper import get_dia_model
+                            print(colored(f"[{title}] Attempting fallback to local Dia TTS due to quota exhaustion...", "yellow"))
+                            return generate_podcast(podcast_dialogue, title, use_local_dia=True)
+                        except Exception as fallback_error:
+                            print(colored(f"[{title}] Local Dia fallback failed: {fallback_error}", "red"))
+                            print(colored(f"[{title}] Google TTS quota exhausted and no local fallback available.", "red"))
+                            print(colored(f"[{title}] Please wait for quota reset or use --local flag for Dia TTS.", "yellow"))
+                            return ""  # Return empty to signal failure
+                    else: 
+                        print(colored(f"[{title}] Error generating audio for chunk {i+1}: {e}", "red"))
+                
                 retry_count += 1
-                if retry_count <= max_retries:
+                # Don't retry on quota exhaustion errors
+                if _is_quota_exhausted_error(error_message):
+                    print(colored(f"[{title}] Skipping retries due to quota exhaustion.", "yellow"))
+                    break
+                elif retry_count <= max_retries:
                     print(colored(f"Retrying chunk {i+1} (attempt {retry_count}/{max_retries}) in {auto_retry_seconds} seconds...", "yellow")); time.sleep(auto_retry_seconds)
-                else: print(colored(f"[{title}] Failed to process chunk {i+1} after {max_retries} attempts. Skipping.", "red")); break
+                else: 
+                    print(colored(f"[{title}] Failed to process chunk {i+1} after {max_retries} attempts. Skipping.", "red")); break
             if chunk_audio_data: all_audio_data_bytes += chunk_audio_data
             else: print(colored(f"[{title}] No audio data for chunk {i+1}. Continuing.", "yellow"))
 
@@ -353,7 +542,29 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         else: print(colored(f"[{title}] Google TTS podcast MP3 generation failed.", "red"))
         return mp3_final_path
 
-def _generate_llm_conversation(content: str, llms: List[str]) -> Tuple[str, str]:
+def _clean_speaker_response(response: str, speaker_name: str) -> str:
+    """Remove speaker name prefix from response if present."""
+    response = response.strip()
+    
+    # More comprehensive cleaning - remove various speaker prefix formats
+    import re
+    
+    # Pattern to match various speaker formats at the beginning
+    patterns = [
+        rf"^{re.escape(speaker_name)}\s*:\s*",  # "Name: "
+        rf"^\*\*{re.escape(speaker_name)}\*\*\s*:\s*",  # "**Name**: "
+        rf"^\*{re.escape(speaker_name)}\*\s*:\s*",  # "*Name*: "
+        rf"^{re.escape(speaker_name)}\s*\([^)]+\)\s*:\s*",  # "Name (description): "
+        rf"^\[{re.escape(speaker_name)}\]\s*:\s*",  # "[Name]: "
+        rf"^{re.escape(speaker_name)}\s*-\s*",  # "Name - "
+    ]
+    
+    for pattern in patterns:
+        response = re.sub(pattern, "", response, flags=re.IGNORECASE)
+    
+    return response.strip()
+
+def _generate_llm_conversation(content: str, llms: List[str], force_local: bool = False) -> Tuple[str, str]:
     """Generate a conversation between two LLMs about the given content.
     Returns (dialogue, title)"""
     
@@ -363,7 +574,8 @@ def _generate_llm_conversation(content: str, llms: List[str]) -> Tuple[str, str]
         title_response = LlmRouter.generate_completion(
             f"Generate a very, descriptive title (3-5 words) for a podcast discussion about the following content. "
             f"The title should be suitable for a filename (no special characters). "
-            f"Respond with just the title, nothing else.\n\n{content[:1000]}..."  # Limit content for title generation
+            f"Respond with just the title, nothing else.\n\n{content[:1000]}...",  # Limit content for title generation
+            force_local=force_local
         )
         extracted_title = re.sub(r'[^\w\s-]', '', title_response.strip()).strip()
         extracted_title = re.sub(r'\s+', '_', extracted_title)
@@ -376,11 +588,17 @@ def _generate_llm_conversation(content: str, llms: List[str]) -> Tuple[str, str]
     print(colored(f"Generated Title: {extracted_title}", "magenta"))
     
     # Set up the conversation
-    chloe_llm = llms[0]
-    liam_llm = llms[1] if len(llms) > 1 else None
-    
-    chloe_model_info = f"Chloe ({chloe_llm})"
-    liam_model_info = f"Liam ({liam_llm})" if liam_llm else "Liam (default LLM)"
+    if llms is None or len(llms) == 0:
+        # Use automatic model selection with qwen2.5vl:3b as default
+        chloe_llm = "qwen2.5vl:3b"
+        liam_llm = None  # Will use auto-selected small model
+        chloe_model_info = "Chloe (qwen2.5vl:3b)"
+        liam_model_info = "Liam (auto-selected small model)"
+    else:
+        chloe_llm = llms[0]
+        liam_llm = llms[1] if len(llms) > 1 else None
+        chloe_model_info = f"Chloe ({chloe_llm})"
+        liam_model_info = f"Liam ({liam_llm})" if liam_llm else "Liam (auto-selected small model)"
     
     print(colored(f"Setting up conversation between {chloe_model_info} and {liam_model_info}", "blue"))
     
@@ -422,17 +640,22 @@ You should:
 - Use the name Chloe when addressing your conversation partner
 - Stop after your single response and wait for Chloe to reply"""
 
-    # Determine who starts based on whether only 1 LLM was provided
-    only_one_llm_provided = len(llms) == 1
+    # Determine who starts based on whether using automatic selection or only 1 LLM provided
+    only_one_llm_provided = llms is not None and len(llms) == 1
+    automatic_selection = llms is None or len(llms) == 0
+    liam_starts = only_one_llm_provided or automatic_selection
     
     # Add system prompts as USER messages to set up the context
-    if only_one_llm_provided:
-        # Liam (default LLM) starts when only 1 LLM is provided
+    if liam_starts:
+        # Liam starts when only 1 LLM provided OR when using automatic selection
         liam_chat.add_message(Role.USER, f"{liam_system_prompt}\n\nProvide ONLY a single, short welcome message (1-2 sentences) to start the podcast and introduce the topic. Do not continue speaking or add multiple paragraphs. End your response and wait for Chloe to reply.")
         chloe_chat.add_message(Role.USER, f"{chloe_system_prompt}\n\nWait for Liam to start, then respond naturally to continue the conversation.")
-        print(colored("Liam (default LLM) will start the conversation.", "yellow"))
+        if automatic_selection:
+            print(colored("Liam (auto-selected small model) will start the conversation.", "yellow"))
+        else:
+            print(colored("Liam (specified model) will start the conversation.", "yellow"))
     else:
-        # Chloe starts when 2 LLMs are provided
+        # Chloe starts when 2 specific LLMs provided
         chloe_chat.add_message(Role.USER, f"{chloe_system_prompt}\n\nProvide ONLY a single, short welcome message (1-2 sentences) to start the podcast and introduce the topic. Do not continue speaking or add multiple paragraphs. End your response and wait for Liam to reply.")
         liam_chat.add_message(Role.USER, f"{liam_system_prompt}\n\nWait for Chloe to start, then respond naturally to continue the conversation.")
         print(colored("Chloe will start the conversation.", "yellow"))
@@ -447,56 +670,74 @@ You should:
             liam_chat.debug_title = f"Podcast exchange {exchange + 1}"
             chloe_chat.debug_title = f"Podcast exchange {exchange + 1}"
             if exchange > 15:
-                response = LlmRouter.generate_completion(f"Decide if the conversation is finished. If you are highly certain it can be ended without it feeling abrupt, respond with 'finished'. If it is not, respond with 'continue'.", strengths=[AIStrengths.SMALL])
+                response = LlmRouter.generate_completion(f"Decide if the conversation is finished. If you are highly certain it has finished conclusively (like the podcast actors waving goodbye), respond with 'finished'. If it is not, respond with 'continue'.", strengths=[AIStrengths.SMALL], force_local=force_local)
                 if "finished" in response.lower():
                     print(colored("Conversation was detected as finished.", "green"))
                     break
             
-            if only_one_llm_provided:
-                # Liam starts when only 1 LLM provided
+            if liam_starts:
+                # Liam starts when only 1 LLM provided OR automatic selection
                 # Liam's turn first
                 if liam_llm:
-                    liam_response = LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm])
+                    liam_response = LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm], force_local=force_local)
                 else:
-                    liam_response = LlmRouter.generate_completion(liam_chat)  # Use default LLM
+                    liam_response = LlmRouter.generate_completion(liam_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
                 liam_chat.add_message(Role.ASSISTANT, liam_response)
-                dialogue_lines.append(f"Liam: {liam_response.strip()}")
+                cleaned_liam_response = _clean_speaker_response(liam_response, "Liam")
+                dialogue_lines.append(f"Liam: {cleaned_liam_response}")
                 
                 # Add Liam's response as USER message to Chloe's chat
                 chloe_chat.add_message(Role.USER, liam_response)
                 
                 # Chloe's turn
-                chloe_response = LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm], temperature=1.3)
+                if chloe_llm:
+                    chloe_response = LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm], temperature=1.3, force_local=force_local)
+                else:
+                    chloe_response = LlmRouter.generate_completion(chloe_chat, strengths=[AIStrengths.SMALL], temperature=1.3, force_local=force_local)
                 chloe_chat.add_message(Role.ASSISTANT, chloe_response)
-                dialogue_lines.append(f"Chloe: {chloe_response.strip()}")
+                cleaned_chloe_response = _clean_speaker_response(chloe_response, "Chloe")
+                dialogue_lines.append(f"Chloe: {cleaned_chloe_response}")
                 
                 # Add Chloe's response as USER message to Liam's chat
                 liam_chat.add_message(Role.USER, chloe_response)
             else:
-                # Chloe starts when 2 LLMs provided (original behavior)
+                # Chloe starts when 2 specific LLMs provided
                 # Chloe's turn first
-                chloe_response = LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm])
+                if chloe_llm:
+                    chloe_response = LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm], force_local=force_local)
+                else:
+                    chloe_response = LlmRouter.generate_completion(chloe_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
                 chloe_chat.add_message(Role.ASSISTANT, chloe_response)
-                dialogue_lines.append(f"Chloe: {chloe_response.strip()}")
+                cleaned_chloe_response = _clean_speaker_response(chloe_response, "Chloe")
+                dialogue_lines.append(f"Chloe: {cleaned_chloe_response}")
                 
                 # Add Chloe's response as USER message to Liam's chat
                 liam_chat.add_message(Role.USER, chloe_response)
                 
                 # Liam's turn
                 if liam_llm:
-                    liam_response = LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm])
+                    liam_response = LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm], force_local=force_local)
                 else:
-                    liam_response = LlmRouter.generate_completion(liam_chat)  # Use default LLM
+                    liam_response = LlmRouter.generate_completion(liam_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
                 liam_chat.add_message(Role.ASSISTANT, liam_response)
-                dialogue_lines.append(f"Liam: {liam_response.strip()}")
+                cleaned_liam_response = _clean_speaker_response(liam_response, "Liam")
+                dialogue_lines.append(f"Liam: {cleaned_liam_response}")
                 
                 # Add Liam's response as USER message to Chloe's chat
                 chloe_chat.add_message(Role.USER, liam_response)
             
+        except KeyboardInterrupt:
+            print(colored("\nConversation interrupted by user (Ctrl+C). Ending podcast generation...", "yellow"))
+            break
         except Exception as e:
+            # Check if the error is due to user interruption
+            if "interrupted by user" in str(e).lower() or "ctrl+c" in str(e).lower():
+                print(colored("\nConversation interrupted by user (Ctrl+C). Ending podcast generation...", "yellow"))
+                break
+            
             print(colored(f"Error in exchange {exchange + 1}: {e}", "red"))
             # Try to continue with a generic response
-            if only_one_llm_provided:
+            if liam_starts:
                 # Liam speaks first when only 1 LLM provided
                 if exchange % 2 == 0:  # Liam's turn (first speaker)
                     fallback_response = "I completely agree. Let's explore that further."
@@ -605,7 +846,7 @@ Respond with ONLY the JSON array, no additional text."""
         print(colored("Falling back to single topic processing", "yellow"))
         return [{'title': 'Complete_Discussion', 'content': content}]
 
-def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_dia: bool = False) -> List[str]:
+def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_dia: bool = False, use_multiple_model: bool = False) -> List[str]:
     """Generate multiple podcasts for different subtopics identified in the content.
     Returns list of generated MP3 file paths."""
     
@@ -614,20 +855,31 @@ def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_d
     if len(subtopics) == 1:
         print(colored("Content identified as single topic, generating one podcast", "blue"))
         # Use the existing single podcast generation
-        dialogue, title = process_raw_content_to_dialogue(content, llms)
+        if use_multiple_model:
+            dialogue, title = _generate_llm_conversation(content, llms, force_local=use_local_dia)
+        else:
+            dialogue, title = process_raw_content_to_dialogue(content, llms)
         mp3_path = generate_podcast(dialogue, title, use_local_dia)
         return [mp3_path] if mp3_path else []
     
     print(colored(f"Generating {len(subtopics)} separate podcasts for identified subtopics...", "magenta"))
     
     generated_files = []
+    quota_exhausted = False
     
     for i, subtopic in enumerate(subtopics, 1):
+        if quota_exhausted:
+            print(colored(f"\n--- Skipping remaining subtopics ({i}/{len(subtopics)}) due to quota exhaustion ---", "yellow"))
+            break
+            
         print(colored(f"\n--- Processing subtopic {i}/{len(subtopics)}: {subtopic['title']} ---", "magenta"))
         
         try:
             # Generate dialogue for this subtopic
-            dialogue, title = process_raw_content_to_dialogue(subtopic['content'], llms)
+            if use_multiple_model:
+                dialogue, title = _generate_llm_conversation(subtopic['content'], llms, force_local=use_local_dia)
+            else:
+                dialogue, title = process_raw_content_to_dialogue(subtopic['content'], llms)
             
             # Use the subtopic title, but add a prefix to distinguish it
             subtopic_title = f"Subtopic_{i:02d}_{subtopic['title']}"
@@ -640,22 +892,43 @@ def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_d
                 print(colored(f"✓ Completed subtopic {i}: {mp3_path}", "green"))
             else:
                 print(colored(f"✗ Failed to generate podcast for subtopic {i}: {subtopic['title']}", "red"))
+                # Check if this was a quota exhaustion failure
+                if not use_local_dia:
+                    print(colored("💡 Hint: Use --local flag to enable local Dia TTS fallback for remaining subtopics", "cyan"))
+                    quota_exhausted = True  # Stop processing remaining subtopics
                 
         except Exception as e:
-            print(colored(f"✗ Error processing subtopic {i} ({subtopic['title']}): {e}", "red"))
+            error_message = str(e)
+            if _is_quota_exhausted_error(error_message):
+                print(colored(f"✗ Google TTS quota exhausted while processing subtopic {i} ({subtopic['title']}): {e}", "red"))
+                quota_exhausted = True
+                if not use_local_dia:
+                    print(colored("💡 Restart with --local flag to use Dia TTS for remaining subtopics", "cyan"))
+            else:
+                print(colored(f"✗ Error processing subtopic {i} ({subtopic['title']}): {e}", "red"))
             continue
     
     if generated_files:
         print(colored(f"\n🎉 Successfully generated {len(generated_files)} podcasts!", "green"))
+        if quota_exhausted:
+            print(colored(f"⚠️  Note: Processing stopped due to Google TTS quota exhaustion after {len(generated_files)} successful podcasts", "yellow"))
         print(colored("Generated files:", "green"))
         for file_path in generated_files:
             print(colored(f"  📄 {file_path}", "cyan"))
+        
+        if quota_exhausted:
+            print(colored("\n💡 To process remaining subtopics:", "cyan"))
+            print(colored("   • Wait for Google TTS quota reset (typically 24 hours)", "cyan"))
+            print(colored("   • Or use --local flag to enable local Dia TTS fallback", "cyan"))
+            print(colored("   • Or upgrade to a paid Google API plan for higher quotas", "cyan"))
     else:
         print(colored("❌ No podcasts were successfully generated", "red"))
+        if quota_exhausted:
+            print(colored("This was due to Google TTS quota exhaustion. Consider using --local flag for Dia TTS.", "yellow"))
     
     return generated_files
 
-def process_raw_content_to_dialogue(content: str, llms: List[str] = None) -> Tuple[str, str]:
+def process_raw_content_to_dialogue(content: str, llms: List[str] = None, force_local: bool = False) -> Tuple[str, str]:
     """Process raw text content through analysis and dialogue generation.
     Returns (dialogue, title)"""
     if llms:
@@ -663,19 +936,21 @@ def process_raw_content_to_dialogue(content: str, llms: List[str] = None) -> Tup
         if len(llms) < 1 or len(llms) > 2:
             print(colored("Error: Provide 1 LLM (other speaker uses default) or 2 LLMs for conversation", "red"))
             exit(1)
-        return _generate_llm_conversation(content, llms)
+        return _generate_llm_conversation(content, llms, force_local=force_local)
     else:
         print(colored("Analyzing content for summary and title...", "blue"))
     try:
         analysisResponse = LlmRouter.generate_completion(
             f"For the following text snippet, please highlight key insights and lay out the fundamentals of the topic of concern. "
             f"Explore analogies to other fields and highlight related concepts to manifest a constructive framework for the topic.\n"
-            f"Here's the raw unfiltered text snippet:\n{content}"
+            f"Here's the raw unfiltered text snippet:\n{content}",
+            force_local=force_local
         )
         titleResponseText = LlmRouter.generate_completion(
             f"I am going to provide you with a text and you should generate a descriptive title for whatever content it's about. "
             f"Ensure it is a short fit for a file name. Please think about the contents first and then like this:\n"
-            f"Title: <title>\nThis is the text:\n{analysisResponse}"
+            f"Title: <title>\nThis is the text:\n{analysisResponse}",
+            force_local=force_local
         )
     except Exception as e:
         print(colored(f"Error during LLM processing for analysis/title: {e}", "red"))
@@ -716,8 +991,8 @@ The topic of {extracted_title} has been automatically reviewed and the following
     try:
         podcastGenChat = Chat()
         podcastGenChat.add_message(Role.USER, podcastGenPrompt)
-        podcastGenChat.add_message(Role.ASSISTANT, "<think>")
-        podcastDialogueResponse = LlmRouter.generate_completion(podcastGenChat)
+        # podcastGenChat.add_message(Role.ASSISTANT, "<think>")
+        podcastDialogueResponse = LlmRouter.generate_completion(podcastGenChat, force_local=force_local)
     except Exception as e: 
         print(colored(f"Error during LLM processing for podcast dialogue: {e}", "red"))
         exit(1)
@@ -753,7 +1028,7 @@ The topic of {extracted_title} has been automatically reviewed and the following
         
     return podcastDialogue, extracted_title
 
-if __name__ == "__main__":
+async def main():
     parser = argparse.ArgumentParser(description="Generate a podcast using AI.")
     parser.add_argument("-l", "--local", action="store_true", help="Use local Dia TTS model instead of Google TTS.")
     parser.add_argument("-o", "--output-dir", type=str, help="Custom directory to save podcast files. Defaults to 'podcast_generations' in script directory.")
@@ -762,9 +1037,36 @@ if __name__ == "__main__":
     parser.add_argument("-a", "--auto", action="store_true", help="Automatically identify distinct subtopics and generate separate podcasts for each.")
     parser.add_argument("--llms", nargs='+', metavar=("LLM1", "LLM2"), help="Use specific LLMs for conversation. Provide 1 LLM (other speaker uses default) or 2 LLMs (e.g., --llms gemini-2.0-flash or --llms gemini-2.0-flash qwen3:4b).")
     parser.add_argument("--clipboard-content", type=str, help="Clipboard content to process (overrides built-in clipboard reading).")
+    parser.add_argument("--no-interactive", action="store_true", help="Skip interactive option selection and use command-line arguments only.")
     args = parser.parse_args()
     
+    # Track multiple model mode separately from args.llms
+    use_multiple_model = bool(args.llms)  # Default based on command line args
+    use_multiple_podcasts = args.auto  # Default based on command line args
+    
+    # Show interactive options if not disabled and no specific modes are already set
+    if not args.no_interactive and not any([args.local, args.transcript_file]):
+        multiple_podcasts, single_model, multiple_model, use_local = await show_interactive_options()
+        
+        # Override args based on interactive selection
+        if use_local:
+            args.local = True
+            
+        if multiple_model:
+            use_multiple_model = True
+            if not args.llms:
+                # Use automatic model selection with small models via LlmRouter
+                args.llms = None  # Let LlmRouter automatically select models
+                print(colored("Using automatic model selection for multiple model conversation (small models)", "cyan"))
+        elif single_model:
+            use_multiple_model = False
+            print(colored("Using single model generation with analysis", "cyan"))
+        
+        if multiple_podcasts:
+            use_multiple_podcasts = True
+    
     if args.output_dir:
+        global PODCAST_SAVE_LOCATION
         PODCAST_SAVE_LOCATION = os.path.abspath(args.output_dir)
         print(colored(f"Using custom output directory: {PODCAST_SAVE_LOCATION}", "cyan"))
     else:
@@ -792,8 +1094,8 @@ if __name__ == "__main__":
             print(colored(f"Error: Transcript file not found: {args.transcript_file}", "red"))
             exit(1)
         
-        if args.auto:
-            print(colored("Warning: Auto mode is not compatible with transcript files (which are pre-formatted dialogues)", "yellow"))
+        if use_multiple_podcasts:
+            print(colored("Warning: Multiple podcasts mode is not compatible with transcript files (which are pre-formatted dialogues)", "yellow"))
             print(colored("Proceeding with single transcript processing", "yellow"))
         
         print(colored(f"Reading pre-formatted transcript from: {args.transcript_file}", "cyan"))
@@ -862,17 +1164,24 @@ if __name__ == "__main__":
             
         print(colored(f"Extracted {len(content)} characters from input file", "green"))
             
-        # Process content based on auto mode
-        if args.auto:
-            print(colored("Auto mode enabled - will analyze content for multiple subtopics", "magenta"))
+        # Process content based on multiple podcasts mode
+        if use_multiple_podcasts:
+            print(colored("Multiple podcasts mode enabled - will analyze content for multiple subtopics", "magenta"))
             if args.local:
                 print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-            mp3_files = generate_multiple_podcasts(content, args.llms, use_local_dia=args.local)
+            mp3_files = generate_multiple_podcasts(content, args.llms, use_local_dia=args.local, use_multiple_model=use_multiple_model)
         else:
-            # Single podcast mode
+            # Single podcast mode or multiple model conversation
             if args.local: 
                 print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-            podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
+            
+            if use_multiple_model:
+                # Use multiple model conversation
+                podcastDialogue, extracted_title = _generate_llm_conversation(content, args.llms, force_local=args.local)
+            else:
+                # Use single model with analysis
+                podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms, force_local=args.local)
+            
             mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
             mp3_files = [mp3_file_location] if mp3_file_location else []
         
@@ -883,10 +1192,14 @@ if __name__ == "__main__":
             content = args.clipboard_content
             print(colored("Using clipboard content provided via argument", "cyan"))
         else:
-            # Default behavior: read from clipboard with countdown
-            for i in range(5, 0, -1): 
-                print(colored(f"Generating podcast via clipboard in {i} seconds...", "green"))
-                time.sleep(1)
+            # Only show countdown if interactive mode was skipped
+            if args.no_interactive or any([args.local, use_multiple_podcasts, args.transcript_file]):
+                # Default behavior: read from clipboard with countdown
+                for i in range(5, 0, -1): 
+                    print(colored(f"Generating podcast via clipboard in {i} seconds...", "green"))
+                    time.sleep(1)
+            else:
+                print(colored("Reading clipboard content...", "cyan"))
             
             content = pyperclip.paste()
         
@@ -894,17 +1207,24 @@ if __name__ == "__main__":
             print(colored("No text in clipboard", "red"))
             exit(1)
         
-        # Process content based on auto mode
-        if args.auto:
-            print(colored("Auto mode enabled - will analyze content for multiple subtopics", "magenta"))
+        # Process content based on multiple podcasts mode
+        if use_multiple_podcasts:
+            print(colored("Multiple podcasts mode enabled - will analyze content for multiple subtopics", "magenta"))
             if args.local:
                 print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-            mp3_files = generate_multiple_podcasts(content, args.llms, use_local_dia=args.local)
+            mp3_files = generate_multiple_podcasts(content, args.llms, use_local_dia=args.local, use_multiple_model=use_multiple_model)
         else:
-            # Single podcast mode
+            # Single podcast mode or multiple model conversation
             if args.local: 
                 print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-            podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms)
+            
+            if use_multiple_model:
+                # Use multiple model conversation
+                podcastDialogue, extracted_title = _generate_llm_conversation(content, args.llms, force_local=args.local)
+            else:
+                # Use single model with analysis
+                podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms, force_local=args.local)
+            
             mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
             mp3_files = [mp3_file_location] if mp3_file_location else []
 
@@ -923,3 +1243,15 @@ if __name__ == "__main__":
     else:
         print(colored("Podcast generation failed or no MP3 files were produced.", "red"))
         exit(1)
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print(colored("\nPodcast generation was interrupted by user. Shutting down...", "yellow"))
+        import sys
+        sys.exit(0)
+    except Exception as e:
+        print(colored(f"\nPodcast generation encountered an error: {str(e)}", "red"))
+        import sys
+        sys.exit(1)

@@ -110,9 +110,10 @@ class Llm:
         llms = [
             # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
             
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-04-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
+            Llm(GoogleAPI(), "gemini-2.5-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
             Llm(GoogleAPI(), "gemini-2.5-pro-exp-03-25", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-lite-preview-06-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             
             Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
@@ -123,11 +124,11 @@ class Llm:
             # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
             # Llm(OllamaClient(), "gemma3n:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
-            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-            # Llm(OllamaClient(), "qwen2.5vl:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
+            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "qwen3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
-            # Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+            Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+            Llm(OllamaClient(), "qwen2.5vl:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
             
             
             Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
@@ -404,13 +405,15 @@ class LlmRouter:
 
         # If no preferred candidates and force_preferred_model is True
         if not candidate_models and force_preferred_model:
-            # Check if the preferred model looks like a local model (contains ':' or common model naming patterns)
-            model_name = preferred_models[0].lower()
-            is_likely_local = (':' in model_name or 
-                             any(pattern in model_name for pattern in ['llama', 'qwen', 'gemma', 'phi', 'mistral', 'cogito', 'devstral']))
+            # Check if the preferred model is actually defined as an Ollama model in our registry
+            model_name = preferred_models[0]
+            ollama_model_found = any(
+                llm.model_key == model_name and isinstance(llm.provider, OllamaClient) 
+                for llm in Llm.get_available_llms()
+            )
             
-            if force_local or is_likely_local:
-                # return a dummy model to force Ollama to try downloading it
+            if force_local or ollama_model_found:
+                # Only return a dummy Ollama model if it's actually supposed to be an Ollama model
                 return Llm(OllamaClient(), preferred_models[0], 0, 8192, [AIStrengths.GENERAL, AIStrengths.LOCAL])
             
             print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
@@ -620,7 +623,7 @@ class LlmRouter:
             str: The processed response string
         """
         if not hidden_reason:
-            g.debug_log(f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
+            g.debug_log(f"\n{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
             for char in cached_completion:
                 if callback:
                     finished_response = callback(char, not hidden_reason)
@@ -779,6 +782,7 @@ class LlmRouter:
         force_preferred_model: bool = False,
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
+        thinking_budget: Optional[int] = None,
         generation_stream_callback: Optional[Callable] = None,
         follows_condition_callback: Optional[Callable] = None
     ) -> str:
@@ -796,6 +800,8 @@ class LlmRouter:
             force_preferred_model (bool): Whether to force using only preferred models.
             hidden_reason (str): Reason for hidden mode.
             exclude_reasoning_tokens (bool): Whether to exclude reasoning tokens.
+            thinking_budget (Optional[int]): Token budget for model's internal reasoning process (Gemini models only). 
+                                           Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
             callback (Optional[Callable]): A function to call with each chunk of streaming data.
 
         Returns:
@@ -900,7 +906,7 @@ class LlmRouter:
 
                 try:
                     # Get the stream from the provider
-                    stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason)
+                    stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason, thinking_budget)
                     
                     # Check if stream is None before processing
                     if stream is None:

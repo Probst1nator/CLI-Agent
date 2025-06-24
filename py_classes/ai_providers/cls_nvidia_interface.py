@@ -23,7 +23,7 @@ class NvidiaAPI(AIProviderInterface):
             api_key=os.getenv('NVIDIA_API_KEY')
         )
 
-    def generate_response(self, chat: Union[Chat, str], model_key: str = "nvidia/llama-3.1-nemotron-70b-instruct", temperature: float = 0.7, silent_reason: str = "", base64_images: List[str] = []) -> Any:
+    def generate_response(self, chat: Union[Chat, str], model_key: str = "nvidia/llama-3.1-nemotron-70b-instruct", temperature: float = 0.7, silent_reason: str = "", base64_images: List[str] = [], thinking_budget: Optional[int] = None) -> Any:
         """
         Generates a response using the NVIDIA NeMo API.
         

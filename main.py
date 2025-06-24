@@ -459,7 +459,14 @@ Do not add any other text after this single-word verdict.""",
         else:
             analysis_prompt = f"Analyze these bash commands for safe execution and completeness:\n{code_to_execute}"
         execution_guard_chat.add_message(Role.USER, analysis_prompt)
-        safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, hidden_reason="Auto-execution guard", force_local=args.local_exec_confirm, strengths=[AIStrengths.SMALL] if args.local_exec_confirm else [])
+        # For auto execution guard, prefer faster models by excluding STRONG models
+        guard_preferred_models = []
+        if args.local_exec_confirm:
+            # Get local models that are NOT strong
+            available_models = LlmRouter.get_models(force_local=True)
+            guard_preferred_models = [model.model_key for model in available_models if not any(s == AIStrengths.STRONG for s in model.strengths)]
+        
+        safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, preferred_models=guard_preferred_models, hidden_reason="Auto-execution guard", force_local=args.local_exec_confirm, strengths=[])
         if safe_to_execute.lower().strip().endswith('yes'):
             print(colored("✅ Code execution permitted", "green"))
             return True
@@ -1141,13 +1148,31 @@ To respond, simply ensure your response is thought through and you put your inpu
             exit(0)
         
         context_chat: Optional[Chat] = None
-        if args.c:
+        if args.c or args.regenerate:
             try:
                 context_chat = Chat.load_from_json()
-                print(colored("Continuing previous chat.", "green"))
+                if args.regenerate:
+                    print(colored("Loading previous chat for regeneration.", "green"))
+                    # Check if there's chat history to regenerate
+                    if not context_chat or len(context_chat.messages) < 2:
+                        print(colored("# cli-agent: No sufficient chat history found, cannot regenerate last response.", "red"))
+                        exit(1)
+                    # If the last message is from assistant, remove it to regenerate
+                    if context_chat.messages[-1][0] == Role.ASSISTANT:
+                        context_chat.messages.pop()
+                        print(colored("# cli-agent: Removed last assistant response, will regenerate.", "green"))
+                    # If last message is from user, we'll generate the missing assistant response
+                    elif context_chat.messages[-1][0] == Role.USER:
+                        print(colored("# cli-agent: Last message is from user, will generate assistant response.", "green"))
+                else:
+                    print(colored("Continuing previous chat.", "green"))
             except FileNotFoundError:
-                print(colored("No previous chat found to continue. Starting a new chat.", "yellow"))
-                context_chat = None # Ensure it's None if load fails
+                if args.regenerate:
+                    print(colored("No previous chat found to regenerate. Exiting.", "red"))
+                    exit(1)
+                else:
+                    print(colored("No previous chat found to continue. Starting a new chat.", "yellow"))
+                    context_chat = None # Ensure it's None if load fails
 
         if context_chat is None:
             context_chat = Chat(debug_title="Main Context Chat")
@@ -1288,12 +1313,24 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
             g.LLM = args.llm
             g.FORCE_ONLINE = args.online
             base64_images: List[str] = [] # Initialize here unconditionally
+            thinking_budget = 2048 # in tokens
+            
+            # IMPORTANT: stdout_buffer and stderr_buffer are reset after each execution
+            # to prevent accumulation across agentic loop iterations. This fixes the race
+            # condition where the agent would repeatedly attempt the same action because
+            # it saw stale output from previous executions.
 
             # autosaving
             if context_chat:
                 context_chat.save_to_json()
 
-            if args.voice:
+            if args.regenerate:
+                # For regenerate mode, we don't need new user input
+                user_input = ""
+                print(colored("# cli-agent: Proceeding with regeneration...", "green"))
+                # Reset the regenerate flag so it doesn't loop indefinitely
+                args.regenerate = False
+            elif args.voice:
                 # Default voice handling
                 user_input, _, wake_word_used = get_listen_microphone()(private_remote_wake_detection=args.private_remote_wake_detection)
             else:
@@ -1333,7 +1370,6 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
 
 
                     response_branches: List[str] = []
-                    # Get tool selection response
                     try:
                         # Ensure last message is assistant before generating new one if needed
                         if assistant_response:
@@ -1344,7 +1380,6 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
                             assistant_response = "" # Clear buffer after adding
 
-                        # ! Agent turn - with enhanced branch execution monitoring
                         for i in range(3 if (args.mct and len(g.SELECTED_LLMS)==1) else len(g.SELECTED_LLMS) if g.SELECTED_LLMS else 1):
                             response_buffer = "" # Reset buffer for each branch
                             
@@ -1366,7 +1401,9 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                             temperature=0,
                                             base64_images=base64_images,
                                             generation_stream_callback=update_python_environment,
-                                            strengths=g.LLM_STRENGTHS
+                                            strengths=g.LLM_STRENGTHS,
+                                            thinking_budget=thinking_budget,
+                                            exclude_reasoning_tokens=True
                                         )
                                     else:
                                         # If we've already used all selected LLMs, use the first one with different temperatures
@@ -1376,7 +1413,9 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                             temperature=temperature,
                                             base64_images=base64_images,
                                             generation_stream_callback=update_python_environment,
-                                            strengths=g.LLM_STRENGTHS
+                                            strengths=g.LLM_STRENGTHS,
+                                            thinking_budget=thinking_budget,
+                                            exclude_reasoning_tokens=True
                                         )
                                 else:
                                     # Standard single-LLM mode (or no specific LLM selection)
@@ -1386,7 +1425,9 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                         temperature=temperature,
                                         base64_images=base64_images,
                                         generation_stream_callback=update_python_environment,
-                                        strengths=g.LLM_STRENGTHS
+                                        strengths=g.LLM_STRENGTHS,
+                                        thinking_budget=thinking_budget,
+                                        exclude_reasoning_tokens=True
                                     )
                                 
                                 # Check for successful completion
@@ -1454,9 +1495,8 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                         assistant_response = response_branches[0]
                         
                     # --- Code Extraction and Execution ---
-                    shell_blocks = get_extract_blocks()(assistant_response, "shell")
-                    shell_blocks.extend(get_extract_blocks()(assistant_response, "bash"))
-                    python_blocks = get_extract_blocks()(assistant_response, "python")
+                    shell_blocks = get_extract_blocks()(assistant_response, ["shell", "bash"])
+                    python_blocks = get_extract_blocks()(assistant_response, ["python", "tool_code"])
 
                     # Handover to user if no python blocks are found
                     if len(python_blocks) == 0 and len(shell_blocks) == 0:
@@ -1570,6 +1610,10 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
 
                             assistant_response = "" # Clear buffer as it's been processed
 
+                            # Reset output buffers for next execution to prevent accumulation
+                            stdout_buffer = ""
+                            stderr_buffer = ""
+
                             action_counter += 1  # Increment action counter
                             
                             continue # Break inner loop after successful execution, continue to next agent turn
@@ -1583,6 +1627,11 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                             assistant_response_with_error = f"{assistant_response}\n{error_output}"
                             context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
                             assistant_response = "" # Clear buffer
+                            
+                            # Reset output buffers for next execution to prevent accumulation
+                            stdout_buffer = ""
+                            stderr_buffer = ""
+                            
                             break # Break inner loop on execution error
                     else:
                         # Code execution denied by user
@@ -1592,6 +1641,11 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                         assistant_response_with_cancellation = assistant_response + f"\n{cancellation_notice}"
                         context_chat.add_message(Role.ASSISTANT, assistant_response_with_cancellation)
                         assistant_response = "" # Clear buffer
+                        
+                        # Reset output buffers for next execution to prevent accumulation
+                        stdout_buffer = ""
+                        stderr_buffer = ""
+                        
                         break # Break inner loop
 
                 except Exception as e:
@@ -1607,6 +1661,11 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                     except Exception as context_e:
                         print(colored(f"Failed to add error to context: {context_e}", "red"))
                     assistant_response = "" # Clear buffer
+                    
+                    # Reset output buffers for next execution to prevent accumulation
+                    stdout_buffer = ""
+                    stderr_buffer = ""
+                    
                     break # Break inner loop
                 
             # --- End of Agentic Inner Loop ---
