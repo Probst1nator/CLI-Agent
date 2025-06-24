@@ -18,12 +18,6 @@ print_colored() {
     esac
 }
 
-# Countdown and clipboard reading (mimicking the Python script)
-for i in {5..1}; do
-    print_colored "Generating podcast via clipboard in $i seconds..." "green"
-    sleep 1
-done
-
 # Read clipboard content (requires xclip on Linux)
 if command -v xclip > /dev/null 2>&1; then
     clipboard_content=$(xclip -selection clipboard -o 2>/dev/null)
@@ -42,14 +36,10 @@ if [ -z "$clipboard_content" ] || [ -z "$(echo "$clipboard_content" | tr -d '[:s
     exit 1
 fi
 
-# Run generate_podcast.py with clipboard content and custom output directory
+# Run generate_podcast.py with clipboard content, custom output directory, and interactive options
+print_colored "Starting interactive podcast generation..." "green"
 python3 /home/prob/repos/CLI-Agent/generate_podcast.py \
     -o /home/prob/OneDrive/Podcasts \
-    --clipboard-content "$clipboard_content"
-
-python3 /home/prob/repos/CLI-Agent/generate_podcast.py \
-    -o /home/prob/OneDrive/Podcasts \
-    --llms "gemma3:1b" \
     --clipboard-content "$clipboard_content"
 
 # Print a message to the console

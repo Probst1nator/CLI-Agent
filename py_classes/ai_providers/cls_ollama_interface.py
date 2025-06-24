@@ -90,9 +90,14 @@ class OllamaClient(AIProviderInterface):
             Tuple[Optional[ollama.Client], str]: [A valid client or None, found model_key].
         """
         # Get hosts from comma-separated environment variables
-        ollama_hosts = os.getenv("OLLAMA_HOST", "").split(",")
+        ollama_host_env = os.getenv("OLLAMA_HOST", "")
+        if ollama_host_env:
+            ollama_hosts = ollama_host_env.split(",")
+        else:
+            # Default to localhost if no OLLAMA_HOST is set
+            ollama_hosts = ["localhost"]
         
-        # Remove the localhost from the list
+        # Remove the localhost from the list if explicitly configured to force remote
         force_local_remote_host = os.getenv("FORCE_REMOTE_HOST_FOR_HOSTNAME", "")
         if socket.gethostname() in force_local_remote_host:
             try:
@@ -265,7 +270,8 @@ class OllamaClient(AIProviderInterface):
         chat: Chat | str,
         model_key: str = "phi3.5:3.8b",
         temperature: Optional[float] = None,
-        silent_reason: str = ""
+        silent_reason: str = "",
+        thinking_budget: Optional[int] = None
     ) -> Any:
         """
         Generates a response using the Ollama API, with support for tool calling.

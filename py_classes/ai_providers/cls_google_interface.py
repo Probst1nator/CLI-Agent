@@ -70,7 +70,8 @@ class GoogleAPI(AIProviderInterface):
         chat: Union[Chat, str], 
         model_key: str = "gemini-1.5-pro-latest", 
         temperature: float = 0, 
-        silent_reason: str = ""
+        silent_reason: str = "", 
+        thinking_budget: Optional[int] = None
     ) -> Any:  # Return type changed to Any to avoid circular imports
         """
         Generates a response using the Google Gemini API.
@@ -80,6 +81,8 @@ class GoogleAPI(AIProviderInterface):
             model_key (str): The model identifier (defaults to gemini-1.5-pro-latest).
             temperature (float): The temperature setting for the model (0.0 to 1.0).
             silent_reason (str): Reason for silence if applicable.
+            thinking_budget (Optional[int]): Token budget for model's internal reasoning process.
+                                           Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
             
         Returns:
             Iterator[GenerateContentResponse]: A stream of response chunks from the Gemini API.
@@ -115,13 +118,28 @@ class GoogleAPI(AIProviderInterface):
         # Get the appropriate model
         model = genai.GenerativeModel(model_key)
         
-        # Set up the generation config with temperature
+        # Set up the generation config with temperature and thinking budget
         generation_config = genai.GenerationConfig(
             temperature=temperature,
             top_p=1.0,
             top_k=32,
             max_output_tokens=8192,
         )
+        
+        # Add thinking config if thinking_budget is specified and model supports it
+        if thinking_budget is not None and ("2.5" in model_key or "2.0" in model_key):
+            try:
+                generation_config.thinking_config = genai.types.ThinkingConfig(
+                    thinking_budget=thinking_budget
+                )
+            except Exception as thinking_error:
+                # If thinking config fails, continue without it
+                if not silent_reason:
+                    g.debug_log(f"Google-Api: Warning - thinking config not supported: {thinking_error}", "yellow", prefix=prefix)
+        elif thinking_budget is not None and not ("2.5" in model_key or "2.0" in model_key):
+            # Warn if thinking budget is requested but model doesn't support it
+            if not silent_reason:
+                g.debug_log(f"Google-Api: Warning - thinking budget not supported by model {model_key}", "yellow", prefix=prefix)
         
         # Use the Chat's to_gemini method to create Gemini-compatible messages
         if isinstance(chat, Chat):

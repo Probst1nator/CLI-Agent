@@ -153,7 +153,8 @@ class AIProviderInterface(BaseProviderInterface):
     
     @abstractmethod
     def generate_response(self, chat: Union['Chat', str], model_key: str,
-                         temperature: Optional[float] = None, silent_reason: str = "") -> Any:
+                         temperature: Optional[float] = None, silent_reason: str = "", 
+                         thinking_budget: Optional[int] = None) -> Any:
         """
         Generates a response stream based on the provided chat and model.
 
@@ -162,6 +163,8 @@ class AIProviderInterface(BaseProviderInterface):
             model_key: The model identifier.
             temperature: The temperature setting for the model.
             silent_reason: Reason for suppressing print statements.
+            thinking_budget: Token budget for model's internal reasoning process (Gemini models only). 
+                           Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
 
         Returns:
             Any: A stream object that yields response chunks.

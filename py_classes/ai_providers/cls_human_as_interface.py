@@ -26,7 +26,8 @@ class HumanAPI(AIProviderInterface):
         model_key: str = "human", 
         temperature: float = 0.0, 
         silent_reason: str = "", 
-        callback: Optional[Callable] = None
+        callback: Optional[Callable] = None,
+        thinking_budget: Optional[int] = None
     ) -> Optional[str]:
         """
         Generates a response by prompting the human in front of the terminal.

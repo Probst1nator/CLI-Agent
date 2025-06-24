@@ -14,7 +14,7 @@ class OpenAIAPI(AIProviderInterface):
     """
 
     @staticmethod
-    def generate_response(chat: Chat, model_key: str, temperature: float = 0.7, silent_reason: str = "") -> Any:
+    def generate_response(chat: Chat, model_key: str, temperature: float = 0.7, silent_reason: str = "", thinking_budget: Optional[int] = None) -> Any:
         """
         Generates a response using the OpenAI API.
 
