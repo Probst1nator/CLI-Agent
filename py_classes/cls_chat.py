@@ -22,6 +22,15 @@ class Role(Enum):
     ASSISTANT = "assistant"
 
 class Chat:
+    # Role-to-color mapping for terminal output
+    ROLE_COLORS = {
+        Role.ASSISTANT: ('blue', 'cyan'),
+        Role.SYSTEM: ('blue', 'cyan'),
+        Role.USER: ('light_green', 'green'),
+        Role.IPYTHON: ('light_yellow', 'yellow'),
+    }
+    DEFAULT_COLORS = ('light_yellow', 'yellow')  # Fallback
+
     def __init__(self, instruction_message: str = "", debug_title: Optional[str] = None):
         """
         Initializes a new Chat instance.
@@ -37,8 +46,6 @@ class Chat:
         self.debug_title: str = debug_title or instruction_message[:50].split("\n")[0] or "Unnamed Context"
         self._update_queue: Optional[queue.Queue] = None
         self._window_thread: Optional[threading.Thread] = None
-        if self.debug_title == "Unnamed Context":
-            pass
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
     
@@ -140,16 +147,12 @@ class Chat:
         :param instruction_message: The system instruction message.
         :return: The updated Chat instance.
         """
-        # Check if there's already a system message
-        for i, (role, _) in enumerate(self.messages):
-            if role == Role.SYSTEM:
-                # Replace existing system message
-                self.messages[i] = (Role.SYSTEM, instruction_message)
-                self._update_window_display()
-                return self
+        # Check if first message is a system message
+        if self.messages and self.messages[0][0] == Role.SYSTEM:
+            self.messages[0] = (Role.SYSTEM, instruction_message)
+        else:
+            self.messages.insert(0, (Role.SYSTEM, instruction_message))
         
-        # No system message found, insert at the beginning
-        self.messages.insert(0, (Role.SYSTEM, instruction_message))
         self._update_window_display()
         return self
     
@@ -161,24 +164,20 @@ class Chat:
         :param content: The content of the message.
         :return: The updated Chat instance.
         """
-        if content and role:
-            if self.messages and self.messages[-1][0] == role:
-                # If the last message has the same role, append the new content
-                last_content = self.messages[-1][1]
-                # Check if last_content is a string before concatenating
-                if isinstance(last_content, str) and isinstance(content, str):
-                    self.messages[-1] = (role, last_content + content)
-                else:
-                    # Handle the case where content is not a string
-                    # Convert to string if needed or append as a new message
-                    self.messages.append((role, str(content)))
-            else:
-                # Otherwise, add a new message
-                self.messages.append((role, content))
-            
-            # Update window display if debug mode is enabled
-            self._update_window_display()
-            
+        if not (content and role):
+            return self
+
+        # Ensure content is a string for consistent merging
+        content = str(content)
+
+        if self.messages and self.messages[-1][0] == role:
+            # Append to the last message's content
+            self.messages[-1] = (role, self.messages[-1][1] + content)
+        else:
+            # Add a new message tuple
+            self.messages.append((role, content))
+
+        self._update_window_display()
         return self
 
     def get_messages_as_string(self, start_index: int, end_index: Optional[int] = None) -> str:
@@ -285,32 +284,27 @@ class Chat:
         for role, content in selected_messages:
             role_value = role.value if isinstance(role, Role) else role
             
-            if role in {Role.ASSISTANT, Role.SYSTEM}:
-                role_color = 'blue'
-                content_color = 'cyan'
-            elif role == Role.USER:
-                role_color = 'light_green'
-                content_color = 'green'
-            else:
-                role_color = 'light_yellow'
-                content_color = 'yellow'
+            # Get colors from the mapping
+            role_color, content_color = self.ROLE_COLORS.get(role, self.DEFAULT_COLORS)
 
             formatted_role = colored(f"{role_value.upper()}:\n", role_color, attrs=['bold', "underline"])
             formatted_content = colored(content, content_color)
             
             print(f"{formatted_role} {formatted_content}")
 
-    def save_to_json(self, file_name: str = "recent_chat.json", append: bool = False):
+    def save_to_json(self, file_name: str = "recent_chat.json", merge: bool = False):
         """
         Saves the chat instance to a JSON file.
         
         :param file_name: The name of the file to save to.
-        :param append: Whether to append to the file.
+        :param merge: Whether to merge with existing file content (read-modify-write operation).
+                     If True, loads existing file, merges messages, and overwrites the entire file.
+                     For true append operations, consider using save_to_jsonl instead.
         """
         file_path = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH,file_name)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
-        if append:
+        if merge:
             few_shot_prompts = Chat.load_from_json(file_name)
             few_shot_prompts.add_message(self.messages[0][0], self.messages[0][1])
             few_shot_prompts.add_message(self.messages[1][0], self.messages[1][1])
@@ -421,13 +415,7 @@ class Chat:
         return chats
     
 
-    def length(self) -> int:
-        """
-        Returns the total length of all string messages in the chat.
-        
-        :return: The total length of all messages.
-        """
-        return sum(len(content) for _, content in self.messages)
+
 
     def joined_messages(self) -> str:
         """
