@@ -23,7 +23,7 @@ class ComputationalNotebook:
         
         # Track cumulative output to avoid re-displaying
         self.cumulative_output = ""
-        
+
         # Track when we're executing Python code to add emojis
         self.is_executing_python = False
         
@@ -71,7 +71,7 @@ class ComputationalNotebook:
                 elif index == 1:
                     # A timeout occurred. This means the command is still running and has produced
                     # some output, but not the final prompt yet.
-                    new_output = self.child.before
+                    new_output = self.child.before.replace(all_output_for_context, "")
                     if new_output:
                         processed_output = self._process_output_with_emoji(new_output)
                         self.stdout_callback(processed_output)
