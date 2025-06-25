@@ -21,171 +21,116 @@ class SearchWeb(UtilBase):
     # Initialize WebTools here to ensure it's available in sandbox
     web_tools = None
     
-    @classmethod
-    def initialize(cls):
-        """Initialize the class resources if not already initialized"""
-        if cls.web_tools is None:
-            try:
-                cls.web_tools = WebTools()
-            except Exception as e:
-                print(f"SearchWeb: Error initializing WebTools: {e}")
-                # Create a minimal fallback implementation
-                class MinimalWebTools:
-                    def search_brave(self, query, num_results=3):
-                        return [(f"Error: Could not initialize WebTools properly. Error: {e}", "https://error")]
-                cls.web_tools = MinimalWebTools()
+
     
     @staticmethod
-    def run(queries: List[str], depth: int = 0) -> str:
+    async def run(queries: List[str], depth: int = 0) -> str:
         """
-        Perform a web search and receive a summary of the results.
-        
+        Perform a web search, summarize the results, and handle failures gracefully.
+
         Args:
-            queries: List of multiple search queries (IMPORTANT: include additional information for improved accuracy)
-            
+            queries (List[str]): A list of search queries.
+            depth (int): The current recursion depth to prevent infinite loops.
+
         Returns:
-            A summary of the search results
+            A string containing a summary of successful results and a list of failures.
         """
         MAX_RECURSION_DEPTH = 1
+        SearchWeb._initialize()
 
-        # Initialize WebTools if not already done
-        SearchWeb.initialize()
-        
-        # Handle both single string and list of strings
         if isinstance(queries, str):
             queries = [queries]
-        
-        # Main search function that can be called recursively if needed
+
         all_results: List[Tuple[str, str]] = []
         failed_queries: List[Tuple[str, str]] = []
-        
-        num_results = 3
-        if (len(queries) == 1):
-            num_results = 5
 
+        num_results_per_query = 5 if len(queries) == 1 else 3
+
+        print(colored(f"SearchWeb: Performing {len(queries)} queries...", "cyan"))
         for query in queries:
             try:
-                print(colored(f"BRAVE: Searching {num_results} websites for: {query}", "green"))
-                query_results = SearchWeb.web_tools.search_brave(query, num_results=num_results)
+                query_results = SearchWeb.web_tools.search_brave(query, num_results=num_results_per_query)
                 if query_results:
                     all_results.extend(query_results)
                 else:
-                    failed_queries.append((query, "No results found"))
+                    failed_queries.append((query, "No results returned from search API."))
+            except requests.exceptions.HTTPError as e:
+                # This catches HTTP errors from the underlying web tool
+                error_message = f"HTTP Error {e.response.status_code} while searching."
+                print(colored(f"  └─ Failed query '{query}': {error_message}", "red"))
+                failed_queries.append((query, error_message))
             except Exception as e:
-                failed_queries.append((query, f"Unexpected error: {str(e)}"))
-        
-        # Format results
-        inst = f"""You are a helpful AI assistant tasked with summarizing web search results.
-        
-Task: Analyze the following web search results and provide a clear, informative summary that:
-1. Synthesizes the key information from all sources
-2. Preserves important details and context
-3. Resolves and highlights any contradictions between sources
-4. Includes relevant dates or timestamps when available
-5. Cites specific sources for key claims
+                error_message = f"An unexpected error occurred: {str(e)}"
+                print(colored(f"  └─ Failed query '{query}': {error_message}", "red"))
+                failed_queries.append((query, error_message))
 
-Format your response as a coherent paragraph that flows naturally.
-If sources conflict or information seems outdated, note this in your summary.
-
-
+        # --- Summarization Phase ---
+        instruction = """You are an AI assistant that synthesizes web search results.
+Your task is to create a clear, concise summary based on the provided content.
+If there are failed searches, list them clearly at the end.
+If ALL searches failed, state that you were unable to find information and list the reasons.
+Format the successful results into a coherent summary.
 """
+        summarization_chat = Chat(instruction, debug_title="SearchWeb-Summarization")
 
-        summarization_prompt = f"# Search Queries\n"
-        query_list = '\n'.join([f'{i+1}. {query}' for i, query in enumerate(queries)])
-        summarization_prompt += f"{query_list}\n# Search Results\n"
-        for result, url in all_results:
-            summarization_prompt += f"URL: {url}\n"
-            summarization_prompt += f"Content: {result}\n"
-            summarization_prompt += "-----------------------------------\n"
-
-        # Add final instruction
-        summarization_prompt += f"Search Queries: {', '.join(queries)}\nPlease provide a dense summary of the results, include key facts and relevant details extending beyond the required. Focus on relating the results to answer the original Search Queries: {', '.join(queries)}. Ensure trusthworthy sources and interpolate details when necessary."
-
-        # Add note about failed queries if some succeeded but others failed
-        if failed_queries and all_results:
-            failed_query_list = ", ".join([f"'{q}'" for q, _ in failed_queries])
-            summarization_prompt += f"\n\nNote: Unable to retrieve results for the following queries: {failed_query_list}. The summary is based only on the available results."
-
-        chat = Chat(inst, "SearchWebUtil")
-        chat.add_message(Role.USER, summarization_prompt)
-        
-        try:
-            summary = LlmRouter.generate_completion(
-                chat,
-                strengths=[AIStrengths.GENERAL],
-                exclude_reasoning_tokens=True,
-                hidden_reason="Condensing search results"
-            )
-        except Exception as e:
-            print(f"❌ SearchWeb: Failed to generate summary: {str(e)}")
-            # Fallback to simple concatenation of results
-            summary = "Search results summary failed to generate. Raw results:\n\n"
-            for i, (result, url) in enumerate(all_results, 1):
-                summary += f"{i}. {url}\n{result[:200]}...\n\n"
-        
-        # Check if the summary is relevant to the queries
-        is_relevant_instruction = f"""You are a helpful assistant that checks if a summary is relevant to a list of search queries. 
-Always return a tool_code block as shown in the following Examples:
-
-Example 1:
-```tool_code
-return_summary_with_success()
-```
-
-Or if not relevant, suggest better queries:
-```tool_code
-rerun_web_search(new_queries=['new query 1', 'new query 2'])
-```
-
-Analyse the summary carefully. Only suggest rerunning the search if the current summary is not helpful for answering the queries.
-"""
-        is_relevant_prompt = f"""Is the below summary relevant to the original Search Queries: {', '.join(queries)}?
-
-Summary:
-{summary}
-
-If the summary addresses any of the queries or provides information that helps answer them, use return_summary_with_success().
-If the summary is completely unrelated or doesn't provide any useful information regarding the queries, suggest better queries with rerun_web_search().
-Your suggested queries should be more specific or use alternative terminology that might yield better results.
-"""
-        is_relevant_chat = Chat(is_relevant_instruction)
-        is_relevant_chat.add_message(
-            role=Role.USER,
-            content=is_relevant_prompt
-        )
-        try:
-            is_relevant_tool_response = LlmRouter.generate_completion(
-                is_relevant_chat,
-                strengths=[AIStrengths.REASONING, AIStrengths.SMALL],
-                exclude_reasoning_tokens=True,
-                hidden_reason="SearchWebUtil: verifying relevance"
-            )
-        except Exception as e:
-            print(f"❌ SearchWeb: Failed to verify relevance: {str(e)}")
-            # Default to returning the summary as-is
-            is_relevant_tool_response = "return_summary_with_success()"
-        
-        def extract_relevance_action(response: str) -> Dict[str, Any]:
-            """Extract action from relevance response"""
-            if "return_summary_with_success()" in response:
-                return {"action": "return_summary"}
-            elif "rerun_web_search" in response:
-                # Simple parsing for this example - in production would be more robust
-                import re
-                match = re.search(r"rerun_web_search\(new_queries=\[(.*?)\]\)", response)
-                if match:
-                    query_str = match.group(1)
-                    queries = [q.strip().strip("'\"") for q in query_str.split(",")]
-                    return {"action": "rerun_search", "new_queries": queries}
-            return {"action": "return_summary"}  # Default fallback
-        
-        relevance_action = extract_relevance_action(is_relevant_tool_response)
-        
-        if relevance_action['action'] == 'rerun_search' and 'new_queries' in relevance_action and depth < MAX_RECURSION_DEPTH:
-            print(f"SearchWebUtil: Summary not relevant, rerunning with new queries: {relevance_action['new_queries']}")
-            summary = SearchWeb.run(relevance_action['new_queries'], depth=depth + 1)
+        # Build the prompt for the summarization LLM
+        prompt_content = f"# Search Query/Queries:\n- {'\n- '.join(queries)}\n\n"
+        if all_results:
+            prompt_content += "# Successfully Retrieved Content:\n"
+            for i, (content, url) in enumerate(all_results):
+                prompt_content += f"## Source {i+1}: {url}\n{content[:1500]}...\n\n"
         else:
-            # Return a clean response with the summary as a string with clear formatting
-            summary = f"SEARCH RESULT SUMMARY:\n{summary}\n"
+            prompt_content += "# Successfully Retrieved Content:\nNone.\n\n"
         
+        if failed_queries:
+            prompt_content += "# Failed Queries:\n"
+            for query, reason in failed_queries:
+                prompt_content += f"- Query: '{query}'\n  Reason: {reason}\n"
+
+        prompt_content += "\n## Summary:\nPlease provide your summary based on the information above."
+        
+        summarization_chat.add_message(Role.USER, prompt_content)
+
+        try:
+            summary = await LlmRouter.generate_completion(
+                summarization_chat,
+                strengths=[AIStrengths.GENERAL],
+                hidden_reason="Summarizing search results"
+            )
+        except Exception as e:
+            summary = f"Error during summarization: {e}. Raw data processing is required."
+        
+        # --- Relevance Check & Final Return ---
+        relevance_check_prompt = f"""Analyze the following summary and determine if it sufficiently answers the original queries.
+Original Queries: {queries}
+Summary: {summary}
+If the summary is helpful, respond with ONLY the word "return".
+If the summary is unhelpful AND there is a clear path to improve the search (e.g., the query was too broad), respond with a JSON object containing better queries:
+{{"new_queries": ["more specific query 1", "alternative angle query"]}}
+"""
+        relevance_chat = Chat("You are a search query relevance checker.", "SearchWeb-Relevance")
+        relevance_chat.add_message(Role.USER, relevance_check_prompt)
+        
+        relevance_response = await LlmRouter.generate_completion(relevance_chat, strengths=[AIStrengths.SMALL], hidden_reason="Checking search relevance")
+
+        try:
+            # Try to parse as JSON for new queries
+            import json
+            new_queries_data = json.loads(relevance_response)
+            if isinstance(new_queries_data, dict) and 'new_queries' in new_queries_data:
+                if depth < MAX_RECURSION_DEPTH:
+                    print(colored(f"SearchWeb: Rerunning with improved queries (depth {depth+1})...", "yellow"))
+                    return await SearchWeb.run(new_queries_data['new_queries'], depth=depth + 1)
+        except (json.JSONDecodeError, TypeError):
+            # If it's not JSON, it's treated as a "return" signal.
+            pass
+
+        # If recursion limit is reached or relevance check passes, return the current summary.
+        print(colored("SearchWeb: Finalizing summary.", "green"))
         return summary
+
+    @classmethod
+    def _initialize(cls) -> None:
+        """Initialize WebTools if not already done."""
+        if cls.web_tools is None:
+            cls.web_tools = WebTools()

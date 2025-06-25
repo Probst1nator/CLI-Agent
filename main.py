@@ -1353,6 +1353,10 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                 context_chat.add_message(Role.USER, user_input)
 
             # --- Start Agentic Inner Loop ---
+            last_action_signature: Optional[str] = None
+            stall_counter: int = 0
+            MAX_STALLS: int = 2  # Allow the same action twice before intervening
+            
             while True:
                 try:
 
@@ -1493,6 +1497,28 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                     else:
                         # non mct case
                         assistant_response = response_branches[0]
+                        
+                    # --- STALL DETECTION LOGIC ---
+                    current_action_signature = assistant_response
+                    if last_action_signature and current_action_signature == last_action_signature:
+                        stall_counter += 1
+                        print(colored(f"Stall counter: {stall_counter}/{MAX_STALLS}", "yellow"))
+                    else:
+                        stall_counter = 0  # Reset counter if action is different
+
+                    last_action_signature = current_action_signature
+
+                    if stall_counter >= MAX_STALLS:
+                        print(colored("! Agent appears to be stalled. Intervening.", "red"))
+                        # Inject a user message to force re-evaluation
+                        intervention_message = "My last two attempts have failed or made no progress. I need to stop and re-evaluate my entire strategy. I will analyze the situation from the beginning and devise a completely new plan of action. I will not repeat my previous failed attempts."
+                        context_chat.add_message(Role.USER, intervention_message)
+                        print(colored(f"  └─ Injected user message to force new strategy.", "red"))
+                        stall_counter = 0  # Reset after intervention
+                        last_action_signature = None
+                        break  # Break inner loop to force LLM to process the new user message
+
+                    # --- END STALL DETECTION ---
                         
                     # --- Code Extraction and Execution ---
                     shell_blocks = get_extract_blocks()(assistant_response, ["shell", "bash"])
