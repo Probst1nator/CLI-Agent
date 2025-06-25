@@ -185,8 +185,7 @@ Your suggested queries should be more specific or use alternative terminology th
             print(f"SearchWebUtil: Summary not relevant, rerunning with new queries: {relevance_action['new_queries']}")
             summary = SearchWeb.run(relevance_action['new_queries'], depth=depth + 1)
         else:
-            pass
+            # Return a clean response with the summary as a string with clear formatting
+            summary = f"SEARCH RESULT SUMMARY:\n{summary}\n"
         
-        # Return a clean response with the summary as a string with clear formatting
-        formatted_summary = f"SEARCH RESULT SUMMARY 1:\n{summary}\n"
-        return formatted_summary
+        return summary

@@ -466,7 +466,7 @@ Do not add any other text after this single-word verdict.""",
             available_models = LlmRouter.get_models(force_local=True)
             guard_preferred_models = [model.model_key for model in available_models if not any(s == AIStrengths.STRONG for s in model.strengths)]
         
-        safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, preferred_models=guard_preferred_models, hidden_reason="Auto-execution guard", force_local=args.local_exec_confirm, strengths=[])
+        safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, preferred_models=guard_preferred_models, hidden_reason="Assessing execution safety", force_local=args.local_exec_confirm, strengths=[])
         if safe_to_execute.lower().strip().endswith('yes'):
             print(colored("✅ Code execution permitted", "green"))
             return True
