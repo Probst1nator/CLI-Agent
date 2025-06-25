@@ -1543,6 +1543,9 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                     if python_blocks:
                         formatted_code += "```python\n" + python_blocks[0] + "\n```"
 
+
+                    context_chat.save_to_json()
+                    # Confirm code execution
                     if await confirm_code_execution(args, formatted_code):
                         print(colored("🔄 Executing code...", "cyan"))
 
