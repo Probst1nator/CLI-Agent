@@ -9,7 +9,7 @@ class AuthorFile(UtilBase):
     """
 
     @staticmethod
-    def run(
+    async def run(
         path: str,
         content: str,
         mode: Literal['w', 'a'] = 'w',

@@ -9,7 +9,7 @@ class ToBool(UtilBase):
     A utility for converting a raw prompt (optionally with some content) to a boolean value.
     """
     @staticmethod
-    def run(prompt: str, content: Optional[str]=None) -> bool:
+    async def run(prompt: str, content: Optional[str]=None) -> bool:
         """
         Send a prompt to an llm and get a boolean response.
         Use this as a intelligent heuristic for dynamic coding requirements.
@@ -39,7 +39,7 @@ After your reasoning, provide your final answer as ONLY 'yes' or 'no' on the las
         chat = Chat(instruction)
         chat.add_message(Role.USER, combined_prompt)
         
-        full_response = LlmRouter.generate_completion(chat, strengths=[AIStrengths.REASONING], exclude_reasoning_tokens=False, force_local=True)
+        full_response = await LlmRouter.generate_completion(chat, strengths=[AIStrengths.REASONING], exclude_reasoning_tokens=False, force_local=True)
         
         # Extract just the final yes/no answer
         lines = full_response.strip().split('\n')

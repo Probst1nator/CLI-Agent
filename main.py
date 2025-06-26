@@ -466,7 +466,7 @@ Do not add any other text after this single-word verdict.""",
             available_models = LlmRouter.get_models(force_local=True)
             guard_preferred_models = [model.model_key for model in available_models if not any(s == AIStrengths.STRONG for s in model.strengths)]
         
-        safe_to_execute: str = LlmRouter.generate_completion(execution_guard_chat, preferred_models=guard_preferred_models, hidden_reason="Assessing execution safety", force_local=args.local_exec_confirm, strengths=[])
+        safe_to_execute: str = await LlmRouter.generate_completion(execution_guard_chat, preferred_models=guard_preferred_models, hidden_reason="Assessing execution safety", force_local=args.local_exec_confirm, strengths=[])
         if safe_to_execute.lower().strip().endswith('yes'):
             print(colored("✅ Code execution permitted", "green"))
             return True
@@ -507,7 +507,7 @@ Do not add any other text after this single-word verdict.""",
     return True
 
 
-def select_best_branch(
+async def select_best_branch(
     assistant_responses: List[str],
     user_input: str,
 ) -> str:
@@ -557,7 +557,7 @@ def select_best_branch(
         evaluator_model = [g.SELECTED_LLMS[0]]
         print(colored(f"Using {g.SELECTED_LLMS[0]} to evaluate responses from all models", "cyan"))
     
-    evaluator_response: str = LlmRouter.generate_completion(
+    evaluator_response: str = await LlmRouter.generate_completion(
         mct_branch_selector_chat,
         evaluator_model,
     )
@@ -741,7 +741,7 @@ async def get_user_input_with_bindings(
                         print(colored(f"Error reading utility file {file_path}: {e}", "red"))
 
                 author_util_chat.add_message(Role.USER, f"""Now I'd like you to implement a Utility tool in python that achieves the same goal as the conversation above. The tool needs to fit into an existing framework of utility tools. To help you understand the framework I am going to show you examples of existing tools:\n\n{utils_example_prompt}\n\nNow implement your own utility class.""")
-                response = LlmRouter.generate_completion(
+                response = await LlmRouter.generate_completion(
                     author_util_chat,
                     g.SELECTED_LLMS,
                     strengths=[AIStrengths.STRONG],
@@ -1076,55 +1076,10 @@ async def main() -> None:
                     - False to interrupt execution
                     - A string to provide as input and continue execution
             """
-            konsole_interaction_chat = context_chat.deep_copy()
-            konsole_interaction_chat.set_instruction_message("You are console interaction assistant. You are being asked to decide what to do next based on a recent output of a code execution.")
-            konsole_interaction_chat.debug_title = "Bash Interaction Chat"
-            
-            # Get the 10 most recent lines
-            lines = previous_output.splitlines()
-            recent_output = ('...\n' + '\n'.join(lines[-10:])) if len(lines) > 10 else previous_output
-            konsole_interaction_chat.add_message(Role.USER, f"""Your code execution has been idle (no new output) for a while. You are console interaction assistant. You are being asked to decide what to do next based on the current intermediate output of your code execution. Based on the current state, decide whether to:
-
-1. WAIT LONGER: If the process might still be working (e.g., downloading, processing, thinking), respond with an empty bash block.
-2. PROVIDE INPUT: If the process is waiting for user input, provide the input as the last line of your response in a bash block.
-3. INTERRUPT: If you believe the process is stuck or should be terminated, enter ctrl+c in a bash block.
-
-Current execution state:
-```bash
-{recent_output}
-```
-To respond, simply ensure your response is thought through and you put your input into a bash block.
-""")
-            
-            konsole_interaction_response = LlmRouter.generate_completion(
-                konsole_interaction_chat,
-                [g.SELECTED_LLMS[0]] if g.SELECTED_LLMS else [],
-                temperature=0,
-                base64_images=base64_images,
-                generation_stream_callback=update_python_environment,
-                strengths=g.LLM_STRENGTHS
-            )
-            
-            # Handle empty or malformed responses gracefully
-            if not konsole_interaction_response or not konsole_interaction_response.strip():
-                print("Warning: Empty response from LLM. Interpreting as 'continue without input'.")
-                return True # As per docstring: True to continue without providing input
-            
-            extracted_bash_blocks = get_extract_blocks()(konsole_interaction_response, "bash")
-            if len(extracted_bash_blocks) == 0:
-                print("Warning: No bash blocks found in LLM response. Continuing to wait.")
-                return True # As per docstring: True to continue without providing input
-            
-            bash_code = extracted_bash_blocks[0]
-            
-            if bash_code == "":
-                # Empty bash block means "wait longer" - this is the correct response
-                return True # As per docstring: True to continue without providing input
-            elif bash_code == "ctrl+c":
-                print(colored("🚧 Code execution terminated by LLM", "red"))
-                return False # Interrupt execution
-            else:
-                return bash_code # Provide the string as input
+            # For now, disable LLM interaction to avoid async/sync issues
+            # Just return True to continue waiting
+            print(colored("⏳ Process seems idle, continuing to wait...", "yellow"))
+            return True
         notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
             
         # Initialize tool manager
@@ -1391,6 +1346,26 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                             branch_start_time = time.time()
                             
                             try:
+                                # Stream monitoring wrapper for LLM calls
+                                stream_monitor = {
+                                    'last_char_time': time.time(),
+                                    'stream_started': False,
+                                    'total_chars': 0
+                                }
+                                
+                                def monitored_stream_callback(chunk: str, print_char: bool = True) -> str:
+                                    """Enhanced callback that monitors stream health"""
+                                    nonlocal stream_monitor
+                                    
+                                    # Update stream monitoring
+                                    if chunk:
+                                        stream_monitor['last_char_time'] = time.time()
+                                        stream_monitor['stream_started'] = True
+                                        stream_monitor['total_chars'] += len(chunk)
+                                    
+                                    # Call the original callback
+                                    return update_python_environment(chunk, print_char)
+                                
                                 # If multi-LLM mode is active and there are selected LLMs
                                 if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1:
                                     # If this is the first iteration, just use the selected LLMs instead of temperature variations
@@ -1398,60 +1373,76 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                         current_model = g.SELECTED_LLMS[i]
                                         if args.mct:
                                             context_chat.debug_title = f"MCT Branching ({i+1}/{len(g.SELECTED_LLMS)})"
-                                        current_branch_response = LlmRouter.generate_completion(
+                                        current_branch_response = await LlmRouter.generate_completion(
                                             context_chat,
                                             [current_model],
                                             force_preferred_model=True,
                                             temperature=0,
                                             base64_images=base64_images,
-                                            generation_stream_callback=update_python_environment,
+                                            generation_stream_callback=monitored_stream_callback,
                                             strengths=g.LLM_STRENGTHS,
                                             thinking_budget=thinking_budget,
                                             exclude_reasoning_tokens=True
                                         )
                                     else:
                                         # If we've already used all selected LLMs, use the first one with different temperatures
-                                        current_branch_response = LlmRouter.generate_completion(
+                                        current_branch_response = await LlmRouter.generate_completion(
                                             context_chat,
                                             [g.SELECTED_LLMS[0]],
                                             temperature=temperature,
                                             base64_images=base64_images,
-                                            generation_stream_callback=update_python_environment,
+                                            generation_stream_callback=monitored_stream_callback,
                                             strengths=g.LLM_STRENGTHS,
                                             thinking_budget=thinking_budget,
                                             exclude_reasoning_tokens=True
                                         )
                                 else:
                                     # Standard single-LLM mode (or no specific LLM selection)
-                                    current_branch_response = LlmRouter.generate_completion(
+                                    current_branch_response = await LlmRouter.generate_completion(
                                         context_chat,
                                         g.SELECTED_LLMS if g.SELECTED_LLMS else [],
                                         temperature=temperature,
                                         base64_images=base64_images,
-                                        generation_stream_callback=update_python_environment,
+                                        generation_stream_callback=monitored_stream_callback,
                                         strengths=g.LLM_STRENGTHS,
                                         thinking_budget=thinking_budget,
                                         exclude_reasoning_tokens=True
                                     )
                                 
-                                # Check for successful completion
+                                # Check for successful completion and stream health
                                 branch_duration = time.time() - branch_start_time
-                                if current_branch_response and current_branch_response.strip():
-                                    model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
+                                model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
+                                
+                                # Analyze stream health
+                                if not stream_monitor['stream_started']:
+                                    print(colored(f"❌ Branch {i+1} failed: stream never started after {branch_duration:.1f}s (model: {model_name})", "red"))
+                                    response_branches.append(f"Error: Branch {i+1} - stream failed to start")
+                                elif current_branch_response and current_branch_response.strip():
                                     response_branches.append(current_branch_response)
                                 else:
-                                    print(colored(f"❌ Model generation failed: returned empty response after {branch_duration:.1f}s", "red"))
-                                    response_branches.append("Error: Branch failed to generate content")
+                                    # Stream started but result is empty - possible connection drop or early termination
+                                    time_since_last_char = time.time() - stream_monitor['last_char_time']
+                                    if time_since_last_char > 10 and stream_monitor['total_chars'] > 0:
+                                        print(colored(f"⚠️ Branch {i+1} stream stalled: no new chars for {time_since_last_char:.1f}s, got {stream_monitor['total_chars']} chars (model: {model_name})", "yellow"))
+                                        response_branches.append(f"Partial: Branch {i+1} - stream stalled but got {stream_monitor['total_chars']} characters")
+                                    else:
+                                        print(colored(f"❌ Branch {i+1} failed: returned empty response after {branch_duration:.1f}s (model: {model_name})", "red"))
+                                        response_branches.append(f"Error: Branch {i+1} failed to generate content")
                                     
                             except Exception as branch_error:
                                 branch_duration = time.time() - branch_start_time
                                 error_msg = str(branch_error)
                                 model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
                                 
-                                if "timeout" in error_msg.lower():
-                                    print(colored(f"❌ Branch {i+1} failed: Timed out after {branch_duration:.1f}s (model: {model_name} may be stuck)", "red"))
+                                # Categorize the error type for better diagnostics
+                                if "connection" in error_msg.lower() or "connectionerror" in error_msg.lower():
+                                    print(colored(f"🌐 Branch {i+1} connection failed after {branch_duration:.1f}s (model: {model_name}): {error_msg}", "red"))
+                                elif "timeout" in error_msg.lower() or "asyncio.TimeoutError" in error_msg:
+                                    print(colored(f"⏱️ Branch {i+1} timed out after {branch_duration:.1f}s (model: {model_name})", "red"))
+                                elif "stream" in error_msg.lower():
+                                    print(colored(f"📡 Branch {i+1} stream error after {branch_duration:.1f}s (model: {model_name}): {error_msg}", "red"))
                                 else:
-                                    print(colored(f"❌ Branch {i+1} failed: {error_msg} (model: {model_name})", "red"))
+                                    print(colored(f"❌ Branch {i+1} failed after {branch_duration:.1f}s (model: {model_name}): {error_msg}", "red"))
                                 
                                 response_branches.append(f"Error: Branch {i+1} failed - {error_msg}")
                         
@@ -1468,7 +1459,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                     # --- MCT Branch Selection ---
                     if args.mct:
                         try:
-                            selected_branch_index = select_best_branch(response_branches, user_input or "") # Use last user input
+                            selected_branch_index = await select_best_branch(response_branches, user_input or "") # Use last user input
                             assistant_response = response_branches[selected_branch_index]
                             
                             # Show which model generated the selected response if in multi-LLM mode

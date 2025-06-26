@@ -1,4 +1,3 @@
-
 import base64
 import os
 
@@ -16,7 +15,7 @@ class ViewImage(UtilBase):
     """
     
     @staticmethod
-    def run(
+    async def run(
         file_path: str,
         prompt: str = "This image shows a screenshot of the current screen. There should be a video player playing a video. What is the name of the video and whats the like to dislike ratio?"
     ) -> str:
@@ -56,13 +55,16 @@ class ViewImage(UtilBase):
         # Add user message with the custom prompt
         chat.add_message(Role.USER, prompt)
         
-        # Generate the completion with the base64 image
-        response = LlmRouter.generate_completion(
-            chat,
-            base64_images=[base64_image],
-            strengths=[AIStrengths.VISION],
-            exclude_reasoning_tokens=True,
-            hidden_reason="Viewing Image"
-        )
+        # Add the image to the chat
+        chat.add_image_message(base64_image, role=Role.USER)
         
-        return response
+        try:
+            response = await LlmRouter.generate_completion(
+                chat, 
+                strengths=[AIStrengths.STRONG], 
+                exclude_reasoning_tokens=True,
+                hidden_reason="Viewing Image"
+            )
+            return response
+        except Exception as e:
+            return f"Error analyzing image: {str(e)}"

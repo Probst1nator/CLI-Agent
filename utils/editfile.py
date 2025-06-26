@@ -8,7 +8,7 @@ class EditFile:
     """
 
     @staticmethod
-    def run(
+    async def run(
         filepath: Optional[str] = None,
         
     ) -> str:

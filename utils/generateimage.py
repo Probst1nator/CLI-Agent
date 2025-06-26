@@ -145,7 +145,7 @@ class GenerateImage(UtilBase):
             return None
     
     @classmethod
-    def run(
+    async def run(
         cls,
         path: str,
         prompt: str,
