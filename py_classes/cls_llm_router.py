@@ -704,18 +704,38 @@ class LlmRouter:
             instance.failed_models.add(model.model_key)
             instance.retry_models.remove(model)
         
-        # Special handling for network and rate limit issues
+        # Special handling for timeout issues - SHOW USER MESSAGE instead of silent logging
         if (isinstance(e, TimeoutException) or 
             isinstance(e, RateLimitException) or
             "request timed out" in error_msg.lower() or 
             "timeout" in error_msg.lower() or 
             "timed out" in error_msg.lower() or
-            "connection" in error_msg.lower() or
+            "inactivity" in error_msg.lower()):
+            
+            # Show timeout message to user
+            if "inactivity" in error_msg.lower():
+                g.debug_log(f"⏱️ Model {model_key} timed out due to inactivity - trying next model", "yellow", force_print=True, prefix=prefix)
+            else:
+                g.debug_log(f"⏱️ Model {model_key} timed out - trying next model", "yellow", force_print=True, prefix=prefix)
+            
+            # Log silently to file for debugging
+            if model is not None:
+                logger.info(f"Timeout issue with model {model_key}: {e}")
+            return
+        
+        # Special handling for connection issues
+        if ("connection" in error_msg.lower() or
             "rate_limit" in error_msg.lower()):
             
-            # Log silently to file but don't show to user
+            # Show connection message to user  
+            if "connection" in error_msg.lower():
+                g.debug_log(f"🌐 Connection issue with model {model_key} - trying next model", "yellow", force_print=True, prefix=prefix)
+            else:
+                g.debug_log(f"⚡ Rate limit reached for model {model_key} - trying next model", "yellow", force_print=True, prefix=prefix)
+            
+            # Log silently to file for debugging
             if model is not None:
-                logger.info(f"Network/timeout/rate-limit issue with model {model_key}: {e}")
+                logger.info(f"Network/rate-limit issue with model {model_key}: {e}")
             return
         
         # Check if this error has already been logged by the Google API provider
@@ -770,7 +790,7 @@ class LlmRouter:
             time.sleep(1)
 
     @classmethod
-    def generate_completion(
+    async def generate_completion(
         cls,
         chat: Chat|str,
         preferred_models: List[str] | List[Llm] = [],
@@ -912,19 +932,51 @@ class LlmRouter:
                     if stream is None:
                         raise Exception(f"Model {model.model_key} returned None stream")
                     
-                    # MODIFIED LINE: Pass model.provider to _process_stream with timeout
+                    # Activity-based stream processing timeout
                     import signal
                     import time
                     
-                    def timeout_handler(signum, frame):
-                        raise Exception(f"Stream processing timeout after 60 seconds for model {model.model_key}")
+                    class StreamActivityMonitor:
+                        def __init__(self, timeout_seconds=60):
+                            self.last_activity = time.time()
+                            self.timeout_seconds = timeout_seconds
+                            self.total_chars = 0
+                            
+                        def reset_activity(self):
+                            self.last_activity = time.time()
+                            
+                        def add_chars(self, char_count):
+                            self.total_chars += char_count
+                            self.reset_activity()
+                            
+                        def check_timeout(self):
+                            return time.time() - self.last_activity > self.timeout_seconds
                     
-                    # Set timeout for stream processing
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(60)  # 60 second timeout
+                    stream_monitor = StreamActivityMonitor(60)  # 60 seconds of inactivity
+                    
+                    def stream_timeout_handler(signum, frame):
+                        if stream_monitor.check_timeout():
+                            raise Exception(f"Stream processing timeout after 60 seconds of inactivity for model {model.model_key} (got {stream_monitor.total_chars} chars)")
+                        else:
+                            # Reset the alarm for another check  
+                            signal.alarm(10)  # Check every 10 seconds
+                    
+                    # Enhanced stream callback that monitors activity
+                    def activity_aware_callback(chunk: str) -> str:
+                        if chunk:
+                            stream_monitor.add_chars(len(chunk))
+                        
+                        # Call original callback if provided
+                        if generation_stream_callback:
+                            return generation_stream_callback(chunk)
+                        return None
+                    
+                    # Set up periodic timeout checking for stream processing
+                    signal.signal(signal.SIGALRM, stream_timeout_handler)
+                    signal.alarm(10)  # Start checking after 10 seconds
                     
                     try:
-                        full_response = cls._process_stream(stream, model.provider, hidden_reason, generation_stream_callback)
+                        full_response = cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback)
                         
                         # Check for empty responses
                         if not full_response or not full_response.strip():

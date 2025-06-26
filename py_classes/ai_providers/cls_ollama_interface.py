@@ -350,24 +350,76 @@ class OllamaClient(AIProviderInterface):
         # Let any errors here bubble up to the router for centralized handling
         is_chat = isinstance(chat_inner, Chat)
         
-        # Add timeout to prevent hanging on connection issues
+        # Activity-based timeout monitoring
         import signal
         import time
+        import threading
         
-        def ollama_timeout_handler(signum, frame):
-            raise Exception(f"Ollama client timeout after 30 seconds for model {model_key} on host {host}")
+        class ActivityMonitor:
+            def __init__(self, timeout_seconds=30):
+                self.last_activity = time.time()
+                self.timeout_seconds = timeout_seconds
+                self.timed_out = False
+                self.lock = threading.Lock()
+                
+            def reset_activity(self):
+                with self.lock:
+                    self.last_activity = time.time()
+                    
+            def check_timeout(self):
+                with self.lock:
+                    if time.time() - self.last_activity > self.timeout_seconds:
+                        self.timed_out = True
+                        return True
+                    return False
         
-        # Set a 30-second timeout for the ollama client call
-        signal.signal(signal.SIGALRM, ollama_timeout_handler)
-        signal.alarm(30)
+        activity_monitor = ActivityMonitor(30)  # 30 seconds of inactivity
+        
+        def timeout_handler(signum, frame):
+            if activity_monitor.check_timeout():
+                prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
+                g.debug_log(f"⏱️ Ollama-Api: Model {colored('<' + model_key + '>', 'yellow')} on {colored('<' + host + '>', 'yellow')} timed out after 30 seconds of inactivity", "yellow", is_error=True, force_print=True, prefix=prefix)
+                raise Exception(f"Ollama stream timeout after 30 seconds of inactivity for model {model_key} on host {host}")
+            else:
+                # Reset the alarm for another check
+                signal.alarm(5)  # Check every 5 seconds
+        
+        # Set up periodic timeout checking
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(5)  # Start checking after 5 seconds
         
         try:
             if is_chat:
                 result = client.chat(model=model_key, messages=chat_inner.to_ollama(), stream=True, keep_alive=1800, options=options)
             else:
                 result = client.generate(model=model_key, prompt=chat_inner, stream=True, keep_alive=1800, options=options)
-            signal.alarm(0)  # Clear the alarm if successful
-            return result
+            
+            # Wrap the result to monitor activity
+            class ActivityAwareStream:
+                def __init__(self, stream, activity_monitor):
+                    self.stream = stream
+                    self.activity_monitor = activity_monitor
+                    
+                def __iter__(self):
+                    return self
+                    
+                def __next__(self):
+                    try:
+                        chunk = next(self.stream)
+                        # Reset activity timer when we get a chunk
+                        self.activity_monitor.reset_activity()
+                        return chunk
+                    except StopIteration:
+                        signal.alarm(0)  # Clear the alarm when stream ends
+                        raise
+                    except Exception as e:
+                        signal.alarm(0)  # Clear the alarm on error
+                        raise
+            
+            signal.alarm(0)  # Clear the initial alarm since we got a successful connection
+            signal.alarm(5)   # Start monitoring for activity
+            return ActivityAwareStream(result, activity_monitor)
+            
         except Exception as e:
             signal.alarm(0)  # Clear the alarm on error
             # Check if this is an EOF or connection error that should mark the host as problematic

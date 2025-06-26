@@ -14,6 +14,19 @@ CLI-Agent is a powerful AI-powered command-line assistant that enables natural l
 - **Extensible Utilities**: Easily add new capabilities with the utility system
 - **Command Suggestions**: The Agent suggests commands and, upon your confirmation, executes them with analysis of the output
 - **Podcast Generator**: Create AI-powered podcasts on any topic with customizable speakers and styles
+## ⚡ Core Capabilities
+
+I operate in a simple yet powerful loop: I think, then I act. Here's how I get things done:
+
+-   🧠 **Think & Reason**: I use advanced Language Models to analyze your requests, break down problems, and formulate a plan.
+-   🤖 **Execute Code**: I run `shell commands` and `Python scripts` in a secure notebook environment to interact with your system.
+-   🧰 **Use Specialized Utilities**: I have a toolbox of special skills for complex tasks, including:
+    -   **`filemind`**: 🧠 For planning and executing large coding projects across multiple files.
+    -   **`authorfile` & `patchfile`**: �� For creating, editing, and surgically patching files.
+    -   **`searchweb`**: 🌐 To browse the web for real-time information and answers.
+    -   ...and many more for images, smart home control, and intelligent decision-making!
+
+
 
 ## Getting Started
 

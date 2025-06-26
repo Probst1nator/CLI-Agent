@@ -302,7 +302,7 @@ class HomeAssistant(UtilBase):
         return '\n'.join(response_parts)
 
     @classmethod
-    def run(
+    async def run(
         cls,
         action: Literal["call_service", "get_state", "list_devices", "get_usage_history", "search_entity_by_keyword"],
         domain: Optional[str] = None,
