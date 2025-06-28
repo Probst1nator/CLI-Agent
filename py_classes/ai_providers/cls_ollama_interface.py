@@ -103,7 +103,7 @@ class OllamaClient(AIProviderInterface):
             try:
                 ollama_hosts.remove("localhost")
                 ollama_hosts.remove(socket.gethostbyname(socket.gethostname()))
-            except Exception as e:
+            except Exception:
                 pass
         
         auto_download_hosts = set(os.getenv("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS", "").split(","))
@@ -131,6 +131,9 @@ class OllamaClient(AIProviderInterface):
             # Skip host+model combinations that have recently failed with connection issues
             problematic_identifier = f"{host}:{model_key}"
             if problematic_identifier in OllamaClient.unreachable_hosts:
+                if chat:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log(f"Skipping {host} - previously failed for model {model_key}", "yellow", prefix=prefix)
                 continue
                 
             if host not in OllamaClient.reached_hosts and host not in OllamaClient.unreachable_hosts:
@@ -312,12 +315,21 @@ class OllamaClient(AIProviderInterface):
             
             if matching_llm:
                 is_small_model = any(s == AIStrengths.SMALL for s in matching_llm.strengths)
+                if chat_inner:
+                    prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
+                    g.debug_log(f"Model {model_key}: is_small_model={is_small_model} (from LLM definitions)", "cyan", prefix=prefix)
             else:
                 # Fallback to name-based detection if model not found in definitions
                 is_small_model = any(size in model_key.lower() for size in ['1b', '2b', '3b', '4b', '7b', '8b']) or 'small' in model_key.lower()
+                if chat_inner:
+                    prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
+                    g.debug_log(f"Model {model_key}: is_small_model={is_small_model} (fallback detection - model not found in definitions)", "yellow", prefix=prefix)
         except ImportError:
             # Fallback to name-based detection if import fails
             is_small_model = any(size in model_key.lower() for size in ['1b', '2b', '3b', '4b', '7b', '8b']) or 'small' in model_key.lower()
+            if chat_inner:
+                prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
+                g.debug_log(f"Model {model_key}: is_small_model={is_small_model} (fallback detection - import failed)", "yellow", prefix=prefix)
         
         client: ollama.Client | None
         client, found_model_key = OllamaClient.get_valid_client(model_key, chat_inner, is_small_model=is_small_model)

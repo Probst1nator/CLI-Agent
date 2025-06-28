@@ -564,14 +564,14 @@ def _clean_speaker_response(response: str, speaker_name: str) -> str:
     
     return response.strip()
 
-def _generate_llm_conversation(content: str, llms: List[str], force_local: bool = False) -> Tuple[str, str]:
+async def _generate_llm_conversation(content: str, llms: List[str], force_local: bool = False) -> Tuple[str, str]:
     """Generate a conversation between two LLMs about the given content.
     Returns (dialogue, title)"""
     
     # First, generate a title for the content
     print(colored("Generating title for LLM conversation...", "blue"))
     try:
-        title_response = LlmRouter.generate_completion(
+        title_response = await LlmRouter.generate_completion(
             f"Generate a very, descriptive title (3-5 words) for a podcast discussion about the following content. "
             f"The title should be suitable for a filename (no special characters). "
             f"Respond with just the title, nothing else.\n\n{content[:1000]}...",  # Limit content for title generation
@@ -670,7 +670,7 @@ You should:
             liam_chat.debug_title = f"Podcast exchange {exchange + 1}"
             chloe_chat.debug_title = f"Podcast exchange {exchange + 1}"
             if exchange > 15:
-                response = LlmRouter.generate_completion(f"Decide if the conversation is finished. If you are highly certain it has finished conclusively (like the podcast actors waving goodbye), respond with 'finished'. If it is not, respond with 'continue'.", strengths=[AIStrengths.SMALL], force_local=force_local)
+                response = await LlmRouter.generate_completion(f"Decide if the conversation is finished. If you are highly certain it has finished conclusively (like the podcast actors waving goodbye), respond with 'finished'. If it is not, respond with 'continue'.", strengths=[AIStrengths.SMALL], force_local=force_local)
                 if "finished" in response.lower():
                     print(colored("Conversation was detected as finished.", "green"))
                     break
@@ -679,9 +679,9 @@ You should:
                 # Liam starts when only 1 LLM provided OR automatic selection
                 # Liam's turn first
                 if liam_llm:
-                    liam_response = LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm], force_local=force_local)
+                    liam_response = await LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm], force_local=force_local)
                 else:
-                    liam_response = LlmRouter.generate_completion(liam_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
+                    liam_response = await LlmRouter.generate_completion(liam_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
                 liam_chat.add_message(Role.ASSISTANT, liam_response)
                 cleaned_liam_response = _clean_speaker_response(liam_response, "Liam")
                 dialogue_lines.append(f"Liam: {cleaned_liam_response}")
@@ -691,9 +691,9 @@ You should:
                 
                 # Chloe's turn
                 if chloe_llm:
-                    chloe_response = LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm], temperature=1.3, force_local=force_local)
+                    chloe_response = await LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm], temperature=1.3, force_local=force_local)
                 else:
-                    chloe_response = LlmRouter.generate_completion(chloe_chat, strengths=[AIStrengths.SMALL], temperature=1.3, force_local=force_local)
+                    chloe_response = await LlmRouter.generate_completion(chloe_chat, strengths=[AIStrengths.SMALL], temperature=1.3, force_local=force_local)
                 chloe_chat.add_message(Role.ASSISTANT, chloe_response)
                 cleaned_chloe_response = _clean_speaker_response(chloe_response, "Chloe")
                 dialogue_lines.append(f"Chloe: {cleaned_chloe_response}")
@@ -704,9 +704,9 @@ You should:
                 # Chloe starts when 2 specific LLMs provided
                 # Chloe's turn first
                 if chloe_llm:
-                    chloe_response = LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm], force_local=force_local)
+                    chloe_response = await LlmRouter.generate_completion(chloe_chat, preferred_models=[chloe_llm], force_local=force_local)
                 else:
-                    chloe_response = LlmRouter.generate_completion(chloe_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
+                    chloe_response = await LlmRouter.generate_completion(chloe_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
                 chloe_chat.add_message(Role.ASSISTANT, chloe_response)
                 cleaned_chloe_response = _clean_speaker_response(chloe_response, "Chloe")
                 dialogue_lines.append(f"Chloe: {cleaned_chloe_response}")
@@ -716,15 +716,15 @@ You should:
                 
                 # Liam's turn
                 if liam_llm:
-                    liam_response = LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm], force_local=force_local)
+                    liam_response = await LlmRouter.generate_completion(liam_chat, preferred_models=[liam_llm], force_local=force_local)
                 else:
-                    liam_response = LlmRouter.generate_completion(liam_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
+                    liam_response = await LlmRouter.generate_completion(liam_chat, strengths=[AIStrengths.SMALL], force_local=force_local)
                 liam_chat.add_message(Role.ASSISTANT, liam_response)
                 cleaned_liam_response = _clean_speaker_response(liam_response, "Liam")
                 dialogue_lines.append(f"Liam: {cleaned_liam_response}")
                 
                 # Add Liam's response as USER message to Chloe's chat
-                chloe_chat.add_message(Role.USER, liam_response)
+                liam_chat.add_message(Role.USER, liam_response)
             
         except KeyboardInterrupt:
             print(colored("\nConversation interrupted by user (Ctrl+C). Ending podcast generation...", "yellow"))
@@ -776,7 +776,7 @@ def create_wav_file(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: 
     wav_header = struct.pack("<4sI4s4sIHHIIHH4sI", riff_chunk_id, riff_chunk_size, wave_format, fmt_chunk_id, fmt_chunk_size, audio_format, num_channels, sample_rate, byte_rate, block_align, bits_per_sample, data_chunk_id, data_chunk_size)
     return wav_header + pcm_data
 
-def analyze_content_for_subtopics(content: str) -> List[Dict[str, str]]:
+async def analyze_content_for_subtopics(content: str) -> List[Dict[str, str]]:
     """Analyze content to identify distinct subtopics and extract relevant sections.
     Returns list of dictionaries with 'title' and 'content' keys."""
     
@@ -801,7 +801,7 @@ Content to analyze:
 
 Respond with ONLY the JSON array, no additional text."""
 
-        response = LlmRouter.generate_completion(analysis_prompt)
+        response = await LlmRouter.generate_completion(analysis_prompt)
         
         # Try to extract JSON from the response
         import json
@@ -846,19 +846,19 @@ Respond with ONLY the JSON array, no additional text."""
         print(colored("Falling back to single topic processing", "yellow"))
         return [{'title': 'Complete_Discussion', 'content': content}]
 
-def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_dia: bool = False, use_multiple_model: bool = False) -> List[str]:
+async def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_dia: bool = False, use_multiple_model: bool = False) -> List[str]:
     """Generate multiple podcasts for different subtopics identified in the content.
     Returns list of generated MP3 file paths."""
     
-    subtopics = analyze_content_for_subtopics(content)
+    subtopics = await analyze_content_for_subtopics(content)
     
     if len(subtopics) == 1:
         print(colored("Content identified as single topic, generating one podcast", "blue"))
         # Use the existing single podcast generation
         if use_multiple_model:
-            dialogue, title = _generate_llm_conversation(content, llms, force_local=use_local_dia)
+            dialogue, title = await _generate_llm_conversation(content, llms, force_local=use_local_dia)
         else:
-            dialogue, title = process_raw_content_to_dialogue(content, llms)
+            dialogue, title = await process_raw_content_to_dialogue(content, llms)
         mp3_path = generate_podcast(dialogue, title, use_local_dia)
         return [mp3_path] if mp3_path else []
     
@@ -877,9 +877,9 @@ def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_d
         try:
             # Generate dialogue for this subtopic
             if use_multiple_model:
-                dialogue, title = _generate_llm_conversation(subtopic['content'], llms, force_local=use_local_dia)
+                dialogue, title = await _generate_llm_conversation(subtopic['content'], llms, force_local=use_local_dia)
             else:
-                dialogue, title = process_raw_content_to_dialogue(subtopic['content'], llms)
+                dialogue, title = await process_raw_content_to_dialogue(subtopic['content'], llms)
             
             # Use the subtopic title, but add a prefix to distinguish it
             subtopic_title = f"Subtopic_{i:02d}_{subtopic['title']}"
@@ -928,7 +928,7 @@ def generate_multiple_podcasts(content: str, llms: List[str] = None, use_local_d
     
     return generated_files
 
-def process_raw_content_to_dialogue(content: str, llms: List[str] = None, force_local: bool = False) -> Tuple[str, str]:
+async def process_raw_content_to_dialogue(content: str, llms: List[str] = None, force_local: bool = False) -> Tuple[str, str]:
     """Process raw text content through analysis and dialogue generation.
     Returns (dialogue, title)"""
     if llms:
@@ -936,17 +936,17 @@ def process_raw_content_to_dialogue(content: str, llms: List[str] = None, force_
         if len(llms) < 1 or len(llms) > 2:
             print(colored("Error: Provide 1 LLM (other speaker uses default) or 2 LLMs for conversation", "red"))
             exit(1)
-        return _generate_llm_conversation(content, llms, force_local=force_local)
+        return await _generate_llm_conversation(content, llms, force_local=force_local)
     else:
         print(colored("Analyzing content for summary and title...", "blue"))
     try:
-        analysisResponse = LlmRouter.generate_completion(
+        analysisResponse = await LlmRouter.generate_completion(
             f"For the following text snippet, please highlight key insights and lay out the fundamentals of the topic of concern. "
             f"Explore analogies to other fields and highlight related concepts to manifest a constructive framework for the topic.\n"
             f"Here's the raw unfiltered text snippet:\n{content}",
             force_local=force_local
         )
-        titleResponseText = LlmRouter.generate_completion(
+        titleResponseText = await LlmRouter.generate_completion(
             f"I am going to provide you with a text and you should generate a descriptive title for whatever content it's about. "
             f"Ensure it is a short fit for a file name. Please think about the contents first and then like this:\n"
             f"Title: <title>\nThis is the text:\n{analysisResponse}",
@@ -992,7 +992,7 @@ The topic of {extracted_title} has been automatically reviewed and the following
         podcastGenChat = Chat()
         podcastGenChat.add_message(Role.USER, podcastGenPrompt)
         # podcastGenChat.add_message(Role.ASSISTANT, "<think>")
-        podcastDialogueResponse = LlmRouter.generate_completion(podcastGenChat, force_local=force_local)
+        podcastDialogueResponse = await LlmRouter.generate_completion(podcastGenChat, force_local=force_local)
     except Exception as e: 
         print(colored(f"Error during LLM processing for podcast dialogue: {e}", "red"))
         exit(1)
@@ -1169,7 +1169,7 @@ async def main():
             print(colored("Multiple podcasts mode enabled - will analyze content for multiple subtopics", "magenta"))
             if args.local:
                 print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-            mp3_files = generate_multiple_podcasts(content, args.llms, use_local_dia=args.local, use_multiple_model=use_multiple_model)
+            mp3_files = await generate_multiple_podcasts(content, args.llms, use_local_dia=args.local, use_multiple_model=use_multiple_model)
         else:
             # Single podcast mode or multiple model conversation
             if args.local: 
@@ -1177,10 +1177,10 @@ async def main():
             
             if use_multiple_model:
                 # Use multiple model conversation
-                podcastDialogue, extracted_title = _generate_llm_conversation(content, args.llms, force_local=args.local)
+                podcastDialogue, extracted_title = await _generate_llm_conversation(content, args.llms, force_local=args.local)
             else:
                 # Use single model with analysis
-                podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms, force_local=args.local)
+                podcastDialogue, extracted_title = await process_raw_content_to_dialogue(content, args.llms, force_local=args.local)
             
             mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
             mp3_files = [mp3_file_location] if mp3_file_location else []
@@ -1212,7 +1212,7 @@ async def main():
             print(colored("Multiple podcasts mode enabled - will analyze content for multiple subtopics", "magenta"))
             if args.local:
                 print(colored("Using local Dia TTS. Ensure dialogue format matches Dia's expectations.", "yellow"))
-            mp3_files = generate_multiple_podcasts(content, args.llms, use_local_dia=args.local, use_multiple_model=use_multiple_model)
+            mp3_files = await generate_multiple_podcasts(content, args.llms, use_local_dia=args.local, use_multiple_model=use_multiple_model)
         else:
             # Single podcast mode or multiple model conversation
             if args.local: 
@@ -1220,10 +1220,10 @@ async def main():
             
             if use_multiple_model:
                 # Use multiple model conversation
-                podcastDialogue, extracted_title = _generate_llm_conversation(content, args.llms, force_local=args.local)
+                podcastDialogue, extracted_title = await _generate_llm_conversation(content, args.llms, force_local=args.local)
             else:
                 # Use single model with analysis
-                podcastDialogue, extracted_title = process_raw_content_to_dialogue(content, args.llms, force_local=args.local)
+                podcastDialogue, extracted_title = await process_raw_content_to_dialogue(content, args.llms, force_local=args.local)
             
             mp3_file_location = generate_podcast(podcastDialogue, extracted_title, use_local_dia=args.local)
             mp3_files = [mp3_file_location] if mp3_file_location else []

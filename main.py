@@ -35,9 +35,8 @@ warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:
 warnings.filterwarnings("ignore", message="words count mismatch on*", module="phonemizer", category=UserWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")  # Catch all phonemizer warnings
 
-# Import utils_audio which uses torch
+# Import core modules
 from py_classes.cls_computational_notebook import ComputationalNotebook
-from py_methods import utils_audio
 from py_classes.cls_util_manager import UtilsManager
 from py_classes.enum_ai_strengths import AIStrengths
 from py_classes.cls_llm_router import Llm, LlmRouter
@@ -70,6 +69,11 @@ def get_update_cmd_collection():
     from py_methods.utils import update_cmd_collection
     return update_cmd_collection
 
+# Deprecated: TTS functionality moved to utils/tts.py
+# def get_utils_audio():
+#     from py_methods import utils_audio
+#     return utils_audio
+
 # Try importing with a direct import
 try:
     from utils.viewimage import ViewImage
@@ -82,6 +86,17 @@ except ImportError:
     viewimage_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(viewimage_module)
     ViewImage = viewimage_module.ViewImage
+
+# Import the new TTS utility for internal use
+try:
+    from utils.tts import TtsUtil
+except ImportError:
+    # Handle case where TTS utility might not be available
+    class TtsUtil:
+        @staticmethod
+        def run(text, **kwargs):
+            print(colored(f"Warning: TtsUtil not found. Cannot speak: {text}", "red"))
+            return json.dumps({"status": "error", "message": "TtsUtil not found"})
 
 # Suppress TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -1018,6 +1033,11 @@ async def main() -> None:
         if (os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip()):
             args.local = True
         
+        # Automatically enable auto mode when voice mode is enabled
+        if args.voice:
+            args.auto = True
+            print(colored("# cli-agent: Voice mode enabled, automatically enabling auto execution mode", "green"))
+        
         # Use sandboxed python execution
         if args.sandbox:
             g.USE_SANDBOX = True
@@ -1181,8 +1201,21 @@ You may read from the whole system but if you need to save or modify any files, 
 
             context_chat.set_instruction_message(inst)
             
+            # Determine active utilities based on voice/speak flags
+            all_util_names = utils_manager.get_util_names()
+            active_util_names = all_util_names.copy()
+
+            # Conditionally remove 'tts' if voice/speak modes are off
+            if not (args.voice or args.speak):
+                if 'tts' in active_util_names:
+                    active_util_names.remove('tts')
+                    print(colored("TTS utility disabled. Use -v or -s to enable.", "yellow"))
+            
+            # Generate the utils info string using only the active utilities
+            active_utils_info = utils_manager.get_available_utils_info(util_names=active_util_names)
+            
             kickstart_preprompt = f"""Hi, before starting off, let me show you some additional python utilities I coded for you to use if needed,
-{utils_manager.get_available_utils_info()}
+{active_utils_info}
 
 
 Now, I am going to run somethings to show you how your computational notebook works.
@@ -1551,7 +1584,9 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                             verbal_text += f"I've implemented some python code, let's execute it."
                         elif (len(shell_blocks) > 0):
                             verbal_text += f"I've implemented some shell code, let's execute it."
-                        utils_audio.text_to_speech(verbal_text)
+                        
+                        # Use the new TTS utility instead of the old utils_audio
+                        TtsUtil.run(text=verbal_text)
 
                     # Join shell blocks into a single string
                     formatted_code = ""

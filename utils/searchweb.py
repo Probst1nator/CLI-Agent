@@ -3,13 +3,42 @@ from py_classes.cls_chat import Chat, Role
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.enum_ai_strengths import AIStrengths
 from py_classes.cls_util_base import UtilBase
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Coroutine
 import logging
 import traceback
 import requests
+import asyncio
+import concurrent.futures
 from pydantic import ValidationError
 from py_classes.globals import g
 from py_classes.utils.cls_utils_web import WebTools
+
+def _run_async_safely(coro: Coroutine) -> Any:
+    """
+    Helper function to run async code from sync context safely.
+    Handles both cases: when called from sync context and from async context.
+    """
+    try:
+        # Check if we're already in an async context
+        loop = asyncio.get_running_loop()
+        # We're in an async context - this is the tricky case
+        # Instead of using thread pools (which cause signal issues), 
+        # let's try to use nest_asyncio to allow nested event loops
+        try:
+            import nest_asyncio
+            nest_asyncio.apply(loop)
+            return asyncio.run(coro)
+        except ImportError:
+            # nest_asyncio not available, fall back to a blocking wait approach
+            # Create a task and busy-wait for it (not ideal but avoids threading issues)
+            task = loop.create_task(coro)
+            import time
+            while not task.done():
+                time.sleep(0.001)  # Small sleep to prevent busy waiting
+            return task.result()
+    except RuntimeError:
+        # No event loop running, we can use asyncio.run() safely
+        return asyncio.run(coro)
 
 class SearchWeb(UtilBase):
     """
@@ -36,7 +65,7 @@ class SearchWeb(UtilBase):
                 cls.web_tools = MinimalWebTools()
     
     @staticmethod
-    async def run(queries: List[str], depth: int = 0) -> str:
+    def run(queries: List[str], depth: int = 0) -> str:
         """
         Perform a web search and receive a summary of the results.
         
@@ -110,12 +139,12 @@ If sources conflict or information seems outdated, note this in your summary.
         chat.add_message(Role.USER, summarization_prompt)
         
         try:
-            summary = await LlmRouter.generate_completion(
+            summary = _run_async_safely(LlmRouter.generate_completion(
                 chat,
                 strengths=[AIStrengths.GENERAL],
                 exclude_reasoning_tokens=True,
                 hidden_reason="Condensing search results"
-            )
+            ))
         except Exception as e:
             print(f"❌ SearchWeb: Failed to generate summary: {str(e)}")
             # Fallback to simple concatenation of results
@@ -154,12 +183,12 @@ Your suggested queries should be more specific or use alternative terminology th
             content=is_relevant_prompt
         )
         try:
-            is_relevant_tool_response = await LlmRouter.generate_completion(
+            is_relevant_tool_response = _run_async_safely(LlmRouter.generate_completion(
                 is_relevant_chat,
                 strengths=[AIStrengths.REASONING, AIStrengths.SMALL],
                 exclude_reasoning_tokens=True,
                 hidden_reason="SearchWebUtil: verifying relevance"
-            )
+            ))
         except Exception as e:
             print(f"❌ SearchWeb: Failed to verify relevance: {str(e)}")
             # Default to returning the summary as-is
@@ -183,7 +212,7 @@ Your suggested queries should be more specific or use alternative terminology th
         
         if relevance_action['action'] == 'rerun_search' and 'new_queries' in relevance_action and depth < MAX_RECURSION_DEPTH:
             print(f"SearchWebUtil: Summary not relevant, rerunning with new queries: {relevance_action['new_queries']}")
-            summary = await SearchWeb.run(relevance_action['new_queries'], depth=depth + 1)
+            summary = SearchWeb.run(relevance_action['new_queries'], depth=depth + 1)
         else:
             pass
         
