@@ -1,280 +1,242 @@
 import os
+import gc
+import json
 import torch
-from PIL import Image
-from typing import Optional, Any, Dict, Tuple, Callable
-from functools import lru_cache
-import importlib
 import warnings
+from typing import Optional, Dict, Any
 
-# Import base class
 from py_classes.cls_util_base import UtilBase
+
+try:
+    import diffusers
+    import transformers
+    import accelerate
+    import bitsandbytes
+    from diffusers import FluxPipeline
+    from diffusers.utils import logging as diffusers_logging
+    diffusers_logging.set_verbosity_error()
+    _DEPS_INSTALLED = True
+except ImportError:
+    _DEPS_INSTALLED = False
 
 class GenerateImage(UtilBase):
     """
-    A utility for generating an image based on a text prompt using Hugging Face
-    diffusers library (e.g., Stable Diffusion) and saving it to a file.
+    A utility for generating images using the FLUX model.
+    Optimized for running on hardware with limited VRAM (e.g., 8GB).
     """
-    # Dictionary to store loaded pipelines
-    _loaded_pipelines: Dict[Tuple[str, torch.dtype, torch.device], Any] = {}
-    
-    # Lazy imports
-    _diffusers_imports = None
-    
-    @classmethod
-    def _ensure_dependencies(cls):
-        """Lazily import dependencies only when needed."""
-        if cls._diffusers_imports is None:
-            try:
-                # Create a dictionary of lazy-loaded imports
-                cls._diffusers_imports = {
-                    'AutoPipelineForText2Image': importlib.import_module('diffusers').AutoPipelineForText2Image
-                }
-                return True
-            except ImportError:
-                error_msg = (
-                    "Required libraries not found. Please install them:\n"
-                    "pip install torch diffusers transformers accelerate Pillow"
-                )
-                warnings.warn(error_msg)
-                return False
-        return True
+    _pipeline: Optional[FluxPipeline] = None
+    _pipeline_options: Dict[str, Any] = {}
 
     @classmethod
-    def _get_pipeline(
+    def _ensure_dependencies(cls) -> bool:
+        """Checks if all required dependencies are installed."""
+        if not _DEPS_INSTALLED:
+            warnings.warn(
+                "Required packages not found. Please install them to use this utility:\n"
+                "pip install torch diffusers transformers accelerate bitsandbytes"
+            )
+        return _DEPS_INSTALLED
+
+    @classmethod
+    def _initialize_pipeline(
         cls,
-        model_id: str,
-        device: torch.device,
-        dtype: torch.dtype,
-    ):
-        """Loads or retrieves a cached diffusion pipeline on demand."""
+        enable_quantization: bool = False,
+        enable_cpu_offloading: bool = False
+    ) -> bool:
+        """
+        Initializes and configures the FLUX pipeline.
+        This method is called automatically by `run` if the pipeline is not loaded.
+        """
         if not cls._ensure_dependencies():
-            raise ImportError("Required dependencies not available. See warnings for details.")
-            
-        cache_key = (model_id, dtype, device)
-        
-        # Return cached pipeline if available
-        if cache_key in cls._loaded_pipelines:
-            print(f"Using cached pipeline for {model_id} on {device} with {dtype}")
-            return cls._loaded_pipelines[cache_key]
-            
-        # Lazily load the pipeline only when requested
-        print(f"Loading pipeline {model_id} to {device} with {dtype}...")
-        
-        # Get the AutoPipelineForText2Image class from our lazy imports
-        AutoPipelineForText2Image = cls._diffusers_imports['AutoPipelineForText2Image']
-        
-        # Create the pipeline
-        pipeline = AutoPipelineForText2Image.from_pretrained(
-            model_id,
-            torch_dtype=dtype,
-            safety_checker=None,         # Disable safety checker
-            feature_extractor=None,      # No need for feature extractor when safety checker is disabled
-            requires_safety_checker=False # Explicitly disable safety checking
-        ).to(device)
-        
-        # Optional: Enable memory-efficient optimizations if available
+            return False
+
+        options = {
+            "enable_quantization": enable_quantization,
+            "enable_cpu_offloading": enable_cpu_offloading
+        }
+
+        if cls._pipeline is not None and cls._pipeline_options == options:
+            return True # Pipeline already loaded with the same options
+
+        if cls._pipeline is not None:
+            cls.unload() # Unload existing pipeline if options differ
+
+        cls._pipeline_options = options
+        print("Initializing FLUX pipeline...")
+        print(f"Options: Quantization={'Enabled' if enable_quantization else 'Disabled'}, CPU Offloading={'Enabled' if enable_cpu_offloading else 'Disabled'}")
+
         try:
-            pipeline.enable_xformers_memory_efficient_attention()
-            print("Enabled xformers memory efficient attention")
-        except (AttributeError, ImportError):
-            try:
-                pipeline.enable_attention_slicing()
-                print("Enabled attention slicing")
-            except AttributeError:
-                print("Could not enable memory optimizations")
-        
-        print(f"Pipeline {model_id} loaded successfully.")
-        cls._loaded_pipelines[cache_key] = pipeline
-        return pipeline
-    
-    @classmethod
-    def unload_pipeline(cls, model_id: str = None, device: torch.device = None, dtype: torch.dtype = None):
-        """
-        Unload specified pipelines to free memory.
-        If no parameters provided, unloads all pipelines.
-        """
-        keys_to_remove = []
-        
-        for key in cls._loaded_pipelines.keys():
-            key_model_id, key_dtype, key_device = key
-            if (model_id is None or key_model_id == model_id) and \
-               (device is None or key_device == device) and \
-               (dtype is None or key_dtype == dtype):
-                keys_to_remove.append(key)
-        
-        for key in keys_to_remove:
-            # Get the pipeline
-            pipeline = cls._loaded_pipelines[key]
-            # Move to CPU first if on GPU to help with CUDA memory
-            if hasattr(pipeline, 'to') and str(pipeline.device) != 'cpu':
-                try:
-                    pipeline.to('cpu')
-                except:
-                    pass  # Best effort to move to CPU
-            # Remove from cache
-            del cls._loaded_pipelines[key]
-            
-        # Force garbage collection to help free memory
-        import gc
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            
-        return len(keys_to_remove)
-    
-    @staticmethod
-    def _parse_size(size_str: str) -> Optional[Tuple[int, int]]:
-        """Parses WxH string like '1024x1024' into (width, height)."""
-        if not size_str or 'x' not in size_str:
-            return None
-        try:
-            width_str, height_str = size_str.lower().split('x')
-            width = int(width_str)
-            height = int(height_str)
-            # Basic sanity check for reasonable dimensions
-            if width > 0 and height > 0 and width <= 4096 and height <= 4096:
-                 # Ensure divisible by 8 for many models
-                width = (width // 8) * 8
-                height = (height // 8) * 8
-                return width, height
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            if device.type == 'cpu':
+                print("Warning: Running on CPU. This will be very slow.")
+                if enable_quantization:
+                    warnings.warn("Quantization is not supported on CPU and will be disabled.")
+                    enable_quantization = False
+
+            model_id = "black-forest-labs/FLUX.1-schnell"
+            pipe_kwargs = {"torch_dtype": torch.bfloat16}
+
+            if enable_quantization:
+                from transformers import BitsAndBytesConfig
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.bfloat16
+                )
+                pipe_kwargs["transformer_loading_kwargs"] = {
+                    "quantization_config": quantization_config
+                }
+
+            cls._pipeline = FluxPipeline.from_pretrained(model_id, **pipe_kwargs)
+
+            if enable_cpu_offloading:
+                cls._pipeline.enable_model_cpu_offload()
+                print("Enabled CPU offloading.")
             else:
-                print(f"Warning: Invalid dimensions in size string '{size_str}'.")
-                return None
-        except ValueError:
-            print(f"Warning: Could not parse size string '{size_str}'.")
-            return None
-    
+                cls._pipeline.to(device)
+
+            cls._pipeline.enable_attention_slicing()
+            print("FLUX pipeline initialized successfully.")
+            return True
+
+        except Exception as e:
+            cls._pipeline = None
+            print(f"Error initializing FLUX pipeline: {e}")
+            return False
+
     @classmethod
-    async def run(
+    def unload(cls) -> Dict[str, Any]:
+        """Unloads the pipeline and clears memory."""
+        if cls._pipeline is not None:
+            # Check if model is on CUDA before trying to move it
+            if hasattr(cls._pipeline.transformer, 'device') and 'cuda' in str(cls._pipeline.transformer.device):
+                cls._pipeline.to('cpu')
+
+            del cls._pipeline
+            cls._pipeline = None
+            cls._pipeline_options = {}
+
+            # Force garbage collection
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            print("FLUX pipeline unloaded and memory cleared.")
+            return {"status": "success", "message": "Pipeline unloaded."}
+        
+        return {"status": "success", "message": "Pipeline was not loaded."}
+
+    @classmethod
+    def get_memory_usage(cls) -> Dict[str, Any]:
+        """Returns current VRAM usage if CUDA is available."""
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+            reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+            return {
+                "vram_allocated_gb": f"{allocated:.2f}",
+                "vram_reserved_gb": f"{reserved:.2f}"
+            }
+        return {"message": "CUDA not available."}
+
+    @classmethod
+    def run(
         cls,
         path: str,
         prompt: str,
-        negative_prompt: str = "blurry, low quality, deformed",
-        model_id: str = "runwayml/stable-diffusion-v1-5",
-        size: str = "512x512",
-        num_inference_steps: int = 30,
-        guidance_scale: float = 7.5,
-        seed: Optional[int] = None
+        width: int = 1024,
+        height: int = 1024,
+        seed: Optional[int] = None,
+        num_inference_steps: int = 4,
+        enable_quantization: bool = False,
+        enable_cpu_offloading: bool = False
     ) -> str:
         """
-        Generates an image with a diffusion model based on a text prompt and save it to the specified path.
-        
+        Generates an image with FLUX and saves it to the specified path.
+
         Args:
-            path: The file path where the generated image should be saved
-            prompt: The text description of the image to generate
-            negative_prompt: Optional text describing elements to avoid in the image
-            model_id: The model ID to use for generation
-            size: Image size in format "WxH" (e.g., "512x512")
-            num_inference_steps: Number of denoising steps
-            guidance_scale: How closely to follow the prompt
-            seed: Optional seed for reproducibility
-            
+            path: The file path to save the image (e.g., 'output.png').
+            prompt: The text prompt to generate the image from.
+            width: The width of the image. Defaults to 1024.
+            height: The height of the image. Defaults to 1024.
+            seed: A seed for reproducible results.
+            num_inference_steps: The number of steps for the diffusion process.
+            enable_quantization: Load model in 4-bit for lower VRAM usage.
+            enable_cpu_offloading: Offload parts of the model to CPU to save VRAM.
+
         Returns:
-            The absolute path to the saved image file
+            A JSON string with the result or an error message.
         """
-        if not prompt:
-            raise ValueError("Prompt cannot be empty.")
-        if not path:
-            raise ValueError("Output path cannot be empty.")
-            
-        # Ensure the output directory exists
-        output_dir = os.path.dirname(path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            
-        # Determine the best device and precision to use
-        dtype = torch.float16
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-            dtype = torch.float16
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            device = torch.device("mps")
-            dtype = torch.float16
-        else:
-            device = torch.device("cpu")
-            dtype = torch.float32
-            
         try:
-            # Load or retrieve cached pipeline (lazy loading happens here)
-            pipeline = cls._get_pipeline(model_id, device, dtype)
+            if not cls._initialize_pipeline(enable_quantization, enable_cpu_offloading):
+                 raise RuntimeError("Pipeline initialization failed.")
+
+            if not path or not prompt:
+                raise ValueError("Path and prompt cannot be empty.")
+
+            output_dir = os.path.dirname(path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
             
-            # Parse size string to dimensions
-            dimensions = cls._parse_size(size) or (512, 512)
-            width, height = dimensions
-            
-            # Set up generator if seed provided
-            generator = torch.Generator(device=device).manual_seed(seed) if seed is not None else None
-            
-            # Generate the image
-            pipeline_args = {
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-                "num_inference_steps": num_inference_steps,
-                "guidance_scale": guidance_scale,
-                "width": width,
-                "height": height,
-                "generator": generator
-            }
-            call_args = {k: v for k, v in pipeline_args.items() if v is not None}
+            generator = torch.Generator(device="cuda").manual_seed(seed) if seed is not None and torch.cuda.is_available() else None
             
             with torch.no_grad():
-                output = pipeline(**call_args)
-                image = output.images[0]
-            
-            # Save the image
-            image.save(path)
-            
-            return os.path.abspath(path)
-            
-        except Exception as e:
-            print(f"Error generating image: {e}")
-            raise RuntimeError(f"Failed to generate or save image: {e}")
+                image = cls._pipeline(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    num_inference_steps=num_inference_steps,
+                    generator=generator
+                ).images[0]
 
-# --- Example Usage (for testing) ---
-if __name__ == "__main__":
-    # Create a temporary directory for output
-    temp_dir = "temp_generated_images_diffusers"
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
-        
-    output_path1 = os.path.join(temp_dir, "cat_on_windowsill_sd15.png")
-    
-    # --- Basic SD v1.5 Test (GPU recommended) ---
-    if torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
-        print("\n--- Test Case 1: Stable Diffusion v1.5 (GPU/MPS) ---")
-        try:
-            saved_path1 = GenerateImage.run(
-                path=output_path1,
-                prompt="A photorealistic high quality image of a fluffy ginger cat sitting on a sunny windowsill, looking curious",
-                model_id="runwayml/stable-diffusion-v1-5",
-                size="512x512",
-                num_inference_steps=40,
-                guidance_scale=8.0,
-                negative_prompt="blurry, low quality, deformed, text, signature",
-                seed=12345
-            )
-            print(f"Image saved successfully to: {saved_path1}")
-            assert os.path.exists(saved_path1)
-            print(f"File exists: {os.path.exists(saved_path1)}")
+            image.save(path)
+            abs_path = os.path.abspath(path)
             
-            # Test unloading the pipeline
-            print("Testing pipeline unloading...")
-            unloaded = GenerateImage.unload_pipeline()
-            print(f"Unloaded {unloaded} pipeline(s)")
-            
+            # Clean up after generation to save memory
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            return json.dumps({
+                "result": {
+                    "image_path": abs_path,
+                    "prompt": prompt,
+                    "width": width,
+                    "height": height,
+                    "seed": seed,
+                    "steps": num_inference_steps
+                }
+            })
+
         except Exception as e:
-            print(f"Test Case 1 FAILED: {e}")
-            import traceback
-            traceback.print_exc()
+            error_message = f"An error occurred: {str(e)}"
+            print(error_message)
+            return json.dumps({"error": error_message})
+
+if __name__ == '__main__':
+    # Example usage for testing
+    if _DEPS_INSTALLED:
+        # For 8GB VRAM, enable quantization and cpu offloading
+        # For >12GB VRAM, you can set both to False for faster generation
+        is_8gb_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3) < 10 if torch.cuda.is_available() else False
+        
+        print("\n--- Generating image (8GB VRAM optimized) ---")
+        result_json = GenerateImage.run(
+            path="flux_test_image.png",
+            prompt="A majestic lion overlooking the savannah at sunset, cinematic lighting",
+            seed=123,
+            enable_quantization=is_8gb_vram,
+            enable_cpu_offloading=is_8gb_vram
+        )
+        print(f"Result: {result_json}")
+
+        print("\n--- Checking memory usage ---")
+        print(GenerateImage.get_memory_usage())
+
+        print("\n--- Unloading model ---")
+        print(GenerateImage.unload())
+
+        print("\n--- Memory usage after unload ---")
+        print(GenerateImage.get_memory_usage())
     else:
-        print("\n--- Skipping Test Case 1: No CUDA/MPS GPU detected ---")
-        
-    print("\n--- Test Case 2: Empty Prompt (expect ValueError) ---")
-    try:
-        GenerateImage.run(path=os.path.join(temp_dir, "error.png"), prompt="")
-    except ValueError as e:
-        print(f"Caught expected error: {e}")
-    except Exception as e:
-        print(f"Test Case 2 FAILED with unexpected error: {e}")
-        
-    print("\n--- Finished testing ---")
+        print("Skipping example: Dependencies not installed.")
+        GenerateImage._ensure_dependencies()

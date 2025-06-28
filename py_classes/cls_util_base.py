@@ -6,22 +6,19 @@ class UtilBase(ABC):
     Abstract base class for implementing utility functionality.
     
     This class defines the interface that all utility implementations 
-    must follow. Subclasses need to implement the _run method
+    must follow. Subclasses need to implement the run method
     to provide specific utility behavior.
     """
     
     @staticmethod
     @abstractmethod
-    async def run(**kwargs: Any) -> Any:
+    def run() -> Any:
         """
         The actual implementation of the utility execution logic.
         
-        This method should be overridden by subclasses to provide
-        the specific functionality of the utility.
-        
-        Args:
-            **kwargs: Arbitrary keyword arguments that are passed to the utility.
-                     The specific parameters depend on the utility implementation.
+        This method must be overridden by subclasses to provide the
+        specific functionality of the utility. Each subclass will
+        define its own specific arguments.
         
         Returns:
             Any: The result of the utility execution. The return type depends on
