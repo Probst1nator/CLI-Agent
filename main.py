@@ -205,6 +205,9 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-e", "--exit", action="store_true", default=False,
                         help="Exit after all automatic messages have been parsed successfully")
     
+    parser.add_argument("-dyn", "--dyn", action="store_true", default=False,
+                        help="Dynamically adjust LLM thinking parameters. Sets g.DYN_MODE=True.")
+    
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
 
@@ -482,10 +485,10 @@ Do not add any other text after this single-word verdict.""",
             guard_preferred_models = [model.model_key for model in available_models if not any(s == AIStrengths.STRONG for s in model.strengths)]
         
         safe_to_execute: str = await LlmRouter.generate_completion(execution_guard_chat, preferred_models=guard_preferred_models, hidden_reason="Assessing execution safety", force_local=args.local_exec_confirm, strengths=[])
-        if safe_to_execute.lower().strip().endswith('yes'):
+        if 'yes' in safe_to_execute.lower().strip():
             print(colored("✅ Code execution permitted", "green"))
             return True
-        elif safe_to_execute.lower().strip().endswith('unfinished'):
+        elif 'unfinished' in safe_to_execute.lower().strip():
             print(colored("⚠️ Code execution aborted by auto-execution guard, because it is unfinished", "yellow"))
             # Add a message to args.message to be automatically processed in the next loop
             completion_request = "The code you provided is unfinished. Please complete it properly with actual values and logic."
@@ -607,6 +610,7 @@ async def get_user_input_with_bindings(
     context_chat: Chat,
     prompt: str = colored("💬 Enter your request: ", 'blue', attrs=["bold"]),
     input_override: str = None,
+    force_input: bool = False
 ) -> bool | str:
     """
     Gets user input, handling special keybindings.
@@ -619,6 +623,8 @@ async def get_user_input_with_bindings(
             user_input = ""
         elif input_override:
             user_input = input_override
+        elif force_input:
+            user_input = input(prompt)
         else:
             try:
                 # get user input from various sources if not already set (e.g., after screenshot)
@@ -646,7 +652,13 @@ async def get_user_input_with_bindings(
             context_chat.messages.pop() # Remove last AI response
             user_input = ""
 
-        elif user_input == "-l" or user_input == "--l" or user_input == "-llm" or user_input == "--llm" or user_input == "--local":
+        elif user_input == "-l" or user_input == "--local":
+            args.local = not args.local
+            g.FORCE_LOCAL = args.local # Ensure global state is updated
+            print(colored(f"# cli-agent: KeyBinding detected: Local mode toggled {'on' if args.local else 'off'}, type (--h) for info", "green"))
+            continue
+
+        elif user_input == "-llm" or user_input == "--llm":
             print(colored("# cli-agent: KeyBinding detected: Showing LLM selection, type (--h) for info", "green"))
             selected_llms = await llm_selection(args, preselected_llms=None)  # Load from persistent storage
             # Store the selected LLMs in globals for later use
@@ -721,132 +733,14 @@ async def get_user_input_with_bindings(
             print(colored(f"# cli-agent: KeyBinding detected: Local auto-execution confirmation toggled {'on' if args.local_exec_confirm else 'off'}, type (--h) for info", "green"))
             continue
         
-        elif user_input == "-t" or user_input == "--t" or user_input == "-tool" or user_input == "--tool":
-            print(colored("# cli-agent: KeyBinding detected: Showing utils selection, type (--h) for info", "green"))
-            selected_utils = await utils_selection(args)
-            
-            # Check if the special "Add New Tool" option was selected
-            if selected_utils and selected_utils[0] == "__add_new_tool__":
-                print(colored(f"# cli-agent: 'Add New Tool' option selected. Custom handling will be implemented by user.", "green"))
-                # You can add your custom handling here or trigger a separate function
-                author_util_chat = context_chat.deep_copy()
-                author_util_chat.add_message(Role.USER, "I would like you to implement a utililty python class that achieves what we just did but more accessible for future reuse. I am going to provide you with some example utils and you will work off of them.")
-                
-                # Read utility example files from disk
-                utils_examples_files = [
-                    "utils/searchweb.py",
-                    "utils/tobool.py",
-                    "utils/generateimage.py",
-                    "utils/viewimage.py"
-                ]
-                
-                utils_example_prompt = "Here are three examples of utility tools, learn from them what you can do yourself and then implement your own utility class:\n\n"
-                
-                for i, file_path in enumerate(utils_examples_files):
-                    try:
-                        # Use relative path from the current script
-                        full_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_path)
-                        with open(full_path, 'r') as f:
-                            file_content = f.read()
-                        
-                        # Add the example with a header and code block
-                        utils_example_prompt += f"# Example {i+1}: {os.path.basename(file_path).replace('.py', '')} Utility\n"
-                        utils_example_prompt += f"```python\n{file_content}\n```\n\n"
-                    except Exception as e:
-                        print(colored(f"Error reading utility file {file_path}: {e}", "red"))
-
-                author_util_chat.add_message(Role.USER, f"""Now I'd like you to implement a Utility tool in python that achieves the same goal as the conversation above. The tool needs to fit into an existing framework of utility tools. To help you understand the framework I am going to show you examples of existing tools:\n\n{utils_example_prompt}\n\nNow implement your own utility class.""")
-                response = await LlmRouter.generate_completion(
-                    author_util_chat,
-                    g.SELECTED_LLMS,
-                    strengths=[AIStrengths.STRONG],
-                )
-                author_util_chat.add_message(Role.ASSISTANT, response)
-                
-                # Extract Python code from response and save to utils directory
-                python_blocks = get_extract_blocks()(response, "python")
-                if python_blocks:
-                    # Get the first python block (main implementation)
-                    util_code = python_blocks[0]
-                    
-                    # Extract class name to use as filename
-                    import re
-                    class_match = re.search(r'class\s+(\w+)\s*\(', util_code)
-                    if class_match:
-                        class_name = class_match.group(1)
-                        # Convert from CamelCase to snake_case for filename
-                        filename = re.sub(r'(?<!^)(?=[A-Z])', '_', class_name).lower() + ".py"
-                        
-                        # Ensure utils directory exists
-                        utils_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils")
-                        os.makedirs(utils_dir, exist_ok=True)
-                        
-                        # Save the utility to file
-                        filepath = os.path.join(utils_dir, filename)
-                        
-                        # Check if file already exists and create backup if needed
-                        if os.path.exists(filepath):
-                            import time
-                            backup_path = f"{filepath}.{int(time.time())}.bak"
-                            print(colored(f"# cli-agent: Utility file already exists! Creating backup at {backup_path}", "yellow"))
-                            try:
-                                os.rename(filepath, backup_path)
-                            except Exception as e:
-                                print(colored(f"# cli-agent: Could not create backup: {e}", "red"))
-                        
-                        # Write the utility code to file
-                        try:
-                            with open(filepath, 'w') as f:
-                                f.write(util_code)
-                            print(colored(f"# cli-agent: Successfully saved new utility to {filepath}", "green"))
-                            
-                            # Add the newly created utility to the selected utils
-                            util_name = class_name
-                            if util_name not in g.SELECTED_UTILS:
-                                g.SELECTED_UTILS.append(util_name)
-                                print(colored(f"# cli-agent: Added {util_name} to selected utilities for next requests", "green"))
-                        except Exception as e:
-                            print(colored(f"# cli-agent: Error saving utility file: {e}", "red"))
-                    else:
-                        print(colored("# cli-agent: Could not determine class name from implementation. Utility not saved.", "red"))
-                else:
-                    print(colored("# cli-agent: No Python code found in the implementation. Utility not saved.", "red"))
-                
-                continue
-            
-            if selected_utils:
-                # Store the selected utils in globals for subsequent requests
-                g.SELECTED_UTILS = selected_utils
-                
-                # Update the instruction message in the current chat if it exists
-                if context_chat:
-                    current_instruction = context_chat.messages[0][1]
-                    
-                    # Remove any existing selected utils section
-                    if "IMPORTANT: You MUST use the following utility tools" in current_instruction:
-                        current_instruction = current_instruction.split("IMPORTANT: You MUST use the following utility tools")[0].strip()
-                    
-                    # Add the selected utils to the instruction
-                    utils_instruction = f"""
-
-IMPORTANT: You MUST use the following utility tools that have been specifically requested:
-{', '.join(g.SELECTED_UTILS)}
-
-For any new code you write, be sure to make appropriate use of these selected utilities."""
-                    
-                    updated_instruction = current_instruction + utils_instruction
-                    context_chat.messages[0] = (Role.SYSTEM, updated_instruction)
-                    print(colored(f"# cli-agent: Updated chat instructions to include selected utils.", "green"))
-                
-                print(colored(f"# cli-agent: Utils selection saved. The model will be instructed to use these tools in subsequent requests.", "green"))
-            continue
-
         elif user_input == "-h" or user_input == "--h":
             print(figlet_format("cli-agent", font="slant"))
             print(colored("# KeyBindings:", "yellow"))
             print(colored("# -h: Show this help message", "yellow"))
             print(colored("# -r: Regenerate the last response", "yellow"))
-            print(colored(f"# -l/-llm: Pick different LLMs (supports multi-selection) ", "yellow"), end="")
+            print(colored(f"# -l: Toggle local mode ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.local else 'off'})", "cyan"))
+            print(colored(f"# -llm: Pick different LLMs (supports multi-selection) ", "yellow"), end="")
             print(colored(f"(Current: {', '.join(g.SELECTED_LLMS) if g.SELECTED_LLMS else args.llm or 'Auto'})", "cyan"))
             print(colored(f"# -a: Toggle automatic code execution ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.auto else 'off'})", "cyan"))
@@ -862,8 +756,6 @@ For any new code you write, be sure to make appropriate use of these selected ut
             print(colored(f"# -mct: Toggle Monte Carlo Tree Search ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.mct else 'off'})", "cyan"))
             print(colored("# -m: Enter multiline input", "yellow"))
-            print(colored(f"# -t: Select specific utility tools to be used ", "yellow"), end="")
-            print(colored(f"(Current: {', '.join(g.SELECTED_UTILS) if g.SELECTED_UTILS else 'None'})", "cyan"))
             print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
             if context_chat:
                 print(colored(f"(length: {len(context_chat.joined_messages())} chars)", "cyan"))
@@ -871,11 +763,24 @@ For any new code you write, be sure to make appropriate use of these selected ut
                 print(colored("(No chat history)", "cyan"))
             print(colored(f"# --local-exec-confirm: Use local LLM for auto-execution confirmation ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.local_exec_confirm else 'off'})", "cyan"))
+            print(colored(f"# -dyn: Toggle dynamic LLM parameter adjustment ", "yellow"), end="")
+            print(colored(f"(Current: {'on' if args.dyn else 'off'})", "cyan"))
             print(colored("# -e: Exit the application", "yellow"))
             # Add other CLI args help here if needed
             if (input_override):
                 return ""
             continue # Ask for input again
+        
+        elif user_input == "-dyn" or user_input == "--dyn":
+            args.dyn = not args.dyn
+            g.DYN_MODE = args.dyn # Update global state
+            print(colored(f"# cli-agent: KeyBinding detected: Dynamic LLM parameter adjustment toggled {'on' if args.dyn else 'off'}, type (--h) for info", "green"))
+            continue
+        
+        elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
+            print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
+            exit(0)
+        
         # USER INPUT HANDLING - END
 
         # No binding matched, return the input
@@ -1155,7 +1060,8 @@ async def main() -> None:
 Enable deep thinking subroutine.
 The assistant is Nova, an intelligent cli-agent with access to a computational notebook environment running on the users Kubuntu system.
 The computational notebook environment enables Nova to execute python and shell code to solve tasks.
-Nova uses emojis to express emotions about her current felt state.
+This tool can be used inside of your thinking process to help you gather information to solve complex tasks.
+Please use emojis in your responses to express authenticity and emotions.
 
 1. UNDERSTAND & ASSESS:
  Analyze query and determine if it can be solved with Python code or shell commands (ls, pwd, etc.)
@@ -1289,6 +1195,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                 if multiline_input.strip():  # Only add if not empty
                     args.message.append(multiline_input)
 
+        user_interrupt: bool = False
         # Main loop
         while True:
             # Reset main loop variables
@@ -1302,7 +1209,71 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
             g.FORCE_ONLINE = args.online
             base64_images: List[str] = [] # Initialize here unconditionally
             thinking_budget = 2048 # in tokens
+            temperature = 0.85 if args.mct else 0 # Initialize with default
+            will_code = False # Initialize with default
             
+            if (args.dyn):
+                context_hparam_branch = context_chat.deep_copy()
+                # Determine the model to use for hyperparameter prediction
+                # Use the first selected LLM if available, otherwise let LlmRouter choose a default
+                hparam_prediction_model = [g.SELECTED_LLMS[0]] if g.SELECTED_LLMS else []
+
+                context_hparam_branch.add_message(Role.USER, f"""You are now on a isolated branch of the conversation, please determine the best values for the following hyperparameters to dynamically adjust the LLM's response:
+```json
+{{
+    "thinking_budget": {thinking_budget},
+    "temperature": {temperature},
+    "will_code": {will_code}
+}}
+```
+The thinking_budget is the number of tokens the LLM is allowed to use for thinking. Use 1024 for trivial tasks and 16384 for very complex (/math/coding/science) tasks.
+The temperature is the LLM's creativity level, control it by using 1 by default and up to 1.8 for more randomness/creativity.
+The will_code is a boolean value that indicates if the LLM is expected to code. Use False for tasks that don't require coding and True for tasks that require coding.
+Please respond with a json object that contains context dependent suggested values for the hyperparameters.
+""")
+                
+                # Use a dummy stream callback to avoid immediate print during Hparam prediction
+                dummy_stream_callback = lambda chunk, print_char=False: None
+                
+                hparam_branch_response = await LlmRouter.generate_completion(
+                    context_hparam_branch,
+                    hparam_prediction_model, # Use the determined model
+                    temperature=0,
+                    base64_images=base64_images,
+                    generation_stream_callback=dummy_stream_callback,
+                    strengths=[AIStrengths.SMALL] if AIStrengths.STRONG not in g.LLM_STRENGTHS else [s for s in g.LLM_STRENGTHS if s != AIStrengths.STRONG] + [AIStrengths.SMALL], # Use small model for hyperparameter prediction
+                    thinking_budget=4096,
+                    exclude_reasoning_tokens=True
+                )
+                try:
+                    hparam_json_blocks = get_extract_blocks()(hparam_branch_response, "json")
+                    if hparam_json_blocks and len(hparam_json_blocks) > 0:
+                        hparam_json = hparam_json_blocks[0]  # Take the first JSON block
+                        hparam_branch_response_json = json.loads(hparam_json)
+                        thinking_budget = hparam_branch_response_json.get('thinking_budget', thinking_budget)
+                        temperature = hparam_branch_response_json.get('temperature', temperature)
+                        will_code = hparam_branch_response_json.get('will_code', will_code)
+                    else:
+                        print(colored(f"Warning: No JSON blocks found in dynamic hyperparameter response", "yellow"))
+                    
+                    # Adjust LLM strengths based on dynamic parameters
+                    # Reset strengths based on args.strong first, then add if needed
+                    g.LLM_STRENGTHS = [AIStrengths.STRONG] if args.strong else []
+                    if will_code or thinking_budget > 8192:
+                        if AIStrengths.STRONG not in g.LLM_STRENGTHS:
+                            g.LLM_STRENGTHS.append(AIStrengths.STRONG)
+                    else:
+                        # If we're not coding and not thinking hard, ensure STRONG is not present *unless* it was forced by args.strong
+                        if AIStrengths.STRONG in g.LLM_STRENGTHS and not args.strong:
+                            g.LLM_STRENGTHS.remove(AIStrengths.STRONG)
+                            
+                    print(colored(f"# cli-agent: Dynamic parameters adjusted: thinking_budget={thinking_budget}, temperature={temperature}, will_code={will_code}, strengths={g.LLM_STRENGTHS}", "magenta"))
+
+                except json.JSONDecodeError:
+                    print(colored(f"Warning: Failed to decode dynamic hyperparameter response: {hparam_branch_response}", "red"))
+                except Exception as e:
+                    print(colored(f"Error processing dynamic hyperparameter response: {str(e)}", "red"))
+
             # IMPORTANT: stdout_buffer and stderr_buffer are reset after each execution
             # to prevent accumulation across agentic loop iterations. This fixes the race
             # condition where the agent would repeatedly attempt the same action because
@@ -1323,7 +1294,8 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                 user_input, _, wake_word_used = get_listen_microphone()(private_remote_wake_detection=args.private_remote_wake_detection)
             else:
                 # Get input via the new wrapper function
-                user_input = await get_user_input_with_bindings(args, context_chat)
+                user_input = await get_user_input_with_bindings(args, context_chat, force_input=user_interrupt)
+                user_interrupt = False
 
 
             if LlmRouter.has_unconfirmed_data():
@@ -1375,7 +1347,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                         for i in range(3 if (args.mct and len(g.SELECTED_LLMS)==1) else len(g.SELECTED_LLMS) if g.SELECTED_LLMS else 1):
                             response_buffer = "" # Reset buffer for each branch
                             
-                            temperature = 0.85 if args.mct else 0
+                            temperature = 0.85 if args.mct else 0 # Initialize here, will be overwritten if args.dyn
                             branch_start_time = time.time()
                             
                             try:
@@ -1390,14 +1362,19 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                     """Enhanced callback that monitors stream health"""
                                     nonlocal stream_monitor
                                     
-                                    # Update stream monitoring
-                                    if chunk:
-                                        stream_monitor['last_char_time'] = time.time()
-                                        stream_monitor['stream_started'] = True
-                                        stream_monitor['total_chars'] += len(chunk)
-                                    
-                                    # Call the original callback
-                                    return update_python_environment(chunk, print_char)
+                                    # Check for keyboard interrupt
+                                    try:
+                                        # Update stream monitoring
+                                        if chunk:
+                                            stream_monitor['last_char_time'] = time.time()
+                                            stream_monitor['stream_started'] = True
+                                            stream_monitor['total_chars'] += len(chunk)
+                                        
+                                        # Call the original callback
+                                        return update_python_environment(chunk, print_char)
+                                    except KeyboardInterrupt:
+                                        print(colored("\n-=- User interrupted streaming (Ctrl+C) -=-", "yellow"))
+                                        raise  # Re-raise to propagate the interrupt
                                 
                                 # If multi-LLM mode is active and there are selected LLMs
                                 if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1:
@@ -1409,8 +1386,8 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                         current_branch_response = await LlmRouter.generate_completion(
                                             context_chat,
                                             [current_model],
-                                            force_preferred_model=True,
-                                            temperature=0,
+                                            force_preferred_model=not args.dyn,
+                                            temperature=temperature,
                                             base64_images=base64_images,
                                             generation_stream_callback=monitored_stream_callback,
                                             strengths=g.LLM_STRENGTHS,
@@ -1468,7 +1445,10 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
                                 
                                 # Categorize the error type for better diagnostics
-                                if "connection" in error_msg.lower() or "connectionerror" in error_msg.lower():
+                                if ("ctrl+c" in error_msg.lower()):
+                                    print(colored("=== User interrupted model generation (Ctrl+C) ===", "yellow"))
+                                    break # Break from inner agentic loop
+                                elif "connection" in error_msg.lower() or "connectionerror" in error_msg.lower():
                                     print(colored(f"🌐 Branch {i+1} connection failed after {branch_duration:.1f}s (model: {model_name}): {error_msg}", "red"))
                                 elif "timeout" in error_msg.lower() or "asyncio.TimeoutError" in error_msg:
                                     print(colored(f"⏱️ Branch {i+1} timed out after {branch_duration:.1f}s (model: {model_name})", "red"))
@@ -1481,6 +1461,14 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                         
                         base64_images = [] # Clear images after use
                         context_chat.debug_title = "Main Context Chat"
+
+                    except KeyboardInterrupt:
+                        print(colored("\n-=- User interrupted model generation (Ctrl+C) -=-", "yellow"))
+                        # Clear any queued messages and return control to the user
+                        if args.message:
+                            print(colored(f"Clearing {len(args.message)} queued message(s).", "yellow"))
+                            args.message = []
+                        break # Break from inner agentic loop
 
                     except Exception as e:
                         LlmRouter.clear_unconfirmed_finetuning_data()
@@ -1703,8 +1691,18 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                         
                         break # Break inner loop
 
+                except KeyboardInterrupt:
+                    print(colored("\n=== User interrupted execution (Ctrl+C) ===", "yellow"))
+                    user_interrupt = True
+                    break # Break from inner agentic loop
+
                 except Exception as e:
                     LlmRouter.clear_unconfirmed_finetuning_data()
+                    if ("ctrl+c" in str(e).lower()):
+                        print(colored("=== User interrupted execution (Ctrl+C) ===", "yellow"))
+                        user_interrupt = True
+                        break # Break from inner agentic loop
+                    
                     print(colored(f"An unexpected error occurred in the agent loop: {str(e)}", "red"))
                     if args.debug:
                         traceback.print_exc()

@@ -110,9 +110,9 @@ class Llm:
         llms = [
             # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
             
-            Llm(GoogleAPI(), "gemini-2.5-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
-            Llm(GoogleAPI(), "gemini-2.5-pro-exp-03-25", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
+            Llm(GoogleAPI(), "gemini-2.5-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
+            Llm(GoogleAPI(), "gemini-2.5-pro", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
             Llm(GoogleAPI(), "gemini-2.5-flash-lite-preview-06-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             
@@ -124,7 +124,7 @@ class Llm:
             # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
             # Llm(OllamaClient(), "gemma3n:e4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "gemma3n:e2b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            # Llm(OllamaClient(), "gemma3n:e2b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             Llm(OllamaClient(), "qwen3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
@@ -707,7 +707,6 @@ class LlmRouter:
         
         # Special handling for timeout issues - SHOW USER MESSAGE instead of silent logging
         if (isinstance(e, TimeoutException) or 
-            isinstance(e, RateLimitException) or
             "request timed out" in error_msg.lower() or 
             "timeout" in error_msg.lower() or 
             "timed out" in error_msg.lower() or
@@ -722,6 +721,14 @@ class LlmRouter:
             # Log silently to file for debugging
             if model is not None:
                 logger.info(f"Timeout issue with model {model_key}: {e}")
+            return
+        
+        # Special handling for rate limit exceptions - these are already handled by the provider
+        if isinstance(e, RateLimitException):
+            # Rate limit exceptions are already handled by the provider with appropriate user messages
+            # Just log silently to file for debugging
+            if model is not None:
+                logger.info(f"Rate limit issue with model {model_key}: {e}")
             return
         
         # Special handling for connection issues
@@ -768,6 +775,11 @@ class LlmRouter:
             descriptive_error = cls._get_descriptive_error(error_msg, model_key)
             g.debug_log(f"❌ Groq-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "GoogleAPI" in provider_name:
+            # Check if this error has already been handled by the Google API provider
+            if hasattr(e, 'already_logged') and getattr(e, 'already_logged'):
+                # Error was already logged by the provider, don't log it again
+                return
+            
             descriptive_error = cls._get_descriptive_error(error_msg, model_key)
             g.debug_log(f"❌ Google-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "OpenAIAPI" in provider_name:

@@ -1,16 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-This isn't your grandma's voice assistant... unless she's a cyborg from the future.
+Audio processing utilities for voice interaction pipeline.
 
-This script provides a full, local pipeline for voice interaction:
-1.  Wake-Word Detection: Listens for a hotword using the lightweight Vosk engine.
-2.  Audio Recording: Intelligently records user speech after the wake word.
-3.  Speech-to-Text: Transcribes the recording using OpenAI's Whisper model.
-4.  Text-to-Speech: Converts a text response back into audio using modern
-    Hugging Face models, with a graceful fallback to system TTS.
-
-Every component is designed to be lazily loaded to conserve resources and is
-wrapped in robust error handling.
+Provides wake word detection, audio recording, speech-to-text transcription,
+and text-to-speech synthesis using local models with lazy loading for efficiency.
 """
 
 import json
@@ -34,7 +27,7 @@ from vosk import KaldiRecognizer, Model, SetLogLevel
 
 # --- Global Resources ---
 # We define our models globally so they are loaded only once. It's the lazy,
-# efficient way to do things. Don't @ me.
+# efficient way to do things.
 _whisper_model: Optional[Any] = None
 _whisper_model_key: Optional[str] = None
 _vosk_model: Optional[Model] = None
@@ -47,9 +40,10 @@ logger = logging.getLogger(__name__)
 
 def get_torch_device() -> str:
     """
-    Determines the optimal torch device and returns it as a string.
-    Caches the result in a global variable so we don't have to ask the GPU
-    if it exists more than once. It gets shy.
+    Determine the optimal torch device (CUDA or CPU).
+    
+    Returns:
+        str: Device string ('cuda' or 'cpu')
     """
     global _device
     if _device is None:
@@ -60,7 +54,7 @@ def get_torch_device() -> str:
 
 
 def initialize_wake_word() -> None:
-    """Initializes the Vosk wake word detector if it's not already in memory."""
+    """Initialize the Vosk wake word detector model."""
     global _vosk_model
     if not _vosk_model:
         print(f"<{colored('Vosk', 'green')}> Initializing wake word model...")
@@ -70,11 +64,10 @@ def initialize_wake_word() -> None:
 
 def wait_for_wake_word() -> Optional[str]:
     """
-    Listens patiently for a wake word. This is the digital equivalent of a
-    dog waiting by the door. Good boy.
-
+    Listen for wake word detection using Vosk.
+    
     Returns:
-        Optional[str]: The detected wake word phrase, or None if something went wrong.
+        Optional[str]: Detected wake word phrase, or None if detection failed
     """
     global _vosk_model
     initialize_wake_word()
@@ -91,7 +84,7 @@ def wait_for_wake_word() -> Optional[str]:
     rec = KaldiRecognizer(_vosk_model, target_sample_rate, json.dumps(wake_words))
 
     def audio_callback(indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
-        """This function gets called by the audio stream for each chunk."""
+        """Audio stream callback for processing audio chunks."""
         if status:
             logger.warning(f"Audio stream status: {status}")
         try:
@@ -123,8 +116,9 @@ def wait_for_wake_word() -> Optional[str]:
 
 def play_notification() -> None:
     """
-    Plays a gentle, non-jarring notification sound to signal that it's time to speak.
-    It's composed of a pleasant perfect fifth interval (G3 & D4) because we're civilized.
+    Play a notification sound to signal it's time to speak.
+    
+    Generates a pleasant two-tone notification using G3 and D4 frequencies.
     """
     sample_rate = 44100
     duration = 0.4
@@ -146,7 +140,12 @@ def play_notification() -> None:
 
 def play_audio(audio_array: np.ndarray, sample_rate: int, blocking: bool = True) -> None:
     """
-    Plays a NumPy array of audio data through the default sound device.
+    Play audio data through the default sound device.
+    
+    Args:
+        audio_array: Audio data as numpy array
+        sample_rate: Sample rate in Hz
+        blocking: Whether to wait for playback to complete
     """
     try:
         audio_array = audio_array.astype(np.float32)
@@ -169,7 +168,16 @@ def record_audio(
     max_duration: float = 20.0,
 ) -> Optional[np.ndarray]:
     """
-    Records audio from the microphone, automatically stopping after a period of silence.
+    Record audio from microphone with automatic silence detection.
+    
+    Args:
+        sample_rate: Audio sample rate in Hz
+        threshold: Volume threshold for speech detection
+        silence_duration: Seconds of silence before stopping
+        max_duration: Maximum recording duration in seconds
+        
+    Returns:
+        Optional[np.ndarray]: Recorded audio data, or None if no speech detected
     """
     play_notification()
     print(f"<{colored('Recording', 'red')}> Listening... (stops after {silence_duration}s of silence)")
@@ -219,7 +227,10 @@ def record_audio(
 
 def initialize_whisper_model(model_key: str = 'tiny') -> None:
     """
-    Initializes the Whisper model, with a clever check for available memory.
+    Initialize Whisper model with memory-aware model selection.
+    
+    Args:
+        model_key: Whisper model size ('tiny', 'base', 'small', 'medium', 'large')
     """
     global _whisper_model, _whisper_model_key
     try:
@@ -250,7 +261,14 @@ def initialize_whisper_model(model_key: str = 'tiny') -> None:
 
 def transcribe_audio(audio_array: np.ndarray, sample_rate: int = 16000) -> Tuple[str, str]:
     """
-    Transcribes an audio array using the loaded Whisper model.
+    Transcribe audio using Whisper model.
+    
+    Args:
+        audio_array: Audio data as numpy array
+        sample_rate: Audio sample rate in Hz
+        
+    Returns:
+        Tuple[str, str]: (transcribed_text, detected_language)
     """
     initialize_whisper_model()
     if not _whisper_model:
@@ -269,7 +287,13 @@ def transcribe_audio(audio_array: np.ndarray, sample_rate: int = 16000) -> Tuple
 
 def initialize_tts_pipeline(model_id: str) -> bool:
     """
-    Initializes the Hugging Face TTS pipeline lazily.
+    Initialize Hugging Face TTS pipeline.
+    
+    Args:
+        model_id: Hugging Face model identifier
+        
+    Returns:
+        bool: True if initialization successful, False otherwise
     """
     global _tts_pipeline, _tts_model_id
     if _tts_pipeline and _tts_model_id == model_id:
@@ -298,7 +322,17 @@ def text_to_speech(
     **generation_kwargs: Any
 ) -> Optional[str]:
     """
-    Converts text to speech using a Hugging Face model.
+    Convert text to speech using Hugging Face models with fallback to system TTS.
+    
+    Args:
+        text: Text to convert to speech
+        model_id: Hugging Face model identifier
+        output_path: Optional path to save audio file
+        play: Whether to play audio immediately
+        **generation_kwargs: Additional generation parameters
+        
+    Returns:
+        Optional[str]: Path to saved audio file if output_path provided, None otherwise
     """
     if not initialize_tts_pipeline(model_id):
         print(f"<{colored('TTS Fallback', 'yellow')}> Hugging Face model failed. Trying system TTS...")
@@ -335,14 +369,17 @@ def text_to_speech(
 
 def save_binary_file(file_name: str, data: bytes) -> str:
     """
-    Saves binary data to a file.
+    Save binary data to a file.
     
     Args:
-        file_name (str): The name of the file to save.
-        data (bytes): The binary data to save.
+        file_name: Name of the file to save
+        data: Binary data to save
         
     Returns:
-        str: The path to the saved file.
+        str: Path to the saved file
+        
+    Raises:
+        Exception: If file saving fails
     """
     try:
         with open(file_name, "wb") as f:
@@ -356,8 +393,13 @@ def save_binary_file(file_name: str, data: bytes) -> str:
 
 def parse_audio_mime_type(mime_type: str) -> Dict[str, int]:
     """
-    Parses bits per sample and rate from an audio MIME type string.
-    Assumes bits per sample is encoded like "L16" and rate as "rate=xxxxx".
+    Parse audio parameters from MIME type string.
+    
+    Args:
+        mime_type: Audio MIME type string (e.g., "audio/L16;rate=24000")
+        
+    Returns:
+        Dict[str, int]: Dictionary with 'bits_per_sample' and 'rate' keys
     """
     bits_per_sample = 16
     rate = 24000
@@ -381,7 +423,14 @@ def parse_audio_mime_type(mime_type: str) -> Dict[str, int]:
 
 def convert_to_wav(audio_data: bytes, mime_type: str) -> bytes:
     """
-    Generates a WAV file header for the given audio data and parameters.
+    Convert audio data to WAV format with proper header.
+    
+    Args:
+        audio_data: Raw audio data bytes
+        mime_type: Audio MIME type for parameter extraction
+        
+    Returns:
+        bytes: Complete WAV file data with header
     """
     parameters = parse_audio_mime_type(mime_type)
     bits_per_sample = parameters["bits_per_sample"]

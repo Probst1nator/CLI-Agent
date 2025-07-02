@@ -1,30 +1,40 @@
 import os
 import gc
 import json
+import sys
 import torch
 import warnings
 from typing import Optional, Dict, Any
 
+# Add parent directory to path to import py_classes
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from py_classes.cls_util_base import UtilBase
 
 try:
     import diffusers
     import transformers
     import accelerate
-    import bitsandbytes
     from diffusers import FluxPipeline
     from diffusers.utils import logging as diffusers_logging
     diffusers_logging.set_verbosity_error()
     _DEPS_INSTALLED = True
 except ImportError:
     _DEPS_INSTALLED = False
+    FluxPipeline = None  # Define as None when dependencies aren't available
+
+# Check for optional bitsandbytes (only needed for quantization)
+try:
+    import bitsandbytes
+    _BITSANDBYTES_AVAILABLE = True
+except ImportError:
+    _BITSANDBYTES_AVAILABLE = False
 
 class GenerateImage(UtilBase):
     """
     A utility for generating images using the FLUX model.
     Optimized for running on hardware with limited VRAM (e.g., 8GB).
     """
-    _pipeline: Optional[FluxPipeline] = None
+    _pipeline: Optional['FluxPipeline'] = None  # Use string annotation
     _pipeline_options: Dict[str, Any] = {}
 
     @classmethod
@@ -33,7 +43,7 @@ class GenerateImage(UtilBase):
         if not _DEPS_INSTALLED:
             warnings.warn(
                 "Required packages not found. Please install them to use this utility:\n"
-                "pip install torch diffusers transformers accelerate bitsandbytes"
+                "pip install torch diffusers transformers accelerate"
             )
         return _DEPS_INSTALLED
 
@@ -77,15 +87,19 @@ class GenerateImage(UtilBase):
             pipe_kwargs = {"torch_dtype": torch.bfloat16}
 
             if enable_quantization:
-                from transformers import BitsAndBytesConfig
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16
-                )
-                pipe_kwargs["transformer_loading_kwargs"] = {
-                    "quantization_config": quantization_config
-                }
+                if not _BITSANDBYTES_AVAILABLE:
+                    warnings.warn("Quantization requested but bitsandbytes is not available. Install with: pip install bitsandbytes")
+                    enable_quantization = False
+                else:
+                    from transformers import BitsAndBytesConfig
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=torch.bfloat16
+                    )
+                    pipe_kwargs["transformer_loading_kwargs"] = {
+                        "quantization_config": quantization_config
+                    }
 
             cls._pipeline = FluxPipeline.from_pretrained(model_id, **pipe_kwargs)
 
@@ -96,6 +110,11 @@ class GenerateImage(UtilBase):
                 cls._pipeline.to(device)
 
             cls._pipeline.enable_attention_slicing()
+            # Additional memory optimizations
+            if hasattr(cls._pipeline, 'enable_vae_slicing'):
+                cls._pipeline.enable_vae_slicing()
+            if hasattr(cls._pipeline, 'enable_vae_tiling'):
+                cls._pipeline.enable_vae_tiling()
             print("FLUX pipeline initialized successfully.")
             return True
 
@@ -177,6 +196,11 @@ class GenerateImage(UtilBase):
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
             
+            # Clear cache before generation
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
             generator = torch.Generator(device="cuda").manual_seed(seed) if seed is not None and torch.cuda.is_available() else None
             
             with torch.no_grad():
@@ -217,14 +241,16 @@ if __name__ == '__main__':
     if _DEPS_INSTALLED:
         # For 8GB VRAM, enable quantization and cpu offloading
         # For >12GB VRAM, you can set both to False for faster generation
-        is_8gb_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3) < 10 if torch.cuda.is_available() else False
+        is_8gb_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3) < 12 if torch.cuda.is_available() else False
         
-        print("\n--- Generating image (8GB VRAM optimized) ---")
+        print(f"\n--- Generating image ({'8GB VRAM optimized' if is_8gb_vram else 'High VRAM mode'}) ---")
         result_json = GenerateImage.run(
             path="flux_test_image.png",
             prompt="A majestic lion overlooking the savannah at sunset, cinematic lighting",
+            width=512,  # Smaller size for testing
+            height=512,
             seed=123,
-            enable_quantization=is_8gb_vram,
+            enable_quantization=is_8gb_vram and _BITSANDBYTES_AVAILABLE,
             enable_cpu_offloading=is_8gb_vram
         )
         print(f"Result: {result_json}")
