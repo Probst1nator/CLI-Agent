@@ -364,7 +364,7 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         dia_model = get_dia_model()
         if dia_model is None:
             print(colored("Failed to initialize Dia model. Falling back to Google TTS if available...", "red"))
-            if GOOGLE_AVAILABLE and os.environ.get("GOOGLE_API_KEY"):
+            if GOOGLE_AVAILABLE and os.environ.get("GEMINI_API_KEY"):
                  return generate_podcast(podcast_dialogue, title, use_local_dia=False)
             else:
                 print(colored("Google TTS fallback not possible (unavailable or API key missing).", "red"))
@@ -444,12 +444,12 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
         if not GOOGLE_AVAILABLE:
             print(colored("Error: Google dependencies not available. Install with 'pip install google-genai'.", "red"))
             return ""
-        google_api_key = os.environ.get("GOOGLE_API_KEY")
-        if not google_api_key:
-            print(colored("Error: GOOGLE_API_KEY environment variable not set.", "red"))
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            print(colored("Error: GEMINI_API_KEY environment variable not set.", "red"))
             return ""
         try:
-            client = genai.Client(api_key=google_api_key)
+            client = genai.Client(api_key=gemini_api_key)
         except Exception as e:
             print(colored(f"Failed to initialize Google GenAI Client: {e}", "red"))
             return ""
@@ -1075,9 +1075,9 @@ async def main():
     
     g.local = args.local 
 
-    if not args.local and not os.environ.get("GOOGLE_API_KEY"):
-        print(colored("Error: GOOGLE_API_KEY environment variable not set. Needed for Google TTS.", "red"))
-        print(colored("You can either set GOOGLE_API_KEY or use the -l flag for local TTS (if configured).", "red"))
+    if not args.local and not os.environ.get("GEMINI_API_KEY"):
+        print(colored("Error: GEMINI_API_KEY environment variable not set. Needed for Google TTS.", "red"))
+        print(colored("You can either set GEMINI_API_KEY or use the -l flag for local TTS (if configured).", "red"))
         exit(1)
 
     if not PYDUB_AVAILABLE:

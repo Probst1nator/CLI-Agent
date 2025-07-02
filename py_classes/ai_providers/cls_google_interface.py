@@ -18,20 +18,13 @@ import re
 # Import audio utility functions
 from py_methods.utils_audio import save_binary_file, convert_to_wav, parse_audio_mime_type
 import mimetypes
+# Import exceptions from Groq interface to avoid duplication
+from py_classes.ai_providers.cls_groq_interface import TimeoutException, RateLimitException
 
 logger = logging.getLogger(__name__)
 
-# Define custom exception classes to differentiate error types
-class TimeoutException(Exception):
-    """Exception raised when a request to Google API times out."""
-    pass
-
-class RateLimitException(Exception):
-    """Exception raised when Google API rate limits are exceeded."""
-    pass
-
 # Flag to track if API has been configured
-_google_api_configured = False
+_gemini_api_configured = False
 
 class GoogleAPI(AIProviderInterface):
     """
@@ -49,20 +42,20 @@ class GoogleAPI(AIProviderInterface):
         Raises:
             Exception: If the API key is missing or invalid.
         """
-        global _google_api_configured
+        global _gemini_api_configured
         
         # Only configure if not already done
-        if not _google_api_configured:
-            api_key: Optional[str] = os.getenv('GOOGLE_API_KEY')
+        if not _gemini_api_configured:
+            api_key: Optional[str] = os.getenv('GEMINI_API_KEY')
             if not api_key:
-                raise Exception("Google API key not found. Set the GOOGLE_API_KEY environment variable.")
+                raise Exception("Google API key not found. Set the GEMINI_API_KEY environment variable.")
             
             try:
                 genai.configure(api_key=api_key)
-                _google_api_configured = True
+                _gemini_api_configured = True
                 logger.info("Google Generative AI API configured successfully")
             except Exception as e:
-                _google_api_configured = False
+                _gemini_api_configured = False
                 raise Exception(f"Failed to configure Google API: {e}")
 
     @staticmethod
@@ -167,9 +160,28 @@ class GoogleAPI(AIProviderInterface):
             
             return response
         except Exception as e:
-            # Check if this is a rate limit error (usually contains "quota" in the error message)
-            error_str = str(e).lower()
-            if "quota" in error_str or "rate" in error_str:
+            # Check if this is a quota exceeded error (429 error with specific message)
+            error_str = str(e)
+            if "429" in error_str and "quota" in error_str.lower() and "exceeded" in error_str.lower():
+                # Extract retry delay from the error message
+                retry_seconds = 60  # default
+                retry_matches = re.findall(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
+                if retry_matches:
+                    retry_seconds = int(retry_matches[0])
+                
+                # Update rate limit tracker
+                rate_limit_tracker.update_rate_limit(model_key, retry_seconds)
+                
+                # Show only a single line warning for quota exceeded
+                if not silent_reason:
+                    g.debug_log(f"⚡ Quota exceeded for {model_key} - retry in {retry_seconds}s", "yellow", force_print=True, prefix=prefix)
+                
+                # Mark the exception as already logged and raise as RateLimitException
+                setattr(e, 'already_logged', True)
+                raise RateLimitException(f"Model {model_key} quota exceeded. Try again in {retry_seconds} seconds")
+            
+            # Check if this is a general rate limit error
+            elif "quota" in error_str.lower() or "rate" in error_str.lower():
                 retry_seconds = 60
                 retry_matches = re.findall(r"retry in (\d+)", error_str)
                 if retry_matches:
@@ -177,8 +189,16 @@ class GoogleAPI(AIProviderInterface):
                 
                 # Update rate limit tracker
                 rate_limit_tracker.update_rate_limit(model_key, retry_seconds)
+                
+                # Show only a single line warning for rate limits
+                if not silent_reason:
+                    g.debug_log(f"⚡ Rate limit reached for {model_key} - retry in {retry_seconds}s", "yellow", force_print=True, prefix=prefix)
+                
+                # Mark the exception as already logged and raise as RateLimitException
+                setattr(e, 'already_logged', True)
+                raise RateLimitException(f"Model {model_key} is rate limited. Try again in {retry_seconds} seconds")
             
-            # Log the error here so we don't get duplicate logs
+            # Log other errors here so we don't get duplicate logs
             if not silent_reason:
                 error_msg = f"\nGoogle-Api: Failed to generate response with model {model_key}: {e}"
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
@@ -292,7 +312,7 @@ class GoogleAPI(AIProviderInterface):
             
             # Create the client
             client = genai.Client( # Using genai from top-level import
-                api_key=os.environ.get("GOOGLE_API_KEY"),
+                api_key=os.environ.get("GEMINI_API_KEY"),
             )
             
             # Default speaker configuration if none provided

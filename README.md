@@ -160,7 +160,7 @@ During an interactive session, you can use these key bindings:
 - `-v`: Toggle voice mode
 - `-speak`: Toggle text-to-speech
 - `-img`: Take a screenshot
-- `-mct`: Toggle Monte Carlo Tree Search (branching)
+
 - `-p`: Print chat history
 - `-m`: Enter multiline input
 - `-e`: Exit
@@ -402,7 +402,7 @@ Key functions:
 - Main loop with agentic inner loop for handling conversations and actions
 
 Key features:
-- **Monte Carlo Tree Search (MCT)**: Implementation of a branching decision-making algorithm that explores multiple possible responses and selects the best one
+- **Monte Carlo Tree Search (MCT)**: Automatic branching decision-making algorithm that explores multiple possible responses and selects the best one. Automatically enabled when multiple LLMs are selected.
 - **Automatic code execution**: Ability to safely execute code with user confirmation
 - **Key bindings system**: Special commands prefixed with "-" that toggle various features
 
