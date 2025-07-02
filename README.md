@@ -1,660 +1,177 @@
-# CLI-Agent: Intelligent Command-Line Assistant
+# CLI-Agent: A multipurpose hackable agent accessible from the commandline
 
-CLI-Agent is a powerful AI-powered command-line assistant that enables natural language interaction with your computer. It provides a hackable playground inside a langchain-like framework, leveraging multiple AI model providers including Groq, Ollama, Anthropic, Google, and OpenAI.
+**CLI-Agent** is a powerful, multi-modal, and extensible AI assistant that lives in your terminal. It leverages multiple LLM backends, executes code, sees your screen, listens to your voice, and uses custom tools to automate complex tasks directly from the command line.
 
-## Features
+![cli-agent-demo](https://user-images.githubusercontent.com/1392817/233072559-9f7a7524-ac6e-443b-82d2-5a9e3f739669.gif)
 
-- **Natural Language Understanding**: Communicate with your computer in plain English
-- **Intelligent Code Execution**: Write and run Python code to solve your problems
-- **Multi-Model Support**: Use local models via Ollama or cloud models (OpenAI, Groq, Anthropic, Google)
-- **Voice Interaction**: Speak to your assistant and hear responses with text-to-speech
-- **Screenshot Analysis**: Capture and analyze screen content
-- **Web Search**: Find information online without leaving your terminal
-- **Context Awareness**: Maintains conversation history for coherent interactions
-- **Extensible Utilities**: Easily add new capabilities with the utility system
-- **Command Suggestions**: The Agent suggests commands and, upon your confirmation, executes them with analysis of the output
-- **Podcast Generator**: Create AI-powered podcasts on any topic with customizable speakers and styles
-## ⚡ Core Capabilities
+## ✨ Key Features
 
-I operate in a simple yet powerful loop: I think, then I act. Here's how I get things done:
+*   **🤖 Multi-LLM Routing:** Intelligently routes requests to the best-suited LLM from a wide range of providers (Ollama, OpenAI, Google, Anthropic, Groq, NVIDIA). Supports local-first or cloud-first preferences with a multi-select TUI.
+*   **💻 Code Execution Notebook:** A persistent computational environment that can execute `bash` and `python` code to interact with your system, install packages, and perform complex scripting tasks.
+*   **👁️ Vision Enabled:** Can take and analyze screenshots. Use the `-img` flag or hotkey to have the agent "see" your screen and answer questions about it.
+*   **🗣️ Voice Interface:** Full voice-in, voice-out capabilities. Use the `--voice` flag to talk to your agent, with local wake-word detection and high-quality TTS for responses.
+*   **🛠️ Extensible Tool System:** Easily add new capabilities by dropping Python files into a `utils` directory. Comes with pre-built tools for web search, file authoring, image generation, Home Assistant control, and more.
+*   **🧠 Advanced Agentic Features:**
+    *   **MCT Mode:** Explores multiple response branches from different LLMs to select the best path forward when multiple models are selected.
+    *   **Dynamic Hyperparameters:** Automatically adjusts LLM thinking parameters like creativity and reasoning budget based on the user's query.
+    *   **Auto-Execution Guard:** A safety layer that uses an LLM to review code for safety and completeness before running it automatically.
+*   **🚀 Remote Host Service:** Offload demanding services like high-quality Whisper transcription and wake-word detection to a separate server (including ARM/Jetson devices) using a provided Docker setup.
+*   **💾 Persistent Context:** Remembers conversations (`-c`), LLM selections, and tool usage history, allowing you to continue where you left off.
+*   **🌐 Optional Web UI:** Launch a simple web interface with `--gui` to monitor the agent's full conversation context in real-time.
 
--   🧠 **Think & Reason**: I use advanced Language Models to analyze your requests, break down problems, and formulate a plan.
--   🤖 **Execute Code**: I run `shell commands` and `Python scripts` in a secure notebook environment to interact with your system.
--   🧰 **Use Specialized Utilities**: I have a toolbox of special skills for complex tasks, including:
-    -   **`filemind`**: 🧠 For planning and executing large coding projects across multiple files.
-    -   **`authorfile` & `patchfile`**: �� For creating, editing, and surgically patching files.
-    -   **`searchweb`**: 🌐 To browse the web for real-time information and answers.
-    -   ...and many more for images, smart home control, and intelligent decision-making!
+## 🚀 Getting Started
 
+### 1. Prerequisites
 
+*   Python 3.10+
+*   Git & build essentials (e.g., `build-essential` on Debian/Ubuntu)
+*   Optionally, [Docker](https://www.docker.com/get-started) for the Remote Host Service.
 
-## Getting Started
+### 2. Installation & Setup
 
-### Prerequisites
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/your-username/cli-agent.git
+    cd cli-agent
+    ```
 
-- **Operating System:** Currently, only Ubuntu is supported
-- **Python**: Version 3.9+ required
-- **Optional**: Ollama for local model support
+2.  **Create a Virtual Environment**
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate
+    ```
 
-### Installation
+3.  **Install Dependencies**
+    The project uses a wide range of libraries. While a `requirements.txt` file is recommended, you can get started by installing the key packages:
+    ```bash
+    # Core
+    pip install python-dotenv pyfiglet termcolor pyperclip prompt-toolkit pexpect
+    
+    # AI Providers
+    pip install openai groq "google-generativeai" anthropic ollama
+    
+    # Voice & Audio
+    pip install SpeechRecognition PyAudio pynput vosk faster-whisper sounddevice soundfile
+    
+    # Tools & Vision
+    pip install requests beautifulsoup4 brave-search chromadb-client sentence-transformers Pillow homeassistant-api
+    ```
 
-1. **Using the Installer Script**
+4.  **Configure API Keys**
+    Create a `.env` file by copying the example and add your keys.
+    ```bash
+    cp .env.example .env
+    nano .env
+    ```
+    ```ini
+    # .env Example Content
+    
+    # --- AI Provider API Keys ---
+    ANTHROPIC_API_KEY="sk-ant-..."
+    GEMINI_API_KEY="AIzaSy..."
+    OPENAI_API_KEY="sk-..."
+    GROQ_API_KEY="gsk_..."
+    NVIDIA_API_KEY="nvai-..."
+    BRAVE_API_KEY="..." # For SearchWeb tool
+    
+    # --- Ollama Configuration (Optional) ---
+    OLLAMA_HOST="localhost"
+    
+    # --- Home Assistant Tool (Optional) ---
+    HASS_URL="http://your-home-assistant-ip:8123"
+    HASS_TOKEN="your-long-lived-access-token"
+    ```
 
-   To add the CLI-Agent to your system, execute the `installer.sh` script:
+## 🖥️ Usage
 
-   ```bash
-   ./installer.sh
-   ```
-
-2. **Running Manually**
-
-   Alternatively, you can run the Agent manually by executing `main.py`:
-
-   ```bash
-   python3 ./main.py
-   ```
-
-3. **Environment Setup**
-
-   The system uses environment variables configured in the `.env` file:
-
-   ```
-   # Copy the example and edit with your API keys
-   cp .env.example .env
-   ```
-
-   Key environment variables:
-   ```
-   # Model providers
-   OLLAMA_HOST_1=localhost        # Local Ollama endpoint
-   GROQ_API_KEY=your_key_here     # Groq API key
-   ANTHROPIC_API_KEY=your_key_here # Anthropic API key
-   OPENAI_API_KEY=your_key_here   # OpenAI API key
-   ```
-
-## Dia Environment Setup
-
-CLI-Agent includes scripts to install the Dia 1.6B model from nari-labs directly to your current Python environment. These minimal scripts handle downloading the model, installing dependencies, and cleaning up afterward.
-
-### For Linux/macOS
-
+### Running the Agent
+Simply run `main.py` from your terminal:
 ```bash
-# Run the setup script
-./shell_scripts/setup_dia_environment.sh
-```
-
-### For Windows
-
-```bash
-# Run the Windows setup script
-shell_scripts\setup_dia_environment.bat
-```
-
-Both scripts will:
-1. Check for prerequisites (Git, Python)
-2. Clone the Dia repository to a temporary directory
-3. Install PyTorch with CUDA 12.1 support and other dependencies
-4. Install Dia to your current Python environment
-5. Clean up temporary files automatically
-
-After installation, you can import and use Dia directly in your Python scripts:
-
-```python
-from dia.model import Dia
-
-# Create a Dia instance
-model = Dia()
-
-# Generate text
-output = model.generate("Hello, world!")
-print(output)
-```
-
-**Note**: Dia requires an NVIDIA GPU with CUDA support for optimal performance. Make sure your NVIDIA drivers are up to date and compatible with CUDA 12.1 or newer.
-
-## Usage
-
-### Basic Usage
-
-```bash
-# Start CLI-Agent
 python main.py
 ```
+The agent will start and display a help menu. You can then type your requests.
 
-### Command-Line Options
+### Command-Line Arguments
+Launch the agent with flags to configure its behavior from the start.
 
-```bash
-# Use local models only
-python main.py --local
+| Flag | Shorthand | Description |
+|---|---|---|
+| `--help` | `-h` | Display help and exit. |
+| `--auto` | `-a` | Automatically execute safe commands. |
+| `--continue` | `-c` | Continue the last conversation. |
+| `--local` | `-l` | Use only local Ollama models. |
+| `--message` | `-m` | Provide a message to process. Can be used multiple times. |
+| `--regenerate` | `-r` | Regenerate the last response from the previous session. |
+| `--voice` | `-v` | Enable microphone input and TTS output (enables `-a`). |
+| `--speak` | `-s` | Enable text-to-speech output only. |
+| `--fast` | `-f` | Use only fast LLMs. |
+| `--strong`| | Use strong, slower LLMs. |
+| `--image` | `-img` | Take a screenshot for analysis before the first prompt. |
+| `--mct`| | Enable Monte Carlo Tree Search for exploring responses. |
+| `--sandbox` | `-sbx` | Use a sandboxed Python execution environment. |
+| `--online` | `-o` | Force the use of cloud-based AI models. |
+| `--llm [model_key]`| | Specify an LLM, or use without a value to open a selection menu. |
+| `--gui` | | Open a web interface to monitor the chat. |
+| `--dyn` | | Dynamically adjust LLM thinking parameters based on the query. |
+| `--exit` | `-e` | Exit after all automatic messages have been processed. |
 
-# Enable voice input and text-to-speech output
-python main.py --voice
+### Interactive Hotkeys
 
-# Use faster models
-python main.py --fast
+While the agent is running, you can use these hotkeys to change settings on the fly.
 
-# Automatically execute safe code
-python main.py --auto
+| Hotkey | Description |
+|---|---|
+| `-h` | Show the help message. |
+| `-r` | Regenerate the last response. |
+| `-l` | Toggle local mode (Ollama only). |
+| `-llm`| Open the multi-select menu to choose different LLMs. |
+| `-a` | Toggle automatic code execution. |
+| `-f` | Toggle using only fast LLMs. |
+| `-v` | Toggle voice mode (mic in, speech out). |
+| `-speak`| Toggle text-to-speech output. |
+| `-strong`| Toggle using only strong LLMs. |
+| `-img` | Take a new screenshot for context. |
+| `-mct` | Toggle Monte Carlo Tree Search (multi-response evaluation). |
+| `-m` | Enter multiline input mode. |
+| `-p` | Print the raw chat history. |
+| `-dyn` | Toggle dynamic LLM parameter adjustment. |
+| `-e` | Exit the application. |
 
-# Continue previous conversation
-python main.py -c
+## 🏛️ Core Concepts
 
-# Process a message and exit
-python main.py --message "Write a script to list all PNG files in the current directory"
+### Extensible Tools
+You can easily add new functionality to the agent by creating tools.
 
-# Take a screenshot for analysis
-python main.py --image
+1.  Create a new Python file in the `utils/` directory (e.g., `my_tool.py`).
+2.  Inside the file, create a class that inherits from `UtilBase`.
+3.  Implement a static `run` method. The LLM will call this method with the necessary arguments.
+4.  The agent will automatically discover and load your new tool.
 
-# Enable debug mode
-python main.py --debug
-```
-
-### Key Bindings
-
-During an interactive session, you can use these key bindings:
-
-- `-r`: Regenerate the last response
-- `-l`: Show LLM selection menu
-- `-a`: Toggle automatic code execution
-- `-f`: Toggle fast LLM mode
-- `-v`: Toggle voice mode
-- `-speak`: Toggle text-to-speech
-- `-img`: Take a screenshot
-
-- `-p`: Print chat history
-- `-m`: Enter multiline input
-- `-e`: Exit
-- `-h`: Show help
-
-## CLI-Agent Remote Host
-
-The CLI-Agent supports running certain services remotely, which is useful for:
-
-- Offloading CPU/GPU-intensive tasks to more powerful servers
-- Creating distributed setups with specialized servers for specific tasks
-- Centralizing services that might be used by multiple clients
-
-Currently, the following services are supported remotely:
-- Wake word detection (more services will be added in the future)
-
-### Running the Remote Host Server
-
-1. Start the CLI-Agent Remote Host server:
-
-   ```bash
-   python py_classes/remote_host/run_server.py
-   ```
-
-   This will start a Flask server that listens for service requests.
-
-2. Or using Docker:
-
-   ```bash
-   docker build -f py_classes/remote_host/Dockerfile -t cli-agent-remote-host .
-   docker run -p 5000:5000 cli-agent-remote-host
-   ```
-
-3. **For ARM devices (like Jetson Orin):**
-
-   We provide a specialized Docker setup for ARM devices:
-
-   ```bash
-   # Use our helper script that automatically detects ARM architecture
-   ./py_classes/remote_host/build_and_run_docker.sh
-   ```
-
-   Or manually:
-
-   ```bash
-   # Use the ARM-specific Dockerfile
-   docker build -f py_classes/remote_host/Dockerfile.arm -t cli-agent-remote-host .
-   docker run -p 5000:5000 cli-agent-remote-host
-   ```
-
-### Using Remote Services
-
-When using the PyAiHost class, you can enable remote services by setting the `use_remote` parameter:
-
+**Example: `utils/authorfile.py`**
 ```python
-from py_classes.ai_providers.cls_pyaihost_interface import PyAiHost
-
-# Set the server URL (optional, defaults to environment variable or localhost:5000)
+# utils/authorfile.py
 import os
-os.environ["CLI_AGENT_REMOTE_HOST"] = "http://your-server:5000"
-
-# Use remote wake word detection
-wake_word = PyAiHost.wait_for_wake_word(use_remote=True)
-
-# Or when recording audio
-audio_data, sample_rate = PyAiHost.record_audio(use_remote=True)
-```
-
-You can test the remote functionality with:
-
-```bash
-python py_classes/remote_host/test_remote_host.py --remote --server-url http://your-server:5000
-```
-
-### Extending with New Services
-
-The remote host is designed to be easily extended with new services. To add a new service:
-
-1. Create a new service module in the `py_classes/remote_host/services/` directory
-2. Update the remote host server to include the new service
-3. Update the client to support the new service
-
-## Extending CLI-Agent
-
-### Adding Custom Utilities
-
-1. Create a new Python file in the `utils/` directory
-2. Implement a class that inherits from `UtilBase`
-3. Implement a static `run()` method
-4. CLI-Agent will automatically discover and load your utility
-
-Example custom utility:
-
-```python
-# utils/my_custom_util.py
+import json
 from py_classes.cls_util_base import UtilBase
+from typing import Literal
 
-class MyCustomUtil(UtilBase):
-    """
-    A custom utility for [purpose].
-    """
-    
+class AuthorFile(UtilBase):
+    """A utility for creating, overwriting, or appending to files."""
     @staticmethod
-    def run(param1: str, param2: int = 42) -> str:
-        """
-        Does something awesome.
-        
-        Args:
-            param1: Description of param1
-            param2: Description of param2, default is 42
-            
-        Returns:
-            A string result
-        """
-        result = f"Processed {param1} with value {param2}"
-        return result
+    def run(path: str, content: str, mode: Literal['w', 'a'] = 'w') -> str:
+        try:
+            # ... implementation ...
+            return json.dumps({"result": {"status": "Success", "path": os.path.abspath(path)}})
+        except Exception as e:
+            return json.dumps({"error": f"Could not write to file. Reason: {e}"})
 ```
 
-## Examples
-
-### General Questions
-
-```
-💬 What's the capital of France?
-```
-
-### Running Commands
-
-```
-💬 Show me the latest log files in /var/log and summarize their content
-```
-
-### Creating Scripts
-
-```
-💬 Write a script that monitors CPU usage and sends an alert if it exceeds 90% for more than 5 minutes
-```
-
-### Web Search
-
-```
-💬 Search for the latest developments in quantum computing
-```
-
-### Image Analysis
-
-```
-💬 Take a screenshot of my browser and extract all links from the webpage
-```
-
-## Podcast Generator
-
-CLI-Agent includes a podcast generator that can create AI-generated podcasts on any topic. It uses LLM models to generate engaging scripts and Parler TTS for high-quality speech synthesis.
-
-### Generating Podcasts
-
-```bash
-# Generate a podcast about AI
-python generate_podcast.py --topic "Artificial Intelligence trends" --duration 3
-
-# Use the shell script wrapper for easier usage
-./shell_scripts/podcast_generator.sh -t "Climate change solutions" -d 2
-```
-
-For more details, see the [Podcast Generator Documentation](./docs/podcast_generator.md).
-
-## Troubleshooting
-
-### Common Issues
-
-- **API Key Errors**: Ensure your API keys are correctly configured in `.env`
-- **Model Availability**: Check that Ollama is running for local models
-- **Voice Recognition**: Test your microphone with `arecord -l` and ensure it's properly configured
-
-## Architecture
-
-For a deeper understanding of CLI-Agent's architecture, please see the [ARCHITECTURE.md](ARCHITECTURE.md) file.
-
-## Contributing
-
-Your thoughts, feedback, and contributions are highly appreciated. Whether you're proposing changes, committing updates, or sharing ideas, every form of engagement enriches the project. Feel free to get involved.
-
-## License
-
-This project is open source and available under an as-is license. You are free to use, modify, and adapt it according to your needs.
-
-
-
-
-
-
-
-
-
-# CLI-Agent Architecture
-
-## Overview
-
-CLI-Agent is an intelligent command-line agent built with Python, leveraging various LLM (Large Language Model) providers to assist users through natural language interaction. The system acts as a powerful assistant that can understand requests, execute code, perform tasks, and interact with the user's environment through a CLI interface.
-
-## Key Components
-
-### Core System
-
-```
-main.py                  # Main entry point and command loop
-py_classes/              # Core classes for the system
-py_methods/              # Utility methods and functions
-utils/                   # Custom utility modules
-```
-
-### Core Architecture
-
-The application follows a modular architecture with several key components:
-
-1. **CLI Interface** (`main.py`): Handles user interaction, command parsing, and the main execution loop
-2. **Chat System** (`cls_chat.py`): Manages conversation contexts and message history
-3. **LLM Router** (`cls_llm_router.py`): Routes requests to appropriate AI providers based on capabilities and availability
-4. **Python Sandbox** (`cls_python_sandbox.py`): Provides isolated code execution environment
-5. **Utilities Manager** (`cls_util_manager.py`): Dynamically loads and manages utility modules
-6. **AI Provider Interfaces**: Adapters for various LLM services
-
-## Component Details
-
-### 1. CLI Interface (`main.py`)
-
-The main entry point serves as the command loop that:
-- Parses command-line arguments
-- Handles user input with key bindings
-- Manages the conversation flow
-- Controls the agent's action cycle
-- Executes code in the Python sandbox
-
-Key functions:
-- `parse_cli_args()`: Processes command-line arguments
-- `get_user_input_with_bindings()`: Handles user input with special key bindings
-- `handle_screenshot_capture()`: Manages screenshot functionality
-- `confirm_code_execution()`: Validates code safety before execution
-- Main loop with agentic inner loop for handling conversations and actions
-
-Key features:
-- **Monte Carlo Tree Search (MCT)**: Automatic branching decision-making algorithm that explores multiple possible responses and selects the best one. Automatically enabled when multiple LLMs are selected.
-- **Automatic code execution**: Ability to safely execute code with user confirmation
-- **Key bindings system**: Special commands prefixed with "-" that toggle various features
-
-### 2. Chat System (`cls_chat.py`)
-
-The Chat class manages conversation contexts and history:
-- Stores messages with role information (system, user, assistant)
-- Provides serialization/deserialization to JSON
-- Supports debug visualization
-- Converts chat history to various LLM provider formats
-
-Key methods:
-- `add_message()`: Adds a message to the chat history
-- `save_to_json()` / `load_from_json()`: Persistence methods
-- Conversion methods for different provider formats:
-  - `to_ollama()`
-  - `to_openai()`
-  - `to_groq()`
-  - `to_gemini()`
-
-Specialized features:
-- Debug window visualization with auto-updating UI
-- Token counting and context management
-- Conversation state persistence
-
-### 3. LLM Router (`cls_llm_router.py`)
-
-Manages routing requests to appropriate LLMs:
-- Singleton pattern for global state management
-- Model selection based on capabilities and constraints
-- Response caching and error handling
-- Support for streaming responses
-
-Key components:
-- `Llm` class: Represents a language model with its properties
-- `LlmRouter` class: Handles model selection and response generation
-- Model capability checks and filtering
-
-Key methods:
-- `generate_completion()`: Central method for generating completions from LLMs
-- `get_model()`: Selects the best model for a given request
-- Caching and handling functions
-
-Advanced features:
-- Dynamic model strength attributes (LOCAL, VISION, CODE, etc.)
-- Automatic fallback mechanisms when models fail
-- Response streaming with real-time display
-- Special handling for multi-modal (text+image) inputs
-
-### 4. Python Sandbox (`cls_python_sandbox.py`)
-
-Provides a safe, isolated environment for executing Python code:
-- Uses Jupyter kernels for isolated execution
-- Maintains state between executions
-- Supports streaming output and callbacks
-- Handles timeouts and errors
-
-Key methods:
-- `execute()`: Runs Python code in the sandbox
-- `restart()`: Restarts the kernel if needed
-- Timeout and error handling
-
-Implementation details:
-- Uses Jupyter kernels for process isolation
-- Maintains state across multiple code executions
-- Real-time output streaming with callbacks
-- Idle time detection to prevent infinite loops
-
-### 5. Utilities Manager (`cls_util_manager.py`)
-
-Dynamically loads and manages utility modules:
-- Scans the utils directory for Python modules
-- Loads classes that inherit from UtilBase
-- Provides access to utilities by name
-
-Key methods:
-- `_load_utils()`: Dynamically loads utilities
-- `get_util()`: Retrieves a utility by name
-- `get_available_utils_info()`: Generates documentation
-
-Special capabilities:
-- Dynamic utility discovery at runtime
-- Introspection of utility methods and documentation
-- Automatic help text generation
-
-### 6. AI Provider Interfaces
-
-Adapters for various LLM services:
-- `cls_ollama_interface.py`: For local Ollama models
-- `cls_groq_interface.py`: For Groq API
-- `cls_anthropic_interface.py`: For Anthropic Claude models
-- `cls_google_interface.py`: For Google Gemini models
-- `cls_openai_interface.py`: For OpenAI models
-
-Each implements a common interface for:
-- Generating completions
-- Handling authentication
-- Managing rate limits and errors
-- Supporting model-specific features
-
-## Utility Modules
-
-The system includes several utility modules located in the `utils/` directory:
-
-### Text and Web Utilities
-- `searchweb.py`: Web search capabilities with relevance checking and query refinement
-- `authorfile.py`: File authoring utilities
-
-### Image and Media Utilities
-- `generateimage.py`: Image generation capabilities
-- `viewimage.py`: Image-to-text conversion using vision-capable LLMs
-
-### General Utilities
-- `tobool.py`: Boolean conversion utilities
-- Custom utilities following the `UtilBase` class pattern
-
-## Audio and Speech Capabilities
-
-The CLI-Agent includes significant audio processing capabilities:
-
-### Audio Input
-- Wake word detection using Vosk
-- Microphone input with automatic calibration
-- Speech recognition and transcription
-
-### Audio Output
-- Text-to-speech synthesis
-- Notification sounds
-- Audio playback functions
-
-Implementation details:
-- Uses various libraries (sounddevice, whisper, vosk)
-- Handles device management and audio format conversion
-- Supports both local and remote wake word detection
-
-## Screenshot and Image Processing
-
-The system provides robust screen capture capabilities:
-- Interactive region selection
-- Application window capture
-- Full-screen capture
-- Image analysis and OCR using vision-capable LLMs
-
-Implementation details:
-- Uses a combination of libraries (PIL, tkinter)
-- Multiple fallback methods for different environments
-- Image preprocessing for better LLM analysis
-
-## Data Flow
-
-1. User provides input through the CLI
-2. Input is processed and added to the Chat context
-3. The LLM Router selects an appropriate model
-4. The model generates a response
-5. If the response includes code, the Python Sandbox executes it
-6. Results are returned to the user
-7. The loop continues
-
-## Agentic Loop System
-
-The CLI-Agent implements an intelligent agent loop that:
-1. **Processes user input**: Handles text, voice, or screenshot inputs
-2. **Generates responses**: Uses the LLM Router to get AI responses
-3. **Extracts executable code**: Identifies Python code blocks in responses
-4. **Validates code safety**: Uses a separate LLM to check code before execution
-5. **Executes code safely**: Runs code in the Python Sandbox
-6. **Processes results**: Captures and formats execution output
-7. **Updates context**: Adds results to conversation history for continuity
-
-Special features:
-- Multi-branch response generation with Monte Carlo Tree Search
-- Code execution safety checks
-- Adaptive loop that can run multiple iterations within a single user turn
-
-## Configuration
-
-The system uses several configuration mechanisms:
-- Environment variables (via `.env` file)
-- Command-line arguments
-- Global state in `globals.py`
-
-Key environment variables:
-- LLM API keys (GROQ_API_KEY, ANTHROPIC_API_KEY, etc.)
-- Infrastructure settings (OLLAMA_HOST_1, etc.)
-- Remote host configuration
-
-## Remote Host Support
-
-The system optionally supports running services remotely:
-- Wake word detection
-- Potentially other CPU/GPU intensive tasks
-- Configured via environment variables and command-line flags
-
-Implementation details:
-- Uses Flask server for the remote host
-- Provides Docker support, including ARM-specific builds
-- Configurable via environment variables
-
-## Global State Management
-
-Global state is managed through the `globals.py` module:
-- Constants and configuration values
-- Runtime flags
-- Path definitions
-- State variables accessed via the `g` singleton
-
-Important global settings:
-- `FORCE_LOCAL`: Forces use of local models only
-- `FORCE_FAST`: Prioritizes faster models over more capable ones
-- `DEBUG_CHATS`: Enables debug windows for chat contexts
-- Various path definitions for persistent storage
-
-## Error Handling and Resilience
-
-The system includes several error handling mechanisms:
-- Exception handling for LLM API errors
-- Fallbacks when models are unavailable
-- Retry mechanisms for transient failures
-- Input validation and sanitization
-
-Implementation details:
-- Multi-level error handling (function, module, global)
-- Graceful degradation when services are unavailable
-- User feedback for error conditions
-- Debugging aids for development
-
-## Best Practices
-
-The code demonstrates several best practices:
-- Type hints throughout the codebase
-- Comprehensive error handling
-- Modular design with clear separation of concerns
-- Singleton patterns for shared resources
-- Persistent state management
-- Streaming output for better UX
-
-## Advanced Features
-
-### RAG (Retrieval-Augmented Generation)
-- PDF and document processing with extraction and embedding
-- Vector database integration for semantic search
-- Query enhancement and context injection
-
-### Command History Integration
-- Integration with Atuin for enhanced command history
-- Embeddings for semantic similarity search of past commands
-
-### Multi-modal Capabilities
-- Image input processing via screenshots
-- Text-to-speech and speech-to-text conversions
-- Web search and information retrieval
-
-## Conclusion
-
-CLI-Agent presents a well-structured, modular architecture that combines multiple AI capabilities with a user-friendly CLI interface. The system's design allows for easy extension and customization, making it a powerful tool for developers and users who need AI assistance directly in their terminal environment. 
+### Remote Host Service
+For better performance, you can offload demanding services like voice transcription to a dedicated server (e.g., a home server with a GPU or a Jetson device).
+
+1.  On the **server machine**, clone the repository.
+2.  Run the appropriate setup script from the `shell_scripts/` directory:
+    *   `setup_remote_host_docker.sh`: For standard Linux/Windows with Docker and NVIDIA GPUs.
+    *   `setup_remote_host_jetson.sh` or `setup_remote_host_arm.sh`: For ARM-based devices like NVIDIA Jetson.
+3.  On your **client machine**, set `CLI_AGENT_REMOTE_HOST` in your `.env` file to the server's IP address (e.g., `http://192.168.1.101:5000`).
+4.  When you use `--voice` on the client, the agent will automatically use the remote services for transcription.
