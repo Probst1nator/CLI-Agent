@@ -125,7 +125,7 @@ class Llm:
             
             # Llm(OllamaClient(), "gemma3n:e4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
             # Llm(OllamaClient(), "gemma3n:e2b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
+            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
             Llm(OllamaClient(), "qwen3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
             Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
             Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
@@ -401,7 +401,7 @@ class LlmRouter:
         for model_key in preferred_models:
             if (model_key not in instance.failed_models) and model_key:
                 model = next((model for model in instance.retry_models if model_key in model.model_key and (has_vision == False or has_vision == model.has_vision)), None)
-                if model and instance.model_capable_check(model, chat, strengths, model.local, False, has_vision, allow_general=False):
+                if model and instance.model_capable_check(model, chat, [], model.local, False, has_vision, allow_general=False):
                     candidate_models.append(model)
 
         # If no preferred candidates and force_preferred_model is True
