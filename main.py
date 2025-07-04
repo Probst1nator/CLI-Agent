@@ -470,6 +470,24 @@ Process:
 Do not add any other text after this single-word verdict.""",
             debug_title="Auto Execution Guard"
         )
+# """You are a Code Execution Guardian. Your primary goal is to prevent unsafe or incomplete code execution.
+
+# Priorities:
+# 1.  **Safety First:** Identify any operations with potential negative side effects (e.g., unintended file/system modifications, risky shell commands, unrestricted network calls), modifications of files are allowed if the comments show that it is intentional and safe.
+# 2.  **Completeness Second:** If safe, ensure that the script does not contain any placeholders (e.g., `YOUR_API_KEY`, `<REPLACE_ME>`), unimplemented logic or similar. Comments noting future work are allowed. Scripts that only print text are always allowed.
+
+# Assume anything imported from utils.* is safe.
+
+# Process:
+# 1.  **Reason Briefly:** First, explain your core reasoning for safety and completeness. This reasoning should be concise and direct.
+# 2.  **Verdict (JSON):** After your reasoning, provide ONLY a JSON object in a markdown block (```json...```). This JSON object shall either be:
+#     *   `{"execute": true}`
+#     *   `{"execute": false, "reason": "the code does not implement xx properly or it is unsafe"}`
+
+#     The 'reason' field is mandatory when "execute" is false, and should clearly state why the code is unsafe or unfinished (e.g., "contains placeholders", "attempts unauthorized file deletion").
+
+# Do NOT include any other text after the JSON block.
+# """,
         if ("bash" in code_to_execute and "python" in code_to_execute):
             analysis_prompt = f"Analyze this code for safe execution and completeness:\n```bash\n{code_to_execute}\n```"
         elif "python" in code_to_execute:
@@ -1489,12 +1507,20 @@ Please respond with a json object that contains context dependent suggested valu
                                 print(colored(f"Selected branch {selected_branch_index} from model: {model_name}", "green"))
                             else:
                                 print(colored(f"Selected branch: {selected_branch_index}", "green"))
-                            
+                            print(colored(f"Adding to context:", "green"))                            
                             # Print the selected branch if we're in MCT mode (since we don't stream MCT branches)
                             text_stream_painter = TextStreamPainter()
                             for char in assistant_response:
                                 print(text_stream_painter.apply_color(char), end="", flush=True)
                             print() # Add newline
+                            
+                            # Show which model generated the selected response if in multi-LLM mode
+                            if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and selected_branch_index < len(g.SELECTED_LLMS):
+                                model_name = g.SELECTED_LLMS[selected_branch_index]
+                                print(colored(f"Selected branch {selected_branch_index} from model: {model_name}", "green"))
+                            else:
+                                print(colored(f"Selected branch: {selected_branch_index}", "green"))
+                                
                         except Exception as e:
                             print(colored(f"Error during MCT branch selection: {str(e)}", "red"))
                             if args.debug: traceback.print_exc()

@@ -5,6 +5,7 @@ import platform
 import tempfile
 import datetime
 import subprocess
+import time
 from typing import Optional, Dict, List, Any
 
 # Ensure parent directory is in path to allow import of py_classes
@@ -131,7 +132,7 @@ class TakeScreenshotUtil(UtilBase):
         return sorted([title for title in result.stdout.strip().split('\n') if title])
 
     @staticmethod
-    def _get_window_coords_windows(title_query: str) -> Optional[Dict[str, int]]:
+    def _get_window_coords_windows(title_query: str) -> tuple[Optional[Dict[str, int]], Optional[Any]]:
         """Find window by title and get its coordinates on Windows."""
         import win32gui
         
@@ -150,17 +151,17 @@ class TakeScreenshotUtil(UtilBase):
         
         if target_hwnd:
             rect = win32gui.GetWindowRect(target_hwnd)
-            return {'left': rect[0], 'top': rect[1], 'width': rect[2] - rect[0], 'height': rect[3] - rect[1]}
-        return None
+            return {'left': rect[0], 'top': rect[1], 'width': rect[2] - rect[0], 'height': rect[3] - rect[1]}, target_hwnd
+        return None, None
 
     @staticmethod
-    def _get_window_coords_linux(title_query: str) -> Optional[Dict[str, int]]:
+    def _get_window_coords_linux(title_query: str) -> tuple[Optional[Dict[str, int]], Optional[str]]:
         """Find window by title and get its coordinates on Linux (X11)."""
         import re
         try:
             result = subprocess.run(['xdotool', 'search', '--name', title_query], capture_output=True, text=True, check=True)
             window_ids = result.stdout.strip().split()
-            if not window_ids: return None
+            if not window_ids: return None, None
             
             window_id = None
             for wid in window_ids:
@@ -168,7 +169,7 @@ class TakeScreenshotUtil(UtilBase):
                 if '_NET_WM_WINDOW_TYPE_NORMAL' in type_check.stdout or type_check.returncode != 0:
                      window_id = wid
                      break
-            if not window_id: return None
+            if not window_id: return None, None
 
             info_result = subprocess.run(['xwininfo', '-id', window_id], capture_output=True, text=True, check=True)
             
@@ -180,11 +181,11 @@ class TakeScreenshotUtil(UtilBase):
                 elif 'Width:' in line: coords['width'] = int(line.split(':')[1].strip())
                 elif 'Height:' in line: coords['height'] = int(line.split(':')[1].strip())
             
-            if all(k in coords for k in ['left', 'top', 'width', 'height']): return coords
+            if all(k in coords for k in ['left', 'top', 'width', 'height']): return coords, window_id
             
         except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
-            return None
-        return None
+            return None, None
+        return None, None
 
     @staticmethod
     def _get_window_coords_mac(title_query: str) -> Optional[Dict[str, int]]:
@@ -217,7 +218,55 @@ class TakeScreenshotUtil(UtilBase):
             return None
 
     @staticmethod
-    def run(window_query: Optional[str] = None, list_window_titles: bool = False) -> str:
+    def _reload_window_windows(hwnd):
+        """Send F5 key to reload window on Windows"""
+        import win32gui
+        import win32con
+        import win32api
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+        time.sleep(0.1) # Give a short delay for window to become active
+        win32api.keybd_event(win32con.VK_F5, 0, 0, 0)
+        win32api.keybd_event(win32con.VK_F5, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+    @staticmethod
+    def _reload_window_linux(window_id):
+        """Send F5 key to reload window on Linux"""
+        from shutil import which
+        if not which('xdotool'):
+            raise FileNotFoundError("The 'xdotool' command-line tool is required for reloading windows on Linux. Please install it (e.g., 'sudo apt-get install xdotool').")
+        subprocess.run(['xdotool', 'windowactivate', window_id], check=True)
+        time.sleep(0.1) # Give a short delay for window to become active
+        subprocess.run(['xdotool', 'key', 'F5'], check=True)
+
+    @staticmethod
+    def _reload_window_mac(title):
+        """Send Cmd+R to reload window on macOS"""
+        script = f'''
+        tell application "System Events"
+            set found to false
+            repeat with proc in (processes whose background only is false)
+                try
+                    repeat with win in windows of proc
+                        if name of win contains "{title}" then
+                            set frontmost of proc to true
+                            delay 0.1 -- Give a short delay for window to become active
+                            keystroke "r" using command down
+                            set found to true
+                            exit repeat
+                        end if
+                    end repeat
+                    if found then exit repeat
+                end try
+            end repeat
+        end tell
+        '''
+        subprocess.run(['osascript', '-e', script], check=True)
+
+    @staticmethod
+    def run(window_query: Optional[str] = None, 
+            list_window_titles: bool = False,
+            reload: bool = False) -> str:
         """
         Takes a screenshot or lists visible window titles.
 
@@ -228,7 +277,8 @@ class TakeScreenshotUtil(UtilBase):
         Args:
             window_query (Optional[str]): A part of the window title to search for.
             list_window_titles (bool): If True, ignores other options and lists all window titles.
-
+            reload (bool): If True, attempts to reload the specified window before capturing.
+                           This is only applicable when `window_query` is provided.
         Returns:
             str: A JSON string with a 'result' key on success, or an 'error' key on failure.
         """
@@ -287,13 +337,36 @@ class TakeScreenshotUtil(UtilBase):
                         return json.dumps({"error": f"Window capture dependencies not found for {system}. Install: {dep_map.get(system, 'required libraries')}."})
 
                     coords = None
-                    if system == "Windows": coords = TakeScreenshotUtil._get_window_coords_windows(window_query)
-                    elif system == "Linux": coords = TakeScreenshotUtil._get_window_coords_linux(window_query)
-                    elif system == "Darwin": coords = TakeScreenshotUtil._get_window_coords_mac(window_query)
-                    else: return json.dumps({"error": f"Window capture not supported on this OS: {system}"})
+                    window_id_or_title = None # This will hold hwnd for Windows, window_id for Linux, and title for macOS reload
+
+                    if system == "Windows": 
+                        coords, window_id_or_title = TakeScreenshotUtil._get_window_coords_windows(window_query)
+                    elif system == "Linux": 
+                        coords, window_id_or_title = TakeScreenshotUtil._get_window_coords_linux(window_query)
+                    elif system == "Darwin": 
+                        coords = TakeScreenshotUtil._get_window_coords_mac(window_query)
+                        window_id_or_title = window_query # For macOS, we pass the title for reload
+                    else: 
+                        return json.dumps({"error": f"Window capture not supported on this OS: {system}"})
                     
                     if not coords:
                         return json.dumps({"error": f"Window matching '{window_query}' not found or its geometry is invalid."})
+
+                    # NEW: Reload window if requested
+                    if reload and window_id_or_title is not None:
+                        try:
+                            if system == "Windows":
+                                TakeScreenshotUtil._reload_window_windows(window_id_or_title)
+                            elif system == "Linux":
+                                TakeScreenshotUtil._reload_window_linux(window_id_or_title)
+                            elif system == "Darwin":
+                                TakeScreenshotUtil._reload_window_mac(window_id_or_title)
+                            
+                            # Wait for reload to complete
+                            time.sleep(2)  
+                        except Exception as e:
+                            # We don't want to fail the entire capture if reload fails, so just print warning and continue
+                            print(f"Warning: Failed to reload window '{window_query}': {str(e)}", file=sys.stderr)
 
                     filename = os.path.join(temp_dir, f"screenshot_window_{timestamp}.png")
                     sct_img = sct.grab(coords)
