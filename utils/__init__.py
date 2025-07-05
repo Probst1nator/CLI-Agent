@@ -2,6 +2,7 @@
 
 # --- Simple, Deterministic Tools ---
 from .authorfile import AuthorFile 
+from .todos import TodosUtil
 
 # --- Other Utilities ---
 # Make sure other tools like SearchWeb, GenerateImage, etc.,

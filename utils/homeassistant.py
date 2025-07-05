@@ -1,7 +1,8 @@
 import os
 import requests
 import json
-from typing import Dict, Optional, Any, Literal, Set
+import yaml
+from typing import Dict, Optional, Any, Literal, Set, Union
 from dotenv import load_dotenv
 from datetime import datetime
 
@@ -12,12 +13,13 @@ from py_classes.globals import g
 class HomeAssistant(UtilBase):
     """
     A utility for interacting with a Home Assistant server.
-    This tool allows for calling services (e.g., turning on a light),
-    retrieving the state of entities, and searching for entities.
+    This tool allows for calling services, retrieving the state of entities,
+    searching for entities, and managing automations.
     Returns structured JSON responses for reliable communication.
     """
     
     _INTERACTED_ENTITIES_FILE = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'homeassistant_interacted_entities.json')
+    _AUTOMATION_BACKUP_DIR = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'homeassistant_automation_backups')
 
     @classmethod
     def _load_interacted_entities(cls) -> Dict[str, list]:
@@ -86,6 +88,13 @@ class HomeAssistant(UtilBase):
                 "service": service_full_name,
                 "details": f"Called {service_full_name}"
             }
+        elif interaction_type == "automation_action":
+            history_entry = {
+                "timestamp": current_time,
+                "action": "automation_action",
+                "service": service_name,
+                "details": f"Automation action: {service_name}"
+            }
         else:
             history_entry = {
                 "timestamp": current_time,
@@ -117,6 +126,29 @@ class HomeAssistant(UtilBase):
         return hass_url, hass_token
 
     @classmethod
+    def _make_request(cls, method: str, endpoint: str, payload: Optional[Dict[str, Any]] = None) -> requests.Response:
+        """
+        Helper method to make HTTP requests to Home Assistant API.
+        """
+        hass_url, hass_token = cls._get_config()
+        api_url = f"{hass_url.rstrip('/')}/api/{endpoint}"
+        headers = {
+            "Authorization": f"Bearer {hass_token}",
+            "Content-Type": "application/json",
+        }
+        
+        if method.upper() == "GET":
+            return requests.get(api_url, headers=headers, timeout=10)
+        elif method.upper() == "POST":
+            return requests.post(api_url, headers=headers, data=json.dumps(payload) if payload else None, timeout=10)
+        elif method.upper() == "PUT":
+            return requests.put(api_url, headers=headers, data=json.dumps(payload) if payload else None, timeout=10)
+        elif method.upper() == "DELETE":
+            return requests.delete(api_url, headers=headers, timeout=10)
+        else:
+            raise ValueError(f"Unsupported HTTP method: {method}")
+
+    @classmethod
     def _call_service(
         cls,
         domain: str,
@@ -129,17 +161,11 @@ class HomeAssistant(UtilBase):
         Returns JSON string with result or error.
         """
         try:
-            hass_url, hass_token = cls._get_config()
-            api_url = f"{hass_url.rstrip('/')}/api/services/{domain}/{service}"
-            headers = {
-                "Authorization": f"Bearer {hass_token}",
-                "Content-Type": "application/json",
-            }
             payload = service_data or {}
             if entity_id:
                 payload['entity_id'] = entity_id
 
-            response = requests.post(api_url, headers=headers, data=json.dumps(payload), timeout=10)
+            response = cls._make_request("POST", f"services/{domain}/{service}", payload)
             
             if response.status_code in [200, 201]:
                 if entity_id:
@@ -183,15 +209,11 @@ class HomeAssistant(UtilBase):
         Returns JSON string with result or error.
         """
         try:
-            hass_url, hass_token = cls._get_config()
             endpoint = "states"
             if entity_id:
                 endpoint = f"states/{entity_id}"
             
-            api_url = f"{hass_url.rstrip('/')}/api/{endpoint}"
-            headers = {"Authorization": f"Bearer {hass_token}"}
-            
-            response = requests.get(api_url, headers=headers, timeout=10)
+            response = cls._make_request("GET", endpoint)
             
             if response.status_code == 200:
                 states = response.json()
@@ -311,11 +333,7 @@ class HomeAssistant(UtilBase):
         Returns JSON string with result or error.
         """
         try:
-            hass_url, hass_token = cls._get_config()
-            api_url = f"{hass_url.rstrip('/')}/api/states"
-            headers = {"Authorization": f"Bearer {hass_token}"}
-            
-            response = requests.get(api_url, headers=headers, timeout=10)
+            response = cls._make_request("GET", "states")
             
             if response.status_code == 200:
                 all_states = response.json()
@@ -443,32 +461,397 @@ class HomeAssistant(UtilBase):
             return json.dumps(error_result, indent=2)
 
     @classmethod
+    def _manage_automations(cls, operation: str, automation_id: Optional[str] = None, 
+                           automation_config: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Private method to manage automations (CRUD operations).
+        Returns JSON string with result or error.
+        """
+        try:
+            if operation == "list":
+                response = cls._make_request("GET", "config/automation/config")
+                if response.status_code == 200:
+                    automations = response.json()
+                    if not automations:
+                        result = {
+                            "result": {
+                                "status": "No automations found",
+                                "message": "No automations are currently configured in Home Assistant.",
+                                "automation_count": 0
+                            }
+                        }
+                        return json.dumps(result, indent=2)
+                    
+                    automation_summaries = []
+                    for auto in automations:
+                        auto_id = auto.get('id', 'N/A')
+                        alias = auto.get('alias', 'Unnamed')
+                        description = auto.get('description', 'No description')
+                        mode = auto.get('mode', 'single')
+                        trigger_count = len(auto.get('trigger', []))
+                        action_count = len(auto.get('action', []))
+                        
+                        summary = f"- ID: {auto_id}, Name: {alias}"
+                        summary += f"\n  Description: {description}"
+                        summary += f"\n  Mode: {mode}, Triggers: {trigger_count}, Actions: {action_count}"
+                        automation_summaries.append(summary)
+                    
+                    result = {
+                        "result": {
+                            "status": "Success",
+                            "automation_count": len(automations),
+                            "automations": '\n'.join(automation_summaries)
+                        }
+                    }
+                    return json.dumps(result, indent=2)
+                else:
+                    error_result = {
+                        "error": f"Failed to list automations. Status: {response.status_code}. Details: {response.text}"
+                    }
+                    return json.dumps(error_result, indent=2)
+
+            elif operation == "get":
+                if not automation_id:
+                    error_result = {"error": "automation_id is required for 'get' operation."}
+                    return json.dumps(error_result, indent=2)
+                
+                response = cls._make_request("GET", f"config/automation/config/{automation_id}")
+                if response.status_code == 200:
+                    automation = response.json()
+                    result = {
+                        "result": {
+                            "status": "Success",
+                            "automation_id": automation_id,
+                            "automation_data": automation
+                        }
+                    }
+                    return json.dumps(result, indent=2)
+                elif response.status_code == 404:
+                    error_result = {"error": f"Automation '{automation_id}' not found."}
+                    return json.dumps(error_result, indent=2)
+                else:
+                    error_result = {
+                        "error": f"Failed to get automation '{automation_id}'. Status: {response.status_code}. Details: {response.text}"
+                    }
+                    return json.dumps(error_result, indent=2)
+
+            elif operation == "create":
+                if not automation_config:
+                    error_result = {"error": "automation_config is required for 'create' operation."}
+                    return json.dumps(error_result, indent=2)
+                
+                response = cls._make_request("POST", "config/automation/config", automation_config)
+                if response.status_code in [200, 201]:
+                    result = {
+                        "result": {
+                            "status": "Success",
+                            "message": f"Successfully created automation '{automation_config.get('alias', automation_config.get('id', 'Unknown'))}'",
+                            "automation_config": automation_config
+                        }
+                    }
+                    return json.dumps(result, indent=2)
+                else:
+                    error_result = {
+                        "error": f"Failed to create automation. Status: {response.status_code}. Details: {response.text}"
+                    }
+                    return json.dumps(error_result, indent=2)
+
+            elif operation == "update":
+                if not automation_id or not automation_config:
+                    error_result = {"error": "Both automation_id and automation_config are required for 'update' operation."}
+                    return json.dumps(error_result, indent=2)
+                
+                response = cls._make_request("PUT", f"config/automation/config/{automation_id}", automation_config)
+                if response.status_code == 200:
+                    result = {
+                        "result": {
+                            "status": "Success",
+                            "message": f"Successfully updated automation '{automation_id}'",
+                            "automation_id": automation_id,
+                            "automation_config": automation_config
+                        }
+                    }
+                    return json.dumps(result, indent=2)
+                elif response.status_code == 404:
+                    error_result = {"error": f"Automation '{automation_id}' not found for update."}
+                    return json.dumps(error_result, indent=2)
+                else:
+                    error_result = {
+                        "error": f"Failed to update automation '{automation_id}'. Status: {response.status_code}. Details: {response.text}"
+                    }
+                    return json.dumps(error_result, indent=2)
+
+            elif operation == "delete":
+                if not automation_id:
+                    error_result = {"error": "automation_id is required for 'delete' operation."}
+                    return json.dumps(error_result, indent=2)
+                
+                response = cls._make_request("DELETE", f"config/automation/config/{automation_id}")
+                if response.status_code == 200:
+                    result = {
+                        "result": {
+                            "status": "Success",
+                            "message": f"Successfully deleted automation '{automation_id}'",
+                            "automation_id": automation_id
+                        }
+                    }
+                    return json.dumps(result, indent=2)
+                elif response.status_code == 404:
+                    error_result = {"error": f"Automation '{automation_id}' not found for deletion."}
+                    return json.dumps(error_result, indent=2)
+                else:
+                    error_result = {
+                        "error": f"Failed to delete automation '{automation_id}'. Status: {response.status_code}. Details: {response.text}"
+                    }
+                    return json.dumps(error_result, indent=2)
+
+            else:
+                error_result = {"error": f"Invalid automation operation '{operation}'. Valid operations: list, get, create, update, delete"}
+                return json.dumps(error_result, indent=2)
+
+        except requests.exceptions.ConnectionError:
+            error_result = {"error": "Cannot connect to Home Assistant. Check HASS_URL and network connection."}
+            return json.dumps(error_result, indent=2)
+        except requests.exceptions.Timeout:
+            error_result = {"error": "Home Assistant request timed out. Server may be slow or unresponsive."}
+            return json.dumps(error_result, indent=2)
+        except ValueError as e:
+            error_result = {"error": str(e)}
+            return json.dumps(error_result, indent=2)
+        except Exception as e:
+            error_result = {"error": f"Unexpected error managing automations: {str(e)}"}
+            return json.dumps(error_result, indent=2)
+
+    @classmethod
+    def _control_automation(cls, action: str, automation_entity_id: str) -> str:
+        """
+        Private method to control automation state (enable/disable/trigger).
+        Returns JSON string with result or error.
+        """
+        try:
+            valid_actions = ["enable", "disable", "trigger", "reload"]
+            if action not in valid_actions:
+                error_result = {"error": f"Invalid automation action '{action}'. Valid actions: {', '.join(valid_actions)}"}
+                return json.dumps(error_result, indent=2)
+
+            if action == "reload":
+                # Reload all automations
+                response = cls._make_request("POST", "services/automation/reload")
+                if response.status_code in [200, 201]:
+                    result = {
+                        "result": {
+                            "status": "Success",
+                            "message": "Successfully reloaded all automations",
+                            "action": "reload"
+                        }
+                    }
+                    return json.dumps(result, indent=2)
+                else:
+                    error_result = {
+                        "error": f"Failed to reload automations. Status: {response.status_code}. Details: {response.text}"
+                    }
+                    return json.dumps(error_result, indent=2)
+            else:
+                # Control specific automation
+                service_map = {
+                    "enable": "turn_on",
+                    "disable": "turn_off",
+                    "trigger": "trigger"
+                }
+                
+                service = service_map[action]
+                payload = {"entity_id": automation_entity_id}
+                
+                response = cls._make_request("POST", f"services/automation/{service}", payload)
+                if response.status_code in [200, 201]:
+                    cls._track_entity_interaction(automation_entity_id, "automation_action", service_name=f"automation.{service}")
+                    
+                    result = {
+                        "result": {
+                            "status": "Success",
+                            "message": f"Successfully {action}d automation '{automation_entity_id}'",
+                            "action": action,
+                            "entity_id": automation_entity_id
+                        }
+                    }
+                    return json.dumps(result, indent=2)
+                else:
+                    error_result = {
+                        "error": f"Failed to {action} automation '{automation_entity_id}'. Status: {response.status_code}. Details: {response.text}"
+                    }
+                    return json.dumps(error_result, indent=2)
+
+        except requests.exceptions.ConnectionError:
+            error_result = {"error": "Cannot connect to Home Assistant. Check HASS_URL and network connection."}
+            return json.dumps(error_result, indent=2)
+        except requests.exceptions.Timeout:
+            error_result = {"error": "Home Assistant request timed out. Server may be slow or unresponsive."}
+            return json.dumps(error_result, indent=2)
+        except ValueError as e:
+            error_result = {"error": str(e)}
+            return json.dumps(error_result, indent=2)
+        except Exception as e:
+            error_result = {"error": f"Unexpected error controlling automation: {str(e)}"}
+            return json.dumps(error_result, indent=2)
+
+    @classmethod
+    def _backup_restore_automations(cls, operation: str, backup_name: Optional[str] = None) -> str:
+        """
+        Private method to backup or restore automations.
+        Returns JSON string with result or error.
+        """
+        try:
+            os.makedirs(cls._AUTOMATION_BACKUP_DIR, exist_ok=True)
+            
+            if operation == "backup":
+                if not backup_name:
+                    backup_name = f"automation_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                
+                # Get all automations
+                response = cls._make_request("GET", "config/automation/config")
+                if response.status_code != 200:
+                    error_result = {
+                        "error": f"Failed to retrieve automations for backup. Status: {response.status_code}. Details: {response.text}"
+                    }
+                    return json.dumps(error_result, indent=2)
+                
+                automations = response.json()
+                backup_file = os.path.join(cls._AUTOMATION_BACKUP_DIR, f"{backup_name}.yaml")
+                
+                with open(backup_file, 'w') as f:
+                    yaml.dump(automations, f, default_flow_style=False, allow_unicode=True)
+                
+                result = {
+                    "result": {
+                        "status": "Success",
+                        "message": f"Successfully backed up {len(automations)} automations",
+                        "backup_name": backup_name,
+                        "backup_file": backup_file,
+                        "automation_count": len(automations)
+                    }
+                }
+                return json.dumps(result, indent=2)
+
+            elif operation == "restore":
+                if not backup_name:
+                    error_result = {"error": "backup_name is required for restore operation."}
+                    return json.dumps(error_result, indent=2)
+                
+                backup_file = os.path.join(cls._AUTOMATION_BACKUP_DIR, f"{backup_name}.yaml")
+                if not os.path.exists(backup_file):
+                    error_result = {"error": f"Backup file '{backup_name}.yaml' not found in {cls._AUTOMATION_BACKUP_DIR}"}
+                    return json.dumps(error_result, indent=2)
+                
+                with open(backup_file, 'r') as f:
+                    automations = yaml.safe_load(f)
+                
+                if not isinstance(automations, list):
+                    error_result = {"error": "Invalid backup file format. Expected a list of automations."}
+                    return json.dumps(error_result, indent=2)
+                
+                success_count = 0
+                failed_count = 0
+                
+                for automation in automations:
+                    try:
+                        response = cls._make_request("POST", "config/automation/config", automation)
+                        if response.status_code in [200, 201]:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                    except Exception:
+                        failed_count += 1
+                
+                result = {
+                    "result": {
+                        "status": "Success" if failed_count == 0 else "Partial Success",
+                        "message": f"Restored {success_count}/{len(automations)} automations from backup '{backup_name}'",
+                        "backup_name": backup_name,
+                        "total_automations": len(automations),
+                        "successful_restorations": success_count,
+                        "failed_restorations": failed_count
+                    }
+                }
+                return json.dumps(result, indent=2)
+
+            elif operation == "list_backups":
+                backup_files = []
+                if os.path.exists(cls._AUTOMATION_BACKUP_DIR):
+                    for file in os.listdir(cls._AUTOMATION_BACKUP_DIR):
+                        if file.endswith('.yaml'):
+                            backup_name = file[:-5]  # Remove .yaml extension
+                            file_path = os.path.join(cls._AUTOMATION_BACKUP_DIR, file)
+                            stat = os.stat(file_path)
+                            created_time = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                            backup_files.append(f"- {backup_name} (created: {created_time})")
+                
+                if not backup_files:
+                    result = {
+                        "result": {
+                            "status": "No backups found",
+                            "message": "No automation backups found in the backup directory.",
+                            "backup_count": 0
+                        }
+                    }
+                else:
+                    result = {
+                        "result": {
+                            "status": "Success",
+                            "backup_count": len(backup_files),
+                            "backups": '\n'.join(backup_files)
+                        }
+                    }
+                return json.dumps(result, indent=2)
+
+            else:
+                error_result = {"error": f"Invalid backup operation '{operation}'. Valid operations: backup, restore, list_backups"}
+                return json.dumps(error_result, indent=2)
+
+        except Exception as e:
+            error_result = {"error": f"Unexpected error in backup/restore operation: {str(e)}"}
+            return json.dumps(error_result, indent=2)
+
+    @classmethod
     def run(
         cls,
-        action: Literal["call_service", "get_state", "list_devices", "get_usage_history", "search_entity_by_keyword"],
+        action: Literal[
+            "call_service", "get_state", "list_devices", "get_usage_history", "search_entity_by_keyword",
+            "list_automations", "get_automation", "create_automation", "update_automation", "delete_automation",
+            "enable_automation", "disable_automation", "trigger_automation", "reload_automations",
+            "backup_automations", "restore_automations", "list_automation_backups"
+        ],
         domain: Optional[str] = None,
         service: Optional[str] = None,
         entity_id: Optional[str] = None,
         service_data: Optional[Dict[str, Any]] = None,
-        keyword: Optional[str] = None
+        keyword: Optional[str] = None,
+        automation_id: Optional[str] = None,
+        automation_config: Optional[Dict[str, Any]] = None,
+        backup_name: Optional[str] = None
     ) -> str:
         """
-        Interacts with a Home Assistant instance.
+        Interacts with a Home Assistant instance for entity control and automation management.
 
         Args:
-            action: The action to perform. Must be one of 'call_service', 'get_state', 
-                    'list_devices', 'get_usage_history', or 'search_entity_by_keyword'.
-            domain: (For 'call_service' action) The domain of the service (e.g., 'light', 'switch').
-            service: (For 'call_service' action) The name of the service (e.g., 'turn_on', 'toggle').
-            entity_id: Optional entity ID. For 'call_service', it's the target. For 'get_state',
-                       it fetches a specific entity's state. For 'get_usage_history', it's required.
-            service_data: (For 'call_service' action) Optional dictionary with extra data for the service.
-            keyword: (For 'search_entity_by_keyword' action) The keyword to search for in entity IDs and friendly names.
+            action: The action to perform. Entity actions: 'call_service', 'get_state', 'list_devices', 
+                    'get_usage_history', 'search_entity_by_keyword'. Automation actions: 'list_automations',
+                    'get_automation', 'create_automation', 'update_automation', 'delete_automation',
+                    'enable_automation', 'disable_automation', 'trigger_automation', 'reload_automations',
+                    'backup_automations', 'restore_automations', 'list_automation_backups'.
+            domain: (For 'call_service') The domain of the service (e.g., 'light', 'switch').
+            service: (For 'call_service') The name of the service (e.g., 'turn_on', 'toggle').
+            entity_id: Entity ID for various operations. For automations, use automation entity ID (e.g., 'automation.my_automation').
+            service_data: (For 'call_service') Optional dictionary with extra data for the service.
+            keyword: (For 'search_entity_by_keyword') The keyword to search for.
+            automation_id: (For automation CRUD operations) The automation configuration ID.
+            automation_config: (For 'create_automation', 'update_automation') The automation configuration dictionary.
+            backup_name: (For 'backup_automations', 'restore_automations') Name of the backup.
 
         Returns:
             A JSON string with a 'result' key on success, or an 'error' key on failure.
         """
         try:
+            # Entity-related actions
             if action == "call_service":
                 if not domain or not service:
                     error_result = {"error": "For 'call_service', 'domain' and 'service' are required."}
@@ -496,14 +879,83 @@ class HomeAssistant(UtilBase):
                     return json.dumps(error_result, indent=2)
                 return cls._search_entities_by_keyword(keyword)
 
+            # Automation management actions
+            elif action == "list_automations":
+                return cls._manage_automations("list")
+
+            elif action == "get_automation":
+                if not automation_id:
+                    error_result = {"error": "For 'get_automation', 'automation_id' is required."}
+                    return json.dumps(error_result, indent=2)
+                return cls._manage_automations("get", automation_id)
+
+            elif action == "create_automation":
+                if not automation_config:
+                    error_result = {"error": "For 'create_automation', 'automation_config' is required."}
+                    return json.dumps(error_result, indent=2)
+                return cls._manage_automations("create", automation_config=automation_config)
+
+            elif action == "update_automation":
+                if not automation_id or not automation_config:
+                    error_result = {"error": "For 'update_automation', both 'automation_id' and 'automation_config' are required."}
+                    return json.dumps(error_result, indent=2)
+                return cls._manage_automations("update", automation_id, automation_config)
+
+            elif action == "delete_automation":
+                if not automation_id:
+                    error_result = {"error": "For 'delete_automation', 'automation_id' is required."}
+                    return json.dumps(error_result, indent=2)
+                return cls._manage_automations("delete", automation_id)
+
+            # Automation control actions
+            elif action == "enable_automation":
+                if not entity_id:
+                    error_result = {"error": "For 'enable_automation', 'entity_id' (automation entity ID) is required."}
+                    return json.dumps(error_result, indent=2)
+                return cls._control_automation("enable", entity_id)
+
+            elif action == "disable_automation":
+                if not entity_id:
+                    error_result = {"error": "For 'disable_automation', 'entity_id' (automation entity ID) is required."}
+                    return json.dumps(error_result, indent=2)
+                return cls._control_automation("disable", entity_id)
+
+            elif action == "trigger_automation":
+                if not entity_id:
+                    error_result = {"error": "For 'trigger_automation', 'entity_id' (automation entity ID) is required."}
+                    return json.dumps(error_result, indent=2)
+                return cls._control_automation("trigger", entity_id)
+
+            elif action == "reload_automations":
+                return cls._control_automation("reload", "")
+
+            # Backup/restore actions
+            elif action == "backup_automations":
+                return cls._backup_restore_automations("backup", backup_name)
+
+            elif action == "restore_automations":
+                if not backup_name:
+                    error_result = {"error": "For 'restore_automations', 'backup_name' is required."}
+                    return json.dumps(error_result, indent=2)
+                return cls._backup_restore_automations("restore", backup_name)
+
+            elif action == "list_automation_backups":
+                return cls._backup_restore_automations("list_backups")
+
             else:
-                valid_actions = "'call_service', 'get_state', 'list_devices', 'get_usage_history', 'search_entity_by_keyword'"
-                error_result = {"error": f"Invalid action '{action}'. Must be one of {valid_actions}."}
+                valid_actions = [
+                    "call_service", "get_state", "list_devices", "get_usage_history", "search_entity_by_keyword",
+                    "list_automations", "get_automation", "create_automation", "update_automation", "delete_automation",
+                    "enable_automation", "disable_automation", "trigger_automation", "reload_automations",
+                    "backup_automations", "restore_automations", "list_automation_backups"
+                ]
+                error_result = {"error": f"Invalid action '{action}'. Must be one of: {', '.join(valid_actions)}."}
                 return json.dumps(error_result, indent=2)
 
         except Exception as e:
             error_result = {"error": f"Unexpected error in HomeAssistant tool: {str(e)}"}
             return json.dumps(error_result, indent=2)
+
 
 # --- Example Usage (for testing purposes) ---
 if __name__ == "__main__":
@@ -529,71 +981,86 @@ if __name__ == "__main__":
         result = HomeAssistant.run(action="list_devices")
         print(result)
     else:
-        print("\n--- Test Case 1: Listing all devices ---")
+        print("\n--- Test Case 1: Listing all automations ---")
         try:
-            result1 = HomeAssistant.run(action="list_devices")
+            result1 = HomeAssistant.run(action="list_automations")
             print(f"Result:\n{result1}")
         except Exception as e:
             print(f"Test Case 1 FAILED: {e}")
 
-        print("\n--- Test Case 2: Getting state of a specific, known device (e.g., sun.sun) ---")
-        # Most HA instances have 'sun.sun'. If not, replace with a known entity_id.
-        test_entity_id = "sun.sun" 
+        print("\n--- Test Case 2: Creating a sample automation ---")
+        sample_automation = {
+            "id": "test_automation_from_python",
+            "alias": "Test Automation from Python",
+            "description": "A test automation created via Python",
+            "trigger": [{
+                "platform": "time",
+                "at": "18:00:00"
+            }],
+            "action": [{
+                "service": "persistent_notification.create",
+                "data": {
+                    "title": "Test Automation Triggered",
+                    "message": "This notification was created by a Python-generated automation!"
+                }
+            }],
+            "mode": "single"
+        }
+        
         try:
-            result2 = HomeAssistant.run(action="get_state", entity_id=test_entity_id)
-            print(f"Result for {test_entity_id}: {result2}")
-            # Test getting usage history for this entity (it might be empty if not interacted via tool)
-            result_history = HomeAssistant.run(action="get_usage_history", entity_id=test_entity_id)
-            print(f"\nUsage history for {test_entity_id}:\n{result_history}")
-
+            result2 = HomeAssistant.run(
+                action="create_automation",
+                automation_config=sample_automation
+            )
+            print(f"Result:\n{result2}")
         except Exception as e:
             print(f"Test Case 2 FAILED: {e}")
 
-        print("\n--- Test Case 3: Calling a service (persistent notification) ---")
+        print("\n--- Test Case 3: Getting the created automation ---")
         try:
             result3 = HomeAssistant.run(
-                action="call_service",
-                domain="persistent_notification",
-                service="create",
-                service_data={
-                    "notification_id": f"tool_test_{datetime.now().strftime('%H%M%S')}",
-                    "title": "Tool Test Notification",
-                    "message": "The HomeAssistant tool's 'call_service' is working!"
-                }
+                action="get_automation",
+                automation_id="test_automation_from_python"
             )
-            print(f"Result: {result3}")
+            print(f"Result:\n{result3}")
         except Exception as e:
             print(f"Test Case 3 FAILED: {e}")
 
-        print("\n--- Test Case 5: Search for entities by keyword (e.g., 'light') ---")
-        search_keyword = "light" # Choose a keyword likely to have matches in your HA
+        print("\n--- Test Case 4: Backup automations ---")
         try:
-            result5 = HomeAssistant.run(action="search_entity_by_keyword", keyword=search_keyword)
-            print(f"Search results for '{search_keyword}':\n{result5}")
+            result4 = HomeAssistant.run(
+                action="backup_automations",
+                backup_name="test_backup"
+            )
+            print(f"Result:\n{result4}")
+        except Exception as e:
+            print(f"Test Case 4 FAILED: {e}")
+
+        print("\n--- Test Case 5: List automation backups ---")
+        try:
+            result5 = HomeAssistant.run(action="list_automation_backups")
+            print(f"Result:\n{result5}")
         except Exception as e:
             print(f"Test Case 5 FAILED: {e}")
 
-        print("\n--- Test Case 6: Search for entities with a non-matching keyword ---")
-        non_matching_keyword = "this_keyword_should_not_exist_in_any_entity_12345"
+        print("\n--- Test Case 6: Search for automation entities ---")
         try:
-            result6 = HomeAssistant.run(action="search_entity_by_keyword", keyword=non_matching_keyword)
-            print(f"Search results for '{non_matching_keyword}':\n{result6}")
+            result6 = HomeAssistant.run(
+                action="search_entity_by_keyword",
+                keyword="automation"
+            )
+            print(f"Result:\n{result6}")
         except Exception as e:
             print(f"Test Case 6 FAILED: {e}")
-            
-        print("\n--- Test Case 7: Search without providing keyword ---")
+
+        print("\n--- Test Case 7: Clean up - Delete test automation ---")
         try:
-            result7 = HomeAssistant.run(action="search_entity_by_keyword")
-            print(f"Result: {result7}")
+            result7 = HomeAssistant.run(
+                action="delete_automation",
+                automation_id="test_automation_from_python"
+            )
+            print(f"Result:\n{result7}")
         except Exception as e:
-            print(f"Test Case 7 FAILED with an unexpected exception: {e}")
+            print(f"Test Case 7 FAILED: {e}")
 
-
-    print("\n--- Test Case 4: Invalid action call ---") # Renumbered from original
-    try:
-        result4 = HomeAssistant.run(action="invalid_action_name") # type: ignore
-        print(f"Result: {result4}")
-    except Exception as e:
-        print(f"Test Case 4 FAILED with an unexpected exception: {e}")
-        
     print("\n--- Finished testing ---")
