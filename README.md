@@ -147,15 +147,15 @@ You can easily add new functionality to the agent by creating tools.
 3.  Implement a static `run` method. The LLM will call this method with the necessary arguments.
 4.  The agent will automatically discover and load your new tool.
 
-**Example: `utils/authorfile.py`**
+**Example: `utils/writefile.py`**
 ```python
-# utils/authorfile.py
+# utils/writefile.py
 import os
 import json
 from py_classes.cls_util_base import UtilBase
 from typing import Literal
 
-class AuthorFile(UtilBase):
+class WriteFile(UtilBase):
     """A utility for creating, overwriting, or appending to files."""
     @staticmethod
     def run(path: str, content: str, mode: Literal['w', 'a'] = 'w') -> str:

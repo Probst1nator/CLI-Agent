@@ -941,6 +941,57 @@ def preprocess_consecutive_sudo_commands(code: str) -> str:
     
     return '\n'.join(processed_lines)
 
+def extract_paths(user_input: str) -> Tuple[List[str], List[str]]:
+    """
+    Extracts local file paths, folder paths, and online URLs from a string.
+
+    This function is designed to be robust by finding path-like strings that are
+    either unquoted or enclosed in single or double quotes. It then cleans
+    common trailing punctuation from the found paths.
+
+    Args:
+        user_input: The string to parse for paths and URLs.
+
+    Returns:
+        A tuple containing two lists of unique strings:
+        - local_paths: A list of found local file/folder paths.
+        - online_paths: A list of found online URLs.
+    """
+    # This pattern finds either:
+    # 1. A quoted string: (["'])(.+?)\1 captures the content of matching quotes.
+    # 2. An unquoted sequence of non-whitespace characters: (\S+)
+    # This allows us to tokenize the input into potential paths.
+    token_pattern = re.compile(r'(["\'])(.+?)\1|(\S+)')
+
+    # A set of common punctuation to remove from the end of a path.
+    # This prevents including sentence-ending characters in the path.
+    trailing_chars_to_strip = '.,;:"\'!?)>]}'
+
+    local_paths = set()
+    online_paths = set()
+
+    for match in token_pattern.finditer(user_input):
+        # A match object will have either group 2 (quoted content) or group 3 (unquoted word).
+        candidate = match.group(2) or match.group(3)
+
+        if not candidate:
+            continue
+
+        # Clean the candidate path by stripping trailing punctuation.
+        cleaned_candidate = candidate.rstrip(trailing_chars_to_strip)
+        
+        # Now, validate if the cleaned token is a URL or a local path.
+        # Check for URL first.
+        if cleaned_candidate.startswith(('http://', 'https://')):
+            online_paths.add(cleaned_candidate)
+        # Check for various forms of local paths (POSIX and Windows).
+        # Added regex for Windows-style drive letters (e.g., C:\path or C:/path)
+        elif cleaned_candidate.startswith(('/', './', '~/', 'file://')) or re.match(r'^[a-zA-Z]:[\\/]', cleaned_candidate):
+            local_paths.add(cleaned_candidate)
+
+    # Return the unique paths found, converted to lists.
+    return list(local_paths), list(online_paths)
+
 async def main() -> None:
     try:
         print(colored("Starting CLI-Agent", "cyan"))
@@ -1024,25 +1075,10 @@ You approach each task with genuine interest in helping effectively. Every inter
             except ImportError:
                 exit(1)
         
-        # # Initialize the appropriate sandbox
-        #     try:
-                
-        #         # Test X11 forwarding if requested
-        #         if args.test_x11 and hasattr(python_sandbox, 'x11_forwarding_available') and python_sandbox.x11_forwarding_available:
-        #             python_sandbox.test_x11_forwarding()
-        #     except Exception as e:
-        #         if args.debug:
-        #             traceback.print_exc()
-        #         exit(1)
-        # else:
-        # Initialize local Python sandbox
-        # python_sandbox = PythonSandbox()
-        
         # Define streaming callbacks to display output in real-time
         stdout_buffer = ""
         stderr_buffer = ""
         
-                        
         def filter_cmd_output(text: str) -> str:
             return text
 
@@ -1235,6 +1271,8 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                     args.message.append(multiline_input)
 
         user_interrupt: bool = False
+        collected_local_paths: List[str] = []
+        collected_online_paths: List[str] = []
         # Main loop
         while True:
             # Reset main loop variables
@@ -1334,6 +1372,20 @@ Please respond with a json object that contains context dependent suggested valu
             else:
                 # Get input via the new wrapper function
                 user_input = await get_user_input_with_bindings(args, context_chat, force_input=user_interrupt)
+                local_paths, online_paths = extract_paths(user_input)
+
+                # read local paths
+                for path in local_paths:
+                    if os.path.exists(path):
+                        # is file -> read file in
+                        if os.path.isfile(path):
+                            with open(path, 'r') as file:
+                                user_input += f"\n\n# {path}\n```\n{os.path.basename(path)}\n{file.read()}\n```"
+                                print(colored(f"# cli-agent: Read local path: {path}", "green"))
+                        # is folder -> run tree -L 3
+                        elif os.path.isdir(path):
+                            user_input += f"\n\n# {path}\n```\nbash\ n{subprocess.check_output(['tree', '-L', '3', path]).decode('utf-8')}\n```"
+                            print(colored(f"# cli-agent: Looked into local folder: {path}", "green"))
                 user_interrupt = False
 
 
