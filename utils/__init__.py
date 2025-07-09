@@ -1,8 +1,9 @@
 # utils/__init__.py
 
 # --- Simple, Deterministic Tools ---
-from .authorfile import AuthorFile 
+from .writefile import WriteFile 
 from .todos import TodosUtil
+from .findfiles import FindFiles
 
 # --- Other Utilities ---
 # Make sure other tools like SearchWeb, GenerateImage, etc.,

@@ -3,7 +3,7 @@ import json
 from py_classes.cls_util_base import UtilBase
 from typing import Literal
 
-class AuthorFile(UtilBase):
+class WriteFile(UtilBase):
     """
     A robust utility for creating, overwriting, or appending to files.
     This tool is the preferred method for all file writing operations.
