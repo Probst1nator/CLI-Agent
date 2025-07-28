@@ -97,6 +97,19 @@ except ImportError:
         def run(text, **kwargs):
             print(colored(f"Warning: TtsUtil not found. Cannot speak: {text}", "red"))
             return json.dumps({"status": "error", "message": "TtsUtil not found"})
+try:
+    from utils.todos import TodosUtil
+except ImportError:
+    # Handle case where Todos utility might not be available
+    class TodosUtil:
+        @staticmethod
+        def _load_todos(**kwargs):
+            print(colored(f"Warning: TodosUtil not found.", "red"))
+            return []
+        @staticmethod
+        def _format_todos(**kwargs):
+            print(colored(f"Warning: TodosUtil not found.", "red"))
+            return ""
 
 # Suppress TensorFlow logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # FATAL
@@ -204,9 +217,6 @@ def parse_cli_args() -> argparse.Namespace:
     
     parser.add_argument("-e", "--exit", action="store_true", default=False,
                         help="Exit after all automatic messages have been parsed successfully")
-    
-    parser.add_argument("-dyn", "--dyn", action="store_true", default=False,
-                        help="Dynamically adjust LLM thinking parameters. Sets g.DYN_MODE=True.")
     
     # Parse known arguments and capture any unrecognized ones
     args, unknown_args = parser.parse_known_args()
@@ -735,7 +745,7 @@ async def get_user_input_with_bindings(
             continue # Ask for input again
 
         elif user_input == "-m" or user_input == "--m":
-            return handle_multiline_input(), None # Get multiline input
+            return handle_multiline_input() # Get multiline input
         
         elif user_input == "-o" or user_input == "--o" or user_input == "-online" or user_input == "--online":
             args.online = not args.online
@@ -781,19 +791,11 @@ async def get_user_input_with_bindings(
                 print(colored("(No chat history)", "cyan"))
             print(colored(f"# --local-exec-confirm: Use local LLM for auto-execution confirmation ", "yellow"), end="")
             print(colored(f"(Current: {'on' if args.local_exec_confirm else 'off'})", "cyan"))
-            print(colored(f"# -dyn: Toggle dynamic LLM parameter adjustment ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.dyn else 'off'})", "cyan"))
             print(colored("# -e: Exit the application", "yellow"))
             # Add other CLI args help here if needed
             if (input_override):
                 return ""
             continue # Ask for input again
-        
-        elif user_input == "-dyn" or user_input == "--dyn":
-            args.dyn = not args.dyn
-            g.DYN_MODE = args.dyn # Update global state
-            print(colored(f"# cli-agent: KeyBinding detected: Dynamic LLM parameter adjustment toggled {'on' if args.dyn else 'off'}, type (--h) for info", "green"))
-            continue
         
         elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
             print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
@@ -1286,71 +1288,12 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
             g.FORCE_ONLINE = args.online
             base64_images: List[str] = [] # Initialize here unconditionally
             thinking_budget = 2048 # in tokens
-            temperature = 0.85 if args.mct else 0 # Initialize with default
+            if ((g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1)):
+                temperature = 0.85
+            else:
+                temperature = 0
             will_code = False # Initialize with default
             
-            if (args.dyn):
-                context_hparam_branch = context_chat.deep_copy()
-                # Determine the model to use for hyperparameter prediction
-                # Use the first selected LLM if available, otherwise let LlmRouter choose a default
-                hparam_prediction_model = [g.SELECTED_LLMS[0]] if g.SELECTED_LLMS else []
-
-                context_hparam_branch.add_message(Role.USER, f"""You are now on a isolated branch of the conversation, please determine the best values for the following hyperparameters to dynamically adjust the LLM's response:
-```json
-{{
-    "thinking_budget": {thinking_budget},
-    "temperature": {temperature},
-    "will_code": {will_code}
-}}
-```
-The thinking_budget is the number of tokens the LLM is allowed to use for thinking. Use 1024 for trivial tasks and 16384 for very complex (/math/coding/science) tasks.
-The temperature is the LLM's creativity level, control it by using 1 by default and up to 1.8 for more randomness/creativity.
-The will_code is a boolean value that indicates if the LLM is expected to code. Use False for tasks that don't require coding and True for tasks that require coding.
-Please respond with a json object that contains context dependent suggested values for the hyperparameters.
-""")
-                
-                # Use a dummy stream callback to avoid immediate print during Hparam prediction
-                dummy_stream_callback = lambda chunk, print_char=False: None
-                
-                hparam_branch_response = await LlmRouter.generate_completion(
-                    context_hparam_branch,
-                    hparam_prediction_model, # Use the determined model
-                    temperature=0,
-                    base64_images=base64_images,
-                    generation_stream_callback=dummy_stream_callback,
-                    strengths=[AIStrengths.SMALL] if AIStrengths.STRONG not in g.LLM_STRENGTHS else [s for s in g.LLM_STRENGTHS if s != AIStrengths.STRONG] + [AIStrengths.SMALL], # Use small model for hyperparameter prediction
-                    thinking_budget=4096,
-                    exclude_reasoning_tokens=True
-                )
-                try:
-                    hparam_json_blocks = get_extract_blocks()(hparam_branch_response, "json")
-                    if hparam_json_blocks and len(hparam_json_blocks) > 0:
-                        hparam_json = hparam_json_blocks[0]  # Take the first JSON block
-                        hparam_branch_response_json = json.loads(hparam_json)
-                        thinking_budget = hparam_branch_response_json.get('thinking_budget', thinking_budget)
-                        temperature = hparam_branch_response_json.get('temperature', temperature)
-                        will_code = hparam_branch_response_json.get('will_code', will_code)
-                    else:
-                        print(colored(f"Warning: No JSON blocks found in dynamic hyperparameter response", "yellow"))
-                    
-                    # Adjust LLM strengths based on dynamic parameters
-                    # Reset strengths based on args.strong first, then add if needed
-                    g.LLM_STRENGTHS = [AIStrengths.STRONG] if args.strong else []
-                    if will_code or thinking_budget > 8192:
-                        if AIStrengths.STRONG not in g.LLM_STRENGTHS:
-                            g.LLM_STRENGTHS.append(AIStrengths.STRONG)
-                    else:
-                        # If we're not coding and not thinking hard, ensure STRONG is not present *unless* it was forced by args.strong
-                        if AIStrengths.STRONG in g.LLM_STRENGTHS and not args.strong:
-                            g.LLM_STRENGTHS.remove(AIStrengths.STRONG)
-                            
-                    print(colored(f"# cli-agent: Dynamic parameters adjusted: thinking_budget={thinking_budget}, temperature={temperature}, will_code={will_code}, strengths={g.LLM_STRENGTHS}", "magenta"))
-
-                except json.JSONDecodeError:
-                    print(colored(f"Warning: Failed to decode dynamic hyperparameter response: {hparam_branch_response}", "red"))
-                except Exception as e:
-                    print(colored(f"Error processing dynamic hyperparameter response: {str(e)}", "red"))
-
             # IMPORTANT: stdout_buffer and stderr_buffer are reset after each execution
             # to prevent accumulation across agentic loop iterations. This fixes the race
             # condition where the agent would repeatedly attempt the same action because
@@ -1384,7 +1327,7 @@ Please respond with a json object that contains context dependent suggested valu
                                 print(colored(f"# cli-agent: Read local path: {path}", "green"))
                         # is folder -> run tree -L 3
                         elif os.path.isdir(path):
-                            user_input += f"\n\n# {path}\n```\nbash\ n{subprocess.check_output(['tree', '-L', '3', path]).decode('utf-8')}\n```"
+                            user_input += f"\n\n# {path}\n```\nbash\n{subprocess.check_output(['tree', '-L', '3', path]).decode('utf-8')}\n```"
                             print(colored(f"# cli-agent: Looked into local folder: {path}", "green"))
                 user_interrupt = False
 
@@ -1435,10 +1378,9 @@ Please respond with a json object that contains context dependent suggested valu
                                 context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
                             assistant_response = "" # Clear buffer after adding
 
-                        for i in range(3 if (args.mct and len(g.SELECTED_LLMS)==1) else len(g.SELECTED_LLMS) if g.SELECTED_LLMS else 1):
+                        for i in range(len(g.SELECTED_LLMS) if len(g.SELECTED_LLMS) > 1 else 1):
                             response_buffer = "" # Reset buffer for each branch
                             
-                            temperature = 0.85 if args.mct else 0 # Initialize here, will be overwritten if args.dyn
                             branch_start_time = time.time()
                             
                             try:
@@ -1477,7 +1419,7 @@ Please respond with a json object that contains context dependent suggested valu
                                         current_branch_response = await LlmRouter.generate_completion(
                                             context_chat,
                                             [current_model],
-                                            force_preferred_model=not args.dyn,
+                                            force_preferred_model=True,
                                             temperature=temperature,
                                             base64_images=base64_images,
                                             generation_stream_callback=monitored_stream_callback,
@@ -1637,7 +1579,25 @@ Please respond with a json object that contains context dependent suggested valu
 
                     # Handover to user if no python blocks are found
                     if len(python_blocks) == 0 and len(shell_blocks) == 0:
-                        # No code found, assistant response is final for this turn
+                        # No code found, assistant response is final for this turn.
+                        # ADDED LOGIC: Check for pending todos before handing over to the user.
+                        try:
+                            all_todos = TodosUtil._load_todos()
+                            incomplete_todos = [todo for todo in all_todos if not todo.get('completed', False)]
+
+                            if incomplete_todos:
+                                # There are pending todos. Create an automatic prompt.
+                                next_todo = incomplete_todos[0]
+                                current_list_formatted = TodosUtil._format_todos(all_todos)
+                                auto_prompt = f"You have some remaining todos, please ensure they are taken care of. Here's your ordered to-do list: {current_list_formatted}"
+
+                                print(colored(f"\n📝 Pending to-dos found. Auto-prompt: {auto_prompt}", "magenta"))
+                                context_chat.add_message(Role.USER, auto_prompt)
+                        except Exception as e:
+                            # Don't crash the agent if the todo logic fails.
+                            print(colored(f"Warning: Could not check for pending to-dos. Error: {e}", "red"))
+
+                        # Original logic continues here
                         if context_chat.messages[-1][0] == Role.USER:
                             context_chat.add_message(Role.ASSISTANT, assistant_response)
                         else: # Update last assistant message (e.g. after regen)

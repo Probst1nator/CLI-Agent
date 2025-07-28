@@ -5,36 +5,25 @@ from typing import Literal, Optional, List, Dict, Any
 from py_classes.cls_util_base import UtilBase
 from py_classes.globals import g
 
-# The full path to the JSON file where the to-do list is stored.
-TODO_FILE_PATH = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'todos.json')
-
 class TodosUtil(UtilBase):
     """
-    A utility for managing a persistent to-do list.
+    A utility for managing a to-do list.
     It allows an agent to list, add, complete, uncomplete, edit, remove, reorder, and clear tasks.
-    The to-do list is stored in a JSON file for persistence across sessions.
+    The to-do list is stored only in memory and will be lost when the process ends.
     """
+    
+    # Class variable to store todos in RAM
+    _todos: List[Dict[str, Any]] = []
 
     @staticmethod
     def _load_todos() -> List[Dict[str, Any]]:
-        """Loads the to-do list from its JSON file."""
-        if not os.path.exists(TODO_FILE_PATH):
-            return []
-        try:
-            with open(TODO_FILE_PATH, 'r', encoding='utf-8') as f:
-                todos = json.load(f)
-                if isinstance(todos, list):
-                    return todos
-                return []  # Return empty list if file content is not a list
-        except (json.JSONDecodeError, IOError):
-            return []
+        """Returns the current todos from RAM."""
+        return TodosUtil._todos
 
     @staticmethod
     def _save_todos(todos: List[Dict[str, Any]]) -> None:
-        """Saves the to-do list to its JSON file."""
-        os.makedirs(os.path.dirname(TODO_FILE_PATH), exist_ok=True)
-        with open(TODO_FILE_PATH, 'w', encoding='utf-8') as f:
-            json.dump(todos, f, indent=2)
+        """Saves the to-do list to RAM."""
+        TodosUtil._todos = todos
 
     @staticmethod
     def _format_todos(todos: List[Dict[str, Any]]) -> str:
@@ -57,7 +46,7 @@ class TodosUtil(UtilBase):
         new_index: Optional[int] = None
     ) -> str:
         """
-        Manages a persistent to-do list through various actions.
+        Manages a to-do list in RAM through various actions.
 
         Args:
             action: The operation to perform.
@@ -80,11 +69,11 @@ class TodosUtil(UtilBase):
             todos = TodosUtil._load_todos()
 
             if action == 'list':
-                formatted_list = TodosUtil._format_todos(todos)
+                # formatted_list = TodosUtil._format_todos(todos)
                 return json.dumps({"result": {
                     "status": "Success",
                     "task_count": len(todos),
-                    "tasks": formatted_list
+                    "tasks": todos
                 }}, indent=2)
 
             elif action == 'add':

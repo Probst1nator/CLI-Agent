@@ -4,6 +4,7 @@
 from .writefile import WriteFile 
 from .todos import TodosUtil
 from .findfiles import FindFiles
+from .web_fetch import WebFetchUtil
 
 # --- Other Utilities ---
 # Make sure other tools like SearchWeb, GenerateImage, etc.,
