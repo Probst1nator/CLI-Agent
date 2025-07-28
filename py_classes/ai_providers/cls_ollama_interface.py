@@ -103,7 +103,7 @@ class OllamaClient(AIProviderInterface):
             try:
                 ollama_hosts.remove("localhost")
                 ollama_hosts.remove(socket.gethostbyname(socket.gethostname()))
-            except Exception:
+            except Exception as e:
                 pass
         
         auto_download_hosts = set(os.getenv("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS", "").split(","))
@@ -131,9 +131,6 @@ class OllamaClient(AIProviderInterface):
             # Skip host+model combinations that have recently failed with connection issues
             problematic_identifier = f"{host}:{model_key}"
             if problematic_identifier in OllamaClient.unreachable_hosts:
-                if chat:
-                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    g.debug_log(f"Skipping {host} - previously failed for model {model_key}", "yellow", prefix=prefix)
                 continue
                 
             if host not in OllamaClient.reached_hosts and host not in OllamaClient.unreachable_hosts:
@@ -315,21 +312,12 @@ class OllamaClient(AIProviderInterface):
             
             if matching_llm:
                 is_small_model = any(s == AIStrengths.SMALL for s in matching_llm.strengths)
-                if chat_inner:
-                    prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
-                    g.debug_log(f"Model {model_key}: is_small_model={is_small_model} (from LLM definitions)", "cyan", prefix=prefix)
             else:
                 # Fallback to name-based detection if model not found in definitions
                 is_small_model = any(size in model_key.lower() for size in ['1b', '2b', '3b', '4b', '7b', '8b']) or 'small' in model_key.lower()
-                if chat_inner:
-                    prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
-                    g.debug_log(f"Model {model_key}: is_small_model={is_small_model} (fallback detection - model not found in definitions)", "yellow", prefix=prefix)
         except ImportError:
             # Fallback to name-based detection if import fails
             is_small_model = any(size in model_key.lower() for size in ['1b', '2b', '3b', '4b', '7b', '8b']) or 'small' in model_key.lower()
-            if chat_inner:
-                prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
-                g.debug_log(f"Model {model_key}: is_small_model={is_small_model} (fallback detection - import failed)", "yellow", prefix=prefix)
         
         client: ollama.Client | None
         client, found_model_key = OllamaClient.get_valid_client(model_key, chat_inner, is_small_model=is_small_model)
@@ -385,13 +373,13 @@ class OllamaClient(AIProviderInterface):
                         return True
                     return False
         
-        activity_monitor = ActivityMonitor(30)  # 30 seconds of inactivity
+        activity_monitor = ActivityMonitor(60)  # 60 seconds of inactivity
         
         def timeout_handler(signum, frame):
             if activity_monitor.check_timeout():
                 prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
-                g.debug_log(f"⏱️ Ollama-Api: Model {colored('<' + model_key + '>', 'yellow')} on {colored('<' + host + '>', 'yellow')} timed out after 30 seconds of inactivity", "yellow", is_error=True, force_print=True, prefix=prefix)
-                raise Exception(f"Ollama stream timeout after 30 seconds of inactivity for model {model_key} on host {host}")
+                g.debug_log(f"⏱️ Ollama-Api: Model {colored('<' + model_key + '>', 'yellow')} on {colored('<' + host + '>', 'yellow')} timed out after 60 seconds of inactivity", "yellow", is_error=True, force_print=True, prefix=prefix)
+                raise Exception(f"Ollama stream timeout after 60 seconds of inactivity for model {model_key} on host {host}")
             else:
                 # Reset the alarm for another check
                 signal.alarm(5)  # Check every 5 seconds

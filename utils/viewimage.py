@@ -47,7 +47,7 @@ class ViewImage(UtilBase):
     @staticmethod
     def run(
         file_path: str,
-        prompt: str = "This image shows a screenshot of the current screen. There should be a video player playing a video. What is the name of the video and whats the like to dislike ratio?"
+        prompt: str = "Please describe this image in detail. Read out text and symbols if there are any."
     ) -> str:
         """
         Inspect an image, optionally using a prompt.
@@ -68,8 +68,8 @@ class ViewImage(UtilBase):
             base64_image = base64.b64encode(image_file.read()).decode("utf-8")
         
         # Create instruction for image analysis
-        instruction = """You are an expert at analyzing and describing images.
-        Provide a clear and informative description of the image shown.
+        instruction = """You are an ai tasked with describing an image for further processing.
+        Provide a clear and informative description of the image and its contents.
         Focus on relevant details including:
         - Main subjects and objects
         - Visual composition and layout
@@ -77,7 +77,7 @@ class ViewImage(UtilBase):
         - Context and setting
         - Any notable features or unusual elements
         
-        Your description should be thorough but focused on what matters.
+        Your description should be thorough but focused on what is asked.
         """
         
         chat = Chat(instruction, debug_title="Viewing Image")
@@ -86,12 +86,11 @@ class ViewImage(UtilBase):
         chat.add_message(Role.USER, prompt)
         
         # The image is passed directly to the LlmRouter now.
-        
         try:
             response = _run_async_safely(LlmRouter.generate_completion(
                 chat,
                 base64_images=[base64_image],
-                strengths=[AIStrengths.VISION, AIStrengths.STRONG], 
+                strengths=[AIStrengths.VISION], 
                 exclude_reasoning_tokens=True,
                 hidden_reason="Viewing Image"
             ))
