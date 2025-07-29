@@ -44,8 +44,8 @@ class UtilBase(ABC):
         """
         class_name = util_cls.__name__
         # Remove "Util" suffix if present
-        if class_name.endswith("Util"):
-            return class_name[:-4].lower()
+        # if class_name.endswith("Util"):
+        #     return class_name[:-4].lower()
         return class_name.lower()
     
     @staticmethod

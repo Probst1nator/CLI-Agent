@@ -965,7 +965,22 @@ class LlmRouter:
                         def check_timeout(self):
                             return time.time() - self.last_activity > self.timeout_seconds
                     
-                    stream_monitor = StreamActivityMonitor(60)  # 60 seconds of inactivity
+                    # Determine inactivity timeout: 2 min for Ollama localhost, else 60s
+                    inactivity_timeout = 60
+                    try:
+                        from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+                        if isinstance(model.provider, OllamaClient):
+                            try:
+                                host = getattr(model.provider, '_client', None)
+                                if host is not None:
+                                    host = host.base_url.host
+                                    if host in ("localhost", "127.0.0.1"):
+                                        inactivity_timeout = 120
+                            except Exception:
+                                pass
+                    except ImportError:
+                        pass
+                    stream_monitor = StreamActivityMonitor(inactivity_timeout)  # 60s or 120s of inactivity
                     
                     def stream_timeout_handler(signum, frame):
                         if stream_monitor.check_timeout():
