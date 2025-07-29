@@ -1378,7 +1378,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
                             assistant_response = "" # Clear buffer after adding
 
-                        for i in range(len(g.SELECTED_LLMS) if len(g.SELECTED_LLMS) > 1 else 1):
+                        for i in range(len(g.SELECTED_LLMS) if len(g.SELECTED_LLMS) > 1 else 3 if args.mct else 1):
                             response_buffer = "" # Reset buffer for each branch
                             
                             branch_start_time = time.time()
@@ -1459,7 +1459,6 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 # Analyze stream health
                                 if not stream_monitor['stream_started']:
                                     print(colored(f"❌ Branch {i+1} failed: stream never started after {branch_duration:.1f}s (model: {model_name})", "red"))
-                                    response_branches.append(f"Error: Branch {i+1} - stream failed to start")
                                 elif current_branch_response and current_branch_response.strip():
                                     response_branches.append(current_branch_response)
                                 else:
@@ -1467,10 +1466,8 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                     time_since_last_char = time.time() - stream_monitor['last_char_time']
                                     if time_since_last_char > 10 and stream_monitor['total_chars'] > 0:
                                         print(colored(f"⚠️ Branch {i+1} stream stalled: no new chars for {time_since_last_char:.1f}s, got {stream_monitor['total_chars']} chars (model: {model_name})", "yellow"))
-                                        response_branches.append(f"Partial: Branch {i+1} - stream stalled but got {stream_monitor['total_chars']} characters")
                                     else:
                                         print(colored(f"❌ Branch {i+1} failed: returned empty response after {branch_duration:.1f}s (model: {model_name})", "red"))
-                                        response_branches.append(f"Error: Branch {i+1} failed to generate content")
                                     
                             except Exception as branch_error:
                                 branch_duration = time.time() - branch_start_time
