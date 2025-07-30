@@ -116,6 +116,8 @@ class Llm:
             Llm(GoogleAPI(), "gemini-2.5-flash-lite-preview-06-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             
+            Llm(GroqAPI(), "moonshotai/kimi-k2-instruct", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.STRONG]),
+            Llm(GroqAPI(), "qwen/qwen3-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE, AIStrengths.SMALL]),
