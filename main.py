@@ -48,6 +48,13 @@ from py_classes.cls_text_stream_painter import TextStreamPainter
 # Fix the import by using a relative or absolute import path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Global timer for startup and operations
+start_time = time.time()
+
+def print_with_timer(message, color="white"):
+    elapsed = time.time() - start_time
+    print(colored(f"[{elapsed:.2f}s] {message}", color))
+
 # Lazy load functions from py_methods.utils to avoid heavy imports at startup
 def get_extract_blocks():
     from py_methods.utils import extract_blocks
@@ -191,8 +198,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Use strong LLMs (slow!)")
     parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
-    parser.add_argument("-mct","--mct", action="store_true", default=False,
-                        help="Enable Monte Carlo Tree Search for acting.")
+    parser.add_argument("-mct", "--mct", type=int, nargs='?', const=3, default=0,
+                        help="Enable Monte Carlo Tree Search for acting, with an optional number of branches (default: 3).")
     parser.add_argument("-sbx", "--sandbox", action="store_true", default=False,
                         help="Use weakly sandboxed python execution. Sets g.USE_SANDBOX=True.")
     parser.add_argument("-o", "--online", action="store_true", default=False,
@@ -248,13 +255,34 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: List[str] = 
     # Add "Any but local" option at the top
     llm_choices.append(("any_local", HTML('<provider>Any</provider> - <model>Any but local</model> - <pricing>Automatic selection</pricing>')))
     
+    # Get Ollama model status for display
+    from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+    ollama_status = {}
+    try:
+        ollama_status = OllamaClient.get_comprehensive_model_status(["localhost", "192.168.178.37"])
+    except Exception:
+        pass  # Continue without Ollama status if it fails
+    
     for llm in available_llms:
+        # Check if this is an Ollama model and get its download status
+        status_indicator = ""
+        if llm.provider.__class__.__name__ == "OllamaClient":
+            model_base_name = llm.model_key.split(':')[0]  # Remove tag for lookup
+            if model_base_name in ollama_status:
+                if ollama_status[model_base_name]['downloaded']:
+                    status_indicator = ' <downloaded>✓ Downloaded</downloaded>'
+                else:
+                    status_indicator = ' <notdownloaded>⬇ Available</notdownloaded>'
+            else:
+                status_indicator = ' <notdownloaded>⬇ Available</notdownloaded>'
+        
         # Create HTML formatted text with colors
         styled_text = HTML(
             f'<provider>{llm.provider.__class__.__name__}</provider> - '
             f'<model>{llm.model_key}</model> - '
             f'<pricing>{f"${llm.pricing_in_dollar_per_1M_tokens}/1M tokens" if llm.pricing_in_dollar_per_1M_tokens else "Free"}</pricing> - '
             f'<context>Context: {llm.context_window}</context>'
+            f'{status_indicator}'
         )
         llm_choices.append((llm.model_key, styled_text))
     
@@ -262,8 +290,10 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: List[str] = 
     style = Style.from_dict({
         'model': 'ansicyan',
         'provider': 'ansigreen',
-        'pricing': 'ansiyellow',
+        'pricing': 'ansimagenta',  # Changed from harsh yellow to magenta
         'context': 'ansiblue',
+        'downloaded': 'ansibrightgreen',
+        'notdownloaded': 'ansibrightred',
     })
     
     # Use CheckboxList instead of RadioList to allow multiple selections
@@ -321,8 +351,8 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: List[str] = 
             
             # If multiple LLMs were selected, enable MCT mode automatically
             if len(selected_llms) > 1:
-                args.mct = True
-                print(colored(f"# cli-agent: Multiple LLMs selected ({', '.join(selected_llms)}). MCT mode enabled automatically.", "green"))
+                args.mct = len(selected_llms)
+                print(colored(f"# cli-agent: Multiple LLMs selected ({', '.join(selected_llms)}). MCT mode enabled automatically with {args.mct} branches.", "green"))
             else:
                 # Single LLM selected - store in args.llm
                 args.llm = selected_llms[0]
@@ -554,8 +584,8 @@ Do not add any other text after this single-word verdict.""",
 
 
 async def select_best_branch(
+    context_chat: Chat,
     assistant_responses: List[str],
-    user_input: str,
 ) -> str:
     """
     Select the best branch from multiple full assistant responses.
@@ -567,33 +597,13 @@ async def select_best_branch(
     Returns:
         Index of the selected branch
     """
-    mct_branch_selector_chat: Chat = Chat(
-        instruction_message=f"""You are an AI assistant response evaluator.
-        Given multiple complete assistant responses to the same user request, your task is to:
-        1. Analyze each response carefully, considering both the reasoning and any code provided
-        2. Select EXACTLY ONE response that best addresses the user's request
-        3. ALWAYS preserve responses that use custom utilities like SearchWeb
-        4. Choose based on simplicity, clarity of explanation, and correctness
-        5. Return ONLY the number of your chosen response (e.g., "Selected branch: 0")""",
-        debug_title="MCT Branch Selection"
-    )
+    mct_branch_selector_chat: Chat = context_chat.deep_copy()
+    mct_branch_selector_chat.debug_title="MCT Branch Selection"
+    mct_branch_selector_chat.add_message(Role.ASSISTANT, assistant_responses[0])
     
-    selection_prompt: str = f"# User Request: {user_input}\n\n"
-    selection_prompt += "# IMPORTANT: Custom utilities like 'utils.searchweb.SearchWeb' are essential and responses using them should be preferred.\n\n"
-    selection_prompt += "# Selection Criteria:\n"
-    selection_prompt += "- Preservation of custom utilities\n"
-    selection_prompt += "- Quality of explanation and reasoning\n"
-    selection_prompt += "- Code simplicity and directness\n"
-    selection_prompt += "- Appropriate level of detail for the user's request\n\n"
-    
-    for i, response in enumerate(assistant_responses):
-        # If these are responses from different LLMs, indicate which model generated each response
-        model_info = ""
-        if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS):
-            model_info = f" (Generated by {g.SELECTED_LLMS[i]})"
-        selection_prompt += f"# Response {i}{model_info}:\n{response}\n\n---\n\n"
-    
-    selection_prompt += "Analyze each complete response and select EXACTLY ONE best response. End your analysis with: 'Selected branch: X' where X is the response number."
+    selection_prompt = f"I've also asked other agents to generate a reply to my question. Please compare the suggested responses to your own and pick your favorite by ending your response with the index of your preferred response. You can consider your previous response indexed as 0. If you would like to reply yourself, being more informed by the different perspectives, you will need to select your own response which is indexed by {len(assistant_responses)+1}"
+    for i, response in enumerate(assistant_responses[1:]):
+        selection_prompt += f"# Response {i}\n\n"
     
     mct_branch_selector_chat.add_message(Role.USER, selection_prompt)
     
@@ -607,9 +617,11 @@ async def select_best_branch(
         mct_branch_selector_chat,
         evaluator_model,
     )
+
+    assistant_responses.append(evaluator_response)
     
     # Extract the selected branch number
-    match: Optional[re.Match] = re.search(r'Selected branch: (\d+)', evaluator_response)
+    match: Optional[re.Match] = re.search(r'\s*(\d+)', evaluator_response)
     if match:
         selected_branch_index: int = int(match.group(1))
         if 0 <= selected_branch_index < len(assistant_responses):
@@ -656,16 +668,7 @@ async def get_user_input_with_bindings(
         else:
             try:
                 # get user input from various sources if not already set (e.g., after screenshot)
-                if args.message:
-                    # Handle multiple sequential messages from command-line arguments
-                    user_input = args.message[0]
-                    args.message = args.message[1:] if len(args.message) > 1 else []
-                    print(colored(f"💬 Processing message: {user_input}", 'blue', attrs=["bold"]))
-                    if args.message:
-                        # If there are more messages, show how many remain
-                        print(colored(f"⏳ ({len(args.message)} more message(s) queued)", 'blue'))
-                else:
-                    user_input = input(prompt)
+                user_input = input(prompt)
             except KeyboardInterrupt: # Handle Ctrl+C as exit
                 print(colored("\n# cli-agent: Exiting due to Ctrl+C.", "yellow"))
                 exit()
@@ -699,8 +702,8 @@ async def get_user_input_with_bindings(
             continue # Ask for input again
 
         elif user_input == "-mct" or user_input == "--mct":
-            args.mct = not args.mct
-            print(colored(f"# cli-agent: KeyBinding detected: Monte Carlo Tree Search toggled {'on' if args.mct else 'off'}, type (--h) for info", "green"))
+            args.mct = 3 if args.mct == 0 else 0
+            print(colored(f"# cli-agent: KeyBinding detected: Monte Carlo Tree Search toggled {'on' if args.mct else 'off'} (branches: {args.mct}), type (--h) for info", "green"))
             if context_chat:
                 context_chat.debug_title = "MCTs Branching - Main Context Chat" if args.mct else "Main Context Chat"
             continue # Ask for input again
@@ -752,54 +755,31 @@ async def get_user_input_with_bindings(
             print(colored(f"# cli-agent: KeyBinding detected: Online mode toggled {'on' if args.online else 'off'}, type (--h) for info", "green"))
             continue
         
-        elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
+        elif user_input == "-e" or user_input == "--e" or user_input == "--exit":
             print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
             exit(0)
         
-        elif user_input == "--local-exec-confirm":
-            args.local_exec_confirm = not args.local_exec_confirm
-            print(colored(f"# cli-agent: KeyBinding detected: Local auto-execution confirmation toggled {'on' if args.local_exec_confirm else 'off'}, type (--h) for info", "green"))
+        elif user_input == "-h" or user_input == "--h" or user_input == "--help":
+            print(colored("# cli-agent: KeyBinding detected: Showing help", "green"))
+            print(colored("\n=== CLI-Agent Interactive Keybindings ===", "cyan", attrs=["bold"]))
+            print(colored("Available commands while chatting:", "yellow"))
+            print(colored("  -r, --r           Regenerate last response", "white"))
+            print(colored("  -l, --local       Toggle local/cloud LLM mode", "white"))
+            print(colored("  -llm, --llm       Open LLM selection menu", "white"))
+            print(colored("  -a, --auto        Toggle automatic code execution", "white"))
+            print(colored("  -mct, --mct       Toggle Monte Carlo Tree Search", "white"))
+            print(colored("  -strong, --strong Toggle strong LLM mode", "white"))
+            print(colored("  -f, --fast        Toggle fast LLM mode", "white"))
+            print(colored("  -v, --v           Toggle voice mode", "white"))
+            print(colored("  -speak, --speak   Toggle text-to-speech", "white"))
+            print(colored("  -img, --img       Take screenshot", "white"))
+            print(colored("  -p, --p           Print chat history", "white"))
+            print(colored("  -m, --m           Enter multiline input mode", "white"))
+            print(colored("  -o, --o           Toggle online mode", "white"))
+            print(colored("  -e, --e           Exit CLI-Agent", "white"))
+            print(colored("  -h, --h           Show this help", "white"))
+            print(colored("\nType any of these commands during chat to use them!", "green"))
             continue
-        
-        elif user_input == "-h" or user_input == "--h":
-            print(figlet_format("cli-agent", font="slant"))
-            print(colored("# KeyBindings:", "yellow"))
-            print(colored("# -h: Show this help message", "yellow"))
-            print(colored("# -r: Regenerate the last response", "yellow"))
-            print(colored(f"# -l: Toggle local mode ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.local else 'off'})", "cyan"))
-            print(colored(f"# -llm: Pick different LLMs (supports multi-selection) ", "yellow"), end="")
-            print(colored(f"(Current: {', '.join(g.SELECTED_LLMS) if g.SELECTED_LLMS else args.llm or 'Auto'})", "cyan"))
-            print(colored(f"# -a: Toggle automatic code execution ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.auto else 'off'})", "cyan"))
-            print(colored(f"# -f: Toggle using only fast LLMs ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.fast else 'off'})", "cyan"))
-            print(colored(f"# -v: Toggle voice mode ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.voice else 'off'})", "cyan"))
-            print(colored(f"# -speak: Toggle text-to-speech ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.speak else 'off'})", "cyan"))
-            print(colored(f"# -strong: Toggle using only strong LLMs ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.strong else 'off'})", "cyan"))
-            print(colored("# -img: Take a screenshot using Spectacle (with automatic fallbacks if not available)", "yellow"))
-            print(colored(f"# -mct: Toggle Monte Carlo Tree Search ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.mct else 'off'})", "cyan"))
-            print(colored("# -m: Enter multiline input", "yellow"))
-            print(colored(f"# -p: Print the raw chat history ", "yellow"), end="")
-            if context_chat:
-                print(colored(f"(length: {len(context_chat.joined_messages())} chars)", "cyan"))
-            else:
-                print(colored("(No chat history)", "cyan"))
-            print(colored(f"# --local-exec-confirm: Use local LLM for auto-execution confirmation ", "yellow"), end="")
-            print(colored(f"(Current: {'on' if args.local_exec_confirm else 'off'})", "cyan"))
-            print(colored("# -e: Exit the application", "yellow"))
-            # Add other CLI args help here if needed
-            if (input_override):
-                return ""
-            continue # Ask for input again
-        
-        elif user_input == "-e" or user_input == "--e" or user_input == "--exit" or (args.exit and not args.message and user_input):
-            print(colored(f"# cli-agent: KeyBinding detected: Exiting...", "green"))
-            exit(0)
         
         # USER INPUT HANDLING - END
 
@@ -996,7 +976,10 @@ def extract_paths(user_input: str) -> Tuple[List[str], List[str]]:
 
 async def main() -> None:
     try:
-        print(colored("Starting CLI-Agent", "cyan"))
+        # Display cool ASCII header
+        header = figlet_format("CLI-Agent", font="slant")
+        print(colored(header, "cyan", attrs=["bold"]))
+        print_with_timer("Starting CLI-Agent", "cyan")
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
         
         # Load or initialize the system instruction from external Markdown file
@@ -1114,11 +1097,8 @@ You approach each task with genuine interest in helping effectively. Every inter
             # Just return True to continue waiting
             print(colored("⏳ Process seems idle, continuing to wait...", "yellow"))
             return True
-        notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
+        # ComputationalNotebook will be initialized after help display
             
-        # Initialize tool manager
-        utils_manager = UtilsManager()
-        
         # Initialize web server early if GUI mode is enabled
         web_server = None
         if args.gui:
@@ -1162,6 +1142,42 @@ You approach each task with genuine interest in helping effectively. Every inter
                 else:
                     print(colored("No previous chat found to continue. Starting a new chat.", "yellow"))
                     context_chat = None # Ensure it's None if load fails
+
+        
+        if args.mct and context_chat:
+            context_chat.debug_title = "MCTs Branching - Main Context Chat"
+            
+        # Handle screenshot capture immediately if --img flag was provided
+        if args.image:
+            print(colored("# cli-agent: Taking screenshot with Spectacle due to --img flag...", "green"))
+            base64_images = await handle_screenshot_capture(context_chat)
+            args.image = False  # Reset the flag after handling
+        
+        # Handle LLM selection at startup if --llm was passed without value
+        if args.llm == "__select__":
+            print(colored("# cli-agent: --llm flag detected without value. Opening LLM selection...", "green"))
+            selected_llms = await llm_selection(args, preselected_llms=None)  # Load from persistent storage
+            g.SELECTED_LLMS = selected_llms
+            args.llm = None  # Reset to None after selection
+        elif args.llm:
+            g.SELECTED_LLMS = [args.llm]
+        
+        # Initialize ComputationalNotebook after help display to avoid bash prompt appearing before banner
+        notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
+        
+        # Initialize tool manager
+        utils_manager = UtilsManager()
+        
+        # Print loaded utilities in a compact format
+        util_names = utils_manager.get_util_names()
+        if util_names:
+            utils_str = ", ".join(util_names)
+            print_with_timer(f"Loaded {len(util_names)} utilities: {utils_str}", "green")
+        else:
+            print_with_timer("No utilities loaded", "yellow")
+
+        # Print help page by default at startup
+        await get_user_input_with_bindings(args, context_chat, input_override="--h")
 
         if context_chat is None:
             context_chat = Chat(debug_title="Main Context Chat")
@@ -1238,32 +1254,6 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
 """
             context_chat.add_message(Role.USER, kickstart_preprompt)
 
-        
-        if args.mct and context_chat:
-            context_chat.debug_title = "MCTs Branching - Main Context Chat"
-            
-        # Handle screenshot capture immediately if --img flag was provided
-        if args.image:
-            print(colored("# cli-agent: Taking screenshot with Spectacle due to --img flag...", "green"))
-            base64_images = await handle_screenshot_capture(context_chat)
-            args.image = False  # Reset the flag after handling
-        
-        # Handle LLM selection at startup if --llm was passed without value
-        if args.llm == "__select__":
-            print(colored("# cli-agent: --llm flag detected without value. Opening LLM selection...", "green"))
-            selected_llms = await llm_selection(args, preselected_llms=None)  # Load from persistent storage
-            g.SELECTED_LLMS = selected_llms
-            args.llm = None  # Reset to None after selection
-        elif args.llm:
-            g.SELECTED_LLMS = [args.llm]
-        
-        # Print help page by default at startup
-        await get_user_input_with_bindings(args, context_chat, input_override="--h")
-        # Print loaded agents
-        print(colored("Loaded utils:", "green"))
-        for util_name in utils_manager.get_util_names():
-            print(colored(f"  - {util_name}", "green"))
-
         # Check if -m flag was provided without messages and prompt for multiline input
         if '-m' in sys.argv or '--message' in sys.argv:
             if not args.message:  # Empty list means -m was provided without arguments
@@ -1271,6 +1261,8 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                 multiline_input = handle_multiline_input()
                 if multiline_input.strip():  # Only add if not empty
                     args.message.append(multiline_input)
+
+        print_with_timer("Ready.", "magenta")
 
         user_interrupt: bool = False
         collected_local_paths: List[str] = []
@@ -1378,7 +1370,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
                             assistant_response = "" # Clear buffer after adding
 
-                        for i in range(len(g.SELECTED_LLMS) if len(g.SELECTED_LLMS) > 1 else 3 if args.mct else 1):
+                        for i in range(len(g.SELECTED_LLMS) if len(g.SELECTED_LLMS) > 1 else args.mct if args.mct else 1):
                             response_buffer = "" # Reset buffer for each branch
                             
                             branch_start_time = time.time()
@@ -1510,7 +1502,7 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                     # --- MCT Branch Selection ---
                     if args.mct:
                         try:
-                            selected_branch_index = await select_best_branch(response_branches, user_input or "") # Use last user input
+                            selected_branch_index = await select_best_branch(context_chat, response_branches) # Use last user input
                             assistant_response = response_branches[selected_branch_index]
                             
                             # Show which model generated the selected response if in multi-LLM mode
@@ -1519,7 +1511,502 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
                                 print(colored(f"Selected branch {selected_branch_index} from model: {model_name}", "green"))
                             else:
                                 print(colored(f"Selected branch: {selected_branch_index}", "green"))
-                            print(colored(f"Adding to context:", "green"))                            
+                            print(colored("Adding to context:", "green"))                            
+                            # Print the selected branch if we're in MCT mode (since we don't stream MCT branches)
+                            text_stream_painter = TextStreamPainter()
+                            for char in assistant_response:
+                                print(text_stream_painter.apply_color(char), end="", flush=True)
+                            print() # Add newline
+                            
+                            # Show which model generated the selected response if in multi-LLM mode
+                            if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and selected_branch_index < len(g.SELECTED_LLMS):
+                                model_name = g.SELECTED_LLMS[selected_branch_index]
+                                print(colored(f"Selected branch {selected_branch_index} from model: {model_name}", "green"))
+                            else:
+                                print(colored(f"Selected branch: {selected_branch_index}", "green"))
+                                
+                        except Exception as e:
+                            print(colored(f"Error during MCT branch selection: {str(e)}", "red"))
+                            if args.debug: traceback.print_exc()
+                            print(colored("\n⚠️ Defaulting to first branch.", "yellow"))
+                            assistant_response = response_branches[0]
+                            
+                            # Print the default branch
+                            text_stream_painter = TextStreamPainter()
+                            for char in assistant_response:
+                                print(text_stream_painter.apply_color(char), end="", flush=True)
+                            print() # Add newline
+                    else:
+                        # non mct case
+                        assistant_response = response_branches[0]
+                        
+                    # --- STALL DETECTION LOGIC ---
+                    current_action_signature = assistant_response
+                    if last_action_signature and current_action_signature == last_action_signature:
+                        stall_counter += 1
+                        print(colored(f"Stall counter: {stall_counter}/{MAX_STALLS}", "yellow"))
+                    else:
+                        stall_counter = 0  # Reset counter if action is different
+
+                    last_action_signature = current_action_signature
+
+                    if stall_counter >= MAX_STALLS:
+                        print(colored("! Agent appears to be stalled. Intervening.", "red"))
+                        # Inject a user message to force re-evaluation
+                        intervention_message = "My last two attempts have failed or made no progress. I need to stop and re-evaluate my entire strategy. I will analyze the situation from the beginning and devise a completely new plan of action. I will not repeat my previous failed attempts."
+                        context_chat.add_message(Role.USER, intervention_message)
+                        print(colored(f"  └─ Injected user message to force new strategy.", "red"))
+                        stall_counter = 0  # Reset after intervention
+                        last_action_signature = None
+                        break  # Break inner loop to force LLM to process the new user message
+
+                    # --- END STALL DETECTION ---
+                        
+                    # --- Code Extraction and Execution ---
+                    shell_blocks = get_extract_blocks()(assistant_response, ["shell", "bash"])
+                    python_blocks = get_extract_blocks()(assistant_response, ["python", "tool_code"])
+
+                    # Handover to user if no python blocks are found
+                    if len(python_blocks) == 0 and len(shell_blocks) == 0:
+                        # No code found, assistant response is final for this turn.
+                        # ADDED LOGIC: Check for pending todos before handing over to the user.
+                        try:
+                            all_todos = TodosUtil._load_todos()
+                            incomplete_todos = [todo for todo in all_todos if not todo.get('completed', False)]
+
+                            if incomplete_todos:
+                                # There are pending todos. Create an automatic prompt.
+                                next_todo = incomplete_todos[0]
+                                current_list_formatted = TodosUtil._format_todos(all_todos)
+                                auto_prompt = f"You have some remaining todos, please ensure they are taken care of. Here's your ordered to-do list: {current_list_formatted}"
+
+                                print(colored(f"\n📝 Pending to-dos found. Auto-prompt: {auto_prompt}", "magenta"))
+                                context_chat.add_message(Role.USER, auto_prompt)
+                        except Exception as e:
+                            # Don't crash the agent if the todo logic fails.
+                            print(colored(f"Warning: Could not check for pending to-dos. Error: {e}", "red"))
+
+                        # Original logic continues here
+                        if context_chat.messages[-1][0] == Role.USER:
+                            context_chat.add_message(Role.ASSISTANT, assistant_response)
+                        else: # Update last assistant message (e.g. after regen)
+                            context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
+                        assistant_response = "" # Clear buffer as it's been added/printed
+                        break # Break inner loop to get next user input
+                    
+                    # Check if any selected tools were used in the code response
+                    if g.SELECTED_UTILS:
+                        used_tools = []
+                        for tool in g.SELECTED_UTILS:
+                            # Check if the tool name appears in any of the code blocks
+                            for code_block in python_blocks:
+                                if tool in code_block:
+                                    used_tools.append(tool)
+                                    print(colored(f"# cli-agent: Tool '{tool}' was used and will be removed from required tools list.", "green"))
+                                    break
+                        
+                        # Remove used tools from globals
+                        if used_tools:
+                            for tool in used_tools:
+                                if tool in g.SELECTED_UTILS:
+                                    g.SELECTED_UTILS.remove(tool)
+
+                    if (args.voice or args.speak):
+                        # remove all code blocks from the assistant response
+                        verbal_text = re.sub(r'```[^`]*```', '', assistant_response)
+                        if (len(python_blocks) > 0 and len(shell_blocks) > 0):
+                            verbal_text += f"I've implemented some shell and python code, let's execute it."
+                        elif (len(python_blocks) > 0):
+                            verbal_text += f"I've implemented some python code, let's execute it."
+                        elif (len(shell_blocks) > 0):
+                            verbal_text += f"I've implemented some shell code, let's execute it."
+                        
+                        # Use the new TTS utility instead of the old utils_audio
+                        TtsUtil.run(text=verbal_text)
+
+                    # Join shell blocks into a single string
+                    formatted_code = ""
+                    if shell_blocks:
+                        formatted_code += "```bash\n" + "\n".join(shell_blocks) + "\n```\n"
+                    if python_blocks:
+                        formatted_code += "```python\n" + python_blocks[0] + "\n```"
+
+
+                    context_chat.save_to_json()
+                    # Confirm code execution
+                    if await confirm_code_execution(args, formatted_code):
+                        print(colored("🔄 Executing code...", "cyan"))
+
+                        try:
+                            if (shell_blocks):
+                                for shell_line in shell_blocks:
+                                    l_shell_line = shell_line.strip()
+                                    # Then in your main execution logic:
+                                    if 'sudo ' in l_shell_line:
+                                        # First, try to combine consecutive sudo commands
+                                        l_shell_line = preprocess_consecutive_sudo_commands(l_shell_line)
+                                        
+                                        # Then apply sudo -A replacement for remaining sudo commands
+                                        if ("sudo " in l_shell_line and not "sudo -A " in l_shell_line):
+                                            l_shell_line = l_shell_line.replace("sudo ", "sudo -A ")
+                                    notebook.execute(l_shell_line)
+                            if (python_blocks):
+                                notebook.execute(python_blocks[0], is_python_code=True)
+
+                            print(colored("\n✅ Code execution completed.", "cyan"))
+
+                            # Create a formatted output to add to the chat context
+                            tool_output = ""
+                            # Use the final captured stdout/stderr which might differ slightly if callbacks missed something
+                            if stdout_buffer and stdout_buffer.strip():
+                                tool_output += f"```stdout\n{stdout_buffer.strip()}\n```\n"
+                            if stderr_buffer and stderr_buffer.strip():
+                                tool_output += f"```stderr\n{stderr_buffer.strip()}\n```\n"
+                            
+                            tool_output = filter_cmd_output(tool_output)
+
+                            # remove color codes
+                            tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output)
+
+                            # shorten to max 4000 characters, include the first 3000 and last 1000, splitting at the last newline
+                            if len(tool_output) > 4000:
+                                try:
+                                    # Find the last newline in the first 3000 chars
+                                    first_part = tool_output[:3000]
+                                    first_index = first_part.rindex('\n') if '\n' in first_part else 3000
+                                    # Find the first newline in the last 1000 chars (relative to the start of last_part)
+                                    last_part = tool_output[-1000:]
+                                    # Need to find newline relative to start of last_part, then adjust index relative to tool_output
+                                    newline_in_last_part = last_part.find('\n') # Find first newline
+                                    # Calculate the index relative to the full string where the truncated part starts
+                                    split_index_in_full = len(tool_output) - 1000 + newline_in_last_part if newline_in_last_part != -1 else len(tool_output) - 1000
+
+                                    tool_output = tool_output[:first_index] + "\n[...output truncated...]\n" + tool_output[split_index_in_full+1:] # +1 to exclude the newline itself
+
+                                except ValueError: # Handle cases where newline isn't found
+                                    tool_output = tool_output[:3000] + "\n[...output truncated...]" + tool_output[-1000:]
+
+
+                            if not tool_output.strip():
+                                tool_output = "<execution_output>\nThe execution completed without returning any output.\n</execution_output>"
+                            else:
+                                tool_output = f"<execution_output>\n{tool_output.strip()}\n</execution_output>"
+
+
+                            # Append execution output to the assistant's response FOR THE CONTEXT
+                            assistant_response_with_output = f"{assistant_response}\n{tool_output}\n<think>\n"
+
+                            # Add the complete turn (Assistant response + execution) to context
+                            context_chat.add_message(Role.ASSISTANT, assistant_response_with_output)
+
+                            assistant_response = "" # Clear buffer as it's been processed
+
+                            # Reset output buffers for next execution to prevent accumulation
+                            stdout_buffer = ""
+                            stderr_buffer = ""
+
+                            action_counter += 1  # Increment action counter
+                            
+                            continue # Break inner loop after successful execution, continue to next agent turn
+
+                        except Exception as e:
+                            print(colored(f"\n❌ Error executing code: {str(e)}", "red"))
+                            if args.debug:
+                                traceback.print_exc()
+                            # Add error to context before breaking
+                            error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
+                            assistant_response_with_error = f"{assistant_response}\n{error_output}"
+                            context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
+                            assistant_response = "" # Clear buffer
+                            
+                            # Reset output buffers for next execution to prevent accumulation
+                            stdout_buffer = ""
+                            stderr_buffer = ""
+                            
+                            break # Break inner loop on execution error
+                    else:
+                        # Code execution denied by user
+                        print(colored(" Execution cancelled by user.", "yellow"))
+                        # Add assistant's plan and cancellation notice to chat history
+                        cancellation_notice = "<execution_output>\nCode execution cancelled by user.\n</execution_output>"
+                        assistant_response_with_cancellation = assistant_response + f"\n{cancellation_notice}"
+                        context_chat.add_message(Role.ASSISTANT, assistant_response_with_cancellation)
+                        assistant_response = "" # Clear buffer
+                        
+                        # Reset output buffers for next execution to prevent accumulation
+                        stdout_buffer = ""
+                        stderr_buffer = ""
+                        
+                        break # Break inner loop
+
+                except KeyboardInterrupt:
+                    print(colored("\n=== User interrupted execution (Ctrl+C) ===", "yellow"))
+                    user_interrupt = True
+                    break # Break from inner agentic loop
+
+                except Exception as e:
+                    LlmRouter.clear_unconfirmed_finetuning_data()
+                    if ("ctrl+c" in str(e).lower()):
+                        print(colored("=== User interrupted execution (Ctrl+C) ===", "yellow"))
+                        user_interrupt = True
+                        break # Break from inner agentic loop
+                    
+                    print(colored(f"An unexpected error occurred in the agent loop: {str(e)}", "red"))
+                    if args.debug:
+                        traceback.print_exc()
+                    # Attempt to add error context before breaking
+                    try:
+                        error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
+                        assistant_response_with_error = assistant_response + f"\n{error_output}" # Append to potentially partial response
+                        context_chat.add_message(Role.ASSISTANT, assistant_response_with_error)
+                    except Exception as context_e:
+                        print(colored(f"Failed to add error to context: {context_e}", "red"))
+                    assistant_response = "" # Clear buffer
+                    
+                    # Reset output buffers for next execution to prevent accumulation
+                    stdout_buffer = ""
+                    stderr_buffer = ""
+                    
+                    break # Break inner loop
+                
+            # --- End of Agentic Inner Loop ---
+
+            # save context once per turn (moved outside inner loop)
+            if context_chat:
+                context_chat.save_to_json()
+                
+            # Check if we should exit after all messages have been processed
+            if args.exit and not args.message:
+                print(colored("All automatic messages processed successfully. Exiting...", "green"))
+                exit(0)
+
+            print_with_timer("Turn completed.", "magenta")
+
+        # End of outer while loop (Main loop)
+        print(colored("\nCLI-Agent is shutting down.", "cyan"))
+
+
+    except asyncio.CancelledError:
+        print(colored("\nCLI-Agent was interrupted. Shutting down gracefully...", "yellow"))
+    except KeyboardInterrupt:
+        print(colored("\nCLI-Agent was interrupted by user. Shutting down...", "yellow"))
+    except Exception as e:
+        print(colored(f"\nCLI-Agent encountered an error: {str(e)}", "red"))
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print(colored("\nCLI-Agent was interrupted by user. Shutting down...", "yellow"))
+    except Exception as e:
+        print(colored(f"\nCLI-Agent encountered an error: {str(e)}", "red"))
+        traceback.print_exc()
+                local_paths, online_paths = extract_paths(user_input)
+
+                # read local paths
+                for path in local_paths:
+                    if os.path.exists(path):
+                        # is file -> read file in
+                        if os.path.isfile(path):
+                            with open(path, 'r') as file:
+                                user_input += f"\n\n# {path}\n```\n{os.path.basename(path)}\n{file.read()}\n```"
+                                print(colored(f"# cli-agent: Read local path: {path}", "green"))
+                        # is folder -> run tree -L 3
+                        elif os.path.isdir(path):
+                            user_input += f"\n\n# {path}\n```\nbash\n{subprocess.check_output(['tree', '-L', '3', path]).decode('utf-8')}\n```"
+                            print(colored(f"# cli-agent: Looked into local folder: {path}", "green"))
+                user_interrupt = False
+
+
+            if LlmRouter.has_unconfirmed_data():
+                LlmRouter.confirm_finetuning_data()
+
+            # AGENTIC IN-TURN LOOP - BEGIN
+
+            action_counter = 0  # Initialize counter for consecutive actions
+            response_buffer=""
+            assistant_response = ""
+            text_stream_painter = TextStreamPainter()
+
+            # Only add user input if it's not empty (e.g. after -r or -s binding resulted in "")
+            if user_input and context_chat: # Check context_chat exists
+                context_chat.add_message(Role.USER, user_input)
+
+            # --- Start Agentic Inner Loop ---
+            last_action_signature: Optional[str] = None
+            stall_counter: int = 0
+            MAX_STALLS: int = 2  # Allow the same action twice before intervening
+            
+            while True:
+                try:
+
+                    def update_python_environment(chunk: str, print_char: bool = True) -> str:
+                        nonlocal response_buffer
+                        for char in chunk:
+                            response_buffer += char
+                            if print_char:
+                                print(text_stream_painter.apply_color(char), end="", flush=True)
+                            if response_buffer.count("```") % 2 == 0 and (response_buffer.count("```python") > 0 or response_buffer.count("```bash") > 0):
+                                final_response = response_buffer
+                                response_buffer = ""
+                                return final_response
+                        return None
+
+
+                    response_branches: List[str] = []
+                    try:
+                        # Ensure last message is assistant before generating new one if needed
+                        if assistant_response:
+                            print(colored(f"WARNING: Assistant response was not handled, defensively adding to context", "yellow"))
+                            if context_chat.messages[-1][0] == Role.USER:
+                                context_chat.add_message(Role.ASSISTANT, assistant_response)
+                            else:
+                                context_chat.messages[-1] = (Role.ASSISTANT, assistant_response)
+                            assistant_response = "" # Clear buffer after adding
+
+                        for i in range(len(g.SELECTED_LLMS) if len(g.SELECTED_LLMS) > 1 else args.mct if args.mct else 1):
+                            response_buffer = "" # Reset buffer for each branch
+                            
+                            branch_start_time = time.time()
+                            
+                            try:
+                                # Stream monitoring wrapper for LLM calls
+                                stream_monitor = {
+                                    'last_char_time': time.time(),
+                                    'stream_started': False,
+                                    'total_chars': 0
+                                }
+                                
+                                def monitored_stream_callback(chunk: str, print_char: bool = True) -> str:
+                                    """Enhanced callback that monitors stream health"""
+                                    nonlocal stream_monitor
+                                    
+                                    # Check for keyboard interrupt
+                                    try:
+                                        # Update stream monitoring
+                                        if chunk:
+                                            stream_monitor['last_char_time'] = time.time()
+                                            stream_monitor['stream_started'] = True
+                                            stream_monitor['total_chars'] += len(chunk)
+                                        
+                                        # Call the original callback
+                                        return update_python_environment(chunk, print_char)
+                                    except KeyboardInterrupt:
+                                        print(colored("\n-=- User interrupted streaming (Ctrl+C) -=-", "yellow"))
+                                        raise  # Re-raise to propagate the interrupt
+                                
+                                # If multi-LLM mode is active and there are selected LLMs
+                                if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1:
+                                    # If this is the first iteration, just use the selected LLMs instead of temperature variations
+                                    if i < len(g.SELECTED_LLMS):
+                                        current_model = g.SELECTED_LLMS[i]
+                                        if args.mct:
+                                            context_chat.debug_title = f"MCT Branching ({i+1}/{len(g.SELECTED_LLMS)})"
+                                        current_branch_response = await LlmRouter.generate_completion(
+                                            context_chat,
+                                            [current_model],
+                                            force_preferred_model=True,
+                                            temperature=temperature,
+                                            base64_images=base64_images,
+                                            generation_stream_callback=monitored_stream_callback,
+                                            strengths=g.LLM_STRENGTHS,
+                                            thinking_budget=thinking_budget,
+                                            exclude_reasoning_tokens=True
+                                        )
+                                    else:
+                                        # If we've already used all selected LLMs, use the first one with different temperatures
+                                        current_branch_response = await LlmRouter.generate_completion(
+                                            context_chat,
+                                            [g.SELECTED_LLMS[0]],
+                                            temperature=temperature,
+                                            base64_images=base64_images,
+                                            generation_stream_callback=monitored_stream_callback,
+                                            strengths=g.LLM_STRENGTHS,
+                                            thinking_budget=thinking_budget,
+                                            exclude_reasoning_tokens=True
+                                        )
+                                else:
+                                    # Standard single-LLM mode (or no specific LLM selection)
+                                    current_branch_response = await LlmRouter.generate_completion(
+                                        context_chat,
+                                        g.SELECTED_LLMS if g.SELECTED_LLMS else [],
+                                        temperature=temperature,
+                                        base64_images=base64_images,
+                                        generation_stream_callback=monitored_stream_callback,
+                                        strengths=g.LLM_STRENGTHS,
+                                        thinking_budget=thinking_budget,
+                                        exclude_reasoning_tokens=True
+                                    )
+                                
+                                # Check for successful completion and stream health
+                                branch_duration = time.time() - branch_start_time
+                                model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
+                                
+                                # Analyze stream health
+                                if not stream_monitor['stream_started']:
+                                    print(colored(f"❌ Branch {i+1} failed: stream never started after {branch_duration:.1f}s (model: {model_name})", "red"))
+                                elif current_branch_response and current_branch_response.strip():
+                                    response_branches.append(current_branch_response)
+                                else:
+                                    # Stream started but result is empty - possible connection drop or early termination
+                                    time_since_last_char = time.time() - stream_monitor['last_char_time']
+                                    if time_since_last_char > 10 and stream_monitor['total_chars'] > 0:
+                                        print(colored(f"⚠️ Branch {i+1} stream stalled: no new chars for {time_since_last_char:.1f}s, got {stream_monitor['total_chars']} chars (model: {model_name})", "yellow"))
+                                    else:
+                                        print(colored(f"❌ Branch {i+1} failed: returned empty response after {branch_duration:.1f}s (model: {model_name})", "red"))
+                                    
+                            except Exception as branch_error:
+                                branch_duration = time.time() - branch_start_time
+                                error_msg = str(branch_error)
+                                model_name = g.SELECTED_LLMS[i] if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and i < len(g.SELECTED_LLMS) else "Unknown"
+                                
+                                # Categorize the error type for better diagnostics
+                                if ("ctrl+c" in error_msg.lower()):
+                                    print(colored("=== User interrupted model generation (Ctrl+C) ===", "yellow"))
+                                    break # Break from inner agentic loop
+                                elif "connection" in error_msg.lower() or "connectionerror" in error_msg.lower():
+                                    print(colored(f"🌐 Branch {i+1} connection failed after {branch_duration:.1f}s (model: {model_name}): {error_msg}", "red"))
+                                elif "timeout" in error_msg.lower() or "asyncio.TimeoutError" in error_msg:
+                                    print(colored(f"⏱️ Branch {i+1} timed out after {branch_duration:.1f}s (model: {model_name})", "red"))
+                                elif "stream" in error_msg.lower():
+                                    print(colored(f"📡 Branch {i+1} stream error after {branch_duration:.1f}s (model: {model_name}): {error_msg}", "red"))
+                                else:
+                                    print(colored(f"❌ Branch {i+1} failed after {branch_duration:.1f}s (model: {model_name}): {error_msg}", "red"))
+                                
+                                response_branches.append(f"Error: Branch {i+1} failed - {error_msg}")
+                        
+                        base64_images = [] # Clear images after use
+                        context_chat.debug_title = "Main Context Chat"
+
+                    except KeyboardInterrupt:
+                        print(colored("\n-=- User interrupted model generation (Ctrl+C) -=-", "yellow"))
+                        # Clear any queued messages and return control to the user
+                        if args.message:
+                            print(colored(f"Clearing {len(args.message)} queued message(s).", "yellow"))
+                            args.message = []
+                        break # Break from inner agentic loop
+
+                    except Exception as e:
+                        LlmRouter.clear_unconfirmed_finetuning_data()
+                        print(colored(f"Error generating response: {str(e)}", "red"))
+                        if args.debug:
+                            traceback.print_exc()
+                        break # Break inner loop
+
+                    # --- MCT Branch Selection ---
+                    if args.mct:
+                        try:
+                            selected_branch_index = await select_best_branch(context_chat, response_branches) # Use last user input
+                            assistant_response = response_branches[selected_branch_index]
+                            
+                            # Show which model generated the selected response if in multi-LLM mode
+                            if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 1 and selected_branch_index < len(g.SELECTED_LLMS):
+                                model_name = g.SELECTED_LLMS[selected_branch_index]
+                                print(colored(f"Selected branch {selected_branch_index} from model: {model_name}", "green"))
+                            else:
+                                print(colored(f"Selected branch: {selected_branch_index}", "green"))
+                            print(colored("Adding to context:", "green"))                            
                             # Print the selected branch if we're in MCT mode (since we don't stream MCT branches)
                             text_stream_painter = TextStreamPainter()
                             for char in assistant_response:
@@ -1787,6 +2274,8 @@ Current year and month: {datetime.datetime.now().strftime('%Y-%m')}
             if args.exit and not args.message:
                 print(colored("All automatic messages processed successfully. Exiting...", "green"))
                 exit(0)
+
+            print_with_timer("Turn completed.", "magenta")
 
         # End of outer while loop (Main loop)
         print(colored("\nCLI-Agent is shutting down.", "cyan"))
