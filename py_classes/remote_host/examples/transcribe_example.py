@@ -10,12 +10,10 @@ This script:
 
 import os
 import sys
-import time
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-from typing import Tuple, Optional
-from scipy import signal
+from typing import Tuple
 
 # Add parent directory to path to import RemoteHostClient
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))

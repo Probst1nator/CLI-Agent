@@ -1,10 +1,8 @@
 import datetime
 import pexpect
-import tempfile
 import os
 import time
-import re
-from typing import Callable, List, Tuple, Optional
+from typing import Callable, Optional
 from py_classes.globals import g
 
 class ComputationalNotebook:
@@ -34,12 +32,13 @@ class ComputationalNotebook:
         g.cleanup_temp_py_files()
 
         self.child = pexpect.spawn('bash', encoding='utf-8', timeout=30)
-        self._expect_bash_prompt()
+        self._expect_bash_prompt(suppress_output=True)  # Suppress initial bash prompt
 
-    def _expect_bash_prompt(self, timeout=30):
+    def _expect_bash_prompt(self, timeout=30, suppress_output=False):
         self.child.expect(self.bash_prompt_regex, timeout=timeout)
         output = str(self.child.before) + str(self.child.after)
-        self.stdout_callback(output)
+        if not suppress_output:
+            self.stdout_callback(output)
 
     def _stream_output_until_prompt(self, timeout=30):
         """Stream output using pexpect.expect for robust prompt detection."""

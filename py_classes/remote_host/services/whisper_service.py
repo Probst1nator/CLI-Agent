@@ -8,9 +8,8 @@ an optimized implementation of OpenAI's Whisper model.
 import logging
 import os
 import base64
-import json
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 import numpy as np
 import warnings
 import torch

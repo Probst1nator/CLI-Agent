@@ -2,7 +2,7 @@ import os
 import requests
 import json
 import yaml
-from typing import Dict, Optional, Any, Literal, Set, Union
+from typing import Dict, Optional, Any, Literal
 from dotenv import load_dotenv
 from datetime import datetime
 
@@ -34,7 +34,7 @@ class HomeAssistant(UtilBase):
                 with open(cls._INTERACTED_ENTITIES_FILE, 'r') as f:
                     data = json.load(f)
                     return data.get('entities', {})
-        except Exception as e:
+        except Exception:
             pass
         return {}
 
@@ -65,7 +65,7 @@ class HomeAssistant(UtilBase):
             
             with open(cls._INTERACTED_ENTITIES_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
-        except Exception as e:
+        except Exception:
             pass
 
     @classmethod

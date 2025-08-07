@@ -6,7 +6,6 @@ This script provides a command-line interface for starting the remote host serve
 """
 
 import os
-import sys
 import argparse
 import logging
 

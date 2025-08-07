@@ -1,8 +1,6 @@
 import tempfile
-import json
 import os
-import time
-from typing import Any, Dict, List, Optional, Callable, Union, TYPE_CHECKING
+from typing import Optional, Callable, Union, TYPE_CHECKING
 from openai import OpenAI
 from termcolor import colored
 import speech_recognition as sr
@@ -55,7 +53,7 @@ class HumanAPI(AIProviderInterface):
         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
         
         # Informational logging (not error handling)
-        g.debug_log(f"Human-Api: User is asked for a response...", "green", force_print=True, prefix=prefix)
+        g.debug_log("Human-Api: User is asked for a response...", "green", force_print=True, prefix=prefix)
         g.debug_log(colored(("# " * 20) + "CHAT BEGIN" + (" #" * 20), "yellow"), force_print=True, prefix=prefix)
         chat.print_chat()
         g.debug_log(colored(("# " * 20) + "CHAT STOP" + (" #" * 21), "yellow"), force_print=True, prefix=prefix)

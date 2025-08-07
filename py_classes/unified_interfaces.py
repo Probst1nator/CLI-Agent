@@ -1,10 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple, Union, Any
-from collections.abc import Callable
+from typing import List, Optional, Tuple, Union, Any
 import numpy as np
 import speech_recognition as sr
 import logging
-from termcolor import colored
 
 from py_classes.cls_chat import Chat
 

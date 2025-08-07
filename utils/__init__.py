@@ -2,6 +2,7 @@
 
 # --- Simple, Deterministic Tools ---
 from .writefile import WriteFile 
+from .viewfile import ViewFile
 from .todos import TodosUtil
 from .findfiles import FindFiles
 from .web_fetch import WebFetchUtil

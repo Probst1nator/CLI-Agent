@@ -1,19 +1,14 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional
 from flask import Flask, render_template_string, jsonify, request
 import threading
 import webbrowser
 import queue
 import requests
 import time
-import multiprocessing
-from multiprocessing.managers import BaseManager
-from werkzeug.serving import make_server
 from py_classes.cls_chat import Chat, Role
-from py_classes.globals import g
 import subprocess
 import os
 from multiprocessing import Process
-import builtins
 
 class WebServer:
     def __init__(self, port: int = 5000):

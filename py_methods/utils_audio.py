@@ -8,20 +8,17 @@ and text-to-speech synthesis using local models with lazy loading for efficiency
 
 import json
 import logging
-import os
 import queue
 import struct
 import subprocess
 import time
 import traceback
-import mimetypes
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import psutil
 import sounddevice as sd
 import soundfile as sf
-import torch
 from termcolor import colored
 from vosk import KaldiRecognizer, Model, SetLogLevel
 

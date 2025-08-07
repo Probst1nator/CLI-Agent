@@ -1,9 +1,6 @@
-import sys
-import os
-import datetime
 
 # These imports are always available
-from agent_utils import SearchWeb, TextToBool
+from agent_utils import SearchWeb
 
 # Agents are instantiable objects
 webSearcher = SearchWeb()

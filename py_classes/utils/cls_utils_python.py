@@ -1,7 +1,7 @@
 import argparse
 import json
 import os
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 from termcolor import colored
 

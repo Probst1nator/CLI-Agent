@@ -4,7 +4,7 @@ import os
 import argparse
 import asyncio
 import re
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 # Attempt to import necessary libraries, providing user-friendly errors.
 try:
@@ -201,9 +201,9 @@ async def create_meta_summary(summaries: List[str], successful_sources: List[str
     content_for_llm += "# Document Summaries:\n"
     content_for_llm += "\n\n".join([f"--- SUMMARY FROM: {successful_sources[i]} ---\n\n{s}" for i, s in enumerate(summaries)])
     content_for_llm += "\n\n# Source Lists for Attribution:\n"
-    content_for_llm += f"## Successfully Analyzed Documents:\n- " + "\n- ".join(successful_sources)
+    content_for_llm += "## Successfully Analyzed Documents:\n- " + "\n- ".join(successful_sources)
     if failed_sources:
-        content_for_llm += f"\n\n## Documents That Could Not Be Processed:\n- " + "\n- ".join(failed_sources)
+        content_for_llm += "\n\n## Documents That Could Not Be Processed:\n- " + "\n- ".join(failed_sources)
 
     chat.add_message(Role.USER, content_for_llm)
     

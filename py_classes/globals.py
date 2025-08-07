@@ -2,11 +2,9 @@
 import os
 import shutil
 import socket
-from typing import List, Optional, Any, Callable, TYPE_CHECKING, Dict
-import argparse
+from typing import List, Optional, Any, Callable, Dict
 import logging
 import builtins
-from enum import Enum, auto
 from termcolor import colored
 import json
 
@@ -20,10 +18,14 @@ class Globals:
     DEBUG_CHATS: bool = False
     USE_SANDBOX: bool = False
     LLM: Optional[str] = None
+    MCT: Optional[int] = None
     LLM_STRENGTHS: List[AIStrengths] = []
     SELECTED_UTILS: List[str] = []  # Store selected utilities
     SELECTED_LLMS: List[str] = []  # Store selected LLMs
     SSH_CONNECTION: Optional[str] = None  # Store SSH connection details (user@hostname:port)
+    
+    # Ollama host configuration
+    ollama_host_env: List[str] = []
     
     # Configuration settings
     _user_config: Dict[str, Any] = {}
@@ -130,7 +132,11 @@ class Globals:
             force_print (bool): Force printing to console even for info messages
             prefix (str): Prefix to add before the message (replaces chat.get_debug_title_prefix())
         """
-        log_message = f"{prefix}{message}"
+        does_contain_whitespace = prefix.endswith(" ") or message.startswith(" ")
+        if does_contain_whitespace:
+            log_message = f"\n{prefix}" + message.removeprefix('\n')
+        else:
+            log_message = f"\n{prefix} " + message.removeprefix('\n')
         
         # Log to appropriate logger level (ignoring color)
         if is_error:
@@ -167,6 +173,13 @@ g = Globals()
 
 # Initialize user configuration
 g.load_user_config()
+
+# Initialize Ollama host environment variable
+ollama_host_env = os.getenv("OLLAMA_HOST", "")
+if ollama_host_env:
+    g.ollama_host_env = ollama_host_env.split(",")
+else:
+    g.ollama_host_env = []
 
 def configure_logging():
     # Configure root logger 

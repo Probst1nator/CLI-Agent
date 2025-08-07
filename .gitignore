@@ -33,3 +33,5 @@ __pycache__/
 podcast_generations
 
 run_screen_grabber.sh
+CLAUDE.md
+GEMINI.md

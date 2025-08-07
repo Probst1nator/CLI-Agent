@@ -2,7 +2,6 @@
 import json
 import requests
 from bs4 import BeautifulSoup
-from typing import Dict, Any
 
 from py_classes.cls_util_base import UtilBase
 

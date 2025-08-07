@@ -1,15 +1,8 @@
 import logging
-import os
-import sys
 import warnings
-from dotenv import load_dotenv
-import whisper
-from typing import Dict, Tuple, Optional, List, Union
-import torch
+from typing import Tuple, Optional
 import soundfile as sf
-import sounddevice as sd
 import numpy as np
-from py_classes.globals import g
 from termcolor import colored
 
 from py_classes.ai_providers.cls_whisper_interface import WhisperInterface

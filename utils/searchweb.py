@@ -3,14 +3,8 @@ from py_classes.cls_chat import Chat, Role
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.enum_ai_strengths import AIStrengths
 from py_classes.cls_util_base import UtilBase
-from typing import Any, Dict, List, Optional, Tuple, Coroutine
-import logging
-import traceback
-import requests
+from typing import Any, Dict, List, Tuple, Coroutine
 import asyncio
-import concurrent.futures
-from pydantic import ValidationError
-from py_classes.globals import g
 from py_classes.utils.cls_utils_web import WebTools
 
 def _run_async_safely(coro: Coroutine) -> Any:
@@ -104,7 +98,7 @@ class SearchWeb(UtilBase):
                 failed_queries.append((query, f"Unexpected error: {str(e)}"))
         
         # Format results
-        inst = f"""You are a helpful AI assistant tasked with summarizing web search results.
+        inst = """You are a helpful AI assistant tasked with summarizing web search results.
         
 Task: Analyze the following web search results and provide a clear, informative summary that:
 1. Synthesizes the key information from all sources
@@ -119,7 +113,7 @@ If sources conflict or information seems outdated, note this in your summary.
 
 """
 
-        summarization_prompt = f"# Search Queries\n"
+        summarization_prompt = "# Search Queries\n"
         query_list = '\n'.join([f'{i+1}. {query}' for i, query in enumerate(queries)])
         summarization_prompt += f"{query_list}\n# Search Results\n"
         for result, url in all_results:
@@ -153,7 +147,7 @@ If sources conflict or information seems outdated, note this in your summary.
                 summary += f"{i}. {url}\n{result[:200]}...\n\n"
         
         # Check if the summary is relevant to the queries
-        is_relevant_instruction = f"""You are a helpful assistant that checks if a summary is relevant to a list of search queries. 
+        is_relevant_instruction = """You are a helpful assistant that checks if a summary is relevant to a list of search queries. 
 Always return a tool_code block as shown in the following Examples:
 
 Example 1:

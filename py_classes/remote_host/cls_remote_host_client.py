@@ -7,11 +7,9 @@ This module provides client functionality for interacting with the CLI-Agent Rem
 import logging
 import os
 import base64
-import json
 import requests
 from typing import Dict, Optional, Tuple, List, Any
 import numpy as np
-import time
 from dotenv import load_dotenv
 from termcolor import colored
 

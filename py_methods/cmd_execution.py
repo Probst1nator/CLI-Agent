@@ -7,7 +7,6 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import CheckboxList, Frame, Label
-from py_classes.cls_llm_router import LlmRouter
 from py_classes.globals import g
 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 
