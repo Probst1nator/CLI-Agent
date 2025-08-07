@@ -1,25 +1,19 @@
 import os
-import time
-from typing import Optional, List, Dict, Any, Union, Iterator, TypeVar, Generic, Literal, Tuple, cast
-from collections.abc import Callable
-import socket
+from typing import Optional, List, Dict, Any, Union
 import logging
 from termcolor import colored
-from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, TooManyRequests
 import google.generativeai as genai
 from google.generativeai import types
-from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.cls_rate_limit_tracker import rate_limit_tracker
 from py_classes.globals import g
-import base64
 import re
 # Import audio utility functions
-from py_methods.utils_audio import save_binary_file, convert_to_wav, parse_audio_mime_type
+from py_methods.utils_audio import save_binary_file, convert_to_wav
 import mimetypes
 # Import exceptions from Groq interface to avoid duplication
-from py_classes.ai_providers.cls_groq_interface import TimeoutException, RateLimitException
+from py_classes.ai_providers.cls_groq_interface import RateLimitException
 
 logger = logging.getLogger(__name__)
 

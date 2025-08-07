@@ -1,10 +1,8 @@
-import base64
 import os
 import re
-from typing import Optional, List, Dict, Any, Tuple
+from typing import List, Dict, Tuple
 import requests
 from bs4 import BeautifulSoup
-from termcolor import colored
 import chromadb
 import hashlib
 from datetime import datetime
@@ -220,6 +218,6 @@ if __name__ == "__main__":
     # Print results
     for doc, url in results:
         print(f"URL: {url}")
-        print(f"Chunk:")
+        print("Chunk:")
         print(doc)
         print("-" * 80)

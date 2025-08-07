@@ -8,13 +8,8 @@ speech processing, and potentially other services in the future.
 
 import logging
 import os
-import sys
-import json
-import base64
 from flask import Flask, request, jsonify
-from typing import Dict, List, Optional, Any
 import time
-import numpy as np
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

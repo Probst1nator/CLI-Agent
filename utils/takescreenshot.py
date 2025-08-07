@@ -157,7 +157,6 @@ class TakeScreenshotUtil(UtilBase):
     @staticmethod
     def _get_window_coords_linux(title_query: str) -> tuple[Optional[Dict[str, int]], Optional[str]]:
         """Find window by title and get its coordinates on Linux (X11)."""
-        import re
         try:
             result = subprocess.run(['xdotool', 'search', '--name', title_query], capture_output=True, text=True, check=True)
             window_ids = result.stdout.strip().split()

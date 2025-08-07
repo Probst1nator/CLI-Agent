@@ -5,11 +5,9 @@ This module provides a service for detecting wake words using the Vosk speech re
 """
 
 import logging
-import os
 import base64
 import json
 from typing import Dict, Any, List
-import numpy as np
 from vosk import Model, KaldiRecognizer
 
 logger = logging.getLogger(__name__)

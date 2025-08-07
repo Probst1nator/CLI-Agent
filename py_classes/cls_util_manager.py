@@ -1,8 +1,7 @@
 import importlib
 import inspect
 import os
-from typing import Dict, List, Type, Optional, Set
-import logging
+from typing import List, Type, Optional, Dict, Any
 from pathlib import Path
 from termcolor import colored
 
@@ -16,8 +15,12 @@ class UtilsManager:
         self.utils_path = self.project_root / self.utils_directory
         self.utils: List[Type[UtilBase]] = []
         self.util_history: List[Type[UtilBase]] = []
-        print(colored(f"Initializing UtilsManager with directory: {self.utils_path}", "green"))
+        # Initializing UtilsManager silently
         self._load_utils()
+        
+        # Initialize vector database for smart tool retrieval
+        self.vector_db = None
+        self._init_vector_db()
 
     def _load_utils(self) -> None:
         """Dynamically load all utility modules from the utils directory"""
@@ -26,13 +29,13 @@ class UtilsManager:
             # Create __init__.py to make it a package
             (self.utils_path / "__init__.py").touch()
 
-        print(colored(f"Scanning for utilities in: {self.utils_path}", "green"))
+        # Scanning for utilities silently
         for file in self.utils_path.glob("*.py"):
             if file.name.startswith("_"):
                 continue
 
             try:
-                print(colored(f"Loading utility from file: {file}", "cyan"))
+                # Loading utility from file silently
                 # Convert path to module name (e.g., utils/my_util.py -> utils.my_util)
                 module_name = f"{self.utils_directory}.{file.stem}"
                 module = importlib.import_module(module_name)
@@ -45,13 +48,15 @@ class UtilsManager:
                         try:
                             # Add utility class directly to the list
                             util_name = UtilBase.get_name(obj)
-                            print(colored(f"Successfully loaded utility: {util_name}", "green"))
+                            # Successfully loaded utility silently
                             self.utils.append(obj)
                         except Exception as util_error:
                             print(colored(f"Error loading utility {name}: {str(util_error)}", "red"))
 
             except Exception as e:
-                print(colored(f"Error loading utility from {file}: {str(e)}", "red"))
+                # Only show critical errors, suppress common dependency issues
+                if "No module named" not in str(e):
+                    print(colored(f"Error loading utility from {file}: {str(e)}", "red"))
 
     def get_util(self, name: str) -> Type[UtilBase]:
         """Get a utility by name and add it to the utility history"""
@@ -137,13 +142,79 @@ from utils.{util_name} import {util_cls.__name__}
             except Exception:
                 prompt += "```python\n# Could not retrieve method signature\n```\n"
             
-            prompt += f"\n"
+            prompt += "\n"
             i += 1
             
         return prompt
 
+    def _init_vector_db(self) -> None:
+        """Initialize the vector database for smart tool retrieval"""
+        try:
+            from py_classes.cls_vector_db import ToolVectorDB
+            self.vector_db = ToolVectorDB()
+            
+            # Add all loaded utilities to the vector database
+            for util_cls in self.utils:
+                self.vector_db.add_tool(util_cls)
+                
+        except Exception as e:
+            # If vector DB initialization fails, continue without it
+            if os.environ.get('CLAUDE_CODE_DEBUG') == '1':
+                print(f"Warning: Could not initialize vector database: {e}")
+            self.vector_db = None
+
+    def get_relevant_utils(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """
+        Get utilities most relevant to a query using vector search.
+        
+        Args:
+            query: The search query describing what the user wants to do
+            top_k: Number of relevant utilities to return
+            
+        Returns:
+            List of utility information dictionaries
+        """
+        if self.vector_db is None:
+            # Fallback to returning all utilities if vector DB is not available
+            return [
+                {
+                    "name": UtilBase.get_name(util_cls),
+                    "score": 1.0,
+                    "class": util_cls,
+                    "metadata": getattr(util_cls, 'get_metadata', lambda: {})()
+                } 
+                for util_cls in self.utils[:top_k]
+            ]
+        
+        results = self.vector_db.search(query, top_k)
+        
+        # Record the search for learning purposes
+        if results and len(results) > 0:
+            # For now, record the first result as selected for learning
+            self.vector_db.record_tool_selection(results[0]["name"], query)
+        
+        return results
+    
+    def get_relevant_guidance(self, query: str, top_k: int = 2) -> List[Dict[str, Any]]:
+        """
+        Get relevant guidance hints for a query.
+        
+        Args:
+            query: The search query
+            top_k: Number of guidance hints to return
+            
+        Returns:
+            List of relevant guidance hints
+        """
+        if self.vector_db is None:
+            return []
+        
+        return self.vector_db.get_relevant_guidance(query, top_k)
+
     def reload_utils(self) -> None:
         """Reload all utilities from the utils directory"""
         self.utils.clear()
-        self._load_utils() 
+        self._load_utils()
+        # Reinitialize vector DB with new utilities
+        self._init_vector_db()
         

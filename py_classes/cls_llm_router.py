@@ -2,13 +2,10 @@ from collections.abc import Callable
 import hashlib
 import json
 import os
-from random import shuffle
 import shutil
-import socket
 import time
 from typing import Dict, List, Optional, Set, Any, Union, Iterator
 from termcolor import colored
-from py_classes.ai_providers.cls_human_as_interface import HumanAPI
 from py_classes.ai_providers.cls_nvidia_interface import NvidiaAPI
 from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Chat, Role
@@ -16,7 +13,6 @@ from py_classes.ai_providers.cls_anthropic_interface import AnthropicAPI
 from py_classes.enum_ai_strengths import AIStrengths
 from py_classes.unified_interfaces import AIProviderInterface
 from py_classes.ai_providers.cls_groq_interface import GroqAPI, TimeoutException, RateLimitException
-from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
 from py_classes.ai_providers.cls_google_interface import GoogleAPI
 from py_classes.globals import g
@@ -39,6 +35,13 @@ logger.addHandler(console_handler)
 class UserInterruptedException(Exception):
     """Exception raised when the user interrupts model generation (e.g., with Ctrl+C)."""
     pass
+
+# PASTE THE EXCEPTION DEFINITION HERE
+class StreamInterruptedException(Exception):
+    """Exception raised by a callback to signal that a stream is complete (e.g., a full code block was received)."""
+    def __init__(self, response):
+        self.response = response
+        super().__init__("Stream interrupted by callback to signal completion.")
 
 class Llm:
     """
@@ -98,15 +101,55 @@ class Llm:
         """Returns whether this is a small/fast model."""
         return any(s == AIStrengths.SMALL for s in self.strengths)
     
+    def get_context_window(self) -> int:
+        """
+        Get the context window size. If None, fetch dynamically from Ollama.
+        
+        Returns:
+            int: The context window size
+        """
+        if self.context_window is not None:
+            return self.context_window
+        
+        # For Ollama models, fetch context length dynamically
+        if self.provider.__class__.__name__ == 'OllamaClient':
+            try:
+                from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+                # Try different Ollama hosts
+                ollama_hosts = ["localhost", "192.168.178.37"]
+                for host in ollama_hosts:
+                    try:
+                        context_length = OllamaClient.get_model_context_length(self.model_key, host)
+                        if context_length is not None:
+                            # Cache the result to avoid repeated calls
+                            self.context_window = context_length
+                            return context_length
+                    except Exception:
+                        continue
+                # If all hosts failed, use consistent fallback
+                fallback_context = 128000
+                self.context_window = fallback_context
+                return fallback_context
+            except Exception:
+                # Final fallback - consistent value for all models
+                fallback_context = 128000
+                self.context_window = fallback_context
+                return fallback_context
+        
+        # For non-Ollama models, return consistent default
+        default_context = 128000
+        self.context_window = default_context
+        return default_context
+    
     @classmethod
     def get_available_llms(cls, exclude_guards: bool = False) -> List["Llm"]:
         """
-        Get the list of available LLMs.
+        Get the list of available LLMs, including dynamically discovered Ollama models.
         
         Returns:
             List[Llm]: A list of Llm instances representing the available models.
         """
-        # Define and return a list of available LLM instances
+        # Static cloud models and configured Ollama models
         llms = [
             # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
             
@@ -125,32 +168,93 @@ class Llm:
             
             # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
             
-            # Llm(OllamaClient(), "gemma3n:e4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            # Llm(OllamaClient(), "gemma3n:e2b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "qwen3:30b-a3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-            Llm(OllamaClient(), "qwen3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
-            Llm(OllamaClient(), "gemma3:4b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "cogito:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
-            Llm(OllamaClient(), "qwen2.5vl:3b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
-            
-            
-            Llm(OllamaClient(), "cogito:8b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "gemma3:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION]),
-            Llm(OllamaClient(), "cogito:14b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "mistral-nemo:12b", None, 128000, [AIStrengths.GENERAL, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-            Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.VISION, AIStrengths.STRONG]),
-            Llm(OllamaClient(), "devstral:24b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-            Llm(OllamaClient(), "Captain-Eris_Violet-GRPO-v0.420.i1-Q4_K_M:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "L3-8B-Stheno-v3.2-Q4_K_M-imat:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.UNCENSORED, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "DeepHermes-Egregore-v2-RLAIF-8b-Atropos-Q4:latest", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "gemma3:1b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
-            
-            # Guard models
-            Llm(GroqAPI(), "llama-guard-4-12b", None, 128000, [AIStrengths.GUARD]),
-            Llm(OllamaClient(), "llama-guard3:8b", None, 8192, [AIStrengths.GUARD, AIStrengths.LOCAL]),
-            Llm(OllamaClient(), "shieldgemma:2b", None, 8192, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.SMALL]),
+            # Static configured Ollama models (these will be supplemented by dynamic discovery)
+            # Context lengths will be dynamically fetched from Ollama
         ]
+        
+        # Import OllamaClient here to avoid circular import
+        try:
+            from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+            llms.extend([
+                Llm(OllamaClient(), "qwen3-coder:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.SMALL]),
+                Llm(OllamaClient(), "devstral:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "qwen3:30b:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "mistral-small3.2:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.VISION]),
+                
+                
+                Llm(OllamaClient(), "gemma3n:e4b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "gemma3n:e2b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+                Llm(OllamaClient(), "qwen2.5vl:3b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
+                Llm(OllamaClient(), "cogito:32b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "qwen3:1.7b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+                Llm(OllamaClient(), "qwen2.5-coder:1.5b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+                
+                
+                # Guard models
+                Llm(OllamaClient(), "llama-guard3:8b", None, None, [AIStrengths.GUARD, AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "shieldgemma:2b", None, None, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.SMALL]),
+            ])
+        except ImportError:
+            # OllamaClient not available, skip Ollama models
+            pass
+            
+        # Non-Ollama guard models
+        llms.extend([
+            Llm(GroqAPI(), "llama-guard-4-12b", None, 128000, [AIStrengths.GUARD]),
+        ])
+        
+        # Get existing model keys to avoid duplicates
+        existing_models = {llm.model_key for llm in llms}
+        
+        # Add dynamically discovered Ollama models (ONLY downloaded/local models)
+        try:
+            # Try different Ollama hosts
+            ollama_hosts = ["localhost", "192.168.178.37"]  # Add common Ollama hosts
+            for host in ollama_hosts:
+                try:
+                    try:
+                        from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+                        # IMPORTANT: Only get actually downloaded/installed models
+                        # Never include downloadable-but-not-installed models in auto-selection
+                        downloaded_models = OllamaClient.get_downloaded_models(host)
+                        for model_info in downloaded_models:
+                            model_name = model_info.get('name', '')
+                            if model_name and model_name not in existing_models:
+                                # Verify this model is actually downloaded by checking if it has size/modified info
+                                # This ensures we don't accidentally include downloadable models
+                                if not (model_info.get('size', 0) > 0 or model_info.get('modified_at')):
+                                    continue  # Skip if no size/modified info (not actually downloaded)
+                                
+                                # Determine strengths based on model name patterns
+                                strengths = [AIStrengths.LOCAL, AIStrengths.GENERAL]
+                                
+                                # Add specific strengths based on model name
+                                model_lower = model_name.lower()
+                                if any(x in model_lower for x in ['code', 'coder', 'dev']):
+                                    strengths.append(AIStrengths.CODE)
+                                if any(x in model_lower for x in ['vision', 'vl', 'visual']):
+                                    strengths.append(AIStrengths.VISION)
+                                if any(x in model_lower for x in ['1b', '2b', '3b', '4b', 'small']):
+                                    strengths.append(AIStrengths.SMALL)
+                                elif any(x in model_lower for x in ['30b', '70b', 'large']):
+                                    strengths.append(AIStrengths.STRONG)
+                                
+                                # Create dynamic Llm instance (only for actually downloaded models)
+                                llms.append(Llm(
+                                    OllamaClient(), 
+                                    model_name, 
+                                    None, 
+                                    None,  # Context window will be fetched dynamically
+                                    strengths
+                                ))
+                                existing_models.add(model_name)
+                    except ImportError:
+                        pass  # OllamaClient not available
+                except Exception:
+                    continue  # Skip failed hosts
+        except Exception:
+            pass  # Fall back to static list if dynamic discovery fails
+        
         if exclude_guards:
             llms = [llm for llm in llms if not any(s == AIStrengths.GUARD for s in llm.strengths)]
         return llms
@@ -190,6 +294,8 @@ class LlmRouter:
         self.retry_models = Llm.get_available_llms()
         self._load_dynamic_model_limits()
         self.failed_models: Set[str] = set()
+        # Track cache keys used in current runtime to avoid duplicate fetches for non-zero temperature
+        self.runtime_used_cache_keys: Set[str] = set()
     
     def _load_dynamic_model_limits(self) -> None:
         """Load model limits from disk if not already loaded."""
@@ -234,21 +340,33 @@ class LlmRouter:
             print(colored(f"Unexpected error loading cache: {e}", "red"))
             return {}
 
-    def _get_cached_completion(self, model_key: str, key: str, images: List[str]) -> Optional[str]:
+    def _get_cached_completion(self, model_key: str, key: str, images: List[str], temperature: float = 0) -> Optional[str]:
         """
         Retrieve a cached completion if available.
         
         Args:
             model_key (str): Model identifier.
-            chat (Chat): The chat prompt.
+            key (str): The chat prompt key.
             images (List[str]): List of image encodings.
+            temperature (float): Temperature setting - used to determine cache behavior.
 
         Returns:
             Optional[str]: The cached completion string if available, otherwise None.
         """
         # Generate cache key and return cached completion if it exists
-        cache_key = self._generate_hash(model_key,  key, images)
-        return self.cache.get(cache_key)
+        cache_key = self._generate_hash(model_key, key, images)
+        
+        # For non-zero temperature, check if we've already used this cache key in current runtime
+        if temperature != 0 and cache_key in self.runtime_used_cache_keys:
+            return None  # Skip cache to allow variety in Monte Carlo scenarios
+        
+        cached_result = self.cache.get(cache_key)
+        
+        # If we found a cached result and temperature != 0, mark this cache key as used
+        if cached_result and temperature != 0:
+            self.runtime_used_cache_keys.add(cache_key)
+        
+        return cached_result
 
     def _update_cache(self, model_key: str, key: str, images: List[str], completion: str) -> None:
         """
@@ -309,7 +427,7 @@ class LlmRouter:
             if len(chat) >= token_limit:
                 return False
         
-        if model.context_window < len(chat):
+        if model.get_context_window() < len(chat):
             return False
         if strength and model.strengths:
             # Check if ALL of the required strengths are included in the model's strengths
@@ -351,7 +469,7 @@ class LlmRouter:
         # If no preferred models with exact capabilities, check all models
         if not available_models:
             for model in instance.retry_models:
-                if model.model_key not in instance.failed_models and not model.model_key in [model.model_key for model in available_models]:
+                if model.model_key not in instance.failed_models and model.model_key not in [model.model_key for model in available_models]:
                     if (not force_local or model.local) and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=False):
                         available_models.append(model)
         
@@ -367,7 +485,7 @@ class LlmRouter:
             # Then check all models
             if not available_models:
                 for model in instance.retry_models:
-                    if model.model_key not in instance.failed_models and not model.model_key in [model.model_key for model in available_models]:
+                    if model.model_key not in instance.failed_models and model.model_key not in [model.model_key for model in available_models]:
                         if (not force_local or model.local) and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=True):
                             available_models.append(model)
 
@@ -410,14 +528,23 @@ class LlmRouter:
         if not candidate_models and force_preferred_model:
             # Check if the preferred model is actually defined as an Ollama model in our registry
             model_name = preferred_models[0]
-            ollama_model_found = any(
-                llm.model_key == model_name and isinstance(llm.provider, OllamaClient) 
-                for llm in Llm.get_available_llms()
-            )
+            ollama_model_found = False
+            try:
+                from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+                ollama_model_found = any(
+                    llm.model_key == model_name and isinstance(llm.provider, OllamaClient) 
+                    for llm in Llm.get_available_llms()
+                )
+            except ImportError:
+                pass
             
             if force_local or ollama_model_found:
-                # Only return a dummy Ollama model if it's actually supposed to be an Ollama model
-                return Llm(OllamaClient(), preferred_models[0], 0, 8192, [AIStrengths.GENERAL, AIStrengths.LOCAL])
+                try:
+                    from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+                    # Only return a dummy Ollama model if it's actually supposed to be an Ollama model
+                    return Llm(OllamaClient(), preferred_models[0], 0, 8192, [AIStrengths.GENERAL, AIStrengths.LOCAL])
+                except ImportError:
+                    pass
             
             print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
             return None
@@ -561,15 +688,20 @@ class LlmRouter:
             except StopIteration:
                 pass  # Normal end of stream
         # ! Ollama/Groq
-        elif isinstance(provider, OllamaClient) or isinstance(provider, GroqAPI):
+        elif provider.__class__.__name__ == 'OllamaClient' or isinstance(provider, GroqAPI):
+            chunk_count = 0
             for chunk in stream:
+                chunk_count += 1
                 token = None
                 if isinstance(provider, GroqAPI):
                     if hasattr(chunk, 'choices') and chunk.choices and \
                        hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
                         token = chunk.choices[0].delta.content
-                elif isinstance(provider, OllamaClient):
+                elif provider.__class__.__name__ == 'OllamaClient':
                     if isinstance(chunk, dict):  # Ollama dictionary chunks
+                        if 'error' in chunk:
+                            # Raise a specific exception if the Ollama server returns an error in the stream
+                            raise Exception(f"Ollama server error: {chunk['error']}")
                         token = chunk.get('message', {}).get('content', '') or chunk.get('response', '')
                     elif hasattr(chunk, 'message'):  # Ollama response object
                         if hasattr(chunk.message, 'content'):
@@ -597,6 +729,7 @@ class LlmRouter:
                     elif not hidden_reason:
                         g.print_token(token_stream_painter.apply_color(token))
             
+        
         # If callback returned a final response string at any point (and broke the loop)
         if finished_response and isinstance(finished_response, str):
             return finished_response
@@ -610,6 +743,7 @@ class LlmRouter:
         model: Llm,
         text_stream_painter: TextStreamPainter,
         hidden_reason: str,
+        debug_title:str,
         callback: Optional[Callable] = None
     ) -> str:
         """
@@ -626,7 +760,7 @@ class LlmRouter:
             str: The processed response string
         """
         if not hidden_reason:
-            g.debug_log(f"\n{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True)
+            g.debug_log(f"\n{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True, prefix=f"[{debug_title}]")
             for char in cached_completion:
                 if callback:
                     finished_response = callback(char, not hidden_reason)
@@ -843,7 +977,6 @@ class LlmRouter:
             str: The generated completion string.
         """
         instance = cls()
-        instance.failed_models.clear()
         cls.call_counter += 1
         
         # Check global force flags
@@ -915,8 +1048,8 @@ class LlmRouter:
                     try:
                         from py_classes.ai_providers.cls_ollama_interface import OllamaClient
                         OllamaClient.reset_host_cache()
-                    except ImportError:
-                        pass  # OllamaClient not available
+                    except (ImportError, AttributeError):
+                        pass  # OllamaClient not available or doesn't have reset_host_cache method
                     
                     if preferred_models and isinstance(preferred_models[0], str):
                         model = instance.get_model(strengths=strengths, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
@@ -928,20 +1061,32 @@ class LlmRouter:
                     g.debug_log("No valid model found after retry, exiting", "red", is_error=True, prefix=prefix)
                     raise Exception("No valid model available")
                 
-                enable_caching = False
+                # Enable caching for all temperatures - behavior differs based on temperature
+                enable_caching = True
                 instance.last_used_model = model.model_key
                 
-                if temperature == 0:
-                    enable_caching = True
-                    cached_completion = instance._get_cached_completion(model.model_key, str(chat), base64_images)
-                    if cached_completion:
-                        return exclude_reasoning(cls._process_cached_response(
-                            cached_completion, model, TextStreamPainter(), hidden_reason, generation_stream_callback
-                        ))
+                # Check for cached completion (behavior varies by temperature)
+                cached_completion = instance._get_cached_completion(model.model_key, str(chat), base64_images, temperature)
+                if cached_completion:
+                    return exclude_reasoning(cls._process_cached_response(
+                        cached_completion, model, TextStreamPainter(), hidden_reason, chat.debug_title, generation_stream_callback
+                    ))
 
                 try:
+                    # Determine if this model was manually selected or auto-selected
+                    # If g.LLM is set, it means the user manually selected this model via -llm
+                    # Also allow auto-download in local mode to use already downloaded models
+                    auto_download = bool(g.LLM) or g.FORCE_LOCAL  # Allow auto-download for manually selected models or in local mode
+                    
                     # Get the stream from the provider
-                    stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason, thinking_budget)
+                    if hasattr(model.provider, 'generate_response'):
+                        # Check if the provider supports auto_download parameter (Ollama)
+                        if model.provider.__class__.__name__ == 'OllamaClient':
+                            stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason, thinking_budget, auto_download)
+                        else:
+                            stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason, thinking_budget)
+                    else:
+                        raise Exception(f"Provider {model.provider.__class__.__name__} does not support generate_response method")
                     
                     # Check if stream is None before processing
                     if stream is None:
@@ -967,21 +1112,17 @@ class LlmRouter:
                         def check_timeout(self):
                             return time.time() - self.last_activity > self.timeout_seconds
                     
-                    # Determine inactivity timeout: 2 min for Ollama localhost, else 60s
+                    # Determine inactivity timeout: 3 min for Ollama localhost, else 60s
                     inactivity_timeout = 60
-                    try:
-                        from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-                        if isinstance(model.provider, OllamaClient):
-                            try:
-                                host = getattr(model.provider, '_client', None)
-                                if host is not None:
-                                    host = host.base_url.host
-                                    if host in ("localhost", "127.0.0.1"):
-                                        inactivity_timeout = 120
-                            except Exception:
-                                pass
-                    except ImportError:
-                        pass
+                    if model.provider.__class__.__name__ == 'OllamaClient':
+                        try:
+                            hosts = model.provider.reached_hosts
+                            if len(hosts) > 0:
+                                host = hosts[0]
+                                if host in ("localhost", "127.0.0.1") or host in g.ollama_host_env:
+                                    inactivity_timeout = 180
+                        except Exception:
+                            pass
                     stream_monitor = StreamActivityMonitor(inactivity_timeout)  # 60s or 120s of inactivity
                     
                     def stream_timeout_handler(signum, frame):
@@ -1034,10 +1175,12 @@ class LlmRouter:
                     g.debug_log("User interrupted model generation (Ctrl+C).", "yellow", is_error=True, force_print=True, prefix=prefix)
                     raise UserInterruptedException("Model generation interrupted by user (Ctrl+C).")
                 
-            except UserInterruptedException:
-                # Re-raise the specific user interruption exception
+            except (UserInterruptedException, StreamInterruptedException):
+                # Re-raise exceptions that are part of the normal control flow
+                # so they can be handled by the caller in main.py.
                 raise
             except Exception as e:
+                # This will now only catch actual, unintended errors.
                 cls._handle_model_error(e, model, instance, chat)
         
         # If we've exhausted all retries, raise an exception

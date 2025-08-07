@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import os
-import sys
 import subprocess
 
 print("======= CUDA Environment Check =======\n")
@@ -14,7 +13,7 @@ for var in ["CUDA_HOME", "CUDA_VISIBLE_DEVICES", "CT2_USE_CUDA", "LD_LIBRARY_PAT
 print("\nCUDA Installation:")
 try:
     out = subprocess.check_output(["ls", "-la", "/usr/local/cuda/bin"]).decode("utf-8")
-    print(f"  CUDA binaries: Found")
+    print("  CUDA binaries: Found")
 except Exception as e:
     print(f"  CUDA binaries: Not found - {e}")
 

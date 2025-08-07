@@ -1,12 +1,8 @@
 import os
-import fnmatch
 import json
-from typing import List, Optional, Set
+from typing import List
 
-from py_classes.cls_llm_router import LlmRouter
 from py_classes.cls_util_base import UtilBase
-from py_classes.cls_chat import Chat, Role
-from py_methods.utils import extract_blocks
 from utils.todos import TodosUtil
 
 class ArchitectNewUtil(UtilBase):
@@ -37,10 +33,10 @@ class ArchitectNewUtil(UtilBase):
                         content = f.read()
                         existing_utils_contents.append(content)
             TodosUtil.run("add", f"To implement a new util for a needed function, break down the requirements into manageable components that can be implemented via python and update the todos as needed: {requirements}")
-            TodosUtil.run("add", f"Research, implement and test the planned component(s) one by one in python, do not yet write to a new util file.")
-            TodosUtil.run("add", f"Identify a minimal set of args for a run method for the util to ensure it is easy and minimal to use")
+            TodosUtil.run("add", "Research, implement and test the planned component(s) one by one in python, do not yet write to a new util file.")
+            TodosUtil.run("add", "Identify a minimal set of args for a run method for the util to ensure it is easy and minimal to use")
             TodosUtil.run("add", f"Consolidate the components into a single util and write it to {utils_folder}")
-            TodosUtil.run("add", f"Comprehensively test the new util in and update the todos as you progress")
+            TodosUtil.run("add", "Comprehensively test the new util in and update the todos as you progress")
             
             return json.dumps(TodosUtil.run("list"), indent=2)
 

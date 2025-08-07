@@ -1,12 +1,9 @@
 import argparse
-import base64
-import mimetypes
 import os
 import re
 import struct
 import time
 import tempfile # Added for temporary file/directory management
-import threading
 import sys
 import asyncio
 from dotenv import load_dotenv
@@ -35,10 +32,8 @@ from py_classes.cls_llm_router import LlmRouter
 from py_classes.globals import g
 import pyperclip
 from termcolor import colored
-from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime
+from typing import Dict, List, Tuple
 import numpy as np
-from enum import Enum
 
 # Add pydub for MP3 conversion
 try:
@@ -498,7 +493,6 @@ def generate_podcast(podcast_dialogue: str, title: str, use_local_dia: bool = Fa
                         print(colored(f"[{title}] Google TTS quota exhausted for chunk {i+1}: {e}", "red"))
                         # Check if local Dia fallback is possible
                         try:
-                            from py_methods.dia_helper import get_dia_model
                             print(colored(f"[{title}] Attempting fallback to local Dia TTS due to quota exhaustion...", "yellow"))
                             return generate_podcast(podcast_dialogue, title, use_local_dia=True)
                         except Exception as fallback_error:
@@ -670,7 +664,7 @@ You should:
             liam_chat.debug_title = f"Podcast exchange {exchange + 1}"
             chloe_chat.debug_title = f"Podcast exchange {exchange + 1}"
             if exchange > 15:
-                response = await LlmRouter.generate_completion(f"Decide if the conversation is finished. If you are highly certain it has finished conclusively (like the podcast actors waving goodbye), respond with 'finished'. If it is not, respond with 'continue'.", strengths=[AIStrengths.SMALL], force_local=force_local)
+                response = await LlmRouter.generate_completion("Decide if the conversation is finished. If you are highly certain it has finished conclusively (like the podcast actors waving goodbye), respond with 'finished'. If it is not, respond with 'continue'.", strengths=[AIStrengths.SMALL], force_local=force_local)
                 if "finished" in response.lower():
                     print(colored("Conversation was detected as finished.", "green"))
                     break

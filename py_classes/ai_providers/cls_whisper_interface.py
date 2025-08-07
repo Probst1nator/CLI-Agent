@@ -1,11 +1,10 @@
 import os
 import tempfile
 import soundfile as sf
-from typing import Dict, Tuple, Optional, List, Union, Any
+from typing import Tuple, Optional, List, Union
 import numpy as np
 import speech_recognition as sr
 
-from termcolor import colored
 from py_classes.unified_interfaces import AudioProviderInterface
 from py_classes.globals import g
 from py_methods.utils_audio import (

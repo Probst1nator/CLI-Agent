@@ -541,7 +541,7 @@ class Chat:
                                         mime_type = image_url.split(";")[0].split(":")[1]
                                         decoded_image = base64.b64decode(image_data)
                                         content_parts.append(genai.Part.from_data(decoded_image, mime_type=mime_type))
-                                    except Exception as e:
+                                    except Exception:
                                         # Fallback for when genai isn't available
                                         content_parts.append("[Image data]")
                                 elif image_url.startswith("http"):
@@ -549,7 +549,7 @@ class Chat:
                                     try:
                                         import google.generativeai as genai
                                         content_parts.append(genai.Part.from_uri(image_url))
-                                    except Exception as e:
+                                    except Exception:
                                         # Fallback for when genai isn't available
                                         content_parts.append(f"[Image URL: {image_url}]")
                         else:

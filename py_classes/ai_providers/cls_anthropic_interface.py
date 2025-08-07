@@ -1,17 +1,10 @@
-from anthropic import Anthropic, RateLimitError
+from anthropic import Anthropic
 import os
-import time
-from typing import Dict, List, Optional, Any, Union
-from collections.abc import Callable
+from typing import Optional, Any
 from termcolor import colored
 from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
-import socket
-import json
-import logging
-import base64
 
-from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.globals import g
 
 class AnthropicAPI(AIProviderInterface):

@@ -1,9 +1,7 @@
-import os
 import json
 from typing import Literal, Optional, List, Dict, Any
 
 from py_classes.cls_util_base import UtilBase
-from py_classes.globals import g
 
 class TodosUtil(UtilBase):
     """

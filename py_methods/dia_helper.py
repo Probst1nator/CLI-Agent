@@ -1,7 +1,6 @@
 import os
 import sys
-import importlib
-from typing import Tuple, Optional, Any, Dict
+from typing import Optional, Any
 
 
 def find_dia_locations() -> list:

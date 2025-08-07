@@ -1,7 +1,6 @@
 import base64
 import os
 import asyncio
-import concurrent.futures
 from typing import Any, Coroutine
 
 from py_classes.cls_chat import Chat, Role

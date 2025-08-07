@@ -1,12 +1,9 @@
 import os
-from typing import List, Optional, Dict, Any, Union
-from collections.abc import Callable
-import logging
+from typing import List, Optional, Any, Union
 from openai import OpenAI
 from termcolor import colored
 from py_classes.cls_chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
-from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.globals import g
 
 class NvidiaAPI(AIProviderInterface):
