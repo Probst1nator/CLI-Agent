@@ -20,6 +20,7 @@ __pycache__/
 *.pth
 *.stfolder
 *.deprecated
+*.gguf
 
 .vscode
 .venv/**
@@ -35,3 +36,4 @@ podcast_generations
 run_screen_grabber.sh
 CLAUDE.md
 GEMINI.md
+QWEN.md

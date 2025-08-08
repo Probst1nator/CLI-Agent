@@ -18,6 +18,25 @@ class HomeAssistant(UtilBase):
     Returns structured JSON responses for reliable communication.
     """
     
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["smart home", "lights", "thermostat", "automation", "HA", "turn on", "turn off", "dim", "set temperature", "lock door"],
+            "use_cases": [
+                "Turn on the living room lights.",
+                "What is the current temperature in the bedroom?",
+                "Dim the office lights to 50%.",
+                "Create an automation to turn off all lights when I leave home.",
+                "List all available smart devices."
+            ],
+            "arguments": {
+                "action": "The specific operation to perform (e.g., 'call_service', 'get_state').",
+                "domain": "The service domain (e.g., 'light', 'switch').",
+                "service": "The service name (e.g., 'turn_on', 'toggle').",
+                "entity_id": "The unique ID of the device or entity to control (e.g., 'light.living_room_lamp')."
+            }
+        }
+    
     _INTERACTED_ENTITIES_FILE = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'homeassistant_interacted_entities.json')
     _AUTOMATION_BACKUP_DIR = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'homeassistant_automation_backups')
 

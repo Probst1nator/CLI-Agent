@@ -51,6 +51,26 @@ class TakeScreenshotUtil(UtilBase):
     """
 
     @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["capture screen", "screenshot", "get window", "screen grab", "snapshot", "UI", "visual", "documentation", "bug report", "error screen", "terminal output", "command result", "visual proof", "share screen", "show progress", "demo", "tutorial", "evidence"],
+            "use_cases": [
+                "Take a screenshot of the entire desktop.",
+                "Capture the current VS Code window.",
+                "List all the currently open application windows.",
+                "Take a screenshot to document this error.",
+                "Capture the terminal showing the installation process.",
+                "Screenshot the Docker container status for debugging.",
+                "Get a visual of the model download progress."
+            ],
+            "arguments": {
+                "window_query": "A substring of the window title to capture. If omitted, captures all screens.",
+                "list_window_titles": "If true, lists all window titles instead of taking a screenshot.",
+                "reload": "If true, attempts to refresh the window (send F5/Cmd+R) before capturing."
+            }
+        }
+
+    @staticmethod
     def _check_platform_deps_for_capture():
         """Checks for platform-specific dependencies required for window capture."""
         global _PLATFORM_DEPS_CHECKED, _PLATFORM_DEPS_INSTALLED

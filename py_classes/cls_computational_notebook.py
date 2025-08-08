@@ -36,9 +36,10 @@ class ComputationalNotebook:
 
     def _expect_bash_prompt(self, timeout=30, suppress_output=False):
         self.child.expect(self.bash_prompt_regex, timeout=timeout)
-        output = str(self.child.before) + str(self.child.after)
-        if not suppress_output:
-            self.stdout_callback(output)
+        # Only include command output, not the prompt itself
+        output = str(self.child.before).strip()
+        if not suppress_output and output:
+            self.stdout_callback(output + '\n')
 
     def _stream_output_until_prompt(self, timeout=30):
         """Stream output using pexpect.expect for robust prompt detection."""
@@ -63,10 +64,10 @@ class ComputationalNotebook:
 
                 if index == 0:
                     # Matched the bash prompt. The command is finished.
-                    # The complete output is everything before the prompt, plus the prompt itself.
-                    final_output = self.child.before + self.child.after
+                    # Only include the command output, not the prompt itself
+                    final_output = self.child.before.strip()
                     if final_output:
-                        processed_output = self._process_output_with_emoji(final_output)
+                        processed_output = self._process_output_with_emoji(final_output + '\n')
                         self.stdout_callback(processed_output)
                     break
                 elif index == 1:

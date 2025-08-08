@@ -34,6 +34,28 @@ class GenerateImage(UtilBase):
     A utility for generating images using the FLUX model.
     Optimized for running on hardware with limited VRAM (e.g., 8GB).
     """
+    
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["create image", "draw picture", "generate art", "diffusion model", "text to image", "dall-e", "midjourney"],
+            "use_cases": [
+                "Generate an image of a red fox in a snowy forest.",
+                "Create a photorealistic picture of a futuristic city.",
+                "Draw a logo for a coffee shop."
+            ],
+            "arguments": {
+                "path": "The file path where the generated image will be saved (e.g., 'images/fox.png').",
+                "prompt": "A detailed text description of the image to generate.",
+                "width": "The width of the output image in pixels.",
+                "height": "The height of the output image in pixels.",
+                "seed": "An integer for reproducible image generation.",
+                "num_inference_steps": "Number of diffusion steps. Lower is faster, higher may be better quality.",
+                "enable_quantization": "Use 4-bit quantization to save VRAM (recommended for <12GB VRAM).",
+                "enable_cpu_offloading": "Offload parts of the model to system RAM to save VRAM (recommended for <12GB VRAM)."
+            }
+        }
+    
     _pipeline: Optional['FluxPipeline'] = None  # Use string annotation
     _pipeline_options: Dict[str, Any] = {}
 

@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import time
+import threading
 from typing import Dict, List, Optional, Set, Any, Union, Iterator
 from termcolor import colored
 from py_classes.ai_providers.cls_nvidia_interface import NvidiaAPI
@@ -18,18 +19,8 @@ from py_classes.ai_providers.cls_google_interface import GoogleAPI
 from py_classes.globals import g
 import logging
 
-# Configure logger with proper settings to prevent INFO level messages from being displayed
+# Get a logger for this module. It will inherit its configuration from the root logger set up in main.py.
 logger = logging.getLogger(__name__)
-
-# Remove any existing handlers and set up console handler to only show ERROR or higher
-for handler in logger.handlers[:]:
-    if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
-        logger.removeHandler(handler)
-
-# Add a console handler that only shows ERROR level and above
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.ERROR)
-logger.addHandler(console_handler)
 
 # Custom exception for user interruption
 class UserInterruptedException(Exception):
@@ -155,7 +146,7 @@ class Llm:
             
             Llm(GoogleAPI(), "gemini-2.5-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
             Llm(GoogleAPI(), "gemini-2.5-pro", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
+            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GoogleAPI(), "gemini-2.5-flash-lite-preview-06-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
             
@@ -177,8 +168,8 @@ class Llm:
             from py_classes.ai_providers.cls_ollama_interface import OllamaClient
             llms.extend([
                 Llm(OllamaClient(), "qwen3-coder:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.SMALL]),
+                Llm(OllamaClient(), "qwen3:30b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
                 Llm(OllamaClient(), "devstral:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "qwen3:30b:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
                 Llm(OllamaClient(), "mistral-small3.2:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.VISION]),
                 
                 
@@ -261,7 +252,6 @@ class Llm:
         
         
 
-
 class LlmRouter:
     """
     Singleton class for routing and managing LLM requests.
@@ -296,8 +286,10 @@ class LlmRouter:
         self.failed_models: Set[str] = set()
         # Track cache keys used in current runtime to avoid duplicate fetches for non-zero temperature
         self.runtime_used_cache_keys: Set[str] = set()
+        # Lock for thread-safe cache access in MCT mode
+        self._cache_lock = threading.Lock()
     
-    def _load_dynamic_model_limits(self) -> None:
+    def _load_dynamic_model_limits(self) -> None: 
         """Load model limits from disk if not already loaded."""
         if not self._model_limits_loaded:
             try:
@@ -356,17 +348,19 @@ class LlmRouter:
         # Generate cache key and return cached completion if it exists
         cache_key = self._generate_hash(model_key, key, images)
         
-        # For non-zero temperature, check if we've already used this cache key in current runtime
-        if temperature != 0 and cache_key in self.runtime_used_cache_keys:
-            return None  # Skip cache to allow variety in Monte Carlo scenarios
-        
-        cached_result = self.cache.get(cache_key)
-        
-        # If we found a cached result and temperature != 0, mark this cache key as used
-        if cached_result and temperature != 0:
-            self.runtime_used_cache_keys.add(cache_key)
-        
-        return cached_result
+        # Use lock to prevent race conditions in MCT mode with non-zero temperature
+        with self._cache_lock:
+            # For non-zero temperature, check if we've already used this cache key in current runtime
+            if temperature != 0 and cache_key in self.runtime_used_cache_keys:
+                return None  # Skip cache to allow variety in Monte Carlo scenarios
+            
+            cached_result = self.cache.get(cache_key)
+            
+            # If we found a cached result and temperature != 0, mark this cache key as used
+            if cached_result and temperature != 0:
+                self.runtime_used_cache_keys.add(cache_key)
+            
+            return cached_result
 
     def _update_cache(self, model_key: str, key: str, images: List[str], completion: str) -> None:
         """
@@ -401,14 +395,14 @@ class LlmRouter:
             print(colored(f"Failed to update cache: {e}", "red"))
             print("Continuing without updating cache file...")
 
-    def model_capable_check(self, model: Llm, chat: Chat, strength: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, allow_general: bool = True) -> bool:
+    def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, allow_general: bool = True) -> bool:
         """
         Check if a model is capable of handling the given constraints.
         
         Args:
             model (Llm): The model to check.
             chat (Chat): The chat to process.
-            strength (List[AIStrengths]): The required strengths.
+            strengths (List[AIStrengths]): The required strengths.
             local (bool): Whether the model should be local.
             force_free (bool): Whether to force free models only.
             has_vision (bool): Whether vision capability is required.
@@ -429,9 +423,9 @@ class LlmRouter:
         
         if model.get_context_window() < len(chat):
             return False
-        if strength and model.strengths:
+        if strengths and model.strengths:
             # Check if ALL of the required strengths are included in the model's strengths
-            if not all(s.value in [ms.value for ms in model.strengths] for s in strength):
+            if not all(s.value in [ms.value for ms in model.strengths] for s in strengths):
                 # Only check for GENERAL if allowed
                 if allow_general:
                     return any(s.value == AIStrengths.GENERAL.value for s in model.strengths)
@@ -441,13 +435,13 @@ class LlmRouter:
         return True
 
     @classmethod
-    def get_models(cls, preferred_models: List[str] = [], strength: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
+    def get_models(cls, preferred_models: List[str] = [], strengths: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
         """
         Get a list of available models based on the given constraints.
         
         Args:
             preferred_models (List[str]): List of preferred model keys.
-            strength (List[AIStrengths]): The required strengths of the model.
+            strengths (List[AIStrengths]): The required strengths of the model.
             chat (Chat): The chat which the model will be processing.
             force_local (bool): Whether to force local models only.
             force_free (bool): Whether to force free models only.
@@ -463,30 +457,30 @@ class LlmRouter:
         for model_key in preferred_models:
             if model_key and model_key not in instance.failed_models:
                 model = next((model for model in instance.retry_models if model_key in model.model_key), None)
-                if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=False):
+                if model and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=False):
                     available_models.append(model)
         
         # If no preferred models with exact capabilities, check all models
         if not available_models:
             for model in instance.retry_models:
                 if model.model_key not in instance.failed_models and model.model_key not in [model.model_key for model in available_models]:
-                    if (not force_local or model.local) and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=False):
+                    if (not force_local or model.local) and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=False):
                         available_models.append(model)
         
         # If still no models found, try again allowing GENERAL capability
-        if not available_models and strength:
+        if not available_models and strengths:
             # First check preferred models
             for model_key in preferred_models:
                 if model_key and model_key not in instance.failed_models:
                     model = next((model for model in instance.retry_models if model_key in model.model_key), None)
-                    if model and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=True):
+                    if model and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=True):
                         available_models.append(model)
             
             # Then check all models
             if not available_models:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and model.model_key not in [model.model_key for model in available_models]:
-                        if (not force_local or model.local) and instance.model_capable_check(model, chat, strength, model.local, force_free, has_vision, allow_general=True):
+                        if (not force_local or model.local) and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=True):
                             available_models.append(model)
 
         return available_models
@@ -520,37 +514,21 @@ class LlmRouter:
         # First try to find preferred model with exact capabilities
         for model_key in preferred_models:
             if (model_key not in instance.failed_models) and model_key:
-                model = next((model for model in instance.retry_models if model_key in model.model_key and (has_vision == False or has_vision == model.has_vision)), None)
-                if model and instance.model_capable_check(model, chat, [], model.local, False, has_vision, allow_general=False):
+                model = next((model for model in instance.retry_models if model_key in model.model_key and (not has_vision or has_vision == model.has_vision)), None)
+                if model and instance.model_capable_check(model, chat, strengths, model.local, False, has_vision, allow_general=False):
                     candidate_models.append(model)
 
         # If no preferred candidates and force_preferred_model is True
         if not candidate_models and force_preferred_model:
-            # Check if the preferred model is actually defined as an Ollama model in our registry
-            model_name = preferred_models[0]
-            ollama_model_found = False
-            try:
-                from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-                ollama_model_found = any(
-                    llm.model_key == model_name and isinstance(llm.provider, OllamaClient) 
-                    for llm in Llm.get_available_llms()
-                )
-            except ImportError:
-                pass
-            
-            if force_local or ollama_model_found:
-                try:
-                    from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-                    # Only return a dummy Ollama model if it's actually supposed to be an Ollama model
-                    return Llm(OllamaClient(), preferred_models[0], 0, 8192, [AIStrengths.GENERAL, AIStrengths.LOCAL])
-                except ImportError:
-                    pass
-            
-            print(colored(f"Could not find preferred model {preferred_models[0]}", "red"))
-            return None
+            # If forcing a preferred model, but none were found, we should
+            # still try to find *any* model that meets the other criteria
+            # rather than just giving up. This is especially important for --fast
+            # where the user just wants a fast model, not a specific one.
+            pass
         
         # Continue gathering candidates from other models if needed
-        if not candidate_models and not force_preferred_model:
+        # Allow fallback even when force_preferred_model=True if no preferred models worked
+        if not candidate_models:
             # Search online models by exact capability next
             if not force_local:
                 for model in instance.retry_models:
@@ -590,7 +568,7 @@ class LlmRouter:
         return candidate_models[0] if candidate_models else None
     
     @classmethod
-    def _process_stream(
+    async def _process_stream(
         cls,
         stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
         provider: AIProviderInterface,
@@ -621,7 +599,7 @@ class LlmRouter:
                     if token:
                         full_response += token
                         if callback is not None:
-                            finished_response = callback(token, hidden_reason)
+                            finished_response = await callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
                         elif not hidden_reason:
@@ -638,7 +616,7 @@ class LlmRouter:
                     if token is not None:  # Ensure token is not None (can be empty string)
                         full_response += token
                         if callback is not None:
-                            finished_response = callback(token)
+                            finished_response = await callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
                         elif not hidden_reason:
@@ -674,7 +652,7 @@ class LlmRouter:
                         full_response += token_from_this_chunk
                         if callback is not None:
                             # Callback can return the final response string to terminate early
-                            result_from_callback = callback(token_from_this_chunk)
+                            result_from_callback = await callback(token_from_this_chunk)
                             if result_from_callback and isinstance(result_from_callback, str):
                                 finished_response = result_from_callback
                                 break 
@@ -710,7 +688,7 @@ class LlmRouter:
                 if token is not None:  # Ensure token is not None
                     full_response += token
                     if callback is not None:
-                        finished_response = callback(token)
+                        finished_response = await callback(token)
                         if finished_response and isinstance(finished_response, str):
                             break
                     elif not hidden_reason:
@@ -723,7 +701,7 @@ class LlmRouter:
                 if token:
                     full_response += token
                     if callback is not None:
-                        finished_response = callback(token)
+                        finished_response = await callback(token)
                         if finished_response and isinstance(finished_response, str):
                             break
                     elif not hidden_reason:
@@ -737,7 +715,7 @@ class LlmRouter:
         return full_response
 
     @classmethod
-    def _process_cached_response(
+    async def _process_cached_response(
         cls,
         cached_completion: str,
         model: Llm,
@@ -763,7 +741,7 @@ class LlmRouter:
             g.debug_log(f"\n{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True, prefix=f"[{debug_title}]")
             for char in cached_completion:
                 if callback:
-                    finished_response = callback(char, not hidden_reason)
+                    finished_response = await callback(char)
                     if finished_response and isinstance(finished_response, str):
                         return finished_response
                 elif not hidden_reason:
@@ -1034,32 +1012,11 @@ class LlmRouter:
                             model = preferred_model
                             break
                 
-                # If no model is available, clear failed models and retry
-                if not model:
-                    retry_count += 1
-                    if retry_count >= max_retries:
-                        break  # Exit the retry loop
-                    
-                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    g.debug_log(f"# # # Could not find valid model # # # RETRYING... ({retry_count}/{max_retries}) # # #", "red", is_error=True, prefix=prefix)
-                    instance.failed_models.clear()
-                    
-                    # Also reset OllamaClient host cache to allow trying different hosts
-                    try:
-                        from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-                        OllamaClient.reset_host_cache()
-                    except (ImportError, AttributeError):
-                        pass  # OllamaClient not available or doesn't have reset_host_cache method
-                    
-                    if preferred_models and isinstance(preferred_models[0], str):
-                        model = instance.get_model(strengths=strengths, preferred_models=preferred_models, chat=chat, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=force_preferred_model)
-                    continue  # Continue the retry loop
-
-                # Check if model is still None after retry
+                # If no model is available, all available models have failed.
                 if not model:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    g.debug_log("No valid model found after retry, exiting", "red", is_error=True, prefix=prefix)
-                    raise Exception("No valid model available")
+                    g.debug_log("No available models to process the request. All options have been tried.", "yellow", prefix=prefix)
+                    break # Exit the while loop, the exception below will be raised.
                 
                 # Enable caching for all temperatures - behavior differs based on temperature
                 enable_caching = True
@@ -1068,7 +1025,7 @@ class LlmRouter:
                 # Check for cached completion (behavior varies by temperature)
                 cached_completion = instance._get_cached_completion(model.model_key, str(chat), base64_images, temperature)
                 if cached_completion:
-                    return exclude_reasoning(cls._process_cached_response(
+                    return exclude_reasoning(await cls._process_cached_response(
                         cached_completion, model, TextStreamPainter(), hidden_reason, chat.debug_title, generation_stream_callback
                     ))
 
@@ -1133,13 +1090,13 @@ class LlmRouter:
                             signal.alarm(10)  # Check every 10 seconds
                     
                     # Enhanced stream callback that monitors activity
-                    def activity_aware_callback(chunk: str) -> str:
+                    async def activity_aware_callback(chunk: str) -> str:
                         if chunk:
                             stream_monitor.add_chars(len(chunk))
                         
                         # Call original callback if provided
                         if generation_stream_callback:
-                            return generation_stream_callback(chunk)
+                            return await generation_stream_callback(chunk)
                         return None
                     
                     # Set up periodic timeout checking for stream processing
@@ -1147,7 +1104,7 @@ class LlmRouter:
                     signal.alarm(10)  # Start checking after 10 seconds
                     
                     try:
-                        full_response = cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback)
+                        full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback)
                         
                         # Check for empty responses
                         if not full_response or not full_response.strip():
@@ -1294,4 +1251,3 @@ class LlmRouter:
             str: The formatted prefix string
         """
         return chat.get_debug_title_prefix()
-

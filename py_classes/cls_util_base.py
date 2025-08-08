@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Type
+from typing import Any, Type, Dict
 
 class UtilBase(ABC):
     """
@@ -61,4 +61,19 @@ class UtilBase(ABC):
         """
         import inspect
         docstring = inspect.getdoc(util_cls)
-        return docstring or "No description available" 
+        return docstring or "No description available"
+    
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        """
+        Get comprehensive metadata for the utility.
+        Subclasses should override this to provide rich context for the vector DB.
+
+        Returns:
+            A dictionary containing metadata like 'keywords', 'use_cases', etc.
+        """
+        return {
+            "keywords": [],
+            "use_cases": [],
+            "arguments": {}
+        } 
