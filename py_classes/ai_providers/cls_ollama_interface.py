@@ -12,18 +12,7 @@ from datetime import datetime
 from py_classes.globals import g
 import logging
 
-# Configure logger with proper settings to prevent INFO level messages from being displayed
 logger = logging.getLogger(__name__)
-
-# Remove any existing handlers and set up console handler to only show ERROR or higher
-for handler in logger.handlers[:]:
-    if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
-        logger.removeHandler(handler)
-
-# Add a console handler that only shows ERROR level and above
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.ERROR)
-logger.addHandler(console_handler)
 
 @dataclass
 class OllamaModel:
@@ -124,7 +113,7 @@ class OllamaClient(AIProviderInterface):
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log("Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...", "green", force_print=True, prefix=prefix)
             else:
-                print(colored("Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...", "green"))
+                logging.info("Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...")
                 
             with socket.create_connection((hostname, int(port)), timeout=3):
                 return True
@@ -277,7 +266,7 @@ class OllamaClient(AIProviderInterface):
                             prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                             g.debug_log(f"{host} is pulling {model_key}...", "yellow", force_print=True, prefix=prefix)
                         else:
-                            print(colored(f"{host} is pulling {model_key}...", "yellow"))
+                            logging.info(colored(f"{host} is pulling {model_key}...", "yellow"))
                         try:
                             def bytes_to_mb(bytes_value):
                                 return bytes_value / (1024 * 1024)

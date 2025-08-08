@@ -2,7 +2,7 @@ import json
 import logging
 import subprocess
 import traceback
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 
 import numpy as np
 import sounddevice as sd
@@ -96,6 +96,23 @@ class TtsUtil(UtilBase):
     This tool provides a voice for the agent, allowing it to speak its responses.
     """
 
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["speak", "say", "read aloud", "text to speech", "voice", "audio", "narrate"],
+            "use_cases": [
+                "Read the summary of the search results out loud.",
+                "Say 'Hello, how can I help you today?'.",
+                "Convert the article text to an audio file."
+            ],
+            "arguments": {
+                "text": "The text to be converted into speech.",
+                "model_id": "The Hugging Face model ID for the TTS engine.",
+                "output_path": "Optional file path to save the generated audio as a .wav file.",
+                "play": "Whether to play the audio through the system's speakers."
+            }
+        }
+    
     @staticmethod
     def run(
         text: str,

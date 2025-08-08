@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List
+from typing import List, Dict, Any
 
 from py_classes.cls_util_base import UtilBase
 from utils.todos import TodosUtil
@@ -9,6 +9,29 @@ class ArchitectNewUtil(UtilBase):
     """
     A Util to implement a new util.
     """
+    
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["create tool", "new utility", "implement feature", "build function", "add capability", "constraint", "limited", "lack", "alternative", "outside the box", "automate", "integrate", "workflow", "pipeline", "orchestrate", "deploy", "setup", "configure", "install", "docker", "container", "download model", "huggingface", "ollama", "multi-step", "complex task", "no existing tool", "custom solution", "specialized", "technical integration"],
+            "use_cases": [
+                "I need a tool that can connect to a websocket. Can you build it?",
+                "Create a new utility for managing my calendar.",
+                "Architect a new util to interact with the Spotify API.",
+                "This interaction would be a lot more efficient if I automated some steps inside of a util.",
+                "A util could be created for this interface.",
+                "Find the latest agent LLMs under 30GB on HuggingFace, download and deploy to Ollama.",
+                "Download a model from HuggingFace and set it up in my local environment.",
+                "Automate the process of downloading, converting, and deploying ML models.",
+                "Create a pipeline to sync data between multiple APIs automatically.",
+                "Build a tool that monitors system resources and sends alerts.",
+                "I need to orchestrate a complex multi-step deployment workflow."
+            ],
+            "arguments": {
+                "requirements": "A detailed natural language description of what the new utility should do.",
+                "util_name": "The desired class name for the new utility, in CamelCase (e.g., 'WebsocketUtil')."
+            }
+        }
 
     @staticmethod
     def run(requirements: str, util_name: str) -> str:

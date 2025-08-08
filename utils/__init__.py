@@ -1,7 +1,8 @@
 # utils/__init__.py
 
 # --- Simple, Deterministic Tools ---
-from .writefile import WriteFile 
+from .editfile import EditFile 
+from .removefile import RemoveFile
 from .viewfile import ViewFile
 from .todos import TodosUtil
 from .findfiles import FindFiles

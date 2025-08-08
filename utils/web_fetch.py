@@ -2,6 +2,7 @@
 import json
 import requests
 from bs4 import BeautifulSoup
+from typing import Dict, Any
 
 from py_classes.cls_util_base import UtilBase
 
@@ -10,6 +11,24 @@ class WebFetchUtil(UtilBase):
     A utility for fetching and parsing the content of a web page.
     This tool retrieves the raw HTML and provides a clean, text-only version.
     """
+
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["get url", "fetch page", "read website", "scrape content", "download html", "get text from url", "api endpoint", "json data", "model info", "huggingface api", "github releases", "download metadata", "model card", "repository info", "extract data", "parse response"],
+            "use_cases": [
+                "Fetch the text content of the article at https://example.com/news/story.",
+                "Download the raw HTML of the homepage.",
+                "Scrape the data from this API endpoint.",
+                "Get model information from a HuggingFace model card.",
+                "Fetch the latest release data from a GitHub repository.",
+                "Download metadata about available models from an API."
+            ],
+            "arguments": {
+                "url": "The full URL of the web page to fetch.",
+                "get_text_only": "If true, returns cleaned text. If false, returns the raw HTML source."
+            }
+        }
 
     @staticmethod
     def run(url: str, get_text_only: bool = True) -> str:

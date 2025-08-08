@@ -1,4 +1,6 @@
 import json
+import re
+import os
 from typing import Literal, Optional, List, Dict, Any
 
 from py_classes.cls_util_base import UtilBase
@@ -7,21 +9,107 @@ class TodosUtil(UtilBase):
     """
     A utility for managing a to-do list.
     It allows an agent to list, add, complete, uncomplete, edit, remove, reorder, and clear tasks.
-    The to-do list is stored only in memory and will be lost when the process ends.
+    The to-do list is stored persistently in a dedicated section within the 'QWEN.md' file.
     """
+
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["task list", "todo", "to-do", "manage tasks", "checklist", "add task", "complete task", "goals", "objectives", "workflow steps", "pipeline stages", "deployment steps", "installation process", "setup checklist", "project milestones", "track progress", "next steps", "action items"],
+            "use_cases": [
+                "Add 'write documentation' to my to-do list.",
+                "What are my current tasks?",
+                "Mark the first task as complete.",
+                "Clear my entire to-do list.",
+                "Track the steps for deploying this model to production.",
+                "Create a checklist for setting up the development environment.",
+                "Add the Docker container setup steps to my task list.",
+                "What's the next step in this complex workflow?"
+            ],
+            "arguments": {
+                "action": "The operation to perform (e.g., 'list', 'add', 'complete').",
+                "index": "The 1-based index of the task to act upon.",
+                "task": "The text of the task to add or edit."
+            }
+        }
     
-    # Class variable to store todos in RAM
-    _todos: List[Dict[str, Any]] = []
+    # --- Constants for persistent storage in QWEN.md ---
+    _STORAGE_FILE = "QWEN.md"
+    _START_MARKER = "<!-- TODOS_START -->"
+    _END_MARKER = "<!-- TODOS_END -->"
 
     @staticmethod
     def _load_todos() -> List[Dict[str, Any]]:
-        """Returns the current todos from RAM."""
-        return TodosUtil._todos
+        """
+        Loads the to-do list from the dedicated JSON block in QWEN.md.
+        Returns an empty list if the file or block does not exist, or if JSON is corrupt.
+        """
+        if not os.path.exists(TodosUtil._STORAGE_FILE):
+            return []
+        
+        try:
+            with open(TodosUtil._STORAGE_FILE, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Regex to find the JSON content within the markers and a markdown code block
+            pattern = re.compile(
+                f"{re.escape(TodosUtil._START_MARKER)}\\s*```json\n(.*?)\n```\\s*{re.escape(TodosUtil._END_MARKER)}", 
+                re.DOTALL
+            )
+            match = pattern.search(content)
+
+            if match:
+                json_str = match.group(1)
+                return json.loads(json_str)
+            
+            return []  # No to-do block found
+
+        except (IOError, json.JSONDecodeError):
+            # Return empty list on read error or if JSON is malformed
+            return []
 
     @staticmethod
     def _save_todos(todos: List[Dict[str, Any]]) -> None:
-        """Saves the to-do list to RAM."""
-        TodosUtil._todos = todos
+        """
+        Saves the to-do list to the dedicated JSON block in QWEN.md.
+        It preserves all other content in the file.
+        """
+        file_content = ""
+        if os.path.exists(TodosUtil._STORAGE_FILE):
+            try:
+                with open(TodosUtil._STORAGE_FILE, 'r', encoding='utf-8') as f:
+                    file_content = f.read()
+            except IOError:
+                pass # Will proceed with empty content if read fails
+
+        # Prepare the new to-do block content
+        json_string = json.dumps(todos, indent=2)
+        new_block = (
+            f"{TodosUtil._START_MARKER}\n"
+            f"```json\n{json_string}\n```\n"
+            f"{TodosUtil._END_MARKER}"
+        )
+
+        # Regex to find an existing block
+        pattern = re.compile(
+            f"{re.escape(TodosUtil._START_MARKER)}.*?{re.escape(TodosUtil._END_MARKER)}", 
+            re.DOTALL
+        )
+
+        if pattern.search(file_content):
+            # If block exists, replace it
+            updated_content = pattern.sub(new_block, file_content)
+        else:
+            # If no block exists, append it to the end of the file
+            updated_content = file_content.strip() + f"\n\n{new_block}\n"
+        
+        try:
+            with open(TodosUtil._STORAGE_FILE, 'w', encoding='utf-8') as f:
+                f.write(updated_content)
+        except IOError as e:
+            # In a real-world scenario, you might want to log this error
+            print(f"Error saving todos to {TodosUtil._STORAGE_FILE}: {e}")
+
 
     @staticmethod
     def _format_todos(todos: List[Dict[str, Any]]) -> str:
@@ -44,7 +132,7 @@ class TodosUtil(UtilBase):
         new_index: Optional[int] = None
     ) -> str:
         """
-        Manages a to-do list in RAM through various actions.
+        Manages a to-do list in QWEN.md through various actions.
 
         Args:
             action: The operation to perform.
@@ -67,7 +155,6 @@ class TodosUtil(UtilBase):
             todos = TodosUtil._load_todos()
 
             if action == 'list':
-                # formatted_list = TodosUtil._format_todos(todos)
                 return json.dumps({"result": {
                     "status": "Success",
                     "task_count": len(todos),
@@ -152,4 +239,4 @@ class TodosUtil(UtilBase):
                 return json.dumps({"error": f"Unknown action: '{action}'."})
 
         except Exception as e:
-            return json.dumps({"error": f"An unexpected error occurred in TodosUtil: {str(e)}"}) 
+            return json.dumps({"error": f"An unexpected error occurred in TodosUtil: {str(e)}"})

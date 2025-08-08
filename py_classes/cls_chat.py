@@ -126,7 +126,8 @@ class Chat:
 
     def _update_window_display(self):
         """Updates the window display with current chat messages if debug mode is enabled."""
-        if not (logger.isEnabledFor(logging.DEBUG) or g.DEBUG_CHATS):
+        # This check now relies solely on explicitly set global flags.
+        if not g.DEBUG_CHATS:
             return
 
         if self._window is None and self._window_thread is None:

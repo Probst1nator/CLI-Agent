@@ -1,7 +1,7 @@
 import os
 import fnmatch
 import json
-from typing import Optional, Set
+from typing import Optional, Set, Dict, Any
 
 from py_classes.cls_util_base import UtilBase
 
@@ -11,6 +11,26 @@ class FindFiles(UtilBase):
     and to find files by their content. It intelligently ignores
     common non-source directories like .git, __pycache__, etc.
     """
+    
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["search files", "find file", "locate file", "search content", "file system", "directory search", "wildcard search", "config file", "dockerfile", "requirements.txt", "model files", "weights", "checkpoint", "log files", "error logs", "dependency", "library", "module", "script", "codebase analysis"],
+            "use_cases": [
+                "Find all python files in the current project.",
+                "Search for the term 'API_KEY' in all configuration files.",
+                "Locate the 'main.py' file.",
+                "Find all files modified in the last 24 hours containing 'error'.",
+                "Find all Dockerfiles in the repository.",
+                "Search for model weight files (.safetensors, .bin) in the project.",
+                "Locate configuration files that contain 'ollama' settings.",
+                "Find all requirements.txt files and their dependencies."
+            ],
+            "arguments": {
+                "search_string": "The pattern or text to search for. Supports wildcards like '*.py'.",
+                "location": "The directory path to start the search from. Defaults to the current directory."
+            }
+        }
 
     # Directories to ignore during the search to improve speed and relevance.
     _IGNORE_DIRS = {

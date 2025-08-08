@@ -46,8 +46,6 @@ class UtilsManager:
                         issubclass(obj, UtilBase) and 
                         obj != UtilBase):
                         try:
-                            # Add utility class directly to the list
-                            util_name = UtilBase.get_name(obj)
                             # Successfully loaded utility silently
                             self.utils.append(obj)
                         except Exception as util_error:
@@ -210,6 +208,52 @@ from utils.{util_name} import {util_cls.__name__}
             return []
         
         return self.vector_db.get_relevant_guidance(query, top_k)
+
+    def get_relevant_tools_prompt(self, query: str, top_k: int = 3) -> str:
+        """
+        Generates a combined prompt with relevant tools and guidance based on a query.
+        This is used to augment the user's prompt to guide the agent.
+
+        Args:
+            query (str): The user's request or query.
+            top_k (int): The number of top relevant items (tools and guidance) to suggest.
+
+        Returns:
+            str: A formatted string to be prepended to the main prompt, or an empty string if no relevant items are found.
+        """
+        # Fetch relevant tools and guidance from the vector DB
+        top_k_tools = top_k
+        top_k_guidance = max(1, top_k - 1) # Get slightly fewer guidance hints
+
+        relevant_tools = self.get_relevant_utils(query, top_k=top_k_tools)
+        relevant_guidance = self.get_relevant_guidance(query, top_k=top_k_guidance)
+
+        prompt_parts = []
+
+        if relevant_tools:
+            # Filter tools by a confidence score to reduce noise.
+            high_confidence_tools = [tool for tool in relevant_tools if tool.get('score', 0) > 0.5]
+            if high_confidence_tools:
+                tool_suggestions = [
+                    # Extract the first line of the description for brevity.
+                    f"- **{tool['name']}**: {tool['class'].get_description(tool['class']).splitlines()[0]}"
+                    for tool in high_confidence_tools
+                ]
+                prompt_parts.append("# Tool ideas\nBased on the request, these tools might be relevant:\n" + "\n".join(tool_suggestions))
+
+        if relevant_guidance:
+            # Use a higher confidence threshold for guidance to ensure it's very relevant.
+            high_confidence_guidance = [g for g in relevant_guidance if g.get('score', 0) > 0.6]
+            if high_confidence_guidance:
+                guidance_hints = [f"- {g.get('guidance_text', g.get('text', ''))}" for g in high_confidence_guidance]
+                prompt_parts.append("\n".join(guidance_hints))
+
+        if not prompt_parts:
+            return ""
+
+        # Combine all parts into a final prompt header.
+        header = "# Actionable context\n" + "\n\n".join(prompt_parts)
+        return header
 
     def reload_utils(self) -> None:
         """Reload all utilities from the utils directory"""

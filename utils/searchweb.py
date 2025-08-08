@@ -41,6 +41,26 @@ class SearchWeb(UtilBase):
     This utility allows searching the web and summarizing the results.
     """
     
+    @staticmethod
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["google search", "find information", "browse web", "research topic", "look up", "internet search", "huggingface", "model hub", "github", "repository", "latest version", "discover", "explore", "trending", "compare models", "benchmarks", "documentation", "technical specs", "download link", "release notes", "model card"],
+            "use_cases": [
+                "Search the web for the latest news on artificial intelligence.",
+                "Find the official documentation for the Python requests library.",
+                "What is the weather forecast for tomorrow?",
+                "Find the latest agent LLMs under 30GB on HuggingFace.",
+                "Search for the most recent releases of open-source language models.",
+                "Look up the current state-of-the-art models for code generation.",
+                "Find performance benchmarks comparing different LLM architectures.",
+                "Search for tutorials on deploying models with Ollama."
+            ],
+            "arguments": {
+                "queries": "A list of search terms or questions.",
+                "depth": "Internal use for recursion depth, should not be set by the user."
+            }
+        }
+    
     # Initialize WebTools here to ensure it's available in sandbox
     web_tools = None
     
@@ -213,3 +233,106 @@ Your suggested queries should be more specific or use alternative terminology th
         # Return a clean response with the summary as a string with clear formatting
         formatted_summary = f"SEARCH RESULT SUMMARY 1:\n{summary}\n"
         return formatted_summary
+
+
+# Module-level run function for CLI-Agent compatibility
+def run(query=None, queries=None, depth: int = 0) -> str:
+    """
+    Module-level wrapper for SearchWeb.run() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        query: Single query string (CLI-Agent style)
+        queries: List of query strings (original style) 
+        depth: Internal recursion depth parameter
+        
+    Returns:
+        str: Search results summary
+    """
+    # Handle both calling patterns
+    if query is not None:
+        # CLI-Agent style: run(query="search term")
+        search_queries = [query] if isinstance(query, str) else query
+    elif queries is not None:
+        # Original style: run(queries=["search term"])
+        search_queries = queries
+    else:
+        raise ValueError("Either 'query' or 'queries' parameter must be provided")
+    
+    return SearchWeb.run(search_queries, depth)
+
+
+if __name__ == "__main__":
+    """
+    Test the SearchWeb utility functionality
+    """
+    # Add parent directory to path for imports
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    print("Testing SearchWeb utility...")
+    
+    # Test 1: Basic functionality test
+    print("\n=== Test 1: Basic Search ===")
+    try:
+        result = SearchWeb.run(["latest agent LLMs under 30GB huggingface"])
+        print(f"Search completed. Result length: {len(result) if result else 0} characters")
+        if result:
+            print("First 200 characters of result:")
+            print(result[:200] + ("..." if len(result) > 200 else ""))
+        else:
+            print("No result returned")
+    except Exception as e:
+        print(f"Error in basic search test: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Test 2: Single string input (should be converted to list)
+    print("\n=== Test 2: Single String Input ===")
+    try:
+        result = SearchWeb.run("Python machine learning libraries")
+        print(f"Search completed. Result length: {len(result) if result else 0} characters")
+        if result:
+            print("First 200 characters of result:")
+            print(result[:200] + ("..." if len(result) > 200 else ""))
+    except Exception as e:
+        print(f"Error in single string test: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Test 3: Check if WebTools initializes properly
+    print("\n=== Test 3: WebTools Initialization ===")
+    try:
+        SearchWeb.initialize()
+        print(f"WebTools initialized: {SearchWeb.web_tools is not None}")
+        print(f"WebTools type: {type(SearchWeb.web_tools)}")
+    except Exception as e:
+        print(f"Error in WebTools initialization test: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    print("\n=== Testing Complete ===")
+    
+    # Test 4: Module-level access test (what the CLI-Agent is trying to do)
+    print("\n=== Test 4: Module-level Access ===")
+    print(f"SearchWeb class exists: {SearchWeb is not None}")
+    print(f"SearchWeb has run method: {hasattr(SearchWeb, 'run')}")
+    print(f"SearchWeb run method callable: {callable(getattr(SearchWeb, 'run', None))}")
+    
+    # Test the problematic import pattern from CLI-Agent
+    print("\n=== Test 5: Import Pattern Test ===")
+    try:
+        # This simulates what happens in the CLI-Agent when it does "import utils.searchweb"
+        import utils.searchweb as searchweb_module
+        print(f"Module imported successfully: {searchweb_module}")
+        print(f"Module has 'run' attribute: {hasattr(searchweb_module, 'run')}")
+        print(f"Module has 'SearchWeb' class: {hasattr(searchweb_module, 'SearchWeb')}")
+        
+        if hasattr(searchweb_module, 'SearchWeb'):
+            print("Trying to call SearchWeb.run directly...")
+            result = searchweb_module.SearchWeb.run(["test query"])
+            print(f"Direct call successful, result length: {len(result) if result else 0}")
+    except Exception as e:
+        print(f"Import pattern test failed: {e}")
+        import traceback
+        traceback.print_exc()
