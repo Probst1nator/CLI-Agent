@@ -3,6 +3,8 @@ import json
 import shutil
 import datetime
 from typing import Dict, Any
+import markpickle
+
 from py_classes.cls_util_base import UtilBase
 
 class RemoveFile(UtilBase):
@@ -50,9 +52,7 @@ class RemoveFile(UtilBase):
                                          with file removal. Defaults to 0.
 
         Returns:
-            str: A JSON string with a 'result' key containing a success message,
-                 or an 'error' key on failure. When listing files, returns a
-                 'recently_deleted' key with the metadata.
+            str: A Markdown string with a success message or error.
         """
         backup_dir = os.path.join(".cliagent", "removed")
         os.makedirs(backup_dir, exist_ok=True)
@@ -60,7 +60,7 @@ class RemoveFile(UtilBase):
 
         if list_recently_deleted > 0:
             if not os.path.exists(metadata_file):
-                return json.dumps({"result": "No recently deleted files found."}, indent=2)
+                return markpickle.dumps({"result": "No recently deleted files found."})
             try:
                 with open(metadata_file, 'r', encoding='utf-8') as f:
                     metadata = json.load(f)
@@ -68,18 +68,18 @@ class RemoveFile(UtilBase):
                 metadata_sorted = sorted(metadata, key=lambda x: x.get('deleted_at', ''), reverse=True)
                 # Get the requested number of items
                 items_to_show = metadata_sorted[:list_recently_deleted]
-                return json.dumps({"recently_deleted": items_to_show}, indent=2)
+                return markpickle.dumps({"result": {"recently_deleted_files": items_to_show}})
             except (json.JSONDecodeError, FileNotFoundError):
-                return json.dumps({"result": "No recently deleted files found or metadata is corrupted."}, indent=2)
+                return markpickle.dumps({"result": "No recently deleted files found or metadata is corrupted."})
 
         if not path:
-            return json.dumps({"error": "The 'path' argument is required when not listing deleted files."}, indent=2)
+            return markpickle.dumps({"error": "The 'path' argument is required when not listing deleted files."})
 
         if not os.path.exists(path):
-            return json.dumps({"error": f"File not found at path: {path}"}, indent=2)
+            return markpickle.dumps({"error": f"File not found at path: {path}"})
 
         if not os.path.isfile(path):
-            return json.dumps({"error": f"Path is not a file: {path}"}, indent=2)
+            return markpickle.dumps({"error": f"Path is not a file: {path}"})
 
         try:
             # Generate new filename
@@ -117,11 +117,11 @@ class RemoveFile(UtilBase):
                     "backup_path": os.path.abspath(destination_path)
                 }
             }
-            return json.dumps(result, indent=2)
+            return markpickle.dumps(result)
 
         except Exception as e:
             error_result = {"error": f"Could not remove file {path}. Reason: {e}"}
-            return json.dumps(error_result, indent=2)
+            return markpickle.dumps(error_result)
 
 
 # Module-level run function for CLI-Agent compatibility
@@ -134,6 +134,6 @@ def run(path: str = None, list_recently_deleted: int = 0) -> str:
         list_recently_deleted (int): Number of recently deleted files to list
         
     Returns:
-        str: JSON string with result or error
+        str: Markdown string with result or error
     """
     return RemoveFile._run_logic(path=path, list_recently_deleted=list_recently_deleted)

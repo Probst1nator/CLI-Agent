@@ -1,16 +1,15 @@
 # utils/viewfiles.py
 import os
 import datetime
-import json
 from typing import Dict, Any, List, Union
+import markpickle
 
 from py_classes.cls_util_base import UtilBase
 
 class ViewFiles(UtilBase):
     """
     A utility to view the content of files or list directories.
-    It prints a summary and the content of successfully accessed paths directly to stdout
-    and returns a structured JSON summary.
+    Returns a single, comprehensive Markdown string containing all content and a summary.
     """
     
     @staticmethod
@@ -32,15 +31,17 @@ class ViewFiles(UtilBase):
                     "description": "View a single file's content and get a summary",
                     "code": """```python
 from utils.viewfiles import ViewFiles
-# This will print a summary and the file's content, then return a JSON status.
-result_json = ViewFiles.run(paths=["main.py"])
+# This will return a Markdown string containing the file's content and a summary.
+result_md = ViewFiles.run(paths=["main.py"])
+print(result_md)
 ```"""
                 },
                 {
                     "description": "View multiple paths, including one that might fail",
                     "code": """```python
 from utils.viewfiles import ViewFiles
-result_json = ViewFiles.run(paths=["src/main.py", "docs/", "nonexistent_file.txt"])
+result_md = ViewFiles.run(paths=["src/main.py", "docs/", "nonexistent_file.txt"])
+print(result_md)
 ```"""
                 },
                 {
@@ -48,7 +49,8 @@ result_json = ViewFiles.run(paths=["src/main.py", "docs/", "nonexistent_file.txt
                     "code": """```python
 from utils.viewfiles import ViewFiles
 # This will show main.py with line numbers, which is great for discussing specific lines.
-result_json = ViewFiles.run(paths=["main.py"], show_line_numbers=True)
+result_md = ViewFiles.run(paths=["main.py"], show_line_numbers=True)
+print(result_md)
 ```"""
                 }
             ]
@@ -57,119 +59,87 @@ result_json = ViewFiles.run(paths=["main.py"], show_line_numbers=True)
     @staticmethod
     def _run_logic(paths: List[str], show_line_numbers: bool = False) -> str:
         """
-        Processes a list of paths, printing markdown content and a summary to stdout.
+        Processes a list of paths, returning a single formatted Markdown string.
     
         Args:
             paths (List[str]): A list of paths to process.
             show_line_numbers (bool): If True, prepend line numbers to file content.
     
         Returns:
-            str: A JSON string summarizing the operation's result.
+            str: A Markdown string summarizing the operation and showing content.
         """
         content_parts = []
-        success_summary_details = []
-        failed_summary_details = []
+        success_summary = []
+        failed_summary = []
 
         for path in paths:
             abs_path = os.path.abspath(path)
             if not os.path.exists(path):
-                failed_summary_details.append({"path": path, "reason": "Path not found"})
+                failed_summary.append({"path": path, "reason": "Path not found"})
                 continue
     
             if os.path.isfile(abs_path):
                 try:
                     with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
+                        file_content = f.read()
                     
                     if show_line_numbers:
-                        lines = content.splitlines()
-                        max_line_num_width = len(str(len(lines)))
-                        numbered_lines = [
-                            f"{str(i + 1).rjust(max_line_num_width)} | {line}" 
-                            for i, line in enumerate(lines)
-                        ]
-                        content = "\n".join(numbered_lines)
+                        lines = file_content.splitlines()
+                        max_width = len(str(len(lines)))
+                        numbered_lines = [f"{str(i + 1).rjust(max_width)} | {line}" for i, line in enumerate(lines)]
+                        file_content = "\n".join(numbered_lines)
 
-                    file_extension = os.path.splitext(path)[1].lstrip('.') or 'md'
-                    content_parts.append(f"# {abs_path}\n```{file_extension}\n{content}\n```")
-                    success_summary_details.append({"type": "File", "path": abs_path, "size_chars": len(content)})
+                    ext = os.path.splitext(path)[1].lstrip('.') or 'text'
+                    content_parts.append(f"### File: `{abs_path}`\n```{ext}\n{file_content}\n```")
+                    success_summary.append(f"Viewed file: `{abs_path}` ({len(file_content)} chars)")
     
                 except Exception as e:
-                    failed_summary_details.append({"path": abs_path, "reason": str(e)})
+                    failed_summary.append({"path": abs_path, "reason": str(e)})
     
             elif os.path.isdir(abs_path):
                 try:
-                    dir_info = f"# Directory: {abs_path}\n"
-                    dir_content_details = []
-                    item_names = sorted(os.listdir(abs_path))
-                    
-                    for item_name in item_names:
-                        item_path = os.path.join(abs_path, item_name)
-                        try:
-                            stat = os.stat(item_path)
-                            mod_time = datetime.datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-                            
-                            if os.path.isdir(item_path):
-                                item_type, size_str = "dir", f"{len(os.listdir(item_path))} items"
-                            else:
-                                item_type, size_str = "file", f"{stat.st_size} bytes"
-
-                            dir_content_details.append(f"{mod_time:20} {item_type:6} {size_str:>15} {item_name}")
-                        except OSError:
-                            dir_content_details.append(f"{' ':20} {'?':6} {'?':>15} {item_name} (metadata error)")
-                    
-                    dir_info += "```text\n" + "\n".join(dir_content_details) + "\n```"
-                    content_parts.append(dir_info)
-                    success_summary_details.append({"type": "Dir", "path": abs_path, "items": len(item_names)})
+                    items = sorted(os.listdir(abs_path))
+                    dir_listing = [f"### Directory: `{abs_path}` ({len(items)} items)\n```text"]
+                    for item in items:
+                        item_path = os.path.join(abs_path, item)
+                        is_dir = os.path.isdir(item_path)
+                        dir_listing.append(f"- {item}{'/' if is_dir else ''}")
+                    dir_listing.append("```")
+                    content_parts.append("\n".join(dir_listing))
+                    success_summary.append(f"Listed directory: `{abs_path}`")
     
                 except Exception as e:
-                    failed_summary_details.append({"path": abs_path, "reason": str(e)})
+                    failed_summary.append({"path": abs_path, "reason": str(e)})
 
-        # --- Print the human-readable summary and content to stdout ---
-        summary_lines = ["--- ViewFiles Summary ---"]
-        if success_summary_details:
-            summary_lines.append("Accessed Paths:")
-            for item in success_summary_details:
-                size_info = f"({item.get('size_chars', 0)} chars)" if item['type'] == 'File' else f"({item.get('items', 0)} items)"
-                summary_lines.append(f"  - [{item['type']}] {item['path']} {size_info}")
-        
-        if failed_summary_details:
-            summary_lines.append("Failed Paths:")
-            for item in failed_summary_details:
-                summary_lines.append(f"  - [Fail] {item['path']} (Reason: {item['reason']})")
-        summary_lines.append("--- End Summary ---")
-        
-        print("\n".join(summary_lines))
-        
-        # Also print the actual file/dir content to stdout
+        # Assemble the final markdown output
+        final_output = []
         if content_parts:
-            print("\n\n" + "\n\n".join(content_parts).strip())
+            final_output.extend(content_parts)
         
-        # --- Return a structured JSON string for programmatic use ---
-        result = {
-            "status": "success" if not failed_summary_details else "partial_success",
-            "accessed": success_summary_details,
-            "failed": failed_summary_details
-        }
-        return json.dumps(result, indent=2)
+        # Add a summary section
+        final_output.append("\n---\n### Summary")
+        if success_summary:
+            final_output.extend([f"- {s}" for s in success_summary])
+        if failed_summary:
+            final_output.append("\n**Failed to access:**")
+            for item in failed_summary:
+                final_output.append(f"- `{item['path']}`: {item['reason']}")
+        
+        if not success_summary and not failed_summary:
+            final_output.append("No paths were processed.")
+            
+        return markpickle.dumps({"result": "\n".join(final_output)})
 
 
-# Module-level run function for CLI-Agent compatibility
 def run(paths: Union[str, List[str]], show_line_numbers: bool = False) -> str:
-    """
-    Module-level wrapper for ViewFiles._run_logic(). It intelligently handles
-    either a single path string or a list of path strings.
-    """
+    """Module-level wrapper for ViewFiles._run_logic()."""
     if isinstance(paths, str):
         paths_to_process = [paths]
     elif isinstance(paths, list):
         paths_to_process = paths
     else:
-        error_result = {
-            "status": "error",
-            "message": f"Invalid input to viewfiles.run(): Expected a string or a list of strings, but got {type(paths).__name__}."
-        }
-        print(f"\n--- ViewFiles Error ---\n{error_result['message']}\n--- End Error ---")
-        return json.dumps(error_result, indent=2)
+        return markpickle.dumps({
+            "error": f"Invalid input: Expected a string or a list of strings, but got {type(paths).__name__}."
+        })
 
     return ViewFiles._run_logic(paths=paths_to_process, show_line_numbers=show_line_numbers)

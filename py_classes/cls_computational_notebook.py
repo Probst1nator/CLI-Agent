@@ -120,66 +120,84 @@ class ComputationalNotebook:
             # Suppress utility return values to prevent REPL output clutter
             processed_command = self._suppress_utility_return_values(command)
             
-            # Split command into lines for proper handling of multi-line code
-            lines = processed_command.strip().split('\n')
+            # Execute multi-line code properly using exec()
             collected_output = []
             
-            for i, line in enumerate(lines):
-                if not line.strip():  # Skip empty lines
-                    continue
-                    
-                self.python_child.sendline(line)
+            # For multi-line code, wrap it in exec() to execute as a complete block
+            if '\n' in processed_command.strip() and len(processed_command.strip().split('\n')) > 1:
+                # Multi-line code - use compile and exec for better error handling
+                try:
+                    # Test if code can be compiled first
+                    compile(processed_command, '<string>', 'exec')
+                    # Use base64 encoding to avoid any string escaping issues
+                    import base64
+                    encoded_command = base64.b64encode(processed_command.encode('utf-8')).decode('ascii')
+                    exec_command = f"import base64; exec(base64.b64decode('{encoded_command}').decode('utf-8'))"
+                    self.python_child.sendline(exec_command)
+                except SyntaxError as e:
+                    self.stdout_callback(f"[Syntax Error: {e}]\\n")
+                    return
+            else:
+                # Single line code - send directly
+                self.python_child.sendline(processed_command)
+            
+            # Brief pause to let Python process the command
+            time.sleep(0.1)
+            
+            try:
+                # Wait for completion - either prompt or timeout
+                index = self.python_child.expect(['>>> ', pexpect.TIMEOUT], timeout=10)
                 
-                # For multi-line blocks, expect continuation prompt except for the last line
-                if i < len(lines) - 1 and any(line.rstrip().endswith(char) for char in [':']):
+                # Collect all output
+                if self.python_child.before:
+                    output = str(self.python_child.before).strip()
+                    # Filter out the command echo and exec artifacts
+                    if output:
+                        output_lines = output.split('\n')
+                        filtered_lines = []
+                        command_lines = processed_command.split('\n')
+                        
+                        for out_line in output_lines:
+                            out_line_stripped = out_line.strip()
+                            # Skip if it's exactly one of the command lines we sent
+                            if out_line_stripped and out_line_stripped not in command_lines:
+                                # Also filter out exec wrapper artifacts and continuation prompts
+                                if not (out_line_stripped.startswith("exec(") or 
+                                       out_line_stripped == "..." or
+                                       out_line_stripped.endswith(")") and "exec(" in out_line_stripped or
+                                       out_line_stripped.startswith("... ") or
+                                       (out_line_stripped.startswith("...") and len(out_line_stripped.strip("... ")) <= 5)):
+                                    filtered_lines.append(out_line)
+                        
+                        if filtered_lines:
+                            collected_output.extend(filtered_lines)
+                
+                # Handle timeout case
+                if index == 1:  # TIMEOUT
                     try:
-                        self.python_child.expect('\.\.\. ', timeout=5)
-                        # Collect any output but don't display yet
+                        # Try once more to get the prompt
+                        self.python_child.expect('>>> ', timeout=5)
                         if self.python_child.before:
                             output = str(self.python_child.before).strip()
-                            if output and output != line:
+                            if output:
                                 collected_output.append(output)
                     except pexpect.TIMEOUT:
-                        pass
-                else:
-                    # For single lines or last line of block, expect main prompt
-                    try:
-                        self.python_child.expect('>>> ', timeout=60)
-                        # Collect output
-                        if self.python_child.before:
-                            output = str(self.python_child.before).strip()
-                            # Filter out command echoes
-                            if output and output != line:
-                                # Remove the command echo if present
-                                output_lines = output.split('\n')
-                                filtered_lines = []
-                                for out_line in output_lines:
-                                    out_line = out_line.strip()
-                                    # Skip if it's exactly the command we sent
-                                    if out_line and out_line != line:
-                                        filtered_lines.append(out_line)
-                                if filtered_lines:
-                                    collected_output.extend(filtered_lines)
-                    except pexpect.TIMEOUT:
-                        # Handle timeout - might be a long-running operation
-                        self.stdout_callback("[Python execution taking longer than expected...]\n")
-                        try:
-                            # Wait a bit longer
-                            self.python_child.expect('>>> ', timeout=300)  # 5 more minutes
-                            if self.python_child.before:
-                                output = str(self.python_child.before).strip()
-                                if output and output != line:
-                                    collected_output.append(output)
-                        except pexpect.TIMEOUT:
-                            self.stdout_callback("[Python execution timed out]\n")
-                            # Try to interrupt and recover
-                            self.python_child.sendcontrol('c')
-                            try:
-                                self.python_child.expect('>>> ', timeout=5)
-                            except pexpect.TIMEOUT:
-                                # Reinitialize session if we can't recover
-                                self._initialize_persistent_python()
-                            return
+                        # Still no prompt - capture what we have
+                        current_buffer = str(self.python_child.before) if self.python_child.before else ""
+                        if current_buffer.strip():
+                            collected_output.append(current_buffer.strip())
+                            
+            except pexpect.TIMEOUT:
+                # Handle major timeout
+                self.stdout_callback("[Python execution timed out]\n")
+                # Try to interrupt and recover
+                self.python_child.sendcontrol('c')
+                try:
+                    self.python_child.expect('>>> ', timeout=2)
+                except pexpect.TIMEOUT:
+                    # Reinitialize session if we can't recover
+                    self._initialize_persistent_python()
+                return
             
             # Output all collected results
             if collected_output:
@@ -226,7 +244,8 @@ class ComputationalNotebook:
                     # Only include the command output, not the prompt itself
                     final_output = self.child.before.strip()
                     if final_output:
-                        processed_output = self._process_output_with_emoji("\n".join(final_output.split("\n")[:-1]))
+                        # Process the complete output with emojis
+                        processed_output = self._process_output_with_emoji(final_output)
                         self.stdout_callback(processed_output)
                     break
                 elif index == 1:

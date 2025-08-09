@@ -11,6 +11,7 @@ class TodosUtil(UtilBase):
     A utility for managing a to-do list.
     It allows an agent to list, add, complete, uncomplete, edit, remove, reorder, and clear tasks.
     The to-do list is stored persistently in '.cliagent/todos.md'.
+    The information returned by actions is minimal, focusing on confirmation and key stats.
     """
 
     @staticmethod
@@ -34,27 +35,24 @@ class TodosUtil(UtilBase):
             },
             "code_examples": [
                 {
-                    "description": "Add a new task to the todo list",
+                    "description": "Add a new task to the todo list. This prints the result and returns None.",
                     "code": """```python
 from utils.todos import TodosUtil
-result = TodosUtil.run("add", task="Review the documentation")
-print(result)
+TodosUtil.run("add", task="Review the documentation")
 ```"""
                 },
                 {
-                    "description": "List all current todos",
+                    "description": "List all current todos. This prints the list and returns None.",
                     "code": """```python
 from utils.todos import TodosUtil
-result = TodosUtil.run("list")
-print(result)
+TodosUtil.run("list")
 ```"""
                 },
                 {
-                    "description": "Mark a task as complete",
+                    "description": "Mark a task as complete. This prints the result and returns None.",
                     "code": """```python
 from utils.todos import TodosUtil
-result = TodosUtil.run("complete", index=1)
-print(result)
+TodosUtil.run("complete", index=1)
 ```"""
                 }
             ]
@@ -116,7 +114,18 @@ print(result)
             print(f"Error saving todos to {storage_path}: {e}")
 
     @staticmethod
-    def _format_todos_md(todos: List[Dict[str, Any]], header: str = "### Current To-Do List") -> str:
+    def get_list_as_str() -> str:
+        """
+        Returns the formatted to-do list as a string, without printing it.
+        This is intended for programmatic use where the output needs to be captured.
+        """
+        # Load the current todos from the file
+        todos = TodosUtil._load_todos()
+        # Use the existing formatting logic and return the result
+        return TodosUtil._format_todos_md(todos)
+
+    @staticmethod
+    def _format_todos_md(todos: List[Dict[str, Any]], header: str = "### Current To-Do List (TodosUtil)") -> str:
         """
         Formats the to-do list into a clean, human-readable markdown string.
         """
@@ -136,102 +145,128 @@ print(result)
         index: Optional[int] = None,
         task: Optional[str] = None,
         new_index: Optional[int] = None
-    ) -> str:
+    ) -> None:
         """
-        Manages the to-do list through various actions, returning results in markdown.
+        Manages the to-do list through various actions, printing minimal confirmation messages.
         """
         try:
             todos = TodosUtil._load_todos()
 
             if action == 'list':
-                return TodosUtil._format_todos_md(todos)
+                formatted_todos = TodosUtil._format_todos_md(todos)
+                print(formatted_todos)
+                return
 
             elif action == 'add':
                 if not task or not task.strip():
-                    return "**Error:** 'add' action requires a non-empty 'task' argument."
+                    print("**Error:** 'add' action requires a non-empty 'task' argument.")
+                    return
 
-                # Check if the task already exists
                 if any(existing_todo.get('task') == task for existing_todo in todos):
-                    # Move existing task to the end
                     existing_todo = next(t for t in todos if t.get('task') == task)
                     todos.remove(existing_todo)
                     todos.append(existing_todo)
-                    message = f"Task '{task}' already existed. Moved it to the end (task {len(todos)})."
+                    message = f"Task already existed. Moved to the end (task {len(todos)})."
                 else:
-                    # Add as a new task
                     todos.append({"task": task, "completed": False})
-                    message = f"Added new task: '{task}' at index {len(todos)}."
+                    message = f"Task added at index {len(todos)}."
                 
                 TodosUtil._save_todos(todos)
-                return f"**Success:** {message}\n\n{TodosUtil._format_todos_md(todos)}"
+                remaining_count = sum(1 for t in todos if not t.get('completed', False))
+                print(f"**Success:** {message} Total todos: {len(todos)} ({remaining_count} remaining).")
+                return
 
             elif action == 'clear':
                 count = len(todos)
                 if count == 0:
-                    return "The to-do list is already empty."
+                    print("The to-do list is already empty.")
+                    return
                 TodosUtil._save_todos([])
-                return f"**Success:** Cleared all {count} tasks from the list.\n\nYour to-do list is empty."
+                print(f"**Success:** Cleared all {count} tasks.")
+                return
 
-            # --- Actions below require an index ---
             if index is None:
-                return f"**Error:** The '{action}' action requires an 'index' argument."
+                print(f"**Error:** The '{action}' action requires an 'index' argument.")
+                return
             
             if not isinstance(index, int) or not (1 <= index <= len(todos)):
-                return f"**Error:** Invalid index: {index}. Must be an integer between 1 and {len(todos)}."
+                print(f"**Error:** Invalid index: {index}. Must be an integer between 1 and {len(todos)}.")
+                return
             
             idx_0_based = index - 1
 
             if action in ['complete', 'uncomplete']:
                 is_completing = action == 'complete'
                 current_task = todos[idx_0_based]
+                status_text = "completed" if is_completing else "uncompleted"
+                
                 if current_task['completed'] == is_completing:
-                    status_text = "already completed" if is_completing else "not completed"
-                    message = f"Task {index} ('{current_task['task']}') is {status_text}."
-                else:
-                    current_task['completed'] = is_completing
-                    TodosUtil._save_todos(todos)
-                    status_text = "completed" if is_completing else "uncompleted"
-                    message = f"Marked task {index} ('{current_task['task']}') as {status_text}."
-                return f"**Success:** {message}\n\n{TodosUtil._format_todos_md(todos)}"
+                    print(f"**Info:** Task {index} is already {status_text}.")
+                    return
+                
+                current_task['completed'] = is_completing
+                TodosUtil._save_todos(todos)
+                remaining_count = sum(1 for t in todos if not t.get('completed', False))
+                print(f"**Success:** Marked task {index} as {status_text}. {remaining_count} tasks remaining.")
+                return
 
             elif action == 'edit':
                 if not task or not task.strip():
-                    return "**Error:** The 'edit' action requires a non-empty 'task' argument."
-                old_task_text = todos[idx_0_based]['task']
+                    print("**Error:** The 'edit' action requires a non-empty 'task' argument.")
+                    return
                 todos[idx_0_based]['task'] = task
                 TodosUtil._save_todos(todos)
-                message = f"Edited task {index}. Old: '{old_task_text}'. New: '{task}'."
-                return f"**Success:** {message}\n\n{TodosUtil._format_todos_md(todos)}"
+                print(f"**Success:** Edited task {index}. Total todos: {len(todos)}.")
+                return
 
             elif action == 'remove':
-                removed_task = todos.pop(idx_0_based)
+                todos.pop(idx_0_based)
                 TodosUtil._save_todos(todos)
-                message = f"Removed task {index}: '{removed_task['task']}'."
-                return f"**Success:** {message}\n\n{TodosUtil._format_todos_md(todos)}"
+                remaining_count = sum(1 for t in todos if not t.get('completed', False))
+                print(f"**Success:** Removed task {index}. Total todos: {len(todos)} ({remaining_count} remaining).")
+                return
 
             elif action == 'reorder':
                 if new_index is None:
-                    return "**Error:** The 'reorder' action requires a 'new_index' argument."
+                    print("**Error:** The 'reorder' action requires a 'new_index' argument.")
+                    return
                 if not isinstance(new_index, int) or not (1 <= new_index <= len(todos)):
-                     return f"**Error:** Invalid new_index: {new_index}. Must be an integer between 1 and {len(todos)}."
+                     print(f"**Error:** Invalid new_index: {new_index}. Must be an integer between 1 and {len(todos)}.")
+                     return
                 
                 new_idx_0_based = new_index - 1
                 moved_task = todos.pop(idx_0_based)
                 todos.insert(new_idx_0_based, moved_task)
                 TodosUtil._save_todos(todos)
-                message = f"Moved task '{moved_task['task']}' from position {index} to {new_index}."
-                return f"**Success:** {message}\n\n{TodosUtil._format_todos_md(todos)}"
+                print(f"**Success:** Moved task from position {index} to {new_index}. Total todos: {len(todos)}.")
+                return
             
             else:
-                return f"**Error:** Unknown action: '{action}'."
+                print(f"**Error:** Unknown action: '{action}'.")
+                return
 
         except Exception as e:
-            return f"**Error:** An unexpected error occurred in TodosUtil: {str(e)}"
+            print(f"**Error:** An unexpected error occurred in TodosUtil: {str(e)}")
+            return
+            
+    @staticmethod
+    def run(
+        action: Literal['list', 'add', 'complete', 'uncomplete', 'edit', 'remove', 'reorder', 'clear'],
+        index: Optional[int] = None,
+        task: Optional[str] = None,
+        new_index: Optional[int] = None
+    ) -> None:
+        """
+        Executes a to-do list action.
+        This method prints the outcome of the action directly to the console and always returns None.
+        """
+        TodosUtil._run_logic(action=action, index=index, task=task, new_index=new_index)
 
 
 # Module-level run function for CLI-Agent compatibility
-def run(action: Literal['list', 'add', 'complete', 'uncomplete', 'edit', 'remove', 'reorder', 'clear'], index: Optional[int] = None, task: Optional[str] = None, new_index: Optional[int] = None) -> str:
+def run(action: Literal['list', 'add', 'complete', 'uncomplete', 'edit', 'remove', 'reorder', 'clear'], index: Optional[int] = None, task: Optional[str] = None, new_index: Optional[int] = None) -> None:
     """
-    Module-level wrapper for TodosUtil._run_logic() to maintain compatibility with CLI-Agent.
+    Module-level wrapper for TodosUtil.run() to maintain compatibility with CLI-Agent.
+    This function prints the output directly and always returns None.
     """
-    return TodosUtil._run_logic(action=action, index=index, task=task, new_index=new_index)
+    TodosUtil.run(action=action, index=index, task=task, new_index=new_index)

@@ -16,4 +16,3 @@ from .generateimage import GenerateImage
 from .viewimage import ViewImage
 
 # --- Example/Reference ---
-from ._example_util import ExampleUtil

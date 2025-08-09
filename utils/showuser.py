@@ -1,5 +1,5 @@
-import json
 from typing import Dict, Any
+import markpickle
 from py_classes.cls_util_base import UtilBase
 from utils.todos import TodosUtil
 
@@ -47,11 +47,11 @@ class ShowUser(UtilBase):
             TodosUtil.run("add", f"showuser: Create your html site to show to the user at {path}")
             TodosUtil.run("add", f"showuser: Use the systems default browser to show {path} to the user.")
             
-            return json.dumps(TodosUtil.run("list"), indent=2)
+            return TodosUtil.run("list")
 
         except Exception as e:
             error_result = {"error": f"Could not write to file {path}. Reason: {e}"}
-            return json.dumps(error_result, indent=2)
+            return markpickle.dumps(error_result)
 
 
 # Module-level run function for CLI-Agent compatibility
@@ -63,6 +63,6 @@ def run(path: str) -> str:
         path (str): Path to a file or directory
         
     Returns:
-        str: JSON string with result or error
+        str: Markdown string with result or error
     """
     return ShowUser._run_logic(path=path)

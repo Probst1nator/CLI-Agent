@@ -255,7 +255,7 @@ from utils.{util_name} import {util_cls.__name__}
                             # Format tool information with import pattern and usage  
                             # Simplify the signature display by removing complex type annotations
                             simplified_sig = str(run_logic_signature).replace('typing.', '').replace('Optional[', '').replace(']', '?')
-                            tool_line = f"- **{tool_name}**: `import utils.{module_name} as {module_name}; {module_name}.run{simplified_sig}` - {summary}"
+                            tool_line = f"- **{tool_name}**: `from utils.{module_name} import {tool_class.__name__}; {tool_class.__name__}.run{simplified_sig}` - {summary}"
                         else:
                             # Fallback if no _run_logic method
                             description = tool_class.get_description(tool_class).splitlines()[0]

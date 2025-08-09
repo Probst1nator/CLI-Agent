@@ -41,7 +41,7 @@ class UtilBase(ABC):
                     f"Execution of '{util_name}' is blocked. Please complete the following "
                     f"pending tasks for this utility first:"
                 )
-                formatted_todos = TodosUtil._format_todos(pending_util_todos)
+                formatted_todos = TodosUtil._format_todos_md(pending_util_todos)
                 return json.dumps({
                     "error": error_message,
                     "pending_tasks": formatted_todos
