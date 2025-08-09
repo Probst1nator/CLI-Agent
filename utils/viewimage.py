@@ -1,8 +1,7 @@
 import base64
 import os
 import asyncio
-from typing import Any, Coroutine
-
+from typing import Any, Coroutine, Dict
 from py_classes.cls_chat import Chat, Role
 from py_classes.cls_llm_router import LlmRouter
 from py_classes.enum_ai_strengths import AIStrengths
@@ -44,7 +43,33 @@ class ViewImage(UtilBase):
     """
     
     @staticmethod
-    def run(
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["describe image", "view picture", "analyze image", "what is in this image"],
+            "use_cases": [
+                "Describe the contents of the image 'screenshot.png'.",
+                "What does the image at 'images/graph.jpg' show?",
+                "Analyze the attached picture and tell me what it is."
+            ],
+            "arguments": {
+                "file_path": "The path to the image file.",
+                "prompt": "A prompt to guide the description."
+            },
+            "code_examples": [
+                {
+                    "description": "Describe an image",
+                    "code": "from utils.viewimage import ViewImage\nresult = ViewImage.run(file_path='image.png')"
+                },
+                {
+                    "description": "Describe an image with a specific prompt",
+                    "code": "from utils.viewimage import ViewImage\nresult = ViewImage.run(file_path='image.png', prompt='Focus on the text in the image.')"
+                }
+            ]
+        }
+
+
+    @staticmethod
+    def _run_logic(
         file_path: str,
         prompt: str = "Please describe this image in detail. Read out text and symbols if there are any."
     ) -> str:
@@ -96,3 +121,18 @@ class ViewImage(UtilBase):
             return response
         except Exception as e:
             return f"Error analyzing image: {str(e)}"
+
+
+# Module-level run function for CLI-Agent compatibility  
+def run(file_path: str, prompt: str = "Please describe this image in detail. Read out text and symbols if there are any.") -> str:
+    """
+    Module-level wrapper for ViewImage._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        file_path (str): Path to the image file
+        prompt (str): Prompt for image analysis
+        
+    Returns:
+        str: Image analysis result or error message
+    """
+    return ViewImage._run_logic(file_path=file_path, prompt=prompt)

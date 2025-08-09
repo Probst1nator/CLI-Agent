@@ -53,7 +53,17 @@ class GenerateImage(UtilBase):
                 "num_inference_steps": "Number of diffusion steps. Lower is faster, higher may be better quality.",
                 "enable_quantization": "Use 4-bit quantization to save VRAM (recommended for <12GB VRAM).",
                 "enable_cpu_offloading": "Offload parts of the model to system RAM to save VRAM (recommended for <12GB VRAM)."
-            }
+            },
+            "code_examples": [
+                {
+                    "description": "Generate a simple image",
+                    "code": "from utils.generateimage import GenerateImage\nresult = GenerateImage.run(path='output.png', prompt='A cat sitting on a table')"
+                },
+                {
+                    "description": "Generate a more complex image with specific dimensions",
+                    "code": "from utils.generateimage import GenerateImage\nresult = GenerateImage.run(path='output.png', prompt='A photorealistic image of a futuristic city at night', width=1024, height=768)"
+                }
+            ]
         }
     
     _pipeline: Optional['FluxPipeline'] = None  # Use string annotation
@@ -179,9 +189,8 @@ class GenerateImage(UtilBase):
             }
         return {"message": "CUDA not available."}
 
-    @classmethod
-    def run(
-        cls,
+    @staticmethod
+    def _run_logic(
         path: str,
         prompt: str,
         width: int = 1024,
@@ -208,7 +217,7 @@ class GenerateImage(UtilBase):
             A JSON string with the result or an error message.
         """
         try:
-            if not cls._initialize_pipeline(enable_quantization, enable_cpu_offloading):
+            if not GenerateImage._initialize_pipeline(enable_quantization, enable_cpu_offloading):
                  raise RuntimeError("Pipeline initialization failed.")
 
             if not path or not prompt:
@@ -226,7 +235,7 @@ class GenerateImage(UtilBase):
             generator = torch.Generator(device="cuda").manual_seed(seed) if seed is not None and torch.cuda.is_available() else None
             
             with torch.no_grad():
-                image = cls._pipeline(
+                image = GenerateImage._pipeline(
                     prompt=prompt,
                     width=width,
                     height=height,
@@ -258,6 +267,27 @@ class GenerateImage(UtilBase):
             print(error_message)
             return json.dumps({"error": error_message})
 
+
+# Module-level run function for CLI-Agent compatibility
+def run(path: str, prompt: str, width: int = 1024, height: int = 1024, seed: Optional[int] = None, num_inference_steps: int = 4, enable_quantization: bool = False, enable_cpu_offloading: bool = False) -> str:
+    """
+    Module-level wrapper for GenerateImage._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        path (str): The file path to save the image
+        prompt (str): The text prompt to generate the image from
+        width (int): The width of the image. Defaults to 1024
+        height (int): The height of the image. Defaults to 1024
+        seed (Optional[int]): A seed for reproducible results
+        num_inference_steps (int): The number of steps for the diffusion process
+        enable_quantization (bool): Load model in 4-bit for lower VRAM usage
+        enable_cpu_offloading (bool): Offload parts of the model to CPU to save VRAM
+        
+    Returns:
+        str: JSON string with result or error
+    """
+    return GenerateImage._run_logic(path=path, prompt=prompt, width=width, height=height, seed=seed, num_inference_steps=num_inference_steps, enable_quantization=enable_quantization, enable_cpu_offloading=enable_cpu_offloading)
+
 if __name__ == '__main__':
     # Example usage for testing
     if _DEPS_INSTALLED:
@@ -266,7 +296,7 @@ if __name__ == '__main__':
         is_8gb_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3) < 12 if torch.cuda.is_available() else False
         
         print(f"\n--- Generating image ({'8GB VRAM optimized' if is_8gb_vram else 'High VRAM mode'}) ---")
-        result_json = GenerateImage.run(
+        result_json = GenerateImage._run_logic(
             path="flux_test_image.png",
             prompt="A majestic lion overlooking the savannah at sunset, cinematic lighting",
             width=512,  # Smaller size for testing

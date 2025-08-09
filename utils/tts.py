@@ -114,7 +114,7 @@ class TtsUtil(UtilBase):
         }
     
     @staticmethod
-    def run(
+    def _run_logic(
         text: str,
         model_id: str = "microsoft/speecht5_tts",
         output_path: Optional[str] = None,
@@ -188,4 +188,23 @@ class TtsUtil(UtilBase):
 
         except Exception as e:
             logger.error(f"TTS synthesis failed: {e}\n{traceback.format_exc()}")
-            return json.dumps({"status": "error", "message": f"TTS synthesis failed: {e}"}) 
+            return json.dumps({"status": "error", "message": f"TTS synthesis failed: {e}"})
+
+
+# Module-level run function for CLI-Agent compatibility
+def run(text: str, model_id: str = "microsoft/speecht5_tts", output_path: Optional[str] = None, speaker_id: Optional[int] = None, temperature: float = 1.0, use_cache: bool = True) -> str:
+    """
+    Module-level wrapper for TTSUtil._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        text (str): The text to convert to speech
+        model_id (str): The TTS model to use
+        output_path (Optional[str]): Path to save the audio file
+        speaker_id (Optional[int]): Speaker ID for multi-speaker models
+        temperature (float): Temperature for synthesis
+        use_cache (bool): Whether to use cached results
+        
+    Returns:
+        str: JSON string with result or error
+    """
+    return TTSUtil._run_logic(text=text, model_id=model_id, output_path=output_path, speaker_id=speaker_id, temperature=temperature, use_cache=use_cache) 

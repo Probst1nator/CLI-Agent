@@ -47,7 +47,6 @@ class GoogleAPI(AIProviderInterface):
             try:
                 genai.configure(api_key=api_key)
                 _gemini_api_configured = True
-                logger.info("Google Generative AI API configured successfully")
             except Exception as e:
                 _gemini_api_configured = False
                 raise Exception(f"Failed to configure Google API: {e}")
@@ -194,7 +193,7 @@ class GoogleAPI(AIProviderInterface):
             
             # Log other errors here so we don't get duplicate logs
             if not silent_reason:
-                error_msg = f"\nGoogle-Api: Failed to generate response with model {model_key}: {e}"
+                error_msg = f"❌ {model_key}: {str(e).split('.')[0]}"
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
                 
                 # Mark the exception as already logged so the router won't log it again

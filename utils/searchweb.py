@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Tuple, Coroutine
 import asyncio
 from py_classes.utils.cls_utils_web import WebTools
 
+
 def _run_async_safely(coro: Coroutine) -> Any:
     """
     Helper function to run async code from sync context safely.
@@ -49,16 +50,31 @@ class SearchWeb(UtilBase):
                 "Search the web for the latest news on artificial intelligence.",
                 "Find the official documentation for the Python requests library.",
                 "What is the weather forecast for tomorrow?",
-                "Find the latest agent LLMs under 30GB on HuggingFace.",
-                "Search for the most recent releases of open-source language models.",
-                "Look up the current state-of-the-art models for code generation.",
                 "Find performance benchmarks comparing different LLM architectures.",
                 "Search for tutorials on deploying models with Ollama."
             ],
             "arguments": {
                 "queries": "A list of search terms or questions.",
                 "depth": "Internal use for recursion depth, should not be set by the user."
-            }
+            },
+            "code_examples": [
+                {
+                    "description": "Search for latest AI news",
+                    "code": """```python
+from utils.searchweb import SearchWeb
+result = SearchWeb.run(["latest AI developments 2025"])
+print(result)
+```"""
+                },
+                {
+                    "description": "Using module-level function (CLI-Agent style)",
+                    "code": """```python
+import utils.searchweb as searchweb
+result = searchweb.run(query="Python machine learning tutorials")
+print(result)
+```"""
+                }
+            ]
         }
     
     # Initialize WebTools here to ensure it's available in sandbox
@@ -79,7 +95,7 @@ class SearchWeb(UtilBase):
                 cls.web_tools = MinimalWebTools()
     
     @staticmethod
-    def run(queries: List[str], depth: int = 0) -> str:
+    def _run_logic(queries: List[str], depth: int = 0) -> str:
         """
         Perform a web search and receive a summary of the results.
         
@@ -157,7 +173,7 @@ If sources conflict or information seems outdated, note this in your summary.
                 chat,
                 strengths=[AIStrengths.GENERAL],
                 exclude_reasoning_tokens=True,
-                hidden_reason="Condensing search results"
+                hidden_reason="Condensing search results",
             ))
         except Exception as e:
             print(f"❌ SearchWeb: Failed to generate summary: {str(e)}")
@@ -199,7 +215,7 @@ Your suggested queries should be more specific or use alternative terminology th
         try:
             is_relevant_tool_response = _run_async_safely(LlmRouter.generate_completion(
                 is_relevant_chat,
-                strengths=[AIStrengths.REASONING, AIStrengths.SMALL],
+                strengths=[AIStrengths.SMALL],
                 exclude_reasoning_tokens=True,
                 hidden_reason="SearchWebUtil: verifying relevance"
             ))
@@ -226,13 +242,14 @@ Your suggested queries should be more specific or use alternative terminology th
         
         if relevance_action['action'] == 'rerun_search' and 'new_queries' in relevance_action and depth < MAX_RECURSION_DEPTH:
             print(f"SearchWebUtil: Summary not relevant, rerunning with new queries: {relevance_action['new_queries']}")
-            summary = SearchWeb.run(relevance_action['new_queries'], depth=depth + 1)
+            summary = SearchWeb._run_logic(relevance_action['new_queries'], depth=depth + 1)
         else:
             pass
         
-        # Return a clean response with the summary as a string with clear formatting
-        formatted_summary = f"SEARCH RESULT SUMMARY 1:\n{summary}\n"
-        return formatted_summary
+        if (summary):
+            # Return a clean response with the summary as a string with clear formatting
+            summary = f"# SEARCH SUMMARY\n{summary}\n"
+        return summary
 
 
 # Module-level run function for CLI-Agent compatibility
@@ -258,7 +275,7 @@ def run(query=None, queries=None, depth: int = 0) -> str:
     else:
         raise ValueError("Either 'query' or 'queries' parameter must be provided")
     
-    return SearchWeb.run(search_queries, depth)
+    return SearchWeb._run_logic(search_queries, depth)
 
 
 if __name__ == "__main__":
@@ -275,7 +292,7 @@ if __name__ == "__main__":
     # Test 1: Basic functionality test
     print("\n=== Test 1: Basic Search ===")
     try:
-        result = SearchWeb.run(["latest agent LLMs under 30GB huggingface"])
+        result = SearchWeb._run_logic(["latest agent LLMs under 30GB huggingface"])
         print(f"Search completed. Result length: {len(result) if result else 0} characters")
         if result:
             print("First 200 characters of result:")
@@ -290,7 +307,7 @@ if __name__ == "__main__":
     # Test 2: Single string input (should be converted to list)
     print("\n=== Test 2: Single String Input ===")
     try:
-        result = SearchWeb.run("Python machine learning libraries")
+        result = SearchWeb._run_logic("Python machine learning libraries")
         print(f"Search completed. Result length: {len(result) if result else 0} characters")
         if result:
             print("First 200 characters of result:")
@@ -330,7 +347,7 @@ if __name__ == "__main__":
         
         if hasattr(searchweb_module, 'SearchWeb'):
             print("Trying to call SearchWeb.run directly...")
-            result = searchweb_module.SearchWeb.run(["test query"])
+            result = searchweb_module.SearchWeb._run_logic(["test query"])
             print(f"Direct call successful, result length: {len(result) if result else 0}")
     except Exception as e:
         print(f"Import pattern test failed: {e}")

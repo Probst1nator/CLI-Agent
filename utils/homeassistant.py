@@ -34,7 +34,21 @@ class HomeAssistant(UtilBase):
                 "domain": "The service domain (e.g., 'light', 'switch').",
                 "service": "The service name (e.g., 'turn_on', 'toggle').",
                 "entity_id": "The unique ID of the device or entity to control (e.g., 'light.living_room_lamp')."
-            }
+            },
+            "code_examples": [
+                {
+                    "description": "Turn on a light",
+                    "code": "from utils.homeassistant import HomeAssistant\nresult = HomeAssistant.run(action='call_service', domain='light', service='turn_on', entity_id='light.living_room')"
+                },
+                {
+                    "description": "Get the state of a sensor",
+                    "code": "from utils.homeassistant import HomeAssistant\nresult = HomeAssistant.run(action='get_state', entity_id='sensor.bedroom_temperature')"
+                },
+                {
+                    "description": "List all devices",
+                    "code": "from utils.homeassistant import HomeAssistant\nresult = HomeAssistant.run(action='list_devices')"
+                }
+            ]
         }
     
     _INTERACTED_ENTITIES_FILE = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'homeassistant_interacted_entities.json')
@@ -830,9 +844,8 @@ class HomeAssistant(UtilBase):
             error_result = {"error": f"Unexpected error in backup/restore operation: {str(e)}"}
             return json.dumps(error_result, indent=2)
 
-    @classmethod
-    def run(
-        cls,
+    @staticmethod
+    def _run_logic(
         action: Literal[
             "call_service", "get_state", "list_devices", "get_usage_history", "search_entity_by_keyword",
             "list_automations", "get_automation", "create_automation", "update_automation", "delete_automation",
@@ -875,91 +888,91 @@ class HomeAssistant(UtilBase):
                 if not domain or not service:
                     error_result = {"error": "For 'call_service', 'domain' and 'service' are required."}
                     return json.dumps(error_result, indent=2)
-                return cls._call_service(domain, service, entity_id, service_data)
+                return HomeAssistant._call_service(domain, service, entity_id, service_data)
             
             elif action == "get_state":
                 if not entity_id:
                     error_result = {"error": "For 'get_state', 'entity_id' is required. To list all devices, use 'list_devices'."}
                     return json.dumps(error_result, indent=2)
-                return cls._get_state(entity_id)
+                return HomeAssistant._get_state(entity_id)
                 
             elif action == "list_devices":
-                return cls._get_state() # Gets all states
+                return HomeAssistant._get_state() # Gets all states
             
             elif action == "get_usage_history":
                 if not entity_id:
                     error_result = {"error": "For 'get_usage_history', 'entity_id' is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._get_entity_usage_history(entity_id)
+                return HomeAssistant._get_entity_usage_history(entity_id)
 
             elif action == "search_entity_by_keyword":
                 if not keyword:
                     error_result = {"error": "For 'search_entity_by_keyword', 'keyword' is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._search_entities_by_keyword(keyword)
+                return HomeAssistant._search_entities_by_keyword(keyword)
 
             # Automation management actions
             elif action == "list_automations":
-                return cls._manage_automations("list")
+                return HomeAssistant._manage_automations("list")
 
             elif action == "get_automation":
                 if not automation_id:
                     error_result = {"error": "For 'get_automation', 'automation_id' is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._manage_automations("get", automation_id)
+                return HomeAssistant._manage_automations("get", automation_id)
 
             elif action == "create_automation":
                 if not automation_config:
                     error_result = {"error": "For 'create_automation', 'automation_config' is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._manage_automations("create", automation_config=automation_config)
+                return HomeAssistant._manage_automations("create", automation_config=automation_config)
 
             elif action == "update_automation":
                 if not automation_id or not automation_config:
                     error_result = {"error": "For 'update_automation', both 'automation_id' and 'automation_config' are required."}
                     return json.dumps(error_result, indent=2)
-                return cls._manage_automations("update", automation_id, automation_config)
+                return HomeAssistant._manage_automations("update", automation_id, automation_config)
 
             elif action == "delete_automation":
                 if not automation_id:
                     error_result = {"error": "For 'delete_automation', 'automation_id' is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._manage_automations("delete", automation_id)
+                return HomeAssistant._manage_automations("delete", automation_id)
 
             # Automation control actions
             elif action == "enable_automation":
                 if not entity_id:
                     error_result = {"error": "For 'enable_automation', 'entity_id' (automation entity ID) is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._control_automation("enable", entity_id)
+                return HomeAssistant._control_automation("enable", entity_id)
 
             elif action == "disable_automation":
                 if not entity_id:
                     error_result = {"error": "For 'disable_automation', 'entity_id' (automation entity ID) is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._control_automation("disable", entity_id)
+                return HomeAssistant._control_automation("disable", entity_id)
 
             elif action == "trigger_automation":
                 if not entity_id:
                     error_result = {"error": "For 'trigger_automation', 'entity_id' (automation entity ID) is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._control_automation("trigger", entity_id)
+                return HomeAssistant._control_automation("trigger", entity_id)
 
             elif action == "reload_automations":
-                return cls._control_automation("reload", "")
+                return HomeAssistant._control_automation("reload", "")
 
             # Backup/restore actions
             elif action == "backup_automations":
-                return cls._backup_restore_automations("backup", backup_name)
+                return HomeAssistant._backup_restore_automations("backup", backup_name)
 
             elif action == "restore_automations":
                 if not backup_name:
                     error_result = {"error": "For 'restore_automations', 'backup_name' is required."}
                     return json.dumps(error_result, indent=2)
-                return cls._backup_restore_automations("restore", backup_name)
+                return HomeAssistant._backup_restore_automations("restore", backup_name)
 
             elif action == "list_automation_backups":
-                return cls._backup_restore_automations("list_backups")
+                return HomeAssistant._backup_restore_automations("list_backups")
 
             else:
                 valid_actions = [
@@ -977,6 +990,21 @@ class HomeAssistant(UtilBase):
 
 
 # --- Example Usage (for testing purposes) ---
+# Module-level run function for CLI-Agent compatibility  
+def run(action, **kwargs) -> str:
+    """
+    Module-level wrapper for HomeAssistant._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        action: The action to perform on Home Assistant
+        **kwargs: Additional arguments for the action
+        
+    Returns:
+        str: JSON string with result or error
+    """
+    return HomeAssistant._run_logic(action=action, **kwargs)
+
+
 if __name__ == "__main__":
     # To test this script, set the HASS_URL and HASS_TOKEN environment variables.
     # Example:
@@ -997,12 +1025,12 @@ if __name__ == "__main__":
     if not os.environ.get("HASS_URL") or not os.environ.get("HASS_TOKEN"):
         print("\nSkipping tests: HASS_URL and HASS_TOKEN environment variables are not set.")
         print("Example JSON response for no configuration:")
-        result = HomeAssistant.run(action="list_devices")
+        result = HomeAssistant._run_logic(action="list_devices")
         print(result)
     else:
         print("\n--- Test Case 1: Listing all automations ---")
         try:
-            result1 = HomeAssistant.run(action="list_automations")
+            result1 = HomeAssistant._run_logic(action="list_automations")
             print(f"Result:\n{result1}")
         except Exception as e:
             print(f"Test Case 1 FAILED: {e}")
@@ -1027,7 +1055,7 @@ if __name__ == "__main__":
         }
         
         try:
-            result2 = HomeAssistant.run(
+            result2 = HomeAssistant._run_logic(
                 action="create_automation",
                 automation_config=sample_automation
             )
@@ -1037,7 +1065,7 @@ if __name__ == "__main__":
 
         print("\n--- Test Case 3: Getting the created automation ---")
         try:
-            result3 = HomeAssistant.run(
+            result3 = HomeAssistant._run_logic(
                 action="get_automation",
                 automation_id="test_automation_from_python"
             )
@@ -1047,7 +1075,7 @@ if __name__ == "__main__":
 
         print("\n--- Test Case 4: Backup automations ---")
         try:
-            result4 = HomeAssistant.run(
+            result4 = HomeAssistant._run_logic(
                 action="backup_automations",
                 backup_name="test_backup"
             )
@@ -1057,14 +1085,14 @@ if __name__ == "__main__":
 
         print("\n--- Test Case 5: List automation backups ---")
         try:
-            result5 = HomeAssistant.run(action="list_automation_backups")
+            result5 = HomeAssistant._run_logic(action="list_automation_backups")
             print(f"Result:\n{result5}")
         except Exception as e:
             print(f"Test Case 5 FAILED: {e}")
 
         print("\n--- Test Case 6: Search for automation entities ---")
         try:
-            result6 = HomeAssistant.run(
+            result6 = HomeAssistant._run_logic(
                 action="search_entity_by_keyword",
                 keyword="automation"
             )
@@ -1074,7 +1102,7 @@ if __name__ == "__main__":
 
         print("\n--- Test Case 7: Clean up - Delete test automation ---")
         try:
-            result7 = HomeAssistant.run(
+            result7 = HomeAssistant._run_logic(
                 action="delete_automation",
                 automation_id="test_automation_from_python"
             )

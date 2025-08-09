@@ -56,7 +56,7 @@ class Chat:
         Returns:
             str: The formatted prefix string
         """
-        return f"[{self.debug_title}] " if self.debug_title else ""
+        return f"[Tokens: {math.ceil(len(self.__str__())*3/4)} | {self.debug_title}] " if self.debug_title else f"[Tokens: {math.ceil(len(self.__str__())*3/4)} | Messages: {len(self.messages)}] "
     
     def __len__(self) -> int:
         """

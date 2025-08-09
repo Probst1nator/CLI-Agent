@@ -61,6 +61,7 @@ class ToolVectorDB:
         "ip address": ["To display the current IP address, use the following Python command:\n```python\nimport socket\nhostname = socket.gethostname()\nip_address = socket.gethostbyname(hostname)\nprint(f'IP Address: {ip_address}')\n```", "writefile", "editfile"],
         "weather": ["For weather information, you'll need to use an API service or create a weather utility tool.", "writefile", "editfile"],
         "location": ["For location information, you can use geolocation services or IP-based location APIs.", "writefile", "editfile"],
+        "read": ["To perform a read operation you can use `cat` in bash or `print(open('path/to/file').read())` in python.", "viewfiles"],
         "file": ["writefile", "editfile", "viewfiles"],
         "code": ["editfile", "writefile", "viewfiles", "Remember that you can run any bash code instantly by providing it like this:\n```bash\nawk -v START=3 -v END=6 'NR >= START && NR <= END { print NR \"s: \" $0 }' sample.txt"],
         "write": ["writefile", "editfile"],
@@ -242,12 +243,38 @@ class ToolVectorDB:
         text_to_embed = ". ".join(text_parts)
         embedding = self._get_embedding(text_to_embed)
         
+        # Extract usage examples from metadata
+        usage_examples = []
+        if metadata and 'code_examples' in metadata:
+            # Take the first few code examples, extract the actual executable code
+            code_examples = metadata['code_examples'][:2]  # Limit to 2 examples
+            for example in code_examples:
+                if isinstance(example, dict) and 'code' in example:
+                    # Extract the code block from triple backticks
+                    code = example['code']
+                    if '```python' in code:
+                        # Extract just the Python code between backticks
+                        start = code.find('```python') + 9
+                        end = code.find('```', start)
+                        if end != -1:
+                            clean_code = code[start:end].strip()
+                            usage_examples.append(clean_code)
+        
+        # Fallback to use_cases if no code_examples available
+        if not usage_examples and metadata and 'use_cases' in metadata:
+            # Take the first few use cases as examples, format them properly
+            use_cases = metadata['use_cases'][:3]  # Limit to 3 examples
+            for case in use_cases:
+                if case.strip():
+                    usage_examples.append(f"- {case.strip()}")
+        
         self.tools[name] = {
             "class": tool_class,
             "description": description,
             "embedding": embedding,
             "metadata": metadata,
-            "adaptive_keywords": keywords  # Store adaptive keywords separately
+            "adaptive_keywords": keywords,  # Store adaptive keywords separately
+            "usage_examples": usage_examples  # Store formatted usage examples
         }
         self._rebuild_index()
 
@@ -331,18 +358,20 @@ class ToolVectorDB:
         
         # Calculate cosine similarity between query and all tool vectors
         # Reshape for single query against multiple vectors
-        similarities = cos_sim(query_embedding.reshape(1, -1), self.vectors)[0]
+        similarities_2d = cos_sim(query_embedding.reshape(1, -1), self.vectors)
         
+        # BUG FIX: Ensure similarities is a 1D array for argsort
+        similarities = similarities_2d[0] if similarities_2d.ndim > 1 else similarities_2d
+
         # Get the indices of the top_k most similar vectors
         # Ensure we don't ask for more items than exist
         k = min(top_k, len(similarities))
         if k == 0:
             return []
         
-        # Get indices sorted by similarity (descending order)
-        sorted_indices = np.argsort(similarities)
-        top_indices = sorted_indices[-k:].tolist()
-        top_indices.reverse()  # Reverse to get descending order
+        # Get indices sorted by similarity (descending order) by sorting the negated array.
+        # This is a robust method that avoids negative slicing (`[::-1]`).
+        top_indices = np.argsort(-similarities)[:k]
 
         results = []
         for index in top_indices:
@@ -352,7 +381,8 @@ class ToolVectorDB:
                 "name": tool_name,
                 "score": float(similarities[index]),
                 "class": tool_info["class"],
-                "metadata": tool_info["metadata"]
+                "metadata": tool_info["metadata"],
+                "usage_examples": tool_info.get("usage_examples", [])
             })
         
         # Let adaptive learning handle prioritization - no hardcoded biases
@@ -386,12 +416,13 @@ class ToolVectorDB:
         ]).astype(np.float32)
         
         # Calculate similarities
-        similarities = cos_sim(query_embedding.reshape(1, -1), hint_embeddings)[0]
+        similarities_2d = cos_sim(query_embedding.reshape(1, -1), hint_embeddings)
         
-        # Get ALL hints sorted by similarity (we'll filter for uniqueness below)
-        sorted_indices = np.argsort(similarities)
-        all_indices = sorted_indices.tolist()
-        all_indices.reverse()  # Get descending order (highest similarity first)
+        # BUG FIX: Ensure similarities is a 1D array
+        similarities = similarities_2d[0] if similarities_2d.ndim > 1 else similarities_2d
+        
+        # Get ALL hints sorted by similarity by sorting the negated array.
+        all_indices = np.argsort(-similarities)
         
         results = []
         seen_guidance_texts = set()  # Track unique guidance texts to avoid duplicates

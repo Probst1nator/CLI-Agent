@@ -3,9 +3,8 @@
 # --- Simple, Deterministic Tools ---
 from .editfile import EditFile 
 from .removefile import RemoveFile
-from .viewfile import ViewFile
+from .viewfiles import ViewFiles
 from .todos import TodosUtil
-from .findfiles import FindFiles
 from .web_fetch import WebFetchUtil
 
 # --- Other Utilities ---

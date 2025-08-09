@@ -1,4 +1,5 @@
 import json
+from typing import Dict, Any
 from py_classes.cls_util_base import UtilBase
 from utils.todos import TodosUtil
 
@@ -8,7 +9,28 @@ class ShowUser(UtilBase):
     """
 
     @staticmethod
-    def run(
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["display html", "show web page", "render html", "user interface", "graphical output"],
+            "use_cases": [
+                "Show the user a formatted report in HTML.",
+                "Display a web page with images and charts.",
+                "Render an interactive HTML file for the user."
+            ],
+            "arguments": {
+                "path": "The absolute or relative path to the html file."
+            },
+            "code_examples": [
+                {
+                    "description": "Show an HTML file to the user",
+                    "code": "from utils.showuser import ShowUser\nresult = ShowUser.run(path='report.html')"
+                }
+            ]
+        }
+
+
+    @staticmethod
+    def _run_logic(
         path: str
     ) -> str:
         """
@@ -30,3 +52,17 @@ class ShowUser(UtilBase):
         except Exception as e:
             error_result = {"error": f"Could not write to file {path}. Reason: {e}"}
             return json.dumps(error_result, indent=2)
+
+
+# Module-level run function for CLI-Agent compatibility
+def run(path: str) -> str:
+    """
+    Module-level wrapper for ShowUser._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        path (str): Path to a file or directory
+        
+    Returns:
+        str: JSON string with result or error
+    """
+    return ShowUser._run_logic(path=path)
