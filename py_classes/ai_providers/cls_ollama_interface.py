@@ -108,21 +108,23 @@ class OllamaClient(AIProviderInterface):
             bool: True if the host is reachable, False otherwise.
         """
         try:
-            hostname, port = host.split(':') if ':' in host else (host, 11434)
+            hostname, port_str = host.split(':') if ':' in host else (host, '11434')
+            port = int(port_str)
+            
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                g.debug_log("Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...", "green", force_print=True, prefix=prefix)
+                g.debug_log(f"Ollama-Api: Checking host <{host}>...", "green", force_print=True, prefix=prefix)
             else:
-                logging.info("Ollama-Api: Checking host " + colored("<" + host + ">", "green") + "...")
+                logging.info(f"Ollama-Api: Checking host <{host}>...")
                 
-            with socket.create_connection((hostname, int(port)), timeout=3):
+            with socket.create_connection((hostname, port), timeout=1): # 1-second timeout
                 return True
-        except (socket.timeout, socket.error):
+        except (socket.timeout, socket.error, ValueError):
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                g.debug_log("Ollama-Api: Host " + colored("<" + host + ">", "red") + " is unreachable", "red", is_error=True, prefix=prefix)
+                g.debug_log(f"Ollama-Api: Host <{host}> is unreachable", "red", is_error=True, prefix=prefix)
             else:
-                print("Ollama-Api: Host " + colored("<" + host + ">", "red") + " is unreachable", "red")
+                logging.warning(f"Ollama-Api: Host <{host}> is unreachable")
             return False
 
     @staticmethod
@@ -194,71 +196,49 @@ class OllamaClient(AIProviderInterface):
                 client = ollama.Client(host=f'http://{host}:11434')
                 try:
                     response = client.list()
+                    
+                    # Handle both dict and ollama._types.ListResponse
+                    if hasattr(response, 'models'):
+                        models_data = response.models
+                    elif isinstance(response, dict) and 'models' in response:
+                        models_data = response.get('models', [])
+                    else:
+                        logger.warning(f"Ollama host {host} returned unexpected response format: {type(response)}")
+                        continue # Skip to the next host
+
                     logger.debug("=== START MODEL PROCESSING ===")
-                    logger.debug(f"Raw response type: {type(response)}")
-                    logger.debug(f"Raw response dir: {dir(response)}")
-                    logger.debug(f"Models list type: {type(response.models)}")
-                    logger.debug(f"Number of models: {len(response.models)}")
-                    
-                    # Examine first model's structure if available
-                    if response.models:
-                        first_model = response.models[0]
-                        logger.debug(f"First model type: {type(first_model)}")
-                        logger.debug(f"First model dir: {dir(first_model)}")
-                        logger.debug(f"First model attributes: {[(attr, getattr(first_model, attr, None)) for attr in dir(first_model) if not attr.startswith('_')]}")
-                    
-                    # Convert ListResponse to dict before JSON serialization
+
+                    # Convert to dict for JSON serialization, compatible with OllamaModelList
                     response_dict = {"models": []}
-                    for idx, model in enumerate(response.models):
-                        logger.debug(f"\nProcessing model {idx + 1}:")
-                        try:
-                            # Get raw model attributes
-                            model_attrs = {
-                                "model": getattr(model, "model", None),
-                                "name": getattr(model, "name", None),
-                                "modified_at": getattr(model, "modified_at", None),
-                                "size": getattr(model, "size", None),
-                                "digest": getattr(model, "digest", None),
-                            }
-                            logger.debug(f"Raw model attributes: {model_attrs}")
-                            
-                            # Clean and validate attributes
-                            model_dict = {
-                                "model": model_attrs["model"] or model_attrs["name"] or "",
-                                "modified_at": (model_attrs["modified_at"].isoformat() 
-                                              if hasattr(model_attrs["modified_at"], 'isoformat') 
-                                              else model_attrs["modified_at"] or datetime.now().isoformat()),
-                                "size": model_attrs["size"] or 0,
-                                "digest": model_attrs["digest"] or "",
-                            }
-                            logger.debug(f"Processed model dict: {model_dict}")
-                            
-                            # Verify JSON serialization
-                            json.dumps(model_dict)  # Test serialization
-                            response_dict["models"].append(model_dict)
-                            logger.debug("Successfully added model to response_dict")
-                        except Exception as e:
-                            logger.error(f"Error processing model {idx + 1}: {str(e)}")
-                            continue
+                    for model_data in models_data:
+                        model_name = model_data.get('model') or model_data.get('name') or ''
+                        modified_at = model_data.get('modified_at')
+                        
+                        if hasattr(modified_at, 'isoformat'):
+                            modified_at_str = modified_at.isoformat()
+                        else:
+                            modified_at_str = modified_at or datetime.now().isoformat()
+
+                        response_dict["models"].append({
+                            "model": model_name,
+                            "modified_at": modified_at_str,
+                            "size": model_data.get('size') or 0,
+                            "digest": model_data.get('digest') or ""
+                        })
                     
-                    logger.debug(f"\nFinal response dict: {response_dict}")
-                    logger.debug("Testing full JSON serialization...")
                     serialized = json.dumps(response_dict)
-                    logger.debug("JSON serialization successful")
-                    
-                    logger.debug("Creating OllamaModelList...")
                     model_list = OllamaModelList.from_json(serialized)
-                    logger.debug(f"Created model list with {len(model_list.models)} models")
                     
                     # Look for model name in all available models
                     logger.debug(f"\nSearching for model key: {model_key}")
                     found_model_key = next((
                         model.model 
                         for model in model_list.models 
-                        if model_key.lower() in model.model.lower()
+                        if model.model and model_key.lower() in model.model.lower()
                     ), None)
                     logger.debug(f"Found model key: {found_model_key}")
                     logger.debug("=== END MODEL PROCESSING ===\n")
+                    
                     if found_model_key:
                         return client, found_model_key 
                     elif auto_download and host in auto_download_hosts:
@@ -456,16 +436,32 @@ class OllamaClient(AIProviderInterface):
             client = ollama.Client(host=f'http://{host}:11434')
             response = client.list()
             
-            models = []
-            for model in response.models:
-                model_info = {
-                    'name': getattr(model, 'name', '') or getattr(model, 'model', ''),
-                    'size': getattr(model, 'size', 0),
-                    'modified_at': getattr(model, 'modified_at', None)
-                }
-                models.append(model_info)
+            # Handle new dictionary-based response from ollama-python >= 0.2.0
+            if isinstance(response, dict) and 'models' in response:
+                models = []
+                for model_data in response['models']:
+                    model_info = {
+                        'name': model_data.get('name', ''),
+                        'size': model_data.get('size', 0),
+                        'modified_at': model_data.get('modified_at', None)
+                    }
+                    models.append(model_info)
+                return models
             
-            return models
+            # Fallback for older object-based response
+            elif hasattr(response, 'models'):
+                models = []
+                for model in response.models:
+                    model_info = {
+                        'name': getattr(model, 'name', '') or getattr(model, 'model', ''),
+                        'size': getattr(model, 'size', 0),
+                        'modified_at': getattr(model, 'modified_at', None)
+                    }
+                    models.append(model_info)
+                return models
+            
+            else:
+                return []
             
         except Exception:
             return []
