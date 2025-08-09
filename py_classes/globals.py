@@ -38,7 +38,6 @@ class Globals:
     CLIAGENT_TEMP_STORAGE_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, '.temp')
     CLIAGENT_ENV_FILE_PATH = os.path.join(CLIAGENT_ROOT_PATH, '.env')
     # Path to the system instruction Markdown file
-    CLIAGENT_INSTRUCTION_FILE: str = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, 'CLIAGENT.md')
     AGENTS_SANDBOX_DIR = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, "agents_sandbox")
     os.makedirs(AGENTS_SANDBOX_DIR, exist_ok=True)
     

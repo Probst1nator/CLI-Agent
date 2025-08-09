@@ -187,7 +187,7 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Force use of cloud AI.")
     
     parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None,
-                        help="Specify the LLM model key to use (e.g., 'gpt-4', 'gemini-pro'). Use without value to open selection menu.")
+                        help="Specify the LLM model key to use (e.g., 'gemini-2.5-flash', 'gemma3n:e2b'). Use without value to open selection menu.")
     
     parser.add_argument("--gui", action="store_true", default=False,
                         help="Open a web interface for the chat")
@@ -321,21 +321,7 @@ except ImportError:
         def run(text, **kwargs):
             logging.warning(f"TtsUtil not found. Cannot speak: {text}")
             return json.dumps({"status": "error", "message": "TtsUtil not found"})
-try:
-    from utils.todos import TodosUtil
-except ImportError:
-    class TodosUtil:
-        @staticmethod
-        def run(action: str, **kwargs):
-            logging.warning("TodosUtil not found.")
-            if action == 'list':
-                return "TodosUtil not available. Cannot list todos."
-            return json.dumps({"status": "error", "message": "TodosUtil not found"})
-
-        @staticmethod
-        def _load_todos(**kwargs):
-            logging.warning("TodosUtil not found.")
-            return []
+from utils.todos import TodosUtil
 
 logging.info("Util imports success...")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -746,7 +732,7 @@ Provide ONLY your brief analysis followed by exactly one word.""",
             logging.error(colored("❌ Code execution aborted", "red"))
             return False
     else:
-        user_input = await get_user_input_with_bindings(args, None, colored("\n(Press Enter to confirm or 'n' to abort, press 'a' to toggle auto execution, 'l' for local auto execution)", "cyan"))
+        user_input = await get_user_input_with_bindings(args, None, colored("(Press Enter to confirm or 'n' to abort, press 'a' to toggle auto execution, 'l' for local auto execution)", "cyan"))
         if user_input.lower() == 'n':
             logging.error(colored("❌ Code execution aborted by user", "red"))
             return False
@@ -1077,35 +1063,31 @@ async def main() -> None:
         
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
         
-        # Load or initialize the system instruction from external Markdown file
-        instruction_path = g.CLIAGENT_INSTRUCTION_FILE
-        if not os.path.exists(instruction_path):
-            default_inst = f'''You are a CLI agent with computational notebook access. You execute Python/shell code to solve tasks, maintaining persistent state across interactions.
+        default_inst = f'''**SYSTEM: Agent Protocol & Capabilities**
 
-## Core Workflow
-1. **THINK & PLAN**: Reason through tasks before acting. Use the notebook to explore and validate assumptions
-2. **TRACK PROGRESS**: Maintain a TODO list with 2-3 steps ahead, updating it after each step as you work
-3. **ACT**: Use your instant access to a python interpreter and the intelligently provided hints to add clarity to your observations.
-4. **VERIFY**: Test outputs and iterate based on results
+You are a sophisticated AI agent operating within a command-line interface (CLI) and a python notebook. Your primary directive is to understand user requests, formulate a plan, and execute code to achieve the goal.
 
-## Key Actions
-- Intelligently add decomposed user prompts to the Todos
-- Use `bash` for handy system operation
-- Use `python` for careful and simple file interaction
-- Call utils including the Todos util inside normal python blocks
-- Sandbox workspace: {g.AGENTS_SANDBOX_DIR}
-- Create new files rather than overwriting unless explicitly requested
-- Handle errors gracefully and document limitations
+### 1. Guiding Principles (Your Core Logic)
+You must follow this four-step loop for every task:
+1.  **THINK & DECOMPOSE**: Analyze the user's request. Break it down into small, logical steps.
+2.  **PLAN & TRACK (Todos)**: Add your plan to the `todos` list. Keep it updated, marking steps complete as you go.
+3.  **ACT (Execute Code)**: Use your `bash` and `python` tools to execute the current step.
+4.  **VERIFY & REFINE**: Check the results of your actions. Refine your plan based on what you learned.
 
-## Available Tools
-- Persistent dynamic python environment (with access to custom utilities (todos, editfile, searchweb, ...))
-- User level shell access
+### 2. Execution Environments
+You can switch between two environments by using the appropriate code block language:
+- **`bash`**: For direct system interaction, file system navigation, and simple commands.
+- **`python`**: For complex logic, data manipulation, and accessing your specialized `utils` library.
 
-You approach tasks systematically, exploring and condensing information sufficiently before implementing solutions.'''
-            with open(instruction_path, 'w') as f:
-                f.write(default_inst)
-        with open(instruction_path, 'r') as f:
-            system_instruction = f.read()
+### 3. Toolbox & Dynamic Hints
+Your specialized tools (utilities) are available within any `python` code block.
+**IMPORTANT**: For each task, a dynamic list of relevant tools and their exact usage syntax will be provided in the `# HINTS` section of the user's message. You MUST use this section as your primary reference for available tools.
+
+### 4. Rules of Engagement
+- **Workspace**: Your primary working directory is `{g.AGENTS_SANDBOX_DIR}`.
+- **Safety**: Be cautious. Prefer creating new files over overwriting existing ones.
+- **Clarity**: Announce your plan before executing code.
+'''
 
         g.INITIAL_MCT_VALUE = args.mct
         if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip():
@@ -1187,17 +1169,10 @@ You approach tasks systematically, exploring and condensing information sufficie
 
         if context_chat is None:
             context_chat = Chat(debug_title="Main Context Chat")
-            inst = system_instruction
-            if g.SELECTED_UTILS:
-                inst += f"\n\nIMPORTANT: You MUST use the following utility tools: {', '.join(g.SELECTED_UTILS)}\n\n"
             if args.sandbox:
-                inst += f"\nPlease try to stay within your sandbox directory at {g.AGENTS_SANDBOX_DIR}\n"
-            context_chat.set_instruction_message(inst)
+                default_inst += f"\nPlease try to stay within your sandbox directory at {g.AGENTS_SANDBOX_DIR}\n"
+            context_chat.set_instruction_message(default_inst)
             
-            # Extract format strings to avoid backslash in f-string
-            date_format_str = '%Y-%m'
-            grep_pattern = r'^kwin|^mutter|^openbox|^i3|^dwm'
-            os_command = f'echo "OS: $(lsb_release -ds)" && echo "Desktop: $XDG_CURRENT_DESKTOP" && echo "Window Manager: $(ps -eo comm | grep -E \'{grep_pattern}\' | head -1)"'
             def read_host_file() -> str:
                 output = ""
                 try:
@@ -1210,102 +1185,30 @@ You approach tasks systematically, exploring and condensing information sufficie
                     output = "File /etc/hosts not found."
                 return output.strip()
             
-            default_user_message = f"""Hi, I am going to run some things to show you how your computational notebook works.
-Let's see the window manager and OS version of your user's system:
+            # This new bootstrap message is a concise, pre-filled sequence to establish context
+            # without a long, confusing conversational intro.
+            initial_bootstrap_message = f"""Here is your environment configuration and a demonstration of your capabilities. Please confirm and await instructions.
+
+**1. System Information (`bash`)**
 ```bash
-{os_command}
+echo "OS: $(lsb_release -ds)" && hostname
 ```
 <execution_output>
-{subprocess.check_output(os_command, shell=True, text=True, executable='/bin/bash').strip()}
+{subprocess.check_output('echo "OS: $(lsb_release -ds)" && hostname', shell=True, text=True, executable='/bin/bash').strip()}
 </execution_output>
-That succeeded.
-Let's get an overview of the current working directory and the first 5 files in it:
 
+**2. Filesystem & Utilities (`python`)**
 ```python
 import os
-print(f"Current working directory: {{os.getcwd()}}")
-print(f"Total files in current directory: {{len(os.listdir())}}")
-print(f"First 5 files in current directory: {{os.listdir()[:5]}}")
+from utils.todos import TodosUtil
+print(f"Working Directory: {{os.getcwd()}}")
+TodosUtil.run('add', task='Demonstrate successful initialization.')
 ```
 <execution_output>
 Current working directory: {os.getcwd()}
-Total files in current directory: {len(os.listdir())}
-First 5 files in current directory: {os.listdir()[:5]}
+**Success:** Task added at index 1. Total todos: 1 (1 remaining).
 </execution_output>
-Nice. Now to check the current time:
-
-```python
-import datetime
-date_format = '%Y-%m'
-print(f"Current year and month: {{datetime.datetime.now().strftime(date_format)}}")
-```
-<execution_output>
-Current year and month: {datetime.datetime.now().strftime(date_format_str)}
-</execution_output>
-Are we connected to a network?
-```bash
-ip a 
-```
-<execution_output>
-{subprocess.check_output('ip a', shell=True, text=True, executable='/bin/bash').strip()}
-</execution_output>
-Interesting. Lastly to read the first 3 lines of `/etc/hosts`, I will now execute simple python script:
-```python
-try:
-    with open('/etc/hosts', 'r') as f:
-        for i, line in enumerate(f):
-            if i >= 3:
-                break
-            print(f"Line {{i+1}}: {{line.strip()}}")
-except FileNotFoundError:
-    print("File /etc/hosts not found.")
-```
-<execution_output>
-{read_host_file()}
-</execution_output>
-
-The suggested utilities can be used in regular python syntax, for example, I will now search the web ```python
-from utils.searchweb import SearchWeb
-print(SearchWeb.run(queries=["open-source computing library for python"]))
-```
-<execution_output>
-NumPy is an open-source Python library fundamental for scientific and numerical computing. It provides support for large, multi-dimensional arrays and matrices, along with a comprehensive collection of high-level mathematical functions to perform fast operations on these arrays, such as linear algebra, statistical operations, Fourier transforms, and random simulations.
-</execution_output>
-Is is now
-```bash
-date
-```
-<execution_output>
-{subprocess.check_output("date", shell=True, text=True, executable='/bin/bash').strip()}
-</execution_output>
-
-You can switch between python and bash freely. Just ensure to keep your read and edit commands precise and careful.
-Hints will from time to time to provide you with advice on how to act and progress. 
-The Todos will provide structure to any task, they are always kept updated with stepwise objectives."""
-
-            # # --- BEGIN: Auto-load preprompt files ---
-            # logging.info("Checking for preprompt files to load into context...")
-            # preprompt_files_to_load = ['CLAUDE.md', 'GEMINI.md', 'QWEN.md', 'readme.md', 'README.md']
-            # loaded_files_content = []
-            # # Use a set to handle case-insensitivity of readme.md and avoid duplicates
-            # loaded_filenames_lower = set()
-
-            # for filename in preprompt_files_to_load:
-            #     # If a case-insensitive version of the file has been loaded, skip
-            #     if filename.lower() in loaded_filenames_lower:
-            #         continue
-
-            #     if os.path.exists(filename):
-            #         try:
-            #             with open(filename, 'r', encoding='utf-8') as f:
-            #                 content = f.read()
-            #                 # Only add files that have content
-            #                 if len(content.strip())>3:
-            #                     loaded_files_content.append((filename, content))
-            #                     loaded_filenames_lower.add(filename.lower())
-            #                     logging.info(f"Loaded '{filename}' into initial context.")
-                    # except Exception as e:
-                    #     logging.warning(f"Could not read preprompt file '{filename}': {e}")
+"""
 
         if '-m' in sys.argv or '--message' in sys.argv:
             if not args.message:
@@ -1320,8 +1223,7 @@ The Todos will provide structure to any task, they are always kept updated with 
         swap_to_simple_logging()
 
         user_interrupt = False
-        if context_chat and len(context_chat.messages) == 0:
-            context_chat.add_message(Role.USER, default_user_message)
+        context_chat.add_message(Role.USER, initial_bootstrap_message)
         while True:
             LlmRouter().failed_models.clear()
             user_input: Optional[str] = None
@@ -1390,19 +1292,42 @@ The Todos will provide structure to any task, they are always kept updated with 
             base64_images: List[str] = []
 
             if (user_input):
+                # First, add the new task. The existing `run` method prints its own confirmation.
                 TodosUtil.run("add", task="user_input: " + user_input)
 
-            # Create user message with todos and hints when there's user input
-            if user_input:
-                guidance_prompt = utils_manager.get_relevant_tools_prompt(TodosUtil.run("list"), top_k=5)
+                # Now, get the full list as a string using the new, non-printing method.
+                current_todos_str = TodosUtil.get_list_as_str()
+
+                # Construct the prompt for the agent, showing the final state of the list.
+                todos_prompt = f"""**TodosUtil (`python`)**
+```python
+# The agent sees a logical sequence of commands.
+TodosUtil.run('add', task='{user_input}')
+TodosUtil.run('list')
+
+<execution_output>
+{current_todos_str}
+</execution_output>
+"""
+                context_chat.add_message(Role.USER, todos_prompt)
+
+                # Use the captured string to generate hints for the next step.
                 try:
-                    todos_text = TodosUtil.run("list")
-                    actual_user_message = f"# USER\n{user_input}\n\n# TODOS\n{todos_text}\n\n# HINTS\n{guidance_prompt}"
-                    context_chat.add_message(Role.USER, actual_user_message)
+                    prompt_subfix = ""
+                    # Check if the list is not empty before adding the header.
+                    if "Your to-do list is empty." not in current_todos_str:
+                        prompt_subfix += f"\n\n# UPCOMING TODOS\n{current_todos_str}"
+                    
+                    # Use the same captured string for hint generation.
+                    guidance_prompt = utils_manager.get_relevant_tools_prompt(current_todos_str, top_k=5)
+                    if guidance_prompt:
+                        prompt_subfix += f"\n\n# HINTS\n{guidance_prompt}"
+                    
+                    if prompt_subfix:
+                        context_chat.add_message(Role.USER, prompt_subfix)
                 except Exception as e:
-                    logging.warning(colored(f"Could not create user message with todos and hints. Error: {e}", "red"))
-                    # Fallback: just add the user input
-                    context_chat.add_message(Role.USER, f"# USER\n{user_input}")
+                    # Handle potential errors in hint generation gracefully.
+                    logging.warning(f"Could not generate hints: {e}")
 
             last_action_signature: Optional[str] = None
             stall_counter: int = 0
@@ -1556,7 +1481,7 @@ The Todos will provide structure to any task, they are always kept updated with 
                             TodosUtil.run("add", task="HIGH PRIORITY: update the todo list entries")
                             all_todos = TodosUtil._load_todos()
                             if all_todos and any(not todo.get('completed', False) for todo in all_todos):
-                                todos_list_str = TodosUtil.run("list")
+                                todos_str = TodosUtil.run("list")
                                 auto_prompt = "You have not executed any code, let's check the remaining todos."
                                 logging.info(colored("\n📝 Pending to-dos found. Auto-prompting.", "light_blue"))
                                 args.message.insert(0, auto_prompt)
