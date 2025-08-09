@@ -10,7 +10,7 @@ class ExampleUtil(UtilBase):
     """
     
     @staticmethod
-    async def run(operation: str = "add", values: Dict[str, Any] = None) -> Any:
+    async def _run_logic(operation: str = "add", values: Dict[str, Any] = None) -> Any:
         """
         Perform a basic operation based on the input parameters.
         The run methods args are needed to be kept minimal to reduce usage complexity.
@@ -47,4 +47,20 @@ class ExampleUtil(UtilBase):
             return result
             
         else:
-            return f"Unknown operation: {operation}" 
+            return f"Unknown operation: {operation}"
+
+
+# Module-level run function for CLI-Agent compatibility
+def run(operation: str = "add", values: Dict[str, Any] = None) -> Any:
+    """
+    Module-level wrapper for ExampleUtil._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        operation (str): The operation to perform ("add", "multiply", "concat")
+        values (Dict[str, Any]): Dictionary of values to use in the operation
+        
+    Returns:
+        Any: The result of the operation
+    """
+    import asyncio
+    return asyncio.run(ExampleUtil._run_logic(operation=operation, values=values)) 

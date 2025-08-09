@@ -167,18 +167,19 @@ class Llm:
         try:
             from py_classes.ai_providers.cls_ollama_interface import OllamaClient
             llms.extend([
-                Llm(OllamaClient(), "qwen3-coder:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.SMALL]),
-                Llm(OllamaClient(), "qwen3:30b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "devstral:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "mistral-small3.2:latest", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.VISION]),
-                
-                
-                Llm(OllamaClient(), "gemma3n:e4b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "mistral-small3.2:latest", None, None, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.VISION]),
+                Llm(OllamaClient(), "gemma3n:e4b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "magistral:latest", None, None, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "qwen3:30b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "qwen3-coder:latest", None, None, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "devstral:latest", None, None, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
                 Llm(OllamaClient(), "gemma3n:e2b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+                
+                
                 Llm(OllamaClient(), "qwen2.5vl:3b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
                 Llm(OllamaClient(), "cogito:32b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
                 Llm(OllamaClient(), "qwen3:1.7b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
-                Llm(OllamaClient(), "qwen2.5-coder:1.5b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
+                Llm(OllamaClient(), "qwen2.5-coder:1.5b", None, None, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
                 
                 
                 # Guard models

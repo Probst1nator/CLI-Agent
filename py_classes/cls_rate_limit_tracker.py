@@ -73,7 +73,7 @@ class RateLimitTracker:
             "entry_time": time.time()
         }
         self._save_rate_limits()
-        logger.info(f"Updated rate limit for model {model}: wait {try_again_seconds} seconds")
+        logger.debug(f"Rate limited {model}: {try_again_seconds}s cooldown")
     
     def is_rate_limited(self, model: str) -> bool:
         """

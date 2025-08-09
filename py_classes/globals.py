@@ -134,9 +134,9 @@ class Globals:
         """
         does_contain_whitespace = prefix.endswith(" ") or message.startswith(" ")
         if does_contain_whitespace:
-            log_message = f"\n{prefix}" + message.removeprefix('\n')
+            log_message = f"{prefix}" + message.removeprefix('\n')
         else:
-            log_message = f"\n{prefix} " + message.removeprefix('\n')
+            log_message = f"{prefix} " + message.removeprefix('\n')
         
         # Log to appropriate logger level (ignoring color)
         if is_error:

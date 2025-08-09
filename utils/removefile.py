@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 import datetime
+from typing import Dict, Any
 from py_classes.cls_util_base import UtilBase
 
 class RemoveFile(UtilBase):
@@ -11,7 +12,33 @@ class RemoveFile(UtilBase):
     """
 
     @staticmethod
-    def run(path: str = None, list_recently_deleted: int = 0) -> str:
+    def get_metadata() -> Dict[str, Any]:
+        return {
+            "keywords": ["delete file", "remove file", "trash file", "archive file", "safe delete"],
+            "use_cases": [
+                "Remove the temporary file 'temp_data.csv'.",
+                "Delete 'old_script.py' but keep a backup.",
+                "List the files I have deleted recently."
+            ],
+            "arguments": {
+                "path": "The absolute or relative path to the file to be removed.",
+                "list_recently_deleted": "If greater than 0, lists recently deleted files."
+            },
+            "code_examples": [
+                {
+                    "description": "Remove a file",
+                    "code": "```python\nfrom utils.removefile import RemoveFile\nresult = RemoveFile.run(path='file_to_remove.txt')\n```"
+                },
+                {
+                    "description": "List recently removed files",
+                    "code": "```python\nfrom utils.removefile import RemoveFile\nresult = RemoveFile.run(list_recently_deleted=5)\n```"
+                }
+            ]
+        }
+
+
+    @staticmethod
+    def _run_logic(path: str = None, list_recently_deleted: int = 0) -> str:
         """
         Moves a file to a backup directory or lists a number of recently deleted files.
 
@@ -95,3 +122,18 @@ class RemoveFile(UtilBase):
         except Exception as e:
             error_result = {"error": f"Could not remove file {path}. Reason: {e}"}
             return json.dumps(error_result, indent=2)
+
+
+# Module-level run function for CLI-Agent compatibility
+def run(path: str = None, list_recently_deleted: int = 0) -> str:
+    """
+    Module-level wrapper for RemoveFile._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        path (str): The file path to remove/backup
+        list_recently_deleted (int): Number of recently deleted files to list
+        
+    Returns:
+        str: JSON string with result or error
+    """
+    return RemoveFile._run_logic(path=path, list_recently_deleted=list_recently_deleted)

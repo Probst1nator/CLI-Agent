@@ -31,8 +31,167 @@ class ComputationalNotebook:
         # Clean up old temporary files from previous runs
         g.cleanup_temp_py_files()
 
+        # Initialize bash session
         self.child = pexpect.spawn('bash', encoding='utf-8', timeout=30)
         self._expect_bash_prompt(suppress_output=True)  # Suppress initial bash prompt
+        
+        # Initialize persistent Python session
+        self.python_child = None
+        self._initialize_persistent_python()
+
+    def _initialize_persistent_python(self):
+        """Initialize persistent Python session."""
+        try:
+            if self.python_child:
+                self.python_child.close()
+            
+            # Spawn persistent Python session with interactive mode
+            self.python_child = pexpect.spawn('python3 -i -u', encoding='utf-8', timeout=30)
+            
+            # Wait for initial Python prompt
+            self.python_child.expect('>>> ', timeout=10)
+            
+            # Send initialization code line by line
+            init_lines = self.get_initialization_code().strip().split('\n')
+            for line in init_lines:
+                if line.strip():  # Skip empty lines
+                    self.python_child.sendline(line)
+                    # Wait for prompt or continuation
+                    try:
+                        index = self.python_child.expect(['>>> ', '\.\.\. '], timeout=10)
+                        if index == 1:  # Continuation prompt, send empty line to complete
+                            self.python_child.sendline('')
+                            self.python_child.expect('>>> ', timeout=10)
+                    except pexpect.TIMEOUT:
+                        # If timeout, try to recover
+                        self.python_child.sendline('')
+                        try:
+                            self.python_child.expect('>>> ', timeout=5)
+                        except pexpect.TIMEOUT:
+                            pass  # Continue anyway
+            
+        except Exception as e:
+            self.stdout_callback(f"\n[Failed to initialize persistent Python session: {e}]\n")
+            self.python_child = None
+    
+    def _suppress_utility_return_values(self, code: str) -> str:
+        """Modify code to suppress return values from utility function calls."""
+        import re
+        
+        lines = code.strip().split('\n')
+        processed_lines = []
+        
+        # List of utility modules that return JSON but also print
+        utility_modules = [
+            'viewfiles', 'editfile', 'web_fetch', 'searchweb', 'todos', 'showuser',
+            'removefile', 'takescreenshot', 'generateimage', 'viewimage', 
+            'homeassistant', 'tts', 'architectnewutil'
+        ]
+        
+        for line in lines:
+            stripped_line = line.strip()
+            
+            # Check if this line calls a utility function directly (not assigned)
+            if stripped_line and not stripped_line.startswith('#'):
+                # Check if it's a standalone utility call (not already assigned)
+                for util_module in utility_modules:
+                    pattern = fr'^{util_module}\.run\s*\('
+                    if re.match(pattern, stripped_line) and '=' not in stripped_line.split(util_module)[0]:
+                        # This is a standalone utility call - suppress its return value
+                        processed_lines.append(f"_ = {line}")
+                        break
+                else:
+                    # Not a utility call or already assigned
+                    processed_lines.append(line)
+            else:
+                processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
+
+    def _execute_python_in_persistent_session(self, command: str):
+        """Execute Python code in the persistent interactive Python session."""
+        try:
+            if not self.python_child or not self.python_child.isalive():
+                self._initialize_persistent_python()
+            
+            if not self.python_child:
+                raise Exception("Failed to initialize Python session")
+            
+            # Suppress utility return values to prevent REPL output clutter
+            processed_command = self._suppress_utility_return_values(command)
+            
+            # Split command into lines for proper handling of multi-line code
+            lines = processed_command.strip().split('\n')
+            collected_output = []
+            
+            for i, line in enumerate(lines):
+                if not line.strip():  # Skip empty lines
+                    continue
+                    
+                self.python_child.sendline(line)
+                
+                # For multi-line blocks, expect continuation prompt except for the last line
+                if i < len(lines) - 1 and any(line.rstrip().endswith(char) for char in [':']):
+                    try:
+                        self.python_child.expect('\.\.\. ', timeout=5)
+                        # Collect any output but don't display yet
+                        if self.python_child.before:
+                            output = str(self.python_child.before).strip()
+                            if output and output != line:
+                                collected_output.append(output)
+                    except pexpect.TIMEOUT:
+                        pass
+                else:
+                    # For single lines or last line of block, expect main prompt
+                    try:
+                        self.python_child.expect('>>> ', timeout=60)
+                        # Collect output
+                        if self.python_child.before:
+                            output = str(self.python_child.before).strip()
+                            # Filter out command echoes
+                            if output and output != line:
+                                # Remove the command echo if present
+                                output_lines = output.split('\n')
+                                filtered_lines = []
+                                for out_line in output_lines:
+                                    out_line = out_line.strip()
+                                    # Skip if it's exactly the command we sent
+                                    if out_line and out_line != line:
+                                        filtered_lines.append(out_line)
+                                if filtered_lines:
+                                    collected_output.extend(filtered_lines)
+                    except pexpect.TIMEOUT:
+                        # Handle timeout - might be a long-running operation
+                        self.stdout_callback("[Python execution taking longer than expected...]\n")
+                        try:
+                            # Wait a bit longer
+                            self.python_child.expect('>>> ', timeout=300)  # 5 more minutes
+                            if self.python_child.before:
+                                output = str(self.python_child.before).strip()
+                                if output and output != line:
+                                    collected_output.append(output)
+                        except pexpect.TIMEOUT:
+                            self.stdout_callback("[Python execution timed out]\n")
+                            # Try to interrupt and recover
+                            self.python_child.sendcontrol('c')
+                            try:
+                                self.python_child.expect('>>> ', timeout=5)
+                            except pexpect.TIMEOUT:
+                                # Reinitialize session if we can't recover
+                                self._initialize_persistent_python()
+                            return
+            
+            # Output all collected results
+            if collected_output:
+                final_output = '\n'.join(collected_output)
+                if final_output.strip():
+                    self.stdout_callback(final_output + '\n')
+                    
+        except Exception as e:
+            self.stdout_callback(f"\n[Error in persistent Python execution: {str(e)}]\n")
+            # Try to reinitialize session on error
+            self._initialize_persistent_python()
+
 
     def _expect_bash_prompt(self, timeout=30, suppress_output=False):
         self.child.expect(self.bash_prompt_regex, timeout=timeout)
@@ -67,7 +226,7 @@ class ComputationalNotebook:
                     # Only include the command output, not the prompt itself
                     final_output = self.child.before.strip()
                     if final_output:
-                        processed_output = self._process_output_with_emoji(final_output + '\n')
+                        processed_output = self._process_output_with_emoji("\n".join(final_output.split("\n")[:-1]))
                         self.stdout_callback(processed_output)
                     break
                 elif index == 1:
@@ -149,6 +308,9 @@ class ComputationalNotebook:
 
     def get_initialization_code(self) -> str:
         """Return initialization code for the sandbox as a single string."""
+        # Dynamically import all available utilities
+        utils_imports = self._get_utils_imports()
+        
         return f"""
 import sys, os, json, io, datetime
 sys.stdout.reconfigure(line_buffering=True)
@@ -157,22 +319,169 @@ os.chdir('{os.getcwd()}')
 sys.path.append('{g.CLIAGENT_ROOT_PATH}')
 from py_classes.globals import g
 from utils import *
+
+# Import all utility modules for easy access
+{utils_imports}
 """
+
+    def _get_utils_imports(self) -> str:
+        """Generate import statements for all available utility modules."""
+        try:
+            import glob
+            import os
+            
+            utils_path = os.path.join(g.CLIAGENT_ROOT_PATH, 'utils')
+            imports = []
+            
+            # Find all Python files in utils directory
+            for py_file in glob.glob(os.path.join(utils_path, '*.py')):
+                filename = os.path.basename(py_file)
+                
+                # Skip __init__.py and private files
+                if filename.startswith('_') or filename == '__init__.py':
+                    continue
+                    
+                module_name = filename[:-3]  # Remove .py extension
+                
+                # Check if the module has a run function
+                try:
+                    module_path = f"utils.{module_name}"
+                    import importlib
+                    module = importlib.import_module(module_path)
+                    if hasattr(module, 'run'):
+                        imports.append(f"import utils.{module_name} as {module_name}")
+                except (ImportError, AttributeError):
+                    continue
+            
+            return '\n'.join(imports)
+            
+        except Exception:
+            # Fallback to manual list if dynamic discovery fails
+            return """
+import utils.viewfiles as viewfiles
+import utils.editfile as editfile  
+import utils.web_fetch as web_fetch
+import utils.searchweb as searchweb
+import utils.todos as todos
+import utils.showuser as showuser
+import utils.removefile as removefile
+import utils.takescreenshot as takescreenshot
+import utils.generateimage as generateimage
+import utils.viewimage as viewimage
+import utils.homeassistant as homeassistant
+import utils.tts as tts
+import utils.architectnewutil as architectnewutil
+"""
+
+    def _fix_python_indentation(self, code: str) -> str:
+        """Fix common Python indentation issues in LLM-generated code."""
+        try:
+            import ast
+            import re
+            
+            # First: try original code
+            try:
+                ast.parse(code)
+                return code
+            except:
+                pass
+            
+            # Second: simple approach - use autopep8 style indentation normalization
+            # This handles the common case where LLMs mix 2/3/4 space indentation
+            lines = code.strip().split('\n')
+            
+            # Pass 1: convert tabs to spaces
+            lines = [line.expandtabs(4) for line in lines]
+            
+            # Pass 2: detect and normalize indentation levels
+            normalized = []
+            indent_level = 0
+            
+            for line in lines:
+                if not line.strip():  # Empty line
+                    normalized.append('')
+                    continue
+                
+                content = line.lstrip()
+                
+                # Determine if we should increase, maintain, or decrease indentation
+                if any(content.startswith(kw) for kw in ['def ', 'class ', 'import ', 'from ', '@']):
+                    # Top-level - reset to 0
+                    indent_level = 0
+                elif content.startswith(('else:', 'elif ', 'except', 'finally:')):
+                    # These dedent back to their matching block level
+                    indent_level = max(0, indent_level - 4)
+                elif re.match(r'^(return|break|continue|pass|raise)\b', content):
+                    # These should be at least indented (inside a function/loop)
+                    if indent_level == 0:
+                        indent_level = 4
+                
+                # Apply current indentation
+                normalized.append(' ' * indent_level + content)
+                
+                # If this line ends with ':', next line should be indented more
+                if content.rstrip().endswith(':'):
+                    indent_level += 4
+            
+            result = '\n'.join(normalized)
+            
+            # Test the result
+            try:
+                ast.parse(result)
+                return result
+            except:
+                pass
+            
+            # Final fallback: try the original autopep8 approach of using only even indentation levels
+            lines = code.strip().split('\n')
+            even_indented = []
+            
+            for line in lines:
+                if not line.strip():
+                    even_indented.append('')
+                    continue
+                    
+                # Get current indentation
+                indent_chars = len(line) - len(line.lstrip())
+                
+                # Round to nearest multiple of 4
+                new_indent = ((indent_chars + 2) // 4) * 4
+                
+                even_indented.append(' ' * new_indent + line.lstrip())
+            
+            final_result = '\n'.join(even_indented)
+            
+            try:
+                ast.parse(final_result)
+                return final_result
+            except:
+                # Ultimate fallback
+                return code
+                
+        except Exception:
+            return code
 
     def execute(self, command: str, is_python_code: bool = False, persist_python_state: bool = True):
         """Execute a command with real-time output streaming. Never raises exceptions."""
         try:
             if is_python_code:
                 try:
-                    py_script_path = os.path.join(g.CLIAGENT_TEMP_STORAGE_PATH, f'{datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.py')
-                    with open(py_script_path, 'w') as py_file:
-                        py_file.write(self.get_initialization_code() + "\n" + command)
+                    # Fix indentation issues in Python code before execution
+                    cleaned_command = self._fix_python_indentation(command)
                     
                     # Set flag before sending command so the echoed command also gets emoji
                     self.is_executing_python = True
-                    # Always use non-persistent execution for simplicity
-                    self.child.sendline(f"python3 -u {py_script_path}")
-                    self._stream_output_until_prompt(timeout=600)  # Increased to 10 minutes for AI model operations
+                    
+                    if persist_python_state:
+                        # Use persistent interactive Python session
+                        self._execute_python_in_persistent_session(cleaned_command)
+                    else:
+                        # Non-persistent execution - use temporary script
+                        py_script_path = os.path.join(g.CLIAGENT_TEMP_STORAGE_PATH, f'{datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.py')
+                        with open(py_script_path, 'w') as py_file:
+                            py_file.write(self.get_initialization_code() + "\n" + cleaned_command)
+                        self.child.sendline(f"python3 -u {py_script_path}")
+                        self._stream_output_until_prompt(timeout=600)  # Increased to 10 minutes for AI model operations
                 except Exception as e:
                     self.stdout_callback(f"\n[Error executing Python code: {str(e)}]\n")
                 finally:
@@ -204,8 +513,25 @@ from utils import *
             self.is_executing_shell = False
 
     def close(self):
-        self.child.sendline("exit")
-        self.child.close()
+        """Close both bash and Python sessions."""
+        # Close Python session first
+        if self.python_child and self.python_child.isalive():
+            try:
+                self.python_child.sendline("exit()")
+                self.python_child.expect(pexpect.EOF, timeout=5)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                pass
+            finally:
+                self.python_child.close()
+        
+        # Close bash session
+        if self.child and self.child.isalive():
+            try:
+                self.child.sendline("exit")
+                self.child.close()
+            except Exception:
+                pass
+        
         self.stdout_callback("\n[Session closed]\n")
 
     def _process_output_with_emoji(self, text: str) -> str:

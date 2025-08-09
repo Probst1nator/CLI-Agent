@@ -31,7 +31,7 @@ class WebFetchUtil(UtilBase):
         }
 
     @staticmethod
-    def run(url: str, get_text_only: bool = True) -> str:
+    def _run_logic(url: str, get_text_only: bool = True) -> str:
         """
         Fetches the content from a specific URL.
 
@@ -86,3 +86,18 @@ class WebFetchUtil(UtilBase):
             return json.dumps({"error": f"Could not fetch URL {url}. Reason: {e}"}, indent=2)
         except Exception as e:
             return json.dumps({"error": f"An unexpected error occurred: {str(e)}"}, indent=2)
+
+
+# Module-level run function for CLI-Agent compatibility
+def run(url: str, get_text_only: bool = True) -> str:
+    """
+    Module-level wrapper for WebFetchUtil._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        url (str): The full URL of the web page to fetch
+        get_text_only (bool): If True, returns clean text content. If False, returns raw HTML.
+        
+    Returns:
+        str: JSON string with result or error
+    """
+    return WebFetchUtil._run_logic(url=url, get_text_only=get_text_only)

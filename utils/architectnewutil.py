@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 from py_classes.cls_util_base import UtilBase
 from utils.todos import TodosUtil
@@ -13,7 +13,7 @@ class ArchitectNewUtil(UtilBase):
     @staticmethod
     def get_metadata() -> Dict[str, Any]:
         return {
-            "keywords": ["create tool", "new utility", "implement feature", "build function", "add capability", "constraint", "limited", "lack", "alternative", "outside the box", "automate", "integrate", "workflow", "pipeline", "orchestrate", "deploy", "setup", "configure", "install", "docker", "container", "download model", "huggingface", "ollama", "multi-step", "complex task", "no existing tool", "custom solution", "specialized", "technical integration"],
+            "keywords": ["create tool", "new utility", "implement feature", "build function", "add capability", "constraint", "limited", "lack", "alternative", "outside the box", "automate", "integrate", "workflow", "pipeline", "orchestrate", "deploy", "setup", "configure", "install", "docker", "container", "download model", "huggingface", "ollama", "multi-step", "complex task", "no existing tool", "custom solution", "specialized", "technical integration", "fix error", "debug tool", "error handling", "missing functionality", "need utility", "build fixer", "create debugger"],
             "use_cases": [
                 "I need a tool that can connect to a websocket. Can you build it?",
                 "Create a new utility for managing my calendar.",
@@ -30,11 +30,29 @@ class ArchitectNewUtil(UtilBase):
             "arguments": {
                 "requirements": "A detailed natural language description of what the new utility should do.",
                 "util_name": "The desired class name for the new utility, in CamelCase (e.g., 'WebsocketUtil')."
-            }
+            },
+            "code_examples": [
+                {
+                    "description": "Create a websocket utility",
+                    "code": """```python
+from utils.architectnewutil import ArchitectNewUtil
+result = ArchitectNewUtil.run("A util which can connect to a websocket and send/receive messages", "WebsocketUtil")
+print(result)
+```"""
+                },
+                {
+                    "description": "Build an API integration utility",
+                    "code": """```python
+from utils.architectnewutil import ArchitectNewUtil
+result = ArchitectNewUtil.run("Create a utility to interact with the Spotify API for playlist management", "SpotifyUtil")
+print(result)
+```"""
+                }
+            ]
         }
 
     @staticmethod
-    def run(requirements: str, util_name: str) -> str:
+    def _run_logic(requirements: str, util_name: str) -> str:
         """
         Implement a new util based on passed requirements.
 
@@ -47,21 +65,31 @@ class ArchitectNewUtil(UtilBase):
                  or an 'error' key on failure.
         """
         try:
-            # read all files in the utils folder
             utils_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "utils"))
-            existing_utils_contents: List[str] = []
-            for file in os.listdir(utils_folder):
-                if not file.startswith("_"):
-                    with open(os.path.join(utils_folder, file), "r") as f:
-                        content = f.read()
-                        existing_utils_contents.append(content)
-            TodosUtil.run("add", f"To implement a new util for a needed function, break down the requirements into manageable components that can be implemented via python and update the todos as needed: {requirements}")
-            TodosUtil.run("add", "Research, implement and test the planned component(s) one by one in python, do not yet write to a new util file.")
-            TodosUtil.run("add", "Identify a minimal set of args for a run method for the util to ensure it is easy and minimal to use")
-            TodosUtil.run("add", f"Consolidate the components into a single util and write it to {utils_folder}")
-            TodosUtil.run("add", "Comprehensively test the new util in and update the todos as you progress")
+
+            # Manually add the 'architectnewutil:' prefix to each task
+            TodosUtil._run_logic("add", task=f"architectnewutil: To implement a new util for a needed function, break down the requirements into manageable components that can be implemented via python and update the todos as needed: {requirements}")
+            TodosUtil._run_logic("add", task="architectnewutil: Research, implement and test the planned component(s) one by one in python, do not yet write to a new util file.")
+            TodosUtil._run_logic("add", task="architectnewutil: Identify a minimal set of args for a run method for the util to ensure it is easy and minimal to use")
+            TodosUtil._run_logic("add", task=f"architectnewutil: Consolidate the components into a single util and write it to {utils_folder}")
+            TodosUtil._run_logic("add", task="architectnewutil: Comprehensively test the new util in and update the todos as you progress")
             
-            return json.dumps(TodosUtil.run("list"), indent=2)
+            return json.dumps(TodosUtil._run_logic("list"), indent=2)
 
         except Exception as e:
             return json.dumps({"error": f"An unexpected error ocurred in ArchitectNewUtil: {str(e)}"}, indent=2)
+
+
+# Module-level run function for CLI-Agent compatibility
+def run(requirements: str, util_name: str) -> str:
+    """
+    Module-level wrapper for ArchitectNewUtil._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        requirements (str): Requirements for the new utility
+        util_name (str): Name for the new utility
+        
+    Returns:
+        str: JSON string with result or error
+    """
+    return ArchitectNewUtil._run_logic(requirements=requirements, util_name=util_name)

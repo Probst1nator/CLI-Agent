@@ -228,32 +228,58 @@ from utils.{util_name} import {util_cls.__name__}
         relevant_tools = self.get_relevant_utils(query, top_k=top_k_tools)
         relevant_guidance = self.get_relevant_guidance(query, top_k=top_k_guidance)
 
-        prompt_parts = []
+        prompt: str = ""
 
         if relevant_tools:
-            # Filter tools by a confidence score to reduce noise.
-            high_confidence_tools = [tool for tool in relevant_tools if tool.get('score', 0) > 0.5]
+            # Filter tools by a confidence score to reduce noise, but allow more tools through
+            high_confidence_tools = [tool for tool in relevant_tools if tool.get('score', 0) > 0.3]
             if high_confidence_tools:
-                tool_suggestions = [
-                    # Extract the first line of the description for brevity.
-                    f"- **{tool['name']}**: {tool['class'].get_description(tool['class']).splitlines()[0]}"
-                    for tool in high_confidence_tools
-                ]
-                prompt_parts.append("# Tool ideas\nBased on the request, these tools might be relevant:\n" + "\n".join(tool_suggestions))
+                tool_suggestions = []
+                for tool in high_confidence_tools:
+                    tool_name = tool['name']
+                    tool_class = tool['class']
+                    
+                    # Get concise signature and summary from _run_logic method
+                    try:
+                        if hasattr(tool_class, '_run_logic'):
+                            run_logic_method = tool_class._run_logic
+                            run_logic_signature = inspect.signature(run_logic_method)
+                            run_logic_docstring = inspect.getdoc(run_logic_method) or "No documentation available"
+                            
+                            # Extract just the first line of docstring for concise summary
+                            summary = run_logic_docstring.split('\n')[0].strip()
+                            
+                            # Get the module name for proper import pattern
+                            module_name = tool_class.__module__.replace('utils.', '')
+                            
+                            # Format tool information with import pattern and usage  
+                            # Simplify the signature display by removing complex type annotations
+                            simplified_sig = str(run_logic_signature).replace('typing.', '').replace('Optional[', '').replace(']', '?')
+                            tool_line = f"- **{tool_name}**: `import utils.{module_name} as {module_name}; {module_name}.run{simplified_sig}` - {summary}"
+                        else:
+                            # Fallback if no _run_logic method
+                            description = tool_class.get_description(tool_class).splitlines()[0]
+                            tool_line = f"- **{tool_name}**: {description}"
+                    except Exception:
+                        # Fallback for any errors
+                        description = tool_class.get_description(tool_class).splitlines()[0]
+                        tool_line = f"- **{tool_name}**: {description} (Signature unavailable)"
+                    
+                    tool_suggestions.append(tool_line)
+                
+                prompt = "\n".join(tool_suggestions)
 
         if relevant_guidance:
             # Use a higher confidence threshold for guidance to ensure it's very relevant.
             high_confidence_guidance = [g for g in relevant_guidance if g.get('score', 0) > 0.6]
             if high_confidence_guidance:
                 guidance_hints = [f"- {g.get('guidance_text', g.get('text', ''))}" for g in high_confidence_guidance]
-                prompt_parts.append("\n".join(guidance_hints))
+                prompt = "\n".join(guidance_hints)
 
-        if not prompt_parts:
+        if not prompt:
             return ""
 
-        # Combine all parts into a final prompt header.
-        header = "# Actionable context\n" + "\n\n".join(prompt_parts)
-        return header
+        return prompt
 
     def reload_utils(self) -> None:
         """Reload all utilities from the utils directory"""

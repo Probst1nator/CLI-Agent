@@ -307,40 +307,49 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
-def extract_blocks(text: str, language: Optional[str|List[str]] = None) -> List[str]:
+def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> List[str]:
     """
-    Extract code blocks of specific languages from text.
+    Extracts content from markdown code blocks (```) or XML-style tags (<tag>).
 
     Args:
-        text (str): The text to extract code blocks from.
-        language (Optional[str|List[str]]): The specific language(s) to extract 
-                                                  (e.g., 'python', ['python', 'javascript']). 
-                                                  If None, all code blocks are extracted.
+        text (str): The text to extract blocks from.
+        language (Optional[str | List[str]]): A language identifier (e.g., 'python')
+            or a tag name (e.g., 'tool_code') to extract. Can be a single
+            string or a list of strings. If None, all blocks are extracted.
 
     Returns:
-        List[str]: List of extracted code block contents. If language(s) are specified,
-                  only blocks of those language(s) are included.
+        List[str]: A list of the extracted content strings.
     """
-    pattern = r'```(?P<lang>\w*)\n(?P<content>.*?)```'
+    # This unified pattern finds either a markdown block OR an XML-style tag block.
+    # It uses named groups to distinguish between them and a backreference `(?P=tag)`
+    # to ensure opening and closing tags match.
+    pattern = (
+        r"```(?P<lang>\w*?)\s*\n(?P<content_md>.*?)```|"
+        r"<(?P<tag>[a-zA-Z0-9_]+)[^>]*>\s*(?P<content_xml>.*?)<\/(?P=tag)>"
+    )
     matches = re.finditer(pattern, text, re.DOTALL)
     blocks = []
 
+    # Normalize the requested language(s) into a set for efficient lookup.
+    requested_languages = set()
+    if isinstance(language, str):
+        requested_languages = {language.lower()}
+    elif isinstance(language, list):
+        requested_languages = {lang.lower() for lang in language}
+
     for match in matches:
-        block_lang = match.group('lang').strip().lower()
-        content = match.group('content').strip()
+        block_identifier, content = "", ""
+        # Check if it was a markdown block by seeing if the 'content_md' group was populated.
+        if match.group("content_md") is not None:
+            block_identifier = match.group("lang").strip().lower()
+            content = match.group("content_md").strip()
+        # Otherwise, it was an XML block.
+        else:
+            block_identifier = match.group("tag").strip().lower()
+            content = match.group("content_xml").strip()
 
-        # Determine if the block language matches the specified language(s)
-        is_match = False
-        if language is None:
-            is_match = True # Extract all blocks if no language is specified
-        elif isinstance(language, str) and language.lower() == block_lang:
-            is_match = True # Extract blocks matching the single specified language
-        elif isinstance(language, list):
-            # Extract blocks matching any language in the list
-            if block_lang in [lang.lower() for lang in language]:
-                is_match = True
-
-        if is_match:
+        # If no specific languages were requested, or if the block's identifier is in our set.
+        if not requested_languages or block_identifier in requested_languages:
             blocks.append(content)
 
     return blocks

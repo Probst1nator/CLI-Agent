@@ -283,7 +283,7 @@ class TakeScreenshotUtil(UtilBase):
         subprocess.run(['osascript', '-e', script], check=True)
 
     @staticmethod
-    def run(window_query: Optional[str] = None, 
+    def _run_logic(window_query: Optional[str] = None, 
             list_window_titles: bool = False,
             reload: bool = False) -> str:
         """
@@ -400,12 +400,28 @@ class TakeScreenshotUtil(UtilBase):
         except Exception as e:
             return json.dumps({"error": f"An unexpected screenshot error occurred: {str(e)}"})
 
+
+# Module-level run function for CLI-Agent compatibility
+def run(path: str, window_query: str = None, list_windows: bool = False) -> str:
+    """
+    Module-level wrapper for TakeScreenshotUtil._run_logic() to maintain compatibility with CLI-Agent.
+    
+    Args:
+        path (str): The file path to save the screenshot
+        window_query (str): Window title or ID to capture specific window
+        list_windows (bool): Whether to list available windows
+        
+    Returns:
+        str: JSON string with result or error
+    """
+    return TakeScreenshotUtil._run_logic(path=path, window_query=window_query, list_windows=list_windows)
+
 # Example usage for standalone testing
 if __name__ == '__main__':
     print(f"Running on platform: {platform.system()}")
 
     print("\n--- Test Case 1: List all visible window titles ---")
-    list_result = TakeScreenshotUtil.run(list_window_titles=True)
+    list_result = TakeScreenshotUtil._run_logic(list_window_titles=True)
     print(list_result)
     try:
         data = json.loads(list_result)
@@ -417,7 +433,7 @@ if __name__ == '__main__':
         print("Failed to parse JSON response.")
 
     print("\n--- Test Case 2: Capture all screens (single file) ---")
-    all_screens_result = TakeScreenshotUtil.run()
+    all_screens_result = TakeScreenshotUtil._run_logic()
     print(all_screens_result)
     try:
         data = json.loads(all_screens_result)
@@ -431,7 +447,7 @@ if __name__ == '__main__':
     print("\n--- Test Case 3: Capture a specific window (e.g., this terminal/IDE) ---")
     window_name_query = "code" if platform.system() != "Windows" else "Explorer"
     print(f"Attempting to capture window with title containing: '{window_name_query}'")
-    window_result = TakeScreenshotUtil.run(window_query=window_name_query)
+    window_result = TakeScreenshotUtil._run_logic(window_query=window_name_query)
     print(window_result)
     try:
         data = json.loads(window_result)
@@ -444,7 +460,7 @@ if __name__ == '__main__':
 
     print("\n--- Test Case 4: Capture a non-existent window ---")
     non_existent_window_query = "ajskdhaslkdjhalskdjasxxxx"
-    not_found_result = TakeScreenshotUtil.run(window_query=non_existent_window_query)
+    not_found_result = TakeScreenshotUtil._run_logic(window_query=non_existent_window_query)
     print(not_found_result)
     try:
         data = json.loads(not_found_result)

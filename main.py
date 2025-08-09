@@ -1,3 +1,4 @@
+# main.py
 import time
 # Global timer for startup and operations
 start_time = time.time()
@@ -8,6 +9,7 @@ from typing import List, Optional, Tuple
 import sys
 import argparse
 import os
+import math
 
 # --- Custom Logging Setup ---
 
@@ -262,6 +264,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
 warnings.filterwarnings("ignore", message="words count mismatch on*", module="phonemizer", category=UserWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
+warnings.filterwarnings("ignore", message="Unrecognized FinishReason enum value*", module="proto.marshal.rules.enums", category=UserWarning)
 
 from py_classes.cls_computational_notebook import ComputationalNotebook
 from py_classes.cls_util_manager import UtilsManager
@@ -323,13 +326,16 @@ try:
 except ImportError:
     class TodosUtil:
         @staticmethod
+        def run(action: str, **kwargs):
+            logging.warning("TodosUtil not found.")
+            if action == 'list':
+                return "TodosUtil not available. Cannot list todos."
+            return json.dumps({"status": "error", "message": "TodosUtil not found"})
+
+        @staticmethod
         def _load_todos(**kwargs):
             logging.warning("TodosUtil not found.")
             return []
-        @staticmethod
-        def _format_todos(**kwargs):
-            logging.warning("TodosUtil not found.")
-            return ""
 
 logging.info("Util imports success...")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -502,49 +508,72 @@ async def utils_selection(args: argparse.Namespace) -> List[str]:
         if args.debug:
             logging.exception("Utils selection failed with traceback:")
         return []
-
 def create_interruption_callback(
     response_buffer: List[str],
     painter: TextStreamPainter,
     lock: Optional[asyncio.Lock] = None,
-    newline_on_interrupt: bool = False
 ):
     """
     Factory to create a stateful callback for handling LLM streams.
 
     This callback prints the stream, accumulates it into a buffer, and can
-    interrupt by raising StreamInterruptedException when a complete code block is detected.
+    interrupt by raising StreamInterruptedException when a complete code block
+    (e.g., ```...```) or a complete tag (e.g., <tool>...</tool>) is detected.
+    This logic is consistent with the `extract_blocks` utility.
 
     Args:
         response_buffer: A list with a single string to act as a mutable buffer.
         painter: The TextStreamPainter for coloring output.
         lock: An optional asyncio.Lock for concurrent-safe printing.
-        newline_on_interrupt: If True, prints a newline before raising interruption.
 
     Returns:
         An async callback function.
     """
+    # Pre-compile regex for efficiency. re.DOTALL allows '.' to match newlines.
+    CODE_BLOCK_REGEX = re.compile(r"```.*?(```)", re.DOTALL)
+    TAG_BLOCK_REGEX = re.compile(r"<([a-zA-Z0-9_]+)[^>]*>.*?</\1>", re.DOTALL)
+    
     async def _callback(chunk: str):
-
+        # Process the chunk character by character to ensure proper interruption
         for char in chunk:
-            # Print the entire chunk at once for efficiency and better rendering.
+            # 1. Print the incoming character with the live "typing" effect
             if lock:
                 async with lock:
                     print(painter.apply_color(char), end="", flush=True)
             else:
                 print(painter.apply_color(char), end="", flush=True)
-            
-            # Append chunk to the buffer
-            response_buffer[0] += char
 
-            # Check for interruption condition (an even number of code fences)
-            if response_buffer[0].count("```") >= 2 and response_buffer[0].count("```") % 2 == 0:
-                parts = response_buffer[0].split("```")
-                # Interrupt if the last captured code block is not empty.
-                if len(parts) > 2 and parts[-2].strip():
-                    if newline_on_interrupt:
-                        print("\n")
-                    raise StreamInterruptedException(response_buffer[0])
+            # 2. Append the character to the shared buffer
+            response_buffer[0] += char
+            current_buffer = response_buffer[0]
+
+            # 3. Check for interruption conditions after each character, but only when necessary
+            # Only check for patterns when we encounter potentially significant characters
+            should_check = char in '`><'
+            
+            if should_check:
+                # Check for a complete Markdown code block
+                code_match = CODE_BLOCK_REGEX.search(current_buffer)
+                if code_match:
+                    full_block = code_match.group(0).strip()
+                    print("\n") # Add a newline for clean UI separation
+                    raise StreamInterruptedException(full_block)
+
+                # Check for a complete XML/HTML-like tag block
+                tag_match = TAG_BLOCK_REGEX.search(current_buffer)
+                if tag_match:
+                    full_block = tag_match.group(0).strip()
+                    print("\n")
+                    raise StreamInterruptedException(full_block)
+                    
+                # CRITICAL: Also interrupt if we detect hallucinated execution output
+                if "<execution_output>" in current_buffer:
+                    logging.warning(colored("🚨 INTERRUPTING: Detected hallucinated execution_output tag!", "red"))
+                    # Find the content up to the execution_output tag
+                    output_pos = current_buffer.find("<execution_output>")
+                    content_before_output = current_buffer[:output_pos].strip()
+                    print("\n")
+                    raise StreamInterruptedException(content_before_output)
 
     return _callback
 
@@ -617,9 +646,10 @@ UNSAFE operations include:
 - Operations that could affect system stability or security
 
 **Completeness Assessment:**
+- this is a jupyter environment, using seemingly undeclared variables is allowed
 - Look for placeholder values like `YOUR_API_KEY`, `<REPLACE_ME>`, `TODO`, `FIXME`
-- Identify unimplemented functions or incomplete logic
-- Comments about future work are acceptable
+- Identify incomplete logic and beware of unimplemented functions
+- ToDosUtil interactions are always safe
 - Scripts that only print text are always complete
 
 **Process:**
@@ -663,13 +693,12 @@ Provide ONLY your brief analysis followed by exactly one word.""",
             logging.info(colored("✅ Code guard permitted execution. Reasoning: ", "green") + colored(analysis, "light_green"))
             return True
         elif 'unfinished' in verdict:
-            logging.warning(colored("⚠️ Code guard aborted execution, because of unfinished code.", "yellow"))
-            completion_request = "The code you provided is unfinished. Please complete it properly with actual values and logic."
-            args.message.insert(0, completion_request)
-            logging.info(colored(f"💬 Added automatic follow-up request: {completion_request}", "blue"))
+            logging.warning(colored("⚠️ Code guard prompted code revision. Reasoning: ", "yellow") + colored(analysis, "light_magenta"))
+            args.message.insert(0, analysis)
+            logging.info(colored("💬 Auto prompting with reasoning...", "blue"))
             return False
         else: # 'no' or default
-            logging.error(colored("❌ Code execution aborted by auto-execution guard", "red"))
+            logging.error(colored("❌ Code execution aborted. Reasoning: ", "red") + colored(analysis, "magenta"))
             
             # Timed input with 30-second countdown defaulting to 'n'  
             import threading
@@ -683,26 +712,29 @@ Provide ONLY your brief analysis followed by exactly one word.""",
                     try:
                         response = input(colored(prompt, "cyan"))
                         q.put(response)
-                    except:
+                    except Exception:
                         q.put("n")  # Default on any error
                 
                 # Start input thread
                 input_thread = threading.Thread(target=get_input, daemon=True)
                 input_thread.start()
                 
+                # Show prompt first, then countdown on new line
+                print()  # Add spacing
+                
                 # Countdown with queue checking
                 for remaining in range(timeout, 0, -1):
-                    print(f"\rAuto-declining in {remaining}s... ", end="", flush=True)
+                    print(f"\r⏱️  Auto-declining in {remaining}s (press any key to respond)", end="", flush=True)
                     
                     # Check if input was received
                     try:
                         response = q.get_nowait()
-                        print()  # New line after input
+                        print("\n")  # Clear countdown line
                         return response.lower().strip()
                     except queue.Empty:
                         time.sleep(1)
                 
-                print("\rAuto-declined (timeout)          ")
+                print("\r⏱️  Auto-declined (timeout)                                    ")
                 return "n"
             
             user_response = timed_input("Do you want to manually execute this code? (y/n): ", 30)
@@ -734,12 +766,12 @@ Provide ONLY your brief analysis followed by exactly one word.""",
 async def select_best_branch(
     context_chat: Chat,
     assistant_responses: List[str],
-) -> Tuple[int, str]:
+) -> int:
     """
     Uses an LLM judge to select the best response from multiple MCT branches.
     
     Returns:
-        Tuple[int, str]: (selected_index, judge_model_name)
+        int: selected_index
     """
     # --- FIX: Calculate number of alternatives and new response index correctly ---
     num_alternatives = len(assistant_responses) - 1
@@ -791,13 +823,11 @@ Selected index: [your choice]"""
     interrupting_evaluator_callback = create_interruption_callback(
         response_buffer=response_buffer_list,
         painter=text_stream_painter,
-        newline_on_interrupt=True
     )
 
     evaluator_response = ""
     try:
         await LlmRouter.generate_completion(mct_branch_selector_chat, evaluator_model, force_local=g.FORCE_LOCAL, generation_stream_callback=interrupting_evaluator_callback, exclude_reasoning_tokens=True)
-        judge_llm = LlmRouter.last_used_model
         evaluator_response = response_buffer_list[0]
     except StreamInterruptedException as e:
         evaluator_response = e.response
@@ -807,9 +837,9 @@ Selected index: [your choice]"""
     if match:
         selected_branch_index: int = int(match.group(1))
         if 0 <= selected_branch_index < len(assistant_responses):
-            return selected_branch_index,judge_llm
+            return selected_branch_index
     logging.warning(colored("\n⚠️ No valid branch selection found. Defaulting to first branch.", "yellow"))
-    return 0, ""
+    return 0
 
 def handle_multiline_input() -> str:
     """Handles multiline input from the user."""
@@ -831,7 +861,7 @@ async def get_user_input_with_bindings(
     prompt: str = colored("💬 Enter your request: ", 'blue', attrs=["bold"]),
     input_override: str = None,
     force_input: bool = False
-) -> bool | str:
+) -> str:
     """
     Gets user input, handling special keybindings.
     """
@@ -844,7 +874,10 @@ async def get_user_input_with_bindings(
             user_input = input(prompt)
         else:
             try:
-                user_input = input(prompt)
+                if context_chat:
+                    user_input = input(f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] " + prompt)
+                else:
+                    user_input = input(prompt)
             except KeyboardInterrupt:
                 logging.warning(colored("\n# cli-agent: Exiting due to Ctrl+C.", "yellow"))
                 exit()
@@ -1047,30 +1080,28 @@ async def main() -> None:
         # Load or initialize the system instruction from external Markdown file
         instruction_path = g.CLIAGENT_INSTRUCTION_FILE
         if not os.path.exists(instruction_path):
-            default_inst = f'''# SYSTEM INSTRUCTION
-
-You are a CLI agent with computational notebook access. You execute Python/shell code to solve tasks, maintaining persistent state across interactions.
+            default_inst = f'''You are a CLI agent with computational notebook access. You execute Python/shell code to solve tasks, maintaining persistent state across interactions.
 
 ## Core Workflow
 1. **THINK & PLAN**: Reason through tasks before acting. Use the notebook to explore and validate assumptions
-2. **TRACK PROGRESS**: Maintain a TODO list with 2-3 steps ahead, updating it continuously as you work
-3. **EXECUTE**: Write complete, production-ready code with proper error handling and typing
+2. **TRACK PROGRESS**: Maintain a TODO list with 2-3 steps ahead, updating it after each step as you work
+3. **ACT**: Use your instant access to a python interpreter and the intelligently provided hints to add clarity to your observations.
 4. **VERIFY**: Test outputs and iterate based on results
 
-## Key Behaviors
-- Execute with `python` or `bash` blocks
-- Default workspace: {g.AGENTS_SANDBOX_DIR}
+## Key Actions
+- Intelligently add decomposed user prompts to the Todos
+- Use `bash` for handy system operation
+- Use `python` for careful and simple file interaction
+- Call utils including the Todos util inside normal python blocks
+- Sandbox workspace: {g.AGENTS_SANDBOX_DIR}
 - Create new files rather than overwriting unless explicitly requested
 - Handle errors gracefully and document limitations
-- Complete full implementations without placeholders or test code
 
-## Tools Available
-- Persistent Python environment
-- Shell commands
-- Custom utilities (HuggingFaceSearch, HuggingFaceDownloader, OllamaManager, etc.)
-- File system access
+## Available Tools
+- Persistent dynamic python environment (with access to custom utilities (todos, editfile, searchweb, ...))
+- User level shell access
 
-You approach tasks systematically, exploring thoroughly before implementing solutions. Every step is tracked in your evolving TODO list.'''
+You approach tasks systematically, exploring and condensing information sufficiently before implementing solutions.'''
             with open(instruction_path, 'w') as f:
                 f.write(default_inst)
         with open(instruction_path, 'r') as f:
@@ -1091,16 +1122,10 @@ You approach tasks systematically, exploring thoroughly before implementing solu
         stdout_buffer, stderr_buffer = "", ""
         def stdout_callback(text: str):
             nonlocal stdout_buffer
-            # Add a newline before the first bit of output for better separation
-            if not stdout_buffer and not stderr_buffer:
-                print()
             print(text, end="")
             stdout_buffer += text
         def stderr_callback(text: str):
             nonlocal stderr_buffer
-            # Add a newline before the first bit of output for better separation
-            if not stdout_buffer and not stderr_buffer:
-                print()
             print(colored(text, "red"), end="")
             stderr_buffer += text
         def input_callback(previous_output: str) -> bool | str:
@@ -1168,101 +1193,119 @@ You approach tasks systematically, exploring thoroughly before implementing solu
             if args.sandbox:
                 inst += f"\nPlease try to stay within your sandbox directory at {g.AGENTS_SANDBOX_DIR}\n"
             context_chat.set_instruction_message(inst)
-
-            # --- BEGIN: Auto-load preprompt files ---
-            logging.info("Checking for preprompt files to load into context...")
-            preprompt_files_to_load = ['CLAUDE.md', 'GEMINI.md', 'QWEN.md', 'readme.md', 'README.md']
-            loaded_files_content = []
-            # Use a set to handle case-insensitivity of readme.md and avoid duplicates
-            loaded_filenames_lower = set()
-
-            for filename in preprompt_files_to_load:
-                # If a case-insensitive version of the file has been loaded, skip
-                if filename.lower() in loaded_filenames_lower:
-                    continue
-
-                if os.path.exists(filename):
-                    try:
-                        with open(filename, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                            # Only add files that have content
-                            if len(content.strip())>3:
-                                loaded_files_content.append((filename, content))
-                                loaded_filenames_lower.add(filename.lower())
-                                logging.info(f"Loaded '{filename}' into initial context.")
-                    except Exception as e:
-                        logging.warning(f"Could not read preprompt file '{filename}': {e}")
             
-            if loaded_files_content:
-                # Combine all file contents into a single user message for context efficiency
-                combined_prompt = "# Initial Context Files\nThe following files were automatically read into the context to provide guidance and task context:\n\n"
-                for filename, content in loaded_files_content:
-                    combined_prompt += "---\n"
-                    combined_prompt += f"## Content of: `{filename}`\n\n"
-                    # Using markdown fences for better presentation in the prompt
-                    combined_prompt += f"```markdown\n{content.strip()}\n```\n\n"
-                
-                context_chat.add_message(Role.USER, combined_prompt)
-            # --- END: Auto-load preprompt files ---
-            
-            all_util_names = utils_manager.get_util_names()
-            if not (args.voice or args.speak):
-                if 'tts' in all_util_names:
-                    logging.warning(colored("TTS utility disabled. Use -v or -s to enable.", "yellow"))
-            
-            try:
-                # --- HARCODED TODOS HINT for KICKSTART ---
-                todos_kickstart_hint = ""
+            # Extract format strings to avoid backslash in f-string
+            date_format_str = '%Y-%m'
+            grep_pattern = r'^kwin|^mutter|^openbox|^i3|^dwm'
+            os_command = f'echo "OS: $(lsb_release -ds)" && echo "Desktop: $XDG_CURRENT_DESKTOP" && echo "Window Manager: $(ps -eo comm | grep -E \'{grep_pattern}\' | head -1)"'
+            def read_host_file() -> str:
+                output = ""
                 try:
-                    all_todos = TodosUtil._load_todos()
-                    if any(not todo.get('completed', False) for todo in all_todos):
-                        todos_kickstart_hint = f"Welcome back. You have pending tasks to address.\n{TodosUtil._format_todos(all_todos)}\n\n---\n\n"
-                except Exception as e:
-                    logging.warning(colored(f"Could not check for pending to-dos for kickstart hint. Error: {e}", "red"))
-
-                kickstart_code_1 = 'echo "OS: $(lsb_release -ds)" && echo "Desktop: $XDG_CURRENT_DESKTOP" && echo "Window Manager: $(ps -eo comm | grep -E \'^kwin|^mutter|^openbox|^i3|^dwm\' | head -1)"'
-                kickstart_output_1 = subprocess.check_output(kickstart_code_1, shell=True, text=True, executable='/bin/bash').strip()
-
-                kickstart_code_2_literal = """import os
-print(f"Current working directory: {os.getcwd()}")
-print(f"Total files in current directory: {len(os.listdir())}")
-print(f"First 5 files in current directory: {os.listdir()[:5]}")"""
-                cwd = os.getcwd()
-                cwd_files = os.listdir()
-                kickstart_output_2 = f"Current working directory: {cwd}\nTotal files in current directory: {len(cwd_files)}\nFirst 5 files in current directory: {cwd_files[:5]}"
-
-                kickstart_code_3_literal = """import datetime
-print(f"Current year and month: {datetime.datetime.now().strftime('%Y-%m')}")"""
-                kickstart_output_3 = f"Current year and month: {datetime.datetime.now().strftime('%Y-%m')}"
-
-                kickstart_preprompt = f"""{todos_kickstart_hint}Hi, I am going to run some things to show you how your computational notebook works.
+                    with open('/etc/hosts', 'r') as f:
+                        for i, line in enumerate(f):
+                            if i >= 3:
+                                break
+                            output += "Line {i+1}: {line.strip()}\n"
+                except FileNotFoundError:
+                    output = "File /etc/hosts not found."
+                return output.strip()
+            
+            default_user_message = f"""Hi, I am going to run some things to show you how your computational notebook works.
 Let's see the window manager and OS version of your user's system:
 ```bash
-{kickstart_code_1}
+{os_command}
 ```
 <execution_output>
-{kickstart_output_1}
+{subprocess.check_output(os_command, shell=True, text=True, executable='/bin/bash').strip()}
+</execution_output>
+That succeeded.
+Let's get an overview of the current working directory and the first 5 files in it:
+
+```python
+import os
+print(f"Current working directory: {{os.getcwd()}}")
+print(f"Total files in current directory: {{len(os.listdir())}}")
+print(f"First 5 files in current directory: {{os.listdir()[:5]}}")
+```
+<execution_output>
+Current working directory: {os.getcwd()}
+Total files in current directory: {len(os.listdir())}
+First 5 files in current directory: {os.listdir()[:5]}
+</execution_output>
+Nice. Now to check the current time:
+
+```python
+import datetime
+date_format = '%Y-%m'
+print(f"Current year and month: {{datetime.datetime.now().strftime(date_format)}}")
+```
+<execution_output>
+Current year and month: {datetime.datetime.now().strftime(date_format_str)}
+</execution_output>
+Are we connected to a network?
+```bash
+ip a 
+```
+<execution_output>
+{subprocess.check_output('ip a', shell=True, text=True, executable='/bin/bash').strip()}
+</execution_output>
+Interesting. Lastly to read the first 3 lines of `/etc/hosts`, I will now execute simple python script:
+```python
+try:
+    with open('/etc/hosts', 'r') as f:
+        for i, line in enumerate(f):
+            if i >= 3:
+                break
+            print(f"Line {{i+1}}: {{line.strip()}}")
+except FileNotFoundError:
+    print("File /etc/hosts not found.")
+```
+<execution_output>
+{read_host_file()}
 </execution_output>
 
-That succeeded, now let's see the current working directory and the first 5 files in it:
-```python
-{kickstart_code_2_literal}
+The suggested utilities can be used in regular python syntax, for example, I will now search the web ```python
+from utils.searchweb import SearchWeb
+print(SearchWeb.run(queries=["open-source computing library for python"]))
 ```
 <execution_output>
-{kickstart_output_2}
+NumPy is an open-source Python library fundamental for scientific and numerical computing. It provides support for large, multi-dimensional arrays and matrices, along with a comprehensive collection of high-level mathematical functions to perform fast operations on these arrays, such as linear algebra, statistical operations, Fourier transforms, and random simulations.
+</execution_output>
+Is is now
+```bash
+date
+```
+<execution_output>
+{subprocess.check_output("date", shell=True, text=True, executable='/bin/bash').strip()}
 </execution_output>
 
-That succeeded, now let's check the current time:
-```python
-{kickstart_code_3_literal}
-```
-<execution_output>
-{kickstart_output_3}
-</execution_output>
-"""
-                context_chat.add_message(Role.USER, kickstart_preprompt)
-            except Exception as e:
-                logging.warning(f"Could not generate kickstart prompt. Skipping. Error: {e}")
+You can switch between python and bash freely. Just ensure to keep your read and edit commands precise and careful.
+Hints will from time to time to provide you with advice on how to act and progress. 
+The Todos will provide structure to any task, they are always kept updated with stepwise objectives."""
+
+            # # --- BEGIN: Auto-load preprompt files ---
+            # logging.info("Checking for preprompt files to load into context...")
+            # preprompt_files_to_load = ['CLAUDE.md', 'GEMINI.md', 'QWEN.md', 'readme.md', 'README.md']
+            # loaded_files_content = []
+            # # Use a set to handle case-insensitivity of readme.md and avoid duplicates
+            # loaded_filenames_lower = set()
+
+            # for filename in preprompt_files_to_load:
+            #     # If a case-insensitive version of the file has been loaded, skip
+            #     if filename.lower() in loaded_filenames_lower:
+            #         continue
+
+            #     if os.path.exists(filename):
+            #         try:
+            #             with open(filename, 'r', encoding='utf-8') as f:
+            #                 content = f.read()
+            #                 # Only add files that have content
+            #                 if len(content.strip())>3:
+            #                     loaded_files_content.append((filename, content))
+            #                     loaded_filenames_lower.add(filename.lower())
+            #                     logging.info(f"Loaded '{filename}' into initial context.")
+                    # except Exception as e:
+                    #     logging.warning(f"Could not read preprompt file '{filename}': {e}")
 
         if '-m' in sys.argv or '--message' in sys.argv:
             if not args.message:
@@ -1277,6 +1320,8 @@ That succeeded, now let's check the current time:
         swap_to_simple_logging()
 
         user_interrupt = False
+        if context_chat and len(context_chat.messages) == 0:
+            context_chat.add_message(Role.USER, default_user_message)
         while True:
             LlmRouter().failed_models.clear()
             user_input: Optional[str] = None
@@ -1318,7 +1363,7 @@ That succeeded, now let's check the current time:
             else:
                 user_input = await get_user_input_with_bindings(args, context_chat, force_input=user_interrupt)
                 try:
-                    from utils.viewfile import ViewFile
+                    from utils.viewfiles import ViewFiles
                     local_paths, _ = extract_paths(user_input)
                     for path in local_paths:
                         expanded_path = os.path.expanduser(path)
@@ -1326,7 +1371,7 @@ That succeeded, now let's check the current time:
                             continue
                         if os.path.isfile(expanded_path):
                             logging.info(colored(f"# cli-agent: Auto-viewing file: {path}", "green"))
-                            view_result = json.loads(ViewFile.run(path=expanded_path))
+                            view_result = json.loads(ViewFiles.run(path=expanded_path))
                             if "result" in view_result:
                                 user_input += f"\n\n# Content of: {path}\n```\n{view_result['result'].get('content', '')}\n```"
                         elif os.path.isdir(expanded_path):
@@ -1343,38 +1388,21 @@ That succeeded, now let's check the current time:
             action_counter, assistant_response = 0, ""
             text_stream_painter = TextStreamPainter()
             base64_images: List[str] = []
-            if user_input and context_chat:
-                # Start with the original user input
-                augmented_input = user_input
-                
-                # --- HARCODED TODOS HINT ---
-                # Always check for pending to-dos and add them as a high-priority hint.
+
+            if (user_input):
+                TodosUtil.run("add", task="user_input: " + user_input)
+
+            # Create user message with todos and hints when there's user input
+            if user_input:
+                guidance_prompt = utils_manager.get_relevant_tools_prompt(TodosUtil.run("list"), top_k=5)
                 try:
-                    all_todos = TodosUtil._load_todos()
-                    if any(not todo.get('completed', False) for todo in all_todos):
-                        todos_hint = TodosUtil._format_todos(all_todos)
-                        # This structured format helps the agent parse the context clearly.
-                        augmented_input = (
-                            "# HIGH PRIORITY: PENDING TASKS\n"
-                            "Address your existing to-do list before starting new work.\n"
-                            f"{todos_hint}\n\n"
-                            "---\n\n"
-                            "# NEW REQUEST\n"
-                            f"{augmented_input}"
-                        )
-                        logging.info(colored("\n📝 Pending to-dos found. Prepending hint to the context.", "magenta"))
+                    todos_text = TodosUtil.run("list")
+                    actual_user_message = f"# USER\n{user_input}\n\n# TODOS\n{todos_text}\n\n# HINTS\n{guidance_prompt}"
+                    context_chat.add_message(Role.USER, actual_user_message)
                 except Exception as e:
-                    logging.warning(colored(f"Could not add todos hint. Error: {e}", "red"))
-
-                # --- CONTEXTUAL TOOL SUGGESTIONS ---
-                # Get relevant tools based on the *original* user input for better relevance.
-                guidance_prompt = utils_manager.get_relevant_tools_prompt(user_input, top_k=3)
-                if guidance_prompt:
-                    # Append the guidance to the (potentially already augmented) input
-                    augmented_input += f"\n\n{guidance_prompt}"
-                    logging.info(colored(f"📝 Added contextual tool suggestions:\n{guidance_prompt}", "magenta"))
-
-                context_chat.add_message(Role.USER, augmented_input)
+                    logging.warning(colored(f"Could not create user message with todos and hints. Error: {e}", "red"))
+                    # Fallback: just add the user input
+                    context_chat.add_message(Role.USER, f"# USER\n{user_input}")
 
             last_action_signature: Optional[str] = None
             stall_counter: int = 0
@@ -1444,7 +1472,7 @@ That succeeded, now let's check the current time:
                             print()
                         else:
                             model_for_branch = models_to_use[0] if models_to_use else None
-                            context_chat.debug_title = f"Generation ({model_for_branch or 'auto'})"
+                            context_chat.debug_title = "Main Context"
                             
                             response_buffer_list = [""]
                             interruption_callback = create_interruption_callback(
@@ -1471,6 +1499,7 @@ That succeeded, now let's check the current time:
                     except KeyboardInterrupt:
                         logging.warning(colored("\n-=- User interrupted model generation -=-", "yellow"))
                         if args.message: args.message = []
+                        context_chat.add_message(Role.ASSISTANT, response_buffer_list[0])
                         break
                     except Exception as e:
                         if not isinstance(e, StreamInterruptedException):
@@ -1481,9 +1510,9 @@ That succeeded, now let's check the current time:
                     if response_branches:
                         if num_branches > 1 and len(response_branches) > 1:
                             try:
-                                selected_branch_index, judge_llm = await select_best_branch(context_chat, response_branches)
+                                selected_branch_index = await select_best_branch(context_chat, response_branches)
                                 assistant_response = response_branches[selected_branch_index]
-                                logging.info(colored(f"✅ Picked branch {selected_branch_index} from {judge_llm}, appending response:", "green"))
+                                logging.info(colored(f"✅ Picked branch {selected_branch_index} from {LlmRouter.last_used_model}, appending response:", "green"))
                                 print()
                                 print(text_stream_painter.apply_color(assistant_response), flush=True) 
                             except Exception as e:
@@ -1498,14 +1527,14 @@ That succeeded, now let's check the current time:
                     else:
                         logging.error(colored("All generation branches failed.", "red"))
                         break
-
-                    current_action_signature = assistant_response
-                    if last_action_signature and current_action_signature == last_action_signature:
+                    
+                    # assistant response deduplication
+                    if last_action_signature and assistant_response == last_action_signature:
                         stall_counter += 1
                         logging.warning(colored(f"Stall counter: {stall_counter}/{MAX_STALLS}", "yellow"))
                     else:
                         stall_counter = 0
-                    last_action_signature = current_action_signature
+                    last_action_signature = assistant_response
 
                     if stall_counter >= MAX_STALLS:
                         logging.error(colored("! Agent appears to be stalled. Intervening.", "red"))
@@ -1513,21 +1542,27 @@ That succeeded, now let's check the current time:
                         stall_counter, last_action_signature = 0, None
                         break
 
+                    # assistant response generated and consumable
+                    context_chat.add_message(Role.ASSISTANT, assistant_response)
+                    
+                    # extract actions
                     shell_blocks = get_extract_blocks()(assistant_response, ["shell", "bash"])
                     python_blocks = get_extract_blocks()(assistant_response, ["python", "tool_code"])
 
+
+                    # no actions taken and todos are left
                     if not python_blocks and not shell_blocks:
                         try:
+                            TodosUtil.run("add", task="HIGH PRIORITY: update the todo list entries")
                             all_todos = TodosUtil._load_todos()
-                            if any(not todo.get('completed', False) for todo in all_todos):
-                                auto_prompt = f"You have remaining todos. Here's your list: {TodosUtil._format_todos(all_todos)}"
-                                logging.info(colored("\n📝 Pending to-dos found. Auto-prompting.", "magenta"))
-                                context_chat.add_message(Role.USER, auto_prompt)
+                            if all_todos and any(not todo.get('completed', False) for todo in all_todos):
+                                todos_list_str = TodosUtil.run("list")
+                                auto_prompt = "You have not executed any code, let's check the remaining todos."
+                                logging.info(colored("\n📝 Pending to-dos found. Auto-prompting.", "light_blue"))
+                                args.message.insert(0, auto_prompt)
+
                         except Exception as e:
                             logging.warning(colored(f"Could not check for pending to-dos. Error: {e}", "red"))
-                        
-                        context_chat.add_message(Role.ASSISTANT, assistant_response)
-                        assistant_response = ""
                         break
 
                     if g.SELECTED_UTILS:
@@ -1564,9 +1599,15 @@ That succeeded, now let's check the current time:
                             logging.info(colored("\n✅ Code execution completed.", "cyan"))
 
                             tool_output = ""
-                            if stdout_buffer.strip(): tool_output += f"```stdout\n{stdout_buffer.strip()}\n```\n"
-                            if stderr_buffer.strip(): tool_output += f"```stderr\n{stderr_buffer.strip()}\n```\n"
-                            tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output)
+                            # Perform the string replacements outside the f-string expression
+                            processed_stdout = stdout_buffer.replace('\n⚙️  ', '\n').replace('\n🐍  ', '\n').strip()
+                            
+                            if stdout_buffer.strip():
+                                tool_output += f"```stdout\n{processed_stdout}\n```\n"  # noqa: F541
+                            if stderr_buffer.strip():
+                                tool_output += f"```stderr\n{stderr_buffer.strip()}\n```\n"
+                            tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output) # noqa: F841, E501
+
 
                             if len(tool_output) > 4000:
                                 tool_output = tool_output[:3000] + "\n[...output truncated...]\n" + tool_output[-1000:]
@@ -1576,8 +1617,7 @@ That succeeded, now let's check the current time:
                             else:
                                 tool_output = f"<execution_output>\n{tool_output.strip()}\n</execution_output>"
                             
-                            assistant_response_with_output = f"{assistant_response}\n{tool_output}\n<think>\n"
-                            context_chat.add_message(Role.ASSISTANT, assistant_response_with_output)
+                            context_chat.add_message(Role.ASSISTANT, f"\n{tool_output}\n")
                             assistant_response = ""
                             stdout_buffer, stderr_buffer = "", ""
                             action_counter += 1
@@ -1589,8 +1629,8 @@ That succeeded, now let's check the current time:
                             assistant_response, stdout_buffer, stderr_buffer = "", "", ""
                             break
                     else:
-                        logging.warning(colored(" Execution cancelled by user.", "yellow"))
-                        cancellation_notice = "<execution_output>\nCode execution cancelled by user.\n</execution_output>"
+                        logging.warning(colored("✖️  Execution cancelled.", "yellow"))
+                        cancellation_notice = "<execution_output>\nCode execution cancelled\n</execution_output>"
                         context_chat.add_message(Role.ASSISTANT, f"{assistant_response}\n{cancellation_notice}")
                         assistant_response, stdout_buffer, stderr_buffer = "", "", ""
                         break
