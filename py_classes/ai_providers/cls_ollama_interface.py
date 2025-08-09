@@ -597,7 +597,8 @@ def test_ollama_functionality():
     
     # Test 1: Check host reachability
     print(colored("\n1. Testing host reachability...", "yellow"))
-    test_hosts = ["localhost", "<YOUR_OLLAMA_HOST>"]
+    from py_classes.globals import g
+    test_hosts = g.DEFAULT_OLLAMA_HOSTS
     for host in test_hosts:
         reachable = OllamaClient.check_host_reachability(host)
         status = colored("✓ Reachable", "green") if reachable else colored("✗ Unreachable", "red")

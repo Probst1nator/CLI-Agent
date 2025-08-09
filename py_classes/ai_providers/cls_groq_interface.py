@@ -159,16 +159,3 @@ class GroqAPI(AIProviderInterface):
     # The token counting method is commented out in your original code,
     # so I'm leaving it as is.
     
-    # @staticmethod
-    # def count_tokens(text: str, model: str) -> int:
-    #     """
-    #     Counts the number of tokens in the given text for the specified model.
-    #     Args:
-    #     text (str): The input text.
-    #     model (str): The model identifier.
-    #     Returns:
-    #     int: The number of tokens in the input text.
-    #     """
-    #     encoding = tiktoken.encoding_for_model(model)
-    #     tokens = encoding.encode(text)
-    #     return len(tokens)
