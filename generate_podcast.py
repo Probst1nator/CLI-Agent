@@ -151,7 +151,7 @@ async def show_interactive_options() -> Tuple[bool, bool, bool, bool]:
             # Invalidate the app to refresh display
             try:
                 app.invalidate()
-            except:
+            except Exception:
                 pass  # App might not be running yet
             
             await asyncio.sleep(0.1)
@@ -189,7 +189,7 @@ async def show_interactive_options() -> Tuple[bool, bool, bool, bool]:
             if not task.cancelled():
                 try:
                     selected_options = task.result()
-                except:
+                except Exception:
                     pass
         
         if selected_options is not None:

@@ -107,7 +107,8 @@ class Llm:
             try:
                 from py_classes.ai_providers.cls_ollama_interface import OllamaClient
                 # Try different Ollama hosts
-                ollama_hosts = ["localhost", "192.168.178.37"]
+                from py_classes.globals import g
+                ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
                 for host in ollama_hosts:
                     try:
                         context_length = OllamaClient.get_model_context_length(self.model_key, host)
@@ -201,7 +202,8 @@ class Llm:
         # Add dynamically discovered Ollama models (ONLY downloaded/local models)
         try:
             # Try different Ollama hosts
-            ollama_hosts = ["localhost", "192.168.178.37"]  # Add common Ollama hosts
+            from py_classes.globals import g
+            ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
             for host in ollama_hosts:
                 try:
                     try:

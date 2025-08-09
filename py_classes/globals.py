@@ -57,6 +57,13 @@ class Globals:
     UNCONFIRMED_FINETUNING_PATH = os.path.join(CLIAGENT_TEMP_STORAGE_PATH, 'unconfirmed_finetuning_data')
     CONFIRMED_FINETUNING_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, 'confirmed_finetuning_data')
     
+    # Network configuration
+    DEFAULT_OLLAMA_HOSTS = ["localhost", "192.168.178.37"]
+    
+    # Output buffer sizes
+    OUTPUT_TRUNCATE_HEAD_SIZE = 3000
+    OUTPUT_TRUNCATE_TAIL_SIZE = 1000
+    
     # Web server instance
     web_server = None
     
@@ -113,7 +120,7 @@ class Globals:
             for f in os.listdir(self.CLIAGENT_TEMP_STORAGE_PATH):
                 if f.endswith('.py') and re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$', f):
                     os.remove(os.path.join(self.CLIAGENT_TEMP_STORAGE_PATH, f))
-        except:
+        except (OSError, IOError):
             pass
     
     def debug_log(self, message: str, color: str = None, end: str = '\n', 

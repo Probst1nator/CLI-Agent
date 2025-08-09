@@ -143,3 +143,78 @@ def run(paths: Union[str, List[str]], show_line_numbers: bool = False) -> str:
         })
 
     return ViewFiles._run_logic(paths=paths_to_process, show_line_numbers=show_line_numbers)
+
+
+# --- Minimal & Reproducible Test Showcase ---
+if __name__ == "__main__":
+    import tempfile
+    
+    # Define all test cases in a simple, data-driven list of dictionaries.
+    test_cases = [
+        {
+            "description": "Test 1: View a single file",
+            "setup": lambda: tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, 
+                                                        content="Hello World\nLine 2"),
+            "args": lambda temp_file: {"paths": [temp_file.name]},
+            "assertion": lambda res: "result" in res and "Hello World" in res["result"]
+        },
+        {
+            "description": "Test 2: View non-existent file",
+            "args": {"paths": ["nonexistent_file.txt"]},
+            "assertion": lambda res: "result" in res and "Failed to access" in res["result"]
+        },
+        {
+            "description": "Test 3: View file with line numbers",
+            "setup": lambda: tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False,
+                                                        content="def hello():\n    print('world')"),
+            "args": lambda temp_file: {"paths": [temp_file.name], "show_line_numbers": True},
+            "assertion": lambda res: "result" in res and "1 |" in res["result"]
+        }
+    ]
+
+    print("="*50)
+    print(f"   Running Self-Tests for {__name__}   ")
+    print("="*50)
+    
+    passed_count = 0
+    # Generic test runner that iterates through the defined cases.
+    for i, test in enumerate(test_cases, 1):
+        print(f"\n--- {test['description']} ---")
+        try:
+            # Setup temporary file if needed
+            temp_file = None
+            if 'setup' in test:
+                temp_file = test['setup']()
+                temp_file.flush()
+                args = test['args'](temp_file)
+            else:
+                args = test['args']
+            
+            # Execute the utility's run function with the test arguments.
+            result_str = run(**args)
+            result_dict = markpickle.loads(result_str)
+            
+            print(f"Input: {args}")
+            print(f"Output: {str(result_dict)[:200]}...")
+            
+            # Check if the result meets the assertion criteria.
+            if test['assertion'](result_dict):
+                print("Status: PASSED ✔️")
+                passed_count += 1
+            else:
+                print("Status: FAILED ❌ (Assertion logic failed)")
+                
+            # Cleanup
+            if temp_file:
+                os.unlink(temp_file.name)
+                
+        except Exception as e:
+            print(f"Status: FAILED ❌ (An unexpected exception occurred: {e})")
+
+    # Final summary of the test run.
+    print("\n" + "="*50)
+    if passed_count == len(test_cases):
+        print(f"  Summary: All {len(test_cases)} tests passed! ✅")
+    else:
+        print(f"  Summary: {passed_count}/{len(test_cases)} tests passed. Please review failures. ❌")
+    print("="*50)

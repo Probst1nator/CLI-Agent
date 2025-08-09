@@ -5,12 +5,14 @@ import os
 from typing import Dict, Any, Literal, Optional
 import markpickle
 
-# Assuming UtilBase is a simple base class, we can define a mock for stand-alone use
-class UtilBase:
-    @staticmethod
-    def run(*args, **kwargs):
-        # This will now call the refactored run function with explicit arguments
-        return EditFile._run_logic(*args, **kwargs)
+# For standalone testing, we can create a mock if the real one isn't available.
+# This allows the script to be run directly without depending on the full agent's path structure.
+try:
+    from py_classes.cls_util_base import UtilBase
+except ImportError:
+    print("Warning: Could not import UtilBase. Using a mock class for standalone testing.")
+    class UtilBase:
+        pass
 
 class EditFile(UtilBase):
     """
@@ -228,3 +230,87 @@ def run(
         start_line=start_line,
         end_line=end_line
     )
+
+
+# --- Minimal & Reproducible Test Showcase ---
+if __name__ == "__main__":
+    import tempfile
+    
+    # Define all test cases in a simple, data-driven list of dictionaries.
+    test_cases = [
+        {
+            "description": "Test 1: Overwrite a file with new content",
+            "setup": lambda: tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False),
+            "args": lambda temp_file: {"path": temp_file.name, "edit_mode": "overwrite", 
+                                     "new_content": "Hello, World!"},
+            "assertion": lambda res: "result" in res and "Successfully overwrote" in res["result"]
+        },
+        {
+            "description": "Test 2: Search and replace in a file",
+            "setup": lambda: tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False,
+                                                        content="Hello old world"),
+            "args": lambda temp_file: {"path": temp_file.name, "edit_mode": "search_replace",
+                                     "search_string": "old", "replace_with": "new"},
+            "assertion": lambda res: "result" in res and "Successfully performed search and replace" in res["result"]
+        },
+        {
+            "description": "Test 3: Line replace in a file",
+            "setup": lambda: tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False,
+                                                        content="Line 1\nLine 2\nLine 3\n"),
+            "args": lambda temp_file: {"path": temp_file.name, "edit_mode": "line_replace",
+                                     "start_line": 2, "end_line": 2, "new_content": "New Line 2"},
+            "assertion": lambda res: "result" in res and "Successfully replaced lines" in res["result"]
+        },
+        {
+            "description": "Test 4: Error handling - missing required argument",
+            "args": {"path": "test.txt", "edit_mode": "overwrite"},
+            "assertion": lambda res: "error" in res and "new_content" in res["error"]
+        }
+    ]
+
+    print("="*50)
+    print(f"   Running Self-Tests for {__name__}   ")
+    print("="*50)
+    
+    passed_count = 0
+    # Generic test runner that iterates through the defined cases.
+    for i, test in enumerate(test_cases, 1):
+        print(f"\n--- {test['description']} ---")
+        try:
+            # Setup temporary file if needed
+            temp_file = None
+            if 'setup' in test:
+                temp_file = test['setup']()
+                temp_file.flush()
+                args = test['args'](temp_file)
+            else:
+                args = test['args']
+            
+            # Execute the utility's run function with the test arguments.
+            result_str = run(**args)
+            result_dict = markpickle.loads(result_str)
+            
+            print(f"Input: {args}")
+            print(f"Output: {str(result_dict)[:200]}...")
+            
+            # Check if the result meets the assertion criteria.
+            if test['assertion'](result_dict):
+                print("Status: PASSED ✔️")
+                passed_count += 1
+            else:
+                print("Status: FAILED ❌ (Assertion logic failed)")
+                
+            # Cleanup
+            if temp_file:
+                os.unlink(temp_file.name)
+                
+        except Exception as e:
+            print(f"Status: FAILED ❌ (An unexpected exception occurred: {e})")
+
+    # Final summary of the test run.
+    print("\n" + "="*50)
+    if passed_count == len(test_cases):
+        print(f"  Summary: All {len(test_cases)} tests passed! ✅")
+    else:
+        print(f"  Summary: {passed_count}/{len(test_cases)} tests passed. Please review failures. ❌")
+    print("="*50)

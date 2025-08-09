@@ -140,18 +140,3 @@ class AnthropicAPI(AIProviderInterface):
         # RateLimitError and TimeoutError will be handled by the router's _handle_model_error method
         return client.messages.create(**create_args)
 
-    # @staticmethod
-    # def count_tokens(text: str, model: str = "claude-3-5-sonnet-latest-20240620") -> int:
-    #     """
-    #     Counts the number of tokens in the given text for the specified model.
-
-    #     Args:
-    #         text (str): The input text.
-    #         model (str): The model identifier.
-
-    #     Returns:
-    #         int: The number of tokens in the input text.
-    #     """
-    #     encoding = tiktoken.encoding_for_model(model)
-    #     tokens = encoding.encode(text)
-    #     return len(tokens)

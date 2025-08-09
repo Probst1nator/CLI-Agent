@@ -372,7 +372,7 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: List[str] = 
     ollama_status = {}
     try:
         # This will now be timed because logging is set up
-        ollama_status = OllamaClient.get_comprehensive_model_status(["localhost", "192.168.178.37"])
+        ollama_status = OllamaClient.get_comprehensive_model_status(g.DEFAULT_OLLAMA_HOSTS)
     except Exception:
         pass
     for llm in available_llms:
@@ -1535,7 +1535,7 @@ TodosUtil.run('list')
 
 
                             if len(tool_output) > 4000:
-                                tool_output = tool_output[:3000] + "\n[...output truncated...]\n" + tool_output[-1000:]
+                                tool_output = tool_output[:g.OUTPUT_TRUNCATE_HEAD_SIZE] + "\n[...output truncated...]\n" + tool_output[-g.OUTPUT_TRUNCATE_TAIL_SIZE:]
 
                             if not tool_output.strip():
                                 tool_output = "<execution_output>\nThe execution completed without output.\n</execution_output>"
