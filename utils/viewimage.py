@@ -3,7 +3,7 @@ import base64
 import os
 import markpickle
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 try:
     from py_classes.cls_util_base import UtilBase

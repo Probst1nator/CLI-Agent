@@ -145,47 +145,76 @@ class ComputationalNotebook:
             time.sleep(0.1)
             
             try:
-                # Wait for completion - either prompt or timeout
-                index = self.python_child.expect(['>>> ', pexpect.TIMEOUT], timeout=10)
+                # Wait for completion with interactive input support
+                start_time = time.time()
+                last_output_time = time.time()
+                stall_threshold = 10
+                all_python_output = ""
                 
-                # Collect all output
-                if self.python_child.before:
-                    output = str(self.python_child.before).strip()
-                    # Filter out the command echo and exec artifacts
-                    if output:
-                        output_lines = output.split('\n')
-                        filtered_lines = []
-                        command_lines = processed_command.split('\n')
-                        
-                        for out_line in output_lines:
-                            out_line_stripped = out_line.strip()
-                            # Skip if it's exactly one of the command lines we sent
-                            if out_line_stripped and out_line_stripped not in command_lines:
-                                # Also filter out exec wrapper artifacts and continuation prompts
-                                if not (out_line_stripped.startswith("exec(") or 
-                                       out_line_stripped == "..." or
-                                       out_line_stripped.endswith(")") and "exec(" in out_line_stripped or
-                                       out_line_stripped.startswith("... ") or
-                                       (out_line_stripped.startswith("...") and len(out_line_stripped.strip("... ")) <= 5)):
-                                    filtered_lines.append(out_line)
-                        
-                        if filtered_lines:
-                            collected_output.extend(filtered_lines)
-                
-                # Handle timeout case
-                if index == 1:  # TIMEOUT
+                while time.time() - start_time < 10:
                     try:
-                        # Try once more to get the prompt
-                        self.python_child.expect('>>> ', timeout=5)
-                        if self.python_child.before:
-                            output = str(self.python_child.before).strip()
-                            if output:
-                                collected_output.append(output)
+                        index = self.python_child.expect(['>>> ', pexpect.TIMEOUT], timeout=1)
+                        
+                        if index == 0:  # Got prompt - done
+                            if self.python_child.before:
+                                output = str(self.python_child.before).strip()
+                                # Filter out the command echo and exec artifacts
+                                if output:
+                                    output_lines = output.split('\n')
+                                    filtered_lines = []
+                                    command_lines = processed_command.split('\n')
+                                    
+                                    for out_line in output_lines:
+                                        out_line_stripped = out_line.strip()
+                                        # Skip if it's exactly one of the command lines we sent
+                                        if out_line_stripped and out_line_stripped not in command_lines:
+                                            # Also filter out exec wrapper artifacts and continuation prompts
+                                            if not (out_line_stripped.startswith("exec(") or 
+                                                   out_line_stripped == "..." or
+                                                   out_line_stripped.endswith(")") and "exec(" in out_line_stripped or
+                                                   out_line_stripped.startswith("... ") or
+                                                   (out_line_stripped.startswith("...") and len(out_line_stripped.strip("... ")) <= 5)):
+                                                filtered_lines.append(out_line)
+                                    
+                                    if filtered_lines:
+                                        collected_output.extend(filtered_lines)
+                            break
+                            
+                        elif index == 1:  # TIMEOUT - still running
+                            new_output = self.python_child.before if self.python_child.before else ""
+                            if new_output:
+                                new_text = new_output.replace(all_python_output, "")
+                                if new_text.strip():
+                                    all_python_output += new_text
+                                    last_output_time = time.time()
+                            
+                            # Check for stall and handle input
+                            time_since_last_output = time.time() - last_output_time
+                            if time_since_last_output > stall_threshold:
+                                if self.input_prompt_handler:
+                                    decision = self.input_prompt_handler(all_python_output, "python")
+                                    if decision is True:  # Wait longer
+                                        last_output_time = time.time()
+                                        stall_threshold = min(stall_threshold * 1.2, 60)
+                                    elif decision is False:  # Interrupt
+                                        self.python_child.sendcontrol('c')
+                                        break
+                                    elif isinstance(decision, str):  # Send input
+                                        try:
+                                            self.python_child.sendline(decision)
+                                            all_python_output = ""  # Reset context
+                                            last_output_time = time.time()
+                                        except Exception:
+                                            break
+                                else:
+                                    last_output_time = time.time()
+                    
                     except pexpect.TIMEOUT:
-                        # Still no prompt - capture what we have
-                        current_buffer = str(self.python_child.before) if self.python_child.before else ""
-                        if current_buffer.strip():
-                            collected_output.append(current_buffer.strip())
+                        break
+                
+                # Final collection of any remaining output
+                if all_python_output and all_python_output not in collected_output:
+                    collected_output.append(all_python_output)
                             
             except pexpect.TIMEOUT:
                 # Handle major timeout
@@ -262,7 +291,7 @@ class ComputationalNotebook:
                     time_since_last_output = time.time() - last_output_time
                     if time_since_last_output > stall_threshold:
                         if self.input_prompt_handler:
-                            decision = self.input_prompt_handler(all_output_for_context)
+                            decision = self.input_prompt_handler(all_output_for_context, "shell")
                             if decision is True: # Wait longer
                                 last_output_time = time.time()
                                 stall_threshold = min(stall_threshold * 1.2, 120)
@@ -530,6 +559,23 @@ import utils.architectnewutil as architectnewutil
             # Reset flags to avoid incorrect emoji prefixes on subsequent outputs
             self.is_executing_python = False
             self.is_executing_shell = False
+
+    def send_input(self, text: str, session_type: str = "shell"):
+        """Send input directly to the pexpect stream.
+        
+        Args:
+            text: The text to send
+            session_type: Either "shell" for bash session or "python" for Python session
+        """
+        try:
+            if session_type == "python" and self.python_child and self.python_child.isalive():
+                self.python_child.sendline(text)
+            elif session_type == "shell" and self.child and self.child.isalive():
+                self.child.sendline(text)
+            else:
+                self.stdout_callback(f"[Error: {session_type} session not available]\n")
+        except Exception as e:
+            self.stdout_callback(f"[Error sending input: {str(e)}]\n")
 
     def close(self):
         """Close both bash and Python sessions."""

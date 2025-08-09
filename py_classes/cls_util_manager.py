@@ -149,6 +149,8 @@ from utils.{util_name} import {util_cls.__name__}
         """Initialize the vector database for smart tool retrieval"""
         try:
             from py_classes.cls_vector_db import ToolVectorDB
+            # Reset singleton to ensure we get a fresh instance with correct configuration
+            ToolVectorDB.reset_singleton()
             self.vector_db = ToolVectorDB()
             
             # Add all loaded utilities to the vector database
@@ -184,7 +186,21 @@ from utils.{util_name} import {util_cls.__name__}
                 for util_cls in self.utils[:top_k]
             ]
         
-        results = self.vector_db.search(query, top_k)
+        try:
+            results = self.vector_db.search(query, top_k)
+        except Exception as e:
+            # Vector search failed, likely due to embedding dimension mismatch
+            # Fall back to returning top utilities without similarity scoring
+            logging.debug(f"Vector search failed ({e}), using fallback utility selection")
+            return [
+                {
+                    "name": UtilBase.get_name(util_cls),
+                    "score": 1.0,
+                    "class": util_cls,
+                    "metadata": getattr(util_cls, 'get_metadata', lambda: {})()
+                } 
+                for util_cls in self.utils[:top_k]
+            ]
         
         # Record the search for learning purposes
         if results and len(results) > 0:
@@ -207,7 +223,12 @@ from utils.{util_name} import {util_cls.__name__}
         if self.vector_db is None:
             return []
         
-        return self.vector_db.get_relevant_guidance(query, top_k)
+        try:
+            return self.vector_db.get_relevant_guidance(query, top_k)
+        except Exception as e:
+            # Guidance search failed, likely due to embedding dimension mismatch
+            logging.debug(f"Guidance search failed ({e}), returning empty list")
+            return []
 
     def get_relevant_tools_prompt(self, query: str, top_k: int = 3) -> str:
         """

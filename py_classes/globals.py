@@ -1,244 +1,179 @@
-# File: globals.py
+# py_classes/globals.py
+"""
+This file defines a singleton `g` object to hold global state for the CLI-Agent application.
+Using a class-based singleton pattern ensures that all parts of the application
+share the same state instance, which is crucial for managing settings like
+LLM selection, force flags, and other runtime configurations.
+"""
 import os
 import shutil
-import socket
-from typing import List, Optional, Any, Callable, Dict
-import logging
-import builtins
-from termcolor import colored
 import json
+import logging
+import datetime
+from pathlib import Path
+from typing import List, Optional, Any, Callable, Dict
+from termcolor import colored
 
-from py_classes.enum_ai_strengths import AIStrengths
+# --- Helper Function for Path Management ---
+def _get_persistent_storage_path() -> str:
+    """
+    Determines the appropriate path for persistent storage based on the OS.
+    This helps in keeping user-specific data and configurations in a conventional location.
+    """
+    if os.name == 'nt':  # Windows
+        return os.path.join(os.environ.get('APPDATA', ''), 'cli-agent')
+    else:  # macOS, Linux, and other UNIX-like systems
+        return os.path.join(Path.home(), '.cli-agent')
 
-
+# --- Main Globals Class ---
 class Globals:
-    FORCE_LOCAL: bool = False
-    FORCE_ONLINE: bool = False
-    FORCE_FAST: bool = False
-    DEBUG_CHATS: bool = False
-    USE_SANDBOX: bool = False
-    LLM: Optional[str] = None
-    MCT: Optional[int] = None
-    LLM_STRENGTHS: List[AIStrengths] = []
-    SELECTED_UTILS: List[str] = []  # Store selected utilities
-    SELECTED_LLMS: List[str] = []  # Store selected LLMs
-    SSH_CONNECTION: Optional[str] = None  # Store SSH connection details (user@hostname:port)
-    
-    # Ollama host configuration
-    ollama_host_env: List[str] = []
-    
-    # Configuration settings
-    _user_config: Dict[str, Any] = {}
-    
-    if (os.getenv("USE_ONLINE_HOSTNAME", "") == socket.gethostname()):
-        LLM_STRENGTHS = [AIStrengths.ONLINE]
-    
-    CLIAGENT_ROOT_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    CLIAGENT_PERSISTENT_STORAGE_PATH = os.path.join(CLIAGENT_ROOT_PATH, '.cliagent')
-    CLIAGENT_TEMP_STORAGE_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, '.temp')
-    CLIAGENT_ENV_FILE_PATH = os.path.join(CLIAGENT_ROOT_PATH, '.env')
-    # Path to the system instruction Markdown file
-    AGENTS_SANDBOX_DIR = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, "agents_sandbox")
-    os.makedirs(AGENTS_SANDBOX_DIR, exist_ok=True)
-    
-    # User configuration file path
-    USER_CONFIG_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, 'user_config.json')
-    
-    # Model limits
-    # Generate a daily model token limits file path with date suffix
-    import datetime
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    PROJ_MODEL_LIMITS_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, 'model_limits')
-    os.makedirs(PROJ_MODEL_LIMITS_PATH, exist_ok=True)
-    MODEL_TOKEN_LIMITS_PATH = os.path.join(PROJ_MODEL_LIMITS_PATH, f'{today}_model_token_limits.json')
-    MODEL_RATE_LIMITS_PATH = os.path.join(PROJ_MODEL_LIMITS_PATH, f'{today}_model_rate_limits.json')
-    
-    # Finetuning
-    UNCONFIRMED_FINETUNING_PATH = os.path.join(CLIAGENT_TEMP_STORAGE_PATH, 'unconfirmed_finetuning_data')
-    CONFIRMED_FINETUNING_PATH = os.path.join(CLIAGENT_PERSISTENT_STORAGE_PATH, 'confirmed_finetuning_data')
-    
-    # Network configuration
-    DEFAULT_OLLAMA_HOSTS = ["localhost", "192.168.178.37"]
-    
-    # Output buffer sizes
-    OUTPUT_TRUNCATE_HEAD_SIZE = 3000
-    OUTPUT_TRUNCATE_TAIL_SIZE = 1000
-    
-    # Web server instance
-    web_server = None
-    
-    # Store the original print function
-    original_print: Callable = builtins.print
+    """
+    A singleton class to hold and manage the global state of the application.
+    This includes paths, runtime flags, and selected model configurations.
+    """
+    def __init__(self):
+        # --- Path Configurations ---
+        self.CLIAGENT_ROOT_PATH: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.CLIAGENT_PERSISTENT_STORAGE_PATH: str = _get_persistent_storage_path()
+        self.CLIAGENT_TEMP_STORAGE_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, ".temp")
+        self.AGENTS_SANDBOX_DIR: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "sandbox")
+        
+        # --- File Path Configurations ---
+        self.CLIAGENT_ENV_FILE_PATH: str = os.path.join(self.CLIAGENT_ROOT_PATH, ".env")
+        self.USER_CONFIG_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, 'user_config.json')
+        self.LLM_CONFIG_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, 'llm_config.json')
+        
+        # --- Model Limit Paths with Daily Rotation ---
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        model_limits_dir = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, 'model_limits')
+        os.makedirs(model_limits_dir, exist_ok=True)
+        self.MODEL_TOKEN_LIMITS_PATH: str = os.path.join(model_limits_dir, f'{today}_model_token_limits.json')
+        self.MODEL_RATE_LIMITS_PATH: str = os.path.join(model_limits_dir, f'{today}_model_rate_limits.json')
+        
+        self.UNCONFIRMED_FINETUNING_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "finetuning_data", "unconfirmed")
+        self.CONFIRMED_FINETUNING_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "finetuning_data", "confirmed")
 
-    os.makedirs(CLIAGENT_PERSISTENT_STORAGE_PATH, exist_ok=True)
-    
-    if os.path.exists(CLIAGENT_TEMP_STORAGE_PATH):
-        shutil.rmtree(CLIAGENT_TEMP_STORAGE_PATH)
-    os.makedirs(CLIAGENT_TEMP_STORAGE_PATH, exist_ok=True)
-    
-    def load_user_config(self) -> Dict[str, Any]:
+        # --- LLM and Agent Configuration ---
+        self.LLM: Optional[str] = None
+        self.SELECTED_LLMS: List[str] = []
+        self.EVALUATOR_LLMS: List[str] = []
+        self.MCT: int = 1
+        self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
+        
+        # --- Forcing Flags (runtime modifiers) ---
+        from py_classes.enum_ai_strengths import AIStrengths # Local import
+        self.FORCE_LOCAL: bool = False
+        self.FORCE_ONLINE: bool = False
+        self.FORCE_FAST: bool = False
+        self.FORCE_STRONG: bool = False
+        self.LLM_STRENGTHS: List[AIStrengths] = []
+
+        # --- Debug and UI Flags ---
+        self.DEBUG_CHATS: bool = False
+        self.USE_SANDBOX: bool = False
+        
+        # --- Utility and Tool Management ---
+        self.SELECTED_UTILS: List[str] = []
+
+        # --- Output Truncation Settings ---
+        self.OUTPUT_TRUNCATE_HEAD_SIZE: int = 2000
+        self.OUTPUT_TRUNCATE_TAIL_SIZE: int = 2000
+
+        # --- Cross-module Communication & State ---
+        self.web_server: Optional[Any] = None
+        self.print_token: Callable[[str], None] = lambda token: print(token, end="", flush=True)
+        self.debug_log: Callable[..., None] = self._default_debug_log
+        self._user_config: Dict[str, Any] = {}
+        self._llm_config: Dict[str, Any] = {}
+
+        # --- Initial Setup on Instantation ---
+        self._initialize_directories()
+        self.load_user_config()
+        self.load_llm_config() # Load LLM config at startup
+        self._configure_ollama_hosts()
+
+    def _initialize_directories(self):
+        """Create necessary directories and clean up temporary ones."""
+        os.makedirs(self.CLIAGENT_PERSISTENT_STORAGE_PATH, exist_ok=True)
+        os.makedirs(self.AGENTS_SANDBOX_DIR, exist_ok=True)
+        
+        if os.path.exists(self.CLIAGENT_TEMP_STORAGE_PATH):
+            shutil.rmtree(self.CLIAGENT_TEMP_STORAGE_PATH)
+        os.makedirs(self.CLIAGENT_TEMP_STORAGE_PATH, exist_ok=True)
+
+    def _configure_ollama_hosts(self):
+        """Load Ollama hosts from environment variables."""
+        ollama_host_env = os.getenv("OLLAMA_HOSTS")
+        if ollama_host_env:
+            hosts = [host.strip() for host in ollama_host_env.split(',') if host.strip()]
+            if hosts:
+                self.DEFAULT_OLLAMA_HOSTS = hosts
+
+    def _default_debug_log(self, message: str, color: str = None, force_print: bool = False, **kwargs):
+        """A simple default logger in case the main one isn't set up yet."""
+        if force_print:
+            if color:
+                print(colored(f"DEBUG: {message}", color))
+            else:
+                print(f"DEBUG: {message}")
+
+    def load_user_config(self) -> None:
         """Load user configuration from JSON file."""
-        try:
-            if os.path.exists(self.USER_CONFIG_PATH):
+        if os.path.exists(self.USER_CONFIG_PATH):
+            try:
                 with open(self.USER_CONFIG_PATH, 'r') as f:
                     self._user_config = json.load(f)
-            else:
-                # Initialize with default values
+            except (json.JSONDecodeError, Exception) as e:
+                logging.warning(f"Could not load user config file, it may be corrupt: {e}")
                 self._user_config = {}
-                self.save_user_config()
-        except Exception as e:
-            logging.error(f"Failed to load user config: {e}")
+        else:
             self._user_config = {}
-        return self._user_config
-    
+
     def save_user_config(self) -> None:
-        """Save user configuration to JSON file."""
+        """Save the current user configuration to a JSON file."""
         try:
-            os.makedirs(os.path.dirname(self.USER_CONFIG_PATH), exist_ok=True)
             with open(self.USER_CONFIG_PATH, 'w') as f:
                 json.dump(self._user_config, f, indent=4)
         except Exception as e:
             logging.error(f"Failed to save user config: {e}")
-    
-    def get_config_value(self, key: str, default_value: Any = None) -> Any:
-        """Get a configuration value with fallback to default."""
-        if not self._user_config:
-            self.load_user_config()
-        return self._user_config.get(key, default_value)
+
+    def get_config_value(self, key: str, default: Any = None) -> Any:
+        """Get a configuration value with a fallback default."""
+        return self._user_config.get(key, default)
     
     def set_config_value(self, key: str, value: Any) -> None:
-        """Set a configuration value and save to file."""
-        if not self._user_config:
-            self.load_user_config()
+        """Set a configuration value and save it to the file immediately."""
         self._user_config[key] = value
         self.save_user_config()
-    
+
+    def load_llm_config(self) -> None:
+        """Load the LLM selection/configuration from its JSON file."""
+        if os.path.exists(self.LLM_CONFIG_PATH):
+            try:
+                with open(self.LLM_CONFIG_PATH, 'r') as f:
+                    self._llm_config = json.load(f)
+            except (json.JSONDecodeError, Exception) as e:
+                logging.warning(f"Could not load LLM config file, it may be corrupt: {e}")
+                self._llm_config = {}
+        else:
+            self._llm_config = {}
+
+    def get_llm_config(self) -> Dict[str, Any]:
+        """Get the loaded LLM configuration."""
+        return self._llm_config
+
     def cleanup_temp_py_files(self):
         """Remove temporary Python files from previous runs."""
         import re
         try:
+            if not os.path.exists(self.CLIAGENT_TEMP_STORAGE_PATH):
+                return
             for f in os.listdir(self.CLIAGENT_TEMP_STORAGE_PATH):
                 if f.endswith('.py') and re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$', f):
                     os.remove(os.path.join(self.CLIAGENT_TEMP_STORAGE_PATH, f))
-        except (OSError, IOError):
-            pass
-    
-    def debug_log(self, message: str, color: str = None, end: str = '\n', 
-                  with_title: bool = True, is_error: bool = False, force_print: bool = False,
-                  prefix: str = "") -> None:
-        """
-        A centralized debug log function to replace the various debug_print and log_print functions.
-        
-        Args:
-            message (str): The message to print
-            color (str, optional): Color for the message
-            end (str): End character
-            with_title (bool): Whether to include the chat title
-            is_error (bool): Whether this is an error message
-            force_print (bool): Force printing to console even for info messages
-            prefix (str): Prefix to add before the message (replaces chat.get_debug_title_prefix())
-        """
-        does_contain_whitespace = prefix.endswith(" ") or message.startswith(" ")
-        if does_contain_whitespace:
-            log_message = f"{prefix}" + message.removeprefix('\n')
-        else:
-            log_message = f"{prefix} " + message.removeprefix('\n')
-        
-        # Log to appropriate logger level (ignoring color)
-        if is_error:
-            # logging.error(log_message)
-            # For errors, always print to console
-            if color:
-                print(colored(log_message, color), end=end)
-            else:
-                print(log_message, end=end)
-        else:
-            # For info level, log to logger
-            # logging.info(log_message)
-            # Only print to console if forced
-            if force_print:
-                if color:
-                    print(colored(log_message, color), end=end)
-                else:
-                    print(log_message, end=end)
-    
-    def print_token(self, token: str, color_func = None) -> None:
-        """
-        Print a token with optional coloring for stream processing.
-        
-        Args:
-            token (str): The token to print
-            color_func: Function to apply color to the token
-        """
-        if color_func:
-            print(color_func(token), end="", flush=True)
-        else:
-            print(token, end="", flush=True)
-    
+        except (OSError, IOError) as e:
+            logging.warning(f"Could not clean up temporary files: {e}")
+        except Exception as e:
+            logging.error(f"An unexpected error occurred during temp file cleanup: {e}")
+
 g = Globals()
-
-# Initialize user configuration
-g.load_user_config()
-
-# Initialize Ollama host environment variable
-ollama_host_env = os.getenv("OLLAMA_HOST", "")
-if ollama_host_env:
-    g.ollama_host_env = ollama_host_env.split(",")
-else:
-    g.ollama_host_env = []
-
-def configure_logging():
-    # Configure root logger 
-    root_logger = logging.getLogger()
-    
-    # Clear any existing handlers
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-    
-    # Create formatter
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    # Create console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.ERROR)  # Only show ERROR and above in console
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-    
-    # Create file handler for all logs
-    os.makedirs(g.CLIAGENT_PERSISTENT_STORAGE_PATH, exist_ok=True)
-    log_file_path = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'app.log') 
-    file_handler = logging.FileHandler(log_file_path)
-    file_handler.setLevel(logging.INFO)  # Still log INFO and above to file
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
-    
-    # Set overall logger level - this needs to be the lowest level you want to capture
-    root_logger.setLevel(logging.INFO)
-    
-    # Silence specific loggers that are too verbose
-    logging.getLogger('py_classes.cls_llm_router').setLevel(logging.ERROR)
-    
-    logging.info("Logging configured")
-
-# Create a custom print function that also logs to web interface
-def custom_print(*args: Any, **kwargs: Any) -> None:
-    """
-    Custom print function that intercepts print calls and also sends them to the web interface.
-    This function preserves all functionality of the original print function.
-    """
-    # Call the original print function to preserve normal console output
-    g.original_print(*args, **kwargs)
-    
-    # If web server is initialized and GUI mode is enabled, log to web interface
-    if g.web_server is not None:
-        try:
-            g.web_server.log_print(*args, **kwargs)
-        except Exception:
-            # In case of any error, fall back to the original print function
-            pass
-
-# Configure logging after Globals is instantiated
-configure_logging()
-
-# Only replace the print function after everything is set up
-builtins.print = custom_print
