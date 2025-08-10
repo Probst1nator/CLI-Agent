@@ -133,15 +133,47 @@ def print_startup_summary(args: argparse.Namespace):
     else:
         llm_status = colored('Default', 'yellow')
     
-    # --- FIX: Use a more descriptive status string for MCT that shows branch count in both ON and OFF states ---
-    mct_status_text_on = f'ON ({args.mct} branches)'
-    # Use singular 'branch' for the off case.
-    mct_status_text_off = f'OFF ({args.mct} branch)'
+    # Calculate guard count for Auto Execution status and eval count for MCT status
+    llm_config = g.get_llm_config()
+    guard_count = sum(
+        data.get('guard', 0) 
+        for data in llm_config.values() 
+        if data.get('selected')
+    )
+    eval_count = sum(
+        data.get('eval', 0) 
+        for data in llm_config.values() 
+        if data.get('selected')
+    )
+    
+    # Auto Execution status with guard info
+    if args.auto:
+        if guard_count > 0:
+            auto_status_text_on = f'ON ({guard_count} guards)'
+        else:
+            auto_status_text_on = 'ON (manual confirmation)'
+        auto_status_text_off = 'OFF'
+    else:
+        auto_status_text_on = f'ON ({guard_count} guards)' if guard_count > 0 else 'ON (manual confirmation)'
+        auto_status_text_off = 'OFF'
+    
+    # --- MCT status string for branch count display ---
+    eval_suffix = f', {eval_count} evals' if eval_count > 0 else ''
+    if args.mct == -1:
+        # -mct used without integer - show auto mode
+        if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 0:
+            mct_status_text_on = f'ON ({len(g.SELECTED_LLMS)} branching LLMs{eval_suffix})'
+        else:
+            mct_status_text_on = f'ON (3 branches default{eval_suffix})'
+        mct_status_text_off = 'OFF'
+    else:
+        mct_status_text_on = f'ON ({args.mct} branches{eval_suffix})'
+        mct_status_text_off = f'OFF ({args.mct} branch)'
     
     config_lines = [
         f"  {colored('Local Mode (-l)'.ljust(CMD_WIDTH), 'white')} {colored('Use only local LLMs'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.local)})",
-        f"  {colored('Auto Execution (-a)'.ljust(CMD_WIDTH), 'white')} {colored('Automatic code execution'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.auto)})",
-        f"  {colored('MCT Branches (--mct)'.ljust(CMD_WIDTH), 'white')} {colored('Monte Carlo Tree Search'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.mct > 1, on_text=mct_status_text_on, off_text=mct_status_text_off)})",
+        f"  {colored('Auto Execution (-a)'.ljust(CMD_WIDTH), 'white')} {colored('Automatic code execution'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.auto, on_text=auto_status_text_on, off_text=auto_status_text_off)})",
+        f"  {colored('MCT Branches (--mct)'.ljust(CMD_WIDTH), 'white')} {colored('Monte Carlo Tree Search'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.mct > 1 or args.mct == -1, on_text=mct_status_text_on, off_text=mct_status_text_off)})",
         f"  {colored('LLM Selection (--llm)'.ljust(CMD_WIDTH), 'white')} {colored('Specific LLM(s) to use'.ljust(DESC_WIDTH), 'light_grey')} (Status: {llm_status})",
         f"  {colored('Voice Mode (-v)'.ljust(CMD_WIDTH), 'white')} {colored('Voice input/output'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.voice)})"
     ]
@@ -187,16 +219,16 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Regenerate the last response.")
     parser.add_argument("-v", "--voice", action="store_true", default=False,
                         help="Enable microphone input and text-to-speech output.")
-    parser.add_argument("-s", "--speak", action="store_true", default=False,
+    parser.add_argument("--speak", action="store_true", default=False,
                         help="Text-to-speech output.")
+    parser.add_argument("--full_output", dest='full_output_mode', action="store_true", default=False,
+                        help="Full output mode. Shows live model output instead of hiding it.")
     parser.add_argument("-f", "--fast", action="store_true", default=False,
                         help="Use only fast LLMs. Sets g.FORCE_FAST=True.")
-    parser.add_argument("-strong", "--strong", action="store_true", default=False,
-                        help="Use strong LLMs (slow!)")
     parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
-    parser.add_argument("-mct", "--mct", type=int, nargs='?', const=3, default=1,
-                        help="Enable Monte Carlo Tree Search for acting, with an optional number of branches (default: 3).")
+    parser.add_argument("-mct", "--mct", type=int, nargs='?', const=-1, default=1,
+                        help="Enable Monte Carlo Tree Search for acting. Use -mct alone to auto-select branches (3 default, or all selected LLMs if using --llm), or -mct N for specific count (default: 1).")
     parser.add_argument("-sbx", "--sandbox", action="store_true", default=False,
                         help="Use weakly sandboxed python execution. Sets g.USE_SANDBOX=True.")
     parser.add_argument("-o", "--online", action="store_true", default=False,
@@ -473,6 +505,14 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
         
         if g.EVALUATOR_LLMS:
             logging.info(f"⚖️  Evaluators: {colored(str(len(g.EVALUATOR_LLMS)), 'green')} models")
+        
+        # Auto-sync args.auto with guard LLMs when selection changes
+        if guard_count > 0 and not args.auto:
+            args.auto = True
+            logging.info(colored(f"🔄 Auto-execution enabled: {guard_count} guard LLMs detected", "green"))
+        elif guard_count == 0 and args.auto:
+            # Inform user that auto is on but no guards are available
+            logging.info(colored("⚠️  Auto-execution is enabled but no guard LLMs configured (manual confirmation required)", "yellow"))
 
     return selected_llms
 
@@ -550,12 +590,13 @@ def create_interruption_callback(
     async def _callback(chunk: str):
         # Process the chunk character by character to ensure proper interruption
         for char in chunk:
-            # 1. Print the incoming character with the live "typing" effect
-            if lock:
-                async with lock:
+            # 1. Print the incoming character with the live "typing" effect (only if not in summary mode)
+            if not g.SUMMARY_MODE:
+                if lock:
+                    async with lock:
+                        print(painter.apply_color(char), end="", flush=True)
+                else:
                     print(painter.apply_color(char), end="", flush=True)
-            else:
-                print(painter.apply_color(char), end="", flush=True)
 
             # 2. Append the character to the shared buffer
             response_buffer[0] += char
@@ -570,14 +611,16 @@ def create_interruption_callback(
                 code_match = CODE_BLOCK_REGEX.search(current_buffer)
                 if code_match:
                     full_block = code_match.group(0).strip()
-                    print("\n") # Add a newline for clean UI separation
+                    if not g.SUMMARY_MODE:
+                        print("\n") # Add a newline for clean UI separation only in normal mode
                     raise StreamInterruptedException(full_block)
 
                 # Check for a complete XML/HTML-like tag block
                 tag_match = TAG_BLOCK_REGEX.search(current_buffer)
                 if tag_match:
                     full_block = tag_match.group(0).strip()
-                    print("\n")
+                    if not g.SUMMARY_MODE:
+                        print("\n")
                     raise StreamInterruptedException(full_block)
                     
                 # CRITICAL: Also interrupt if we detect hallucinated execution output
@@ -586,12 +629,13 @@ def create_interruption_callback(
                     # Find the content up to the execution_output tag
                     output_pos = current_buffer.find("<execution_output>")
                     content_before_output = current_buffer[:output_pos].strip()
-                    print("\n")
+                    if not g.SUMMARY_MODE:
+                        print("\n")
                     raise StreamInterruptedException(content_before_output)
 
     return _callback
 
-async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str) -> bool:
+async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str, utils_manager: 'UtilsManager') -> bool:
     """
     Handles code execution confirmation based on the 'Guard' configuration in the LLM selector.
     If Guard sum > 0, it runs a majority vote. If Guard sum == 0, it requires manual user confirmation.
@@ -615,7 +659,7 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str)
 
     # 1. If no guards are configured, ALWAYS require manual confirmation.
     if total_guards == 0:
-        logging.warning(colored("🛡️ No Guard models configured. Manual confirmation required for execution.", "yellow"))
+        logging.warning(colored("🛡️", "red", attrs=["bold"]) + colored(" No Guard models configured. Manual confirmation required for execution.", "yellow"))
         user_input = await get_user_input_with_bindings(args, None, colored("(Press Enter to confirm or 'n' to abort)", "cyan"))
         if user_input.lower() == 'n':
             logging.error(colored("❌ Code execution aborted by user", "red"))
@@ -630,12 +674,12 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str)
         if data.get('selected') and data.get('guard', 0) > 0:
             guard_council.extend([model_key] * data['guard'])
 
-    logging.info(colored(f"🛡️  Execution Guard Council convened with {len(guard_council)} votes: {', '.join(guard_council)}", "cyan"))
+    logging.info(colored("🛡️", "red", attrs=["bold"]) + colored(f"  {len(guard_council)} Guards verifying code request: {', '.join(guard_council)}", "cyan"))
     
     async def get_verdict(model_key: str):
         # This is a self-contained chat for the guard to prevent context pollution
         execution_guard_chat = Chat(
-            instruction_message="""You are a Code Execution Guardian. Your primary goal is to prevent unsafe or incomplete code execution. Analyze the code for safety and completeness.
+            instruction_message=f"""You are a Code Execution Guardian. Your primary goal is to prevent unsafe or incomplete code execution. Analyze the code for safety and completeness.
 - SAFE operations: Reading files (ls, cat), simple data retrieval (curl to public APIs), basic system info (ps, uname), file modifications with clear comments.
 - UNSAFE operations: File deletions (rm -rf), system modifications (sudo), unrestricted network access, running unknown executables.
 - INCOMPLETE code: Placeholders like `YOUR_API_KEY`, `TODO`, or unimplemented functions.
@@ -643,22 +687,46 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str)
 **Process:**
 1. **Brief Analysis:** Explain your reasoning in 1-2 sentences.
 2. **Single Word Verdict:** End your response with exactly one word: `yes`, `no`, or `unfinished`.
+
+**The following classes are custom and considered trusted, they must still be verified for reliable and intentional usage in code**
+{utils_manager.get_util_names()}
 """,
-            debug_title=f"Guard Vote ({model_key})"
+            debug_title=f"🛡️  Guard Vote ({model_key})"
         )
         analysis_prompt = f"Analyze this code for safe execution and completeness:\n{code_to_execute}"
         execution_guard_chat.add_message(Role.USER, analysis_prompt)
-        response = await LlmRouter.generate_completion(execution_guard_chat, [model_key], force_preferred_model=True)
-        verdict_match = re.search(r'\b(yes|no|unfinished)\b', response.lower(), re.DOTALL | re.MULTILINE)
-        verdict = verdict_match.group(1) if verdict_match else "no"
-        analysis = response[:verdict_match.start()].strip() if verdict_match else response.strip()
+        response = await LlmRouter.generate_completion(
+            execution_guard_chat, 
+            [model_key], 
+            force_preferred_model=True,
+            decision_patterns={"guard": r'\b(yes|no|unfinished)\b'}
+        )
+        
+        # Find all verdict matches and take the LAST one (as instructed to end with verdict)
+        verdict_matches = list(re.finditer(r'\b(yes|no|unfinished)\b', response.lower(), re.DOTALL | re.MULTILINE))
+        if verdict_matches:
+            verdict_match = verdict_matches[-1]  # Take the last match
+            verdict = verdict_match.group(1)
+        else:
+            verdict = "no"  # Default to no if no verdict found
+        analysis = response.strip()
+        
         return verdict, analysis, model_key
 
     tasks = [get_verdict(model) for model in guard_council]
     results = await asyncio.gather(*tasks)
     
     vote_counts = Counter(v[0] for v in results)
-    logging.info(f"Guard verdicts: {vote_counts}")
+    
+    # Create detailed verdict summary like branch selection voting
+    verdict_details = []
+    for verdict in ['yes', 'no', 'unfinished']:
+        count = vote_counts.get(verdict, 0)
+        if count > 0:
+            models_with_verdict = [model for v, _, model in results if v == verdict]
+            verdict_details.append(f"{verdict} ({count} votes: {', '.join(models_with_verdict)})")
+    
+    logging.info(colored("🛡️", "red", attrs=["bold"]) + colored(f"  Guard verdict summary: {', '.join(verdict_details)}", "light_blue"))
 
     # Determine final verdict with safety-first tie-breaking (no > unfinished > yes)
     if vote_counts.get('no', 0) >= vote_counts.get('unfinished', 0) and vote_counts.get('no', 0) >= vote_counts.get('yes', 0):
@@ -675,7 +743,7 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str)
         return True
     elif 'unfinished' == final_verdict:
         logging.warning(colored("⚠️ Code guard prompted code revision by majority vote. Reasoning:\n", "yellow") + colored(aggregated_analysis, "light_magenta"))
-        args.message.insert(0, "The code was deemed safe but unfinished. Please revise it based on the following feedback:\n" + aggregated_analysis)
+        args.message.insert(0, "The code was deemed safe but unfinished. Explaining the code and its use via comments can convince the reviewers. Code review:\n" + aggregated_analysis)
         logging.info(colored("💬 Auto prompting with reasoning...", "blue"))
         return False
     else: # 'no'
@@ -690,89 +758,132 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str)
 async def select_best_branch(
     context_chat: Chat,
     assistant_responses: List[str],
-) -> int:
+) -> Tuple[int, str]:
     """
-    Uses an LLM judge to select the best response from multiple MCT branches.
+    Uses a council of LLM judges to select the best response from multiple MCT branches.
     
     Returns:
-        int: selected_index
+        Tuple[int, str]: (selected_index, vote_summary_string)
     """
-    # Calculate number of alternatives and new response index correctly
-    num_alternatives = len(assistant_responses) - 1
-    new_response_index = len(assistant_responses)
-    
-    # Handle grammar for singular/plural cases to make the prompt clearer
-    alt_plural_s = '' if num_alternatives == 1 else 's'
-    alt_index_range = f"1-{num_alternatives}" if num_alternatives > 1 else "1"
-    alt_word = "Index" if num_alternatives == 1 else "Indexes"
+    # --- 1. Identify Evaluator Models ---
+    llm_config = g.get_llm_config()
+    evaluator_council = []
+    for model_key, data in llm_config.items():
+        if data.get('selected') and data.get('eval', 0) > 0:
+            evaluator_council.extend([model_key] * data['eval'])
 
-    mct_branch_selector_chat: Chat = context_chat.deep_copy()
-    mct_branch_selector_chat.set_instruction_message(f"""1. Review your original response (index 0) alongside the {num_alternatives} alternative{alt_plural_s}.
-2. Consider factors like accuracy, helpfulness, clarity, and relevance.
-3. Provide a brief comparative analysis.
-4. End your response with: "Selected index: [number]".""")
-    mct_branch_selector_chat.debug_title="MCT Branch Selection"
-    mct_branch_selector_chat.add_message(Role.ASSISTANT, assistant_responses[0])
+    # Fallback: If no evaluators are configured, use the first selected LLM as the judge.
+    if not evaluator_council:
+        if g.SELECTED_LLMS:
+            evaluator_council.append(g.SELECTED_LLMS[0])
+            logging.info(colored(f"No specific evaluator set. Using primary LLM to judge responses: {evaluator_council[0]}", "cyan"))
+        else:
+            logging.error(colored("⚠️ No evaluators or selected LLMs to judge branches. Defaulting to first branch.", "red"))
+            return 0, "No evaluator available."
 
-    selection_prompt = f"""Please cross-examine your response with these {num_alternatives} alternative response{alt_plural_s} from other agents. Please evaluate the responses and select the best one. Your own response has the Index 0. You MUST finish your response by writing the integer index of the top pick, in this case 0-{new_response_index-1}.
-
-**Your task:**
-1. Review your original response (index 0) alongside the {num_alternatives} alternative{alt_plural_s}.
-2. Consider factors like accuracy, helpfulness, clarity, and relevance.
-3. Provide a brief comparative analysis.
-4. End your response with: "Selected index: [number]"
+    num_alternatives = len(assistant_responses)
+    # The prompt refers to indices 0..N-1
+    selection_prompt = f"""You are a branch selection judge. Your task is to review {num_alternatives} response options and select the best one based on helpfulness, accuracy, and completeness.
 
 **Available options:**
-- Index 0: Your original response
-- {alt_word} {alt_index_range}: Alternative response{alt_plural_s}
-- Index {new_response_index}: Generate a new response incorporating insights from all alternatives
+"""
+    for i, response in enumerate(assistant_responses):
+        selection_prompt += f"\n\n--- INDEX {i} ---\n{response}"
 
-**Output format:**
-[Your comparative analysis]
-Selected index: [your choice]"""
-    
-    # This loop was missing the actual response content, making comparison impossible
-    for i, response in enumerate(assistant_responses[1:]):
-        selection_prompt += f"\n\n# Index {i+1}\n{response}"
-        
-    mct_branch_selector_chat.add_message(Role.USER, selection_prompt)
-    
-    evaluator_models = []
-    # Prioritize models specifically designated as evaluators.
-    if hasattr(g, 'EVALUATOR_LLMS') and g.EVALUATOR_LLMS:
-        evaluator_models = g.EVALUATOR_LLMS
-        logging.info(colored(f"Using designated evaluator(s) to judge responses: {', '.join(evaluator_models)}", "cyan"))
-    # Fallback to the old logic if no evaluators are set.
-    elif g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 0:
-        # Use the first selected LLM as the default judge.
-        evaluator_models = [g.SELECTED_LLMS[0]]
-        logging.info(colored(f"No specific evaluator set. Using primary LLM to judge responses: {evaluator_models[0]}", "cyan"))
-    
-    text_stream_painter = TextStreamPainter()
-    
-    # Use the unified callback creator
-    response_buffer_list = [""]
-    interrupting_evaluator_callback = create_interruption_callback(
-        response_buffer=response_buffer_list,
-        painter=text_stream_painter,
-    )
+    selection_prompt += """
 
-    evaluator_response = ""
-    try:
-        # Pass the list of models to the router. The router will try them in order.
-        await LlmRouter.generate_completion(mct_branch_selector_chat, evaluator_models, force_local=g.FORCE_LOCAL, generation_stream_callback=interrupting_evaluator_callback, exclude_reasoning_tokens=True)
-        evaluator_response = response_buffer_list[0]
-    except StreamInterruptedException as e:
-        evaluator_response = e.response
+**Your task:**
+1.  Carefully review all the indexed responses.
+2.  Provide a brief comparative analysis explaining your choice.
+3.  **Crucially**, end your entire response with a single line: `Selected index: [number]` where `[number]` is the integer index of your choice.
+"""
+
+    async def get_vote(model_key: str):
+        # This is a self-contained chat for the judge to prevent context pollution
+        judge_chat = Chat(
+            instruction_message="You are an impartial judge. Your only goal is to select the best response from the provided list according to the user's instructions.",
+            debug_title=f"⚖️  Branch Judge ({model_key})"
+        )
+        judge_chat.add_message(Role.USER, selection_prompt)
         
-    assistant_responses.append(evaluator_response)
-    match: Optional[re.Match] = re.search(r'Selected index:\s*(\d+)', evaluator_response)
-    if match:
-        selected_branch_index: int = int(match.group(1))
-        if 0 <= selected_branch_index < len(assistant_responses):
-            return selected_branch_index
-    logging.warning(colored("\n⚠️ No valid branch selection found. Defaulting to first branch.", "yellow"))
-    return 0
+        response = await LlmRouter.generate_completion(
+            judge_chat, 
+            [model_key], 
+            force_preferred_model=True,
+            decision_patterns={"eval": r'Selected index:\s*(\d+)'}
+        )
+        
+        match = re.search(r'Selected index:\s*(\d+)', response)
+        if match:
+            selected_index = int(match.group(1))
+            if 0 <= selected_index < num_alternatives:
+                return selected_index, model_key
+        return None, model_key
+
+    # --- 2. Gather votes from the council ---
+    logging.info(colored("⚖️", "blue", attrs=["bold"]) + colored(f"  Branch selection by {len(evaluator_council)} voters: {', '.join(evaluator_council)}", "cyan"))
+    tasks = [get_vote(model) for model in evaluator_council]
+    results = await asyncio.gather(*tasks)
+
+    # Filter out failed votes (where index is None)
+    valid_votes = [res for res in results if res[0] is not None]
+
+    if not valid_votes:
+        logging.warning(colored("⚠️ All evaluators failed to pick a valid branch. Defaulting to first branch.", "yellow"))
+        return 0, "All evaluators failed."
+    
+    # Show individual vote details
+    vote_details = []
+    for vote_result in valid_votes:
+        index, model = vote_result
+        vote_details.append(f"{model} voted for index {index}")
+    if vote_details:
+        logging.info(colored("📊", "blue") + colored(f" Individual votes: {'; '.join(vote_details)}", "light_blue"))
+
+    # --- 3. Tally votes and create summary ---
+    vote_counts = Counter(vote[0] for vote in valid_votes)
+    
+    # Group models by their vote
+    votes_by_index = {}
+    for index, model in valid_votes:
+        if index not in votes_by_index:
+            votes_by_index[index] = []
+        votes_by_index[index].append(model)
+        
+    # Create the summary string
+    summary_parts = []
+    for index, count in vote_counts.most_common():
+        models = ", ".join(votes_by_index[index])
+        s = 's' if count > 1 else ''
+        summary_parts.append(f"Index {index} ({count} vote{s}: {models})")
+    
+    vote_summary = f"Vote Summary: {'; '.join(summary_parts)}"
+
+    winning_index = vote_counts.most_common(1)[0][0]
+
+    return winning_index, vote_summary
+
+async def save_current_llm_config_as_default():
+    """Saves the current session's LLM selection as the new default."""
+    from py_classes.globals import g # Lazy import
+    logging.info(colored("💾 Saving current LLM selection as the new default...", "magenta"))
+    
+    # Get the complete, most recent configuration data for ALL models
+    # force_reread ensures we have the latest base config before modifying.
+    full_config = g.get_llm_config(force_reread=True) 
+    
+    # Get the set of models active in THIS session
+    currently_selected_models = set(g.SELECTED_LLMS)
+    
+    # Update the 'selected' status in the full config based on the current session
+    for model_key, data in full_config.items():
+        data['selected'] = model_key in currently_selected_models
+    
+    # Save the modified configuration back to the persistent file
+    g.save_llm_config(full_config)
+    
+    logging.info(colored(f"✅ Default configuration updated with {len(currently_selected_models)} selected models.", "green"))
+
 
 def handle_multiline_input() -> str:
     """Handles multiline input from the user."""
@@ -833,19 +944,30 @@ async def get_user_input_with_bindings(
             continue
         elif user_input == "-a" or user_input == "--auto":
             args.auto = not args.auto
-            logging.info(colored(f"# cli-agent: Automatic execution toggled {'on' if args.auto else 'off'}.", "green"))
+            
+            # Check guard count for context
+            llm_config = g.get_llm_config()
+            guard_count = sum(
+                data.get('guard', 0) 
+                for data in llm_config.values() 
+                if data.get('selected')
+            )
+            
+            status_msg = f"# cli-agent: Automatic execution toggled {'on' if args.auto else 'off'}"
+            if args.auto and guard_count > 0:
+                status_msg += f" ({guard_count} guards active)"
+            elif args.auto and guard_count == 0:
+                status_msg += " (manual confirmation required)"
+            elif not args.auto and guard_count > 0:
+                status_msg += f" (ignoring {guard_count} available guards)"
+            
+            logging.info(colored(f"{status_msg}.", "green"))
             continue
         elif user_input == "-mct" or user_input == "--mct":
             args.mct = int(input(colored(f"# cli-agent: Enter a branch count (current: {args.mct}): ", "green")))
             logging.info(colored(f"# cli-agent: Monte Carlo Tree Search count set to {args.mct}", "green"))
             if context_chat:
                 context_chat.debug_title = "MCTs Branching - Main Context Chat" if args.mct > 1 else "Main Context Chat"
-            continue
-        elif user_input == "-strong" or user_input == "--strong":
-            args.strong = not args.strong
-            g.FORCE_FAST = False
-            g.LLM = "gemini-2.5-pro-exp-03-25"
-            logging.info(colored(f"# cli-agent: Strong LLM mode toggled {'on' if args.strong else 'off'}.", "green"))
             continue
         elif user_input == "-f" or user_input == "--fast":
             args.fast = not args.fast
@@ -856,9 +978,15 @@ async def get_user_input_with_bindings(
             args.voice = not args.voice
             logging.info(colored(f"# cli-agent: Voice mode toggled {'on' if args.voice else 'off'}.", "green"))
             continue
-        elif user_input == "-s" or user_input == "--speak":
+        elif user_input == "--speak":
             args.speak = not args.speak
             logging.info(colored(f"# cli-agent: Text-to-speech mode toggled {'on' if args.speak else 'off'}.", "green"))
+            continue
+        elif user_input == "--full_output":
+            args.full_output_mode = not args.full_output_mode
+            # Invert the logic: full_output_mode = True means SUMMARY_MODE = False
+            g.SUMMARY_MODE = not args.full_output_mode
+            logging.info(colored(f"# cli-agent: Full output mode toggled {'on' if args.full_output_mode else 'off'}.", "green"))
             continue
         elif user_input in ["-img", "--img", "-screenshot", "--screenshot"] or args.image:
             logging.info(colored("# cli-agent: Taking screenshot.", "green"))
@@ -894,6 +1022,11 @@ async def get_user_input_with_bindings(
             print(f"  {colored('-m, --m'.ljust(CMD_WIDTH), 'white')}Enter multiline input mode")
             print(f"  {colored('-e, --exit'.ljust(CMD_WIDTH), 'white')}Exit CLI-Agent")
             print(f"  {colored('-h, --help'.ljust(CMD_WIDTH), 'white')}Show this help")
+            print(f"  {colored('-s, --save'.ljust(CMD_WIDTH), 'white')}Save current LLM selection as default")
+            print(f"  {colored('--full_output'.ljust(CMD_WIDTH), 'white')}Show full model output instead of summary")
+            continue
+        elif user_input in ["-s", "--save"]:
+            await save_current_llm_config_as_default()
             continue
         return user_input
     if args.image:
@@ -1010,8 +1143,9 @@ async def main() -> None:
         
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
         
-        # Apply the cached LLM config as the default for this session.
-        apply_default_llm_config()
+        # Only apply the cached LLM config if no specific LLM flags are used. This ensures CLI args have priority.
+        if not args.llm and not args.local and not args.fast:
+            apply_default_llm_config()
 
         default_inst = f'''**SYSTEM: Agent Protocol & Capabilities**
 
@@ -1047,9 +1181,6 @@ Your specialized tools (utilities) are available within any `python` code block.
             logging.info(colored("# cli-agent: Voice mode enabled, automatically enabling auto execution mode", "green"))
         if args.sandbox:
             g.USE_SANDBOX = True
-            if importlib.util.find_spec("paramiko") is None:
-                logging.critical(colored("Error: 'paramiko' package is required for sandbox mode. Please install 'pip install paramiko'.", "red"))
-                exit(1)
         
         stdout_buffer, stderr_buffer = "", ""
         def stdout_callback(text: str):
@@ -1116,16 +1247,25 @@ Your specialized tools (utilities) are available within any `python` code block.
         elif args.llm:
             g.SELECTED_LLMS = [args.llm]
         
+        # Sync args.auto with guard LLMs before showing startup summary
+        llm_config = g.get_llm_config()
+        guard_count = sum(
+            data.get('guard', 0) 
+            for data in llm_config.values() 
+            if data.get('selected')
+        )
+        if guard_count > 0 and not args.auto:
+            args.auto = True
+            logging.info(colored(f"🔄 Auto-execution enabled: {guard_count} guard LLMs detected", "green"))
+        
         # Now that LLM selections are made, print the startup summary
         print_startup_summary(args)
         
+        logging.info(colored("Initializing sandbox environment...", "blue"))
         notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
         utils_manager = UtilsManager()
-        util_names = utils_manager.get_util_names()
-        if util_names:
-            logging.info(f"UtilsManager: Loaded {len(util_names)} utilities.")
-        else:
-            logging.warning("UtilsManager: No utilities loaded.")
+        
+        logging.info(colored("Sandbox environment ready.", "blue"))
 
         if context_chat is None:
             context_chat = Chat(debug_title="Main Context Chat")
@@ -1133,40 +1273,53 @@ Your specialized tools (utilities) are available within any `python` code block.
                 default_inst += f"\nPlease try to stay within your sandbox directory at {g.AGENTS_SANDBOX_DIR}\n"
             context_chat.set_instruction_message(default_inst)
             
-            def read_host_file() -> str:
-                output = ""
+            # Helper logic for the new bootstrap message
+            def get_recent_files_output():
+                directory = os.getcwd()
+                output_lines = [f"Working Directory: {directory}\n"]
                 try:
-                    with open('/etc/hosts', 'r') as f:
-                        for i, line in enumerate(f):
-                            if i >= 3:
-                                break
-                            output += "Line {i+1}: {line.strip()}\n"
+                    all_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+                    all_files.sort(key=lambda f: os.path.getmtime(os.path.join(directory, f)), reverse=True)
+                    output_lines.append("5 last modified files:")
+                    if not all_files:
+                        output_lines.append("-> No files found in this directory.")
+                    else:
+                        for filename in all_files[:5]:
+                            output_lines.append(f"- {filename}")
                 except FileNotFoundError:
-                    output = "File /etc/hosts not found."
-                return output.strip()
-            
-            # This new bootstrap message is a concise, pre-filled sequence to establish context
-            # without a long, confusing conversational intro.
-            initial_bootstrap_message = f"""Here is your environment configuration and a demonstration of your capabilities. Please confirm and await instructions.
+                    output_lines.append(f"Error: The directory '{directory}' does not exist.")
+                return "\n".join(output_lines)
 
-**1. System Information (`bash`)**
-```bash
-echo "OS: $(lsb_release -ds)" && hostname
-```
-<execution_output>
-{subprocess.check_output('echo "OS: $(lsb_release -ds)" && hostname', shell=True, text=True, executable='/bin/bash').strip()}
-</execution_output>
+            # This new bootstrap message is a concise, pre-filled sequence to establish context.
+            initial_bootstrap_message = f"""Let's get a quick overview of our current state by listing the 5 most recently modified files.
 
-**2. Filesystem & Utilities (`python`)**
 ```python
 import os
-from utils.todos import TodosUtil
-print(f"Working Directory: {{os.getcwd()}}")
-TodosUtil.run('add', task='Demonstrate successful initialization.')
+
+# Get the current working directory
+directory = os.getcwd()
+print(f"Working Directory: {{directory}}")
+
+try:
+    # 1. Get all entries in the directory that are files
+    all_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+
+    # 2. Sort the files by their modification time (newest first)
+    all_files.sort(key=lambda f: os.path.getmtime(os.path.join(directory, f)), reverse=True)
+
+    # 3. Print the 5 most recent files
+    print("\\n5 last modified files:")
+    if not all_files:
+        print("-> No files found in this directory.")
+    else:
+        for filename in all_files[:5]:
+            print(f"- {{filename}}")
+
+except FileNotFoundError:
+    print(f"Error: The directory '{{directory}}' does not exist.")
 ```
 <execution_output>
-Current working directory: {os.getcwd()}
-**Success:** Task added at index 1. Total todos: 1 (1 remaining).
+{get_recent_files_output()}
 </execution_output>
 """
 
@@ -1190,10 +1343,19 @@ Current working directory: {os.getcwd()}
             
             # Set LLM strengths based on --fast or --strong flags
             g.LLM_STRENGTHS = []
-            if args.strong:
-                g.LLM_STRENGTHS = [AIStrengths.STRONG]
-            elif args.fast:
+            if args.fast:
                 g.LLM_STRENGTHS = [AIStrengths.SMALL]
+            
+            # Sync args.auto with guard LLMs - auto-enable when guards are present
+            llm_config = g.get_llm_config()
+            guard_count = sum(
+                data.get('guard', 0) 
+                for data in llm_config.values() 
+                if data.get('selected')
+            )
+            if guard_count > 0 and not args.auto:
+                args.auto = True
+                logging.debug(colored(f"Auto-execution enabled: {guard_count} guard LLMs detected", "green"))
             
             # Explicitly set global flags from args
             g.FORCE_LOCAL = args.local
@@ -1201,6 +1363,7 @@ Current working directory: {os.getcwd()}
             g.FORCE_FAST = args.fast
             g.LLM = args.llm
             g.FORCE_ONLINE = args.online
+            g.SUMMARY_MODE = not args.full_output_mode
             
             temperature = 0.85 if g.MCT > 1 else 0
             
@@ -1230,15 +1393,17 @@ Current working directory: {os.getcwd()}
                         expanded_path = os.path.expanduser(path)
                         if not os.path.exists(expanded_path):
                             continue
-                        if os.path.isfile(expanded_path):
-                            logging.info(colored(f"# cli-agent: Auto-viewing file: {path}", "green"))
-                            view_result = json.loads(ViewFiles.run(path=expanded_path))
-                            if "result" in view_result:
-                                user_input += f"\n\n# Content of: {path}\n```\n{view_result['result'].get('content', '')}\n```"
-                        elif os.path.isdir(expanded_path):
-                            logging.info(colored(f"# cli-agent: Auto-viewing directory: {path}", "green"))
-                            tree_output = subprocess.check_output(['tree', '-L', '2', expanded_path]).decode('utf-8')
-                            user_input += f"\n\n# Directory listing of: {path}\n```bash\n{tree_output}```"
+                        
+                        # --- FIX: Use ViewFiles for both files and directories, with correct arguments ---
+                        if os.path.isfile(expanded_path) or os.path.isdir(expanded_path):
+                            entity_type = "file" if os.path.isfile(expanded_path) else "directory"
+                            logging.info(colored(f"# cli-agent: Auto-viewing {entity_type}: {path}", "green"))
+                            # Correctly call ViewFiles.run with the 'paths' keyword and a list.
+                            view_result_str = ViewFiles.run(paths=[expanded_path])
+                            view_result = json.loads(view_result_str)
+                            # The 'result' key contains a pre-formatted markdown string.
+                            if view_result.get("result"):
+                                user_input += f"\n\n# Content of: {path}\n{view_result['result']}"
                 except (ImportError, FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
                     logging.debug("Path augmentation feature failed silently.")
                 user_interrupt = False
@@ -1251,21 +1416,20 @@ Current working directory: {os.getcwd()}
             base64_images: List[str] = []
 
             if (user_input):
-                # First, add the new task. The existing `run` method prints its own confirmation.
-                TodosUtil.run("add", task="user_input: " + user_input)
-
-                # Now, get the full list as a string using the new, non-printing method.
-                current_todos_str = TodosUtil.get_list_as_str()
+                # Capture the output of adding the task and listing the todos for the prompt context.
+                add_output_str = TodosUtil._run_logic("add", task="user_input: " + user_input)
+                list_output_str = TodosUtil._run_logic("list")
 
                 # Construct the prompt for the agent, showing the final state of the list.
                 todos_prompt = f"""**TodosUtil (`python`)**
 ```python
-# The agent sees a logical sequence of commands.
+# Let's add my current request to the todos, please first review your todos and prioritize my task
 TodosUtil.run('add', task='{user_input}')
 TodosUtil.run('list')
-
+```
 <execution_output>
-{current_todos_str}
+{add_output_str}
+{list_output_str}
 </execution_output>
 """
                 context_chat.add_message(Role.USER, todos_prompt)
@@ -1274,11 +1438,17 @@ TodosUtil.run('list')
                 try:
                     prompt_subfix = ""
                     # Check if the list is not empty before adding the header.
-                    if "Your to-do list is empty." not in current_todos_str:
-                        prompt_subfix += f"\n\n# UPCOMING TODOS\n{current_todos_str}"
+                    if "Your to-do list is empty." not in list_output_str:
+                        prompt_subfix += f"\n\n# UPCOMING TODOS\n{list_output_str}"
                     
                     # Use the same captured string for hint generation.
-                    guidance_prompt = utils_manager.get_relevant_tools_prompt(current_todos_str, top_k=5)
+                    guidance_prompt = utils_manager.get_relevant_tools_prompt(list_output_str, top_k=5)
+                    if guidance_prompt:
+                        # Format the suggestions nicely with colors and proper spacing
+                        logging.info(colored("🔧 Suggested utilities based on your todo list:", "cyan", attrs=["bold"]))
+                        for line in guidance_prompt.split('\n'):
+                            if line.strip():
+                                logging.info(colored(f"   {line.strip()}", "light_blue"))
                     if guidance_prompt:
                         prompt_subfix += f"\n\n# HINTS\n{guidance_prompt}"
                     
@@ -1315,22 +1485,45 @@ TodosUtil.run('list')
                                     # Add the model to the task list 'beam_count' times
                                     models_for_tasks.extend([model_key] * beam_count)
 
+                        # Handle MCT parameter logic
+                        user_mct_value = args.mct  # Preserve original user setting
+                        available_branches = len(models_for_tasks)
+                        
+                        # Determine effective MCT count based on user input
+                        if user_mct_value == -1:  # -mct used without integer
+                            if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 0:
+                                # Use all selected LLMs
+                                effective_mct_count = len(g.SELECTED_LLMS)
+                            else:
+                                # No LLMs selected, default to 3
+                                effective_mct_count = 3
+                        else:
+                            # Specific integer provided
+                            effective_mct_count = user_mct_value
+                        
+                        # Limit models to effective MCT count
+                        if available_branches > effective_mct_count:
+                            models_for_tasks = models_for_tasks[:effective_mct_count]
+                        
                         num_branches = len(models_for_tasks)
-                        args.mct = num_branches # Dynamically set MCT branch count for this turn
-                        g.MCT = num_branches
+                        g.MCT = num_branches  # Don't override args.mct, keep user's original setting
                         temperature = 0.85 if g.MCT > 1 else 0
 
                         if not models_for_tasks:
-                            # Fallback: if no beams are set, use the first available selected model.
+                            # Fallback: if no beams are set, use available selected models up to effective MCT count.
                             selected_models = [
                                 model_key for model_key, data in llm_config.items() 
                                 if data.get('selected') and model_key not in LlmRouter().failed_models
                             ]
                             if selected_models:
-                                models_for_tasks = [selected_models[0]]
-                                num_branches = 1
-                                args.mct = 1; g.MCT = 1
-                                logging.warning(colored("No models with beams > 0 configured. Falling back to single-branch execution.", "yellow"))
+                                # Use up to effective MCT count of available models
+                                models_for_tasks = selected_models[:effective_mct_count]
+                                num_branches = len(models_for_tasks)
+                                g.MCT = num_branches  # Don't override args.mct
+                                if num_branches == 1:
+                                    logging.warning(colored("No models with beams > 0 configured. Using single model for execution.", "yellow"))
+                                else:
+                                    logging.warning(colored(f"No models with beams > 0 configured. Using {num_branches} models for MCT execution.", "yellow"))
                             else:
                                 logging.error(colored("❌ No available models to process the request. Check LLM selection.", "red"))
                                 break
@@ -1338,9 +1531,11 @@ TodosUtil.run('list')
                         # 3. Execute generation tasks.
                         if num_branches > 1:
                             # --- MCT Branching Execution ---
-                            logging.info(colored(f"🌿 Starting {num_branches} MCT branches with models: {', '.join(models_for_tasks)}", "cyan"))
+                            logging.info(colored("🌿", "green", attrs=["bold"]) + colored(f" Generating {num_branches} MCT branches with models: {', '.join(models_for_tasks)}", "cyan"))
                             print_lock = asyncio.Lock()
+                            branch_model_map = {}  # Track which model generated which branch
                             async def generate_branch(model_key: str, branch_index: int, lock: asyncio.Lock):
+                                branch_model_map[branch_index] = model_key  # Store the model name
                                 response_buffer_list = [""]
                                 branch_update_callback = create_interruption_callback(
                                     response_buffer=response_buffer_list,
@@ -1373,7 +1568,8 @@ TodosUtil.run('list')
                             tasks = [generate_branch(model_key, i, print_lock) for i, model_key in enumerate(models_for_tasks)]
                             branch_results = await asyncio.gather(*tasks)
                             response_branches = [res for res in branch_results if res and res.strip()]
-                            print()
+                            if not g.SUMMARY_MODE:
+                                print()
                         else:
                             # --- Single Branch Execution ---
                             model_for_branch = models_for_tasks[0]
@@ -1416,20 +1612,33 @@ TodosUtil.run('list')
                     if response_branches:
                         if num_branches > 1 and len(response_branches) > 1:
                             try:
-                                selected_branch_index = await select_best_branch(context_chat, response_branches)
+                                selected_branch_index, vote_summary = await select_best_branch(context_chat, response_branches)
                                 assistant_response = response_branches[selected_branch_index]
-                                logging.info(colored(f"✅ Picked branch {selected_branch_index} from {LlmRouter.last_used_model}, appending response:", "green"))
-                                print()
-                                print(text_stream_painter.apply_color(assistant_response), flush=True) 
+                                winning_model_name = branch_model_map.get(selected_branch_index, "Unknown")
+                                
+                                logging.info(colored(f"✅ Picked branch {selected_branch_index}. {vote_summary}", "green"))
+
+                                # If in summary mode (not full output mode), print the picked branch's full response with model info
+                                if not args.full_output_mode:
+                                    print(colored(f"--- [Picked Branch: {winning_model_name}] ---", "blue", attrs=['bold']))
+                                    print(text_stream_painter.apply_color(assistant_response), flush=True)
+                                    print(colored("---------------------------------------------------------", "blue", attrs=['bold']))
+                                else:
+                                    # In normal mode, just print the response as before
+                                    print(text_stream_painter.apply_color(assistant_response), flush=True) 
                             except Exception as e:
                                 logging.error(colored(f"Error during MCT branch selection: {e}", "red"), exc_info=args.debug)
-                                logging.warning(colored("\n⚠️ Defaulting to first branch.", "yellow"))
+                                logging.warning(colored("⚠️ Defaulting to first branch.", "yellow"))
                                 assistant_response = response_branches[0]
                         else:
                             # Single branch or only one successful branch
                             assistant_response = response_branches[0]
                             if num_branches > 1:
-                                logging.info(colored(f"✅ Using single successful branch from {num_branches} attempts", "green"))
+                                logging.info(colored("✅ Using single successful branch.", "green"))
+                            
+                            # If in summary mode (not full output mode), the single response wasn't streamed, so print it now.
+                            if not args.full_output_mode:
+                                print(text_stream_painter.apply_color(assistant_response), flush=True)
                     else:
                         logging.error(colored("All generation branches failed.", "red"))
                         break
@@ -1456,40 +1665,37 @@ TodosUtil.run('list')
                     python_blocks = get_extract_blocks()(assistant_response, ["python", "tool_code"])
 
 
-                    # no actions taken and todos are left
-                    if not python_blocks and not shell_blocks:
-                        try:
-                            TodosUtil.run("add", task="HIGH PRIORITY: update the todo list entries")
-                            all_todos = TodosUtil._load_todos()
-                            if all_todos and any(not todo.get('completed', False) for todo in all_todos):
-                                todos_str = TodosUtil.run("list")
-                                auto_prompt = "You have not executed any code, let's check the remaining todos."
-                                logging.info(colored("\n📝 Pending to-dos found. Auto-prompting.", "light_blue"))
-                                args.message.insert(0, auto_prompt)
-
-                        except Exception as e:
-                            logging.warning(colored(f"Could not check for pending to-dos. Error: {e}", "red"))
-                        break
-
-                    if g.SELECTED_UTILS:
-                        used_tools = [tool for tool in g.SELECTED_UTILS if any(tool in code for code in python_blocks)]
-                        if used_tools:
-                            logging.info(colored(f"# cli-agent: Tools used and removed from required list: {', '.join(used_tools)}", "green"))
-                            g.SELECTED_UTILS = [t for t in g.SELECTED_UTILS if t not in used_tools]
-
+                    # Agent to User data output
                     if args.voice or args.speak:
                         verbal_text = re.sub(r'```[^`]*```', '', assistant_response)
                         if python_blocks and shell_blocks: verbal_text += "I've implemented shell and python code."
                         elif python_blocks: verbal_text += "I've implemented python code."
                         elif shell_blocks: verbal_text += "I've implemented shell code."
                         TtsUtil.run(text=verbal_text)
+                    
+                    # No actions taken and todos are left
+                    if not python_blocks and not shell_blocks:
+                        try:
+                            TodosUtil.run("add", task="HIGH PRIORITY: update the todo list entries")
+                            all_todos = TodosUtil._load_todos()
+                            if all_todos and any(not todo.get('completed', False) for todo in all_todos):
+                                todos_str = TodosUtil.run("list")
+                                auto_prompt = f"The agent has not returned any code, please ensure the todos are completed before finishing your turn.\n```python\nTodosUtil.run('list')```\n<execution_output>\n{TodosUtil._run_logic('list')}\n</execution_output>\n"
+                                assistant_response = ""
+                                context_chat.add_message(Role.USER, auto_prompt)
+                                continue
+
+                        except Exception as e:
+                            logging.warning(colored(f"Could not check for pending to-dos. Error: {e}", "red"))
+                        break
+                    
 
                     formatted_code = ""
                     if shell_blocks: formatted_code += "```bash\n" + "\n".join(shell_blocks) + "\n```\n"
                     if python_blocks: formatted_code += "```python\n" + python_blocks[0] + "\n```"
 
                     context_chat.save_to_json()
-                    if await confirm_code_execution(args, formatted_code):
+                    if await confirm_code_execution(args, formatted_code, utils_manager):
                         logging.info(colored("🔄 Executing code...", "cyan"))
                         try:
                             if shell_blocks:
@@ -1502,7 +1708,7 @@ TodosUtil.run('list')
                                     notebook.execute(l_shell_line)
                             if python_blocks:
                                 notebook.execute(python_blocks[0], is_python_code=True)
-                            logging.info(colored("\n✅ Code execution completed.", "cyan"))
+                            logging.info(colored("✅ Code execution completed.", "cyan"))
 
                             tool_output = ""
                             # Perform the string replacements outside the f-string expression
@@ -1523,25 +1729,25 @@ TodosUtil.run('list')
                             else:
                                 tool_output = f"<execution_output>\n{tool_output.strip()}\n</execution_output>"
                             
-                            context_chat.add_message(Role.ASSISTANT, f"\n{tool_output}\n")
+                            context_chat.add_message(Role.ASSISTANT, tool_output)
                             assistant_response = ""
                             stdout_buffer, stderr_buffer = "", ""
                             action_counter += 1
                             continue
                         except Exception as e:
-                            logging.error(colored(f"\n❌ Error executing code: {e}", "red"), exc_info=args.debug)
+                            logging.error(colored(f"❌ Error executing code: {e}", "red"), exc_info=args.debug)
                             error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
-                            context_chat.add_message(Role.ASSISTANT, f"{assistant_response}\n{error_output}")
+                            context_chat.add_message(Role.ASSISTANT, f"{assistant_response}{error_output}")
                             assistant_response, stdout_buffer, stderr_buffer = "", "", ""
                             break
                     else:
                         logging.warning(colored("✖️  Execution cancelled.", "yellow"))
                         cancellation_notice = "<execution_output>\nCode execution cancelled\n</execution_output>"
-                        context_chat.add_message(Role.ASSISTANT, f"{assistant_response}\n{cancellation_notice}")
+                        context_chat.add_message(Role.ASSISTANT, f"{assistant_response}{cancellation_notice}")
                         assistant_response, stdout_buffer, stderr_buffer = "", "", ""
                         break
                 except KeyboardInterrupt:
-                    logging.warning(colored("\n=== User interrupted execution (Ctrl+C) ===", "yellow"))
+                    logging.warning(colored("=== User interrupted execution (Ctrl+C) ===", "yellow"))
                     user_interrupt = True
                     break
                 except Exception as e:
@@ -1553,7 +1759,7 @@ TodosUtil.run('list')
                     logging.critical(colored(f"An unexpected error occurred in the agent loop: {e}", "red"), exc_info=args.debug)
                     try:
                         error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
-                        context_chat.add_message(Role.ASSISTANT, f"{assistant_response}\n{error_output}")
+                        context_chat.add_message(Role.ASSISTANT, f"{assistant_response}{error_output}")
                     except Exception as context_e:
                         logging.error(colored(f"Failed to add error to context: {context_e}", "red"))
                     assistant_response, stdout_buffer, stderr_buffer = "", "", ""
@@ -1564,13 +1770,13 @@ TodosUtil.run('list')
             if args.exit and not args.message:
                 logging.info(colored("All automatic messages processed successfully. Exiting...", "green"))
                 exit(0)
-        logging.info(colored("\nCLI-Agent is shutting down.", "cyan"))
+        logging.info(colored("CLI-Agent is shutting down.", "cyan"))
 
     except (asyncio.CancelledError, KeyboardInterrupt):
-        logging.warning(colored("\nCLI-Agent was interrupted. Shutting down gracefully...", "yellow"))
+        logging.warning(colored("CLI-Agent was interrupted. Shutting down gracefully...", "yellow"))
     except Exception as e:
         if not isinstance(e, StreamInterruptedException):
-            logging.critical(colored(f"\nCLI-Agent encountered a fatal error: {e}", "red"), exc_info=True)
+            logging.critical(colored(f"CLI-Agent encountered a fatal error: {e}", "red"), exc_info=True)
 
 if __name__ == "__main__":
     try:

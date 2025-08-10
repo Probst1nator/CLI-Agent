@@ -1,3 +1,4 @@
+# utils/todos.py
 import re
 import os
 from typing import Literal, Optional, List, Dict, Any
@@ -145,22 +146,19 @@ TodosUtil.run("complete", index=1)
         index: Optional[int] = None,
         task: Optional[str] = None,
         new_index: Optional[int] = None
-    ) -> None:
+    ) -> str:
         """
-        Manages the to-do list through various actions, printing minimal confirmation messages.
+        Manages the to-do list through various actions and returns a confirmation string.
         """
         try:
             todos = TodosUtil._load_todos()
 
             if action == 'list':
-                formatted_todos = TodosUtil._format_todos_md(todos)
-                print(formatted_todos)
-                return
+                return TodosUtil._format_todos_md(todos)
 
             elif action == 'add':
                 if not task or not task.strip():
-                    print("**Error:** 'add' action requires a non-empty 'task' argument.")
-                    return
+                    return "**Error:** 'add' action requires a non-empty 'task' argument."
 
                 if any(existing_todo.get('task') == task for existing_todo in todos):
                     existing_todo = next(t for t in todos if t.get('task') == task)
@@ -173,25 +171,20 @@ TodosUtil.run("complete", index=1)
                 
                 TodosUtil._save_todos(todos)
                 remaining_count = sum(1 for t in todos if not t.get('completed', False))
-                print(f"**Success:** {message} Total todos: {len(todos)} ({remaining_count} remaining).")
-                return
+                return f"**Success:** {message} Total todos: {len(todos)} ({remaining_count} remaining)."
 
             elif action == 'clear':
                 count = len(todos)
                 if count == 0:
-                    print("The to-do list is already empty.")
-                    return
+                    return "The to-do list is already empty."
                 TodosUtil._save_todos([])
-                print(f"**Success:** Cleared all {count} tasks.")
-                return
+                return f"**Success:** Cleared all {count} tasks."
 
             if index is None:
-                print(f"**Error:** The '{action}' action requires an 'index' argument.")
-                return
+                return f"**Error:** The '{action}' action requires an 'index' argument."
             
             if not isinstance(index, int) or not (1 <= index <= len(todos)):
-                print(f"**Error:** Invalid index: {index}. Must be an integer between 1 and {len(todos)}.")
-                return
+                return f"**Error:** Invalid index: {index}. Must be an integer between 1 and {len(todos)}."
             
             idx_0_based = index - 1
 
@@ -201,53 +194,43 @@ TodosUtil.run("complete", index=1)
                 status_text = "completed" if is_completing else "uncompleted"
                 
                 if current_task['completed'] == is_completing:
-                    print(f"**Info:** Task {index} is already {status_text}.")
-                    return
+                    return f"**Info:** Task {index} is already {status_text}."
                 
                 current_task['completed'] = is_completing
                 TodosUtil._save_todos(todos)
                 remaining_count = sum(1 for t in todos if not t.get('completed', False))
-                print(f"**Success:** Marked task {index} as {status_text}. {remaining_count} tasks remaining.")
-                return
+                return f"**Success:** Marked task {index} as {status_text}. {remaining_count} tasks remaining."
 
             elif action == 'edit':
                 if not task or not task.strip():
-                    print("**Error:** The 'edit' action requires a non-empty 'task' argument.")
-                    return
+                    return "**Error:** The 'edit' action requires a non-empty 'task' argument."
                 todos[idx_0_based]['task'] = task
                 TodosUtil._save_todos(todos)
-                print(f"**Success:** Edited task {index}. Total todos: {len(todos)}.")
-                return
+                return f"**Success:** Edited task {index}. Total todos: {len(todos)}."
 
             elif action == 'remove':
                 todos.pop(idx_0_based)
                 TodosUtil._save_todos(todos)
                 remaining_count = sum(1 for t in todos if not t.get('completed', False))
-                print(f"**Success:** Removed task {index}. Total todos: {len(todos)} ({remaining_count} remaining).")
-                return
+                return f"**Success:** Removed task {index}. Total todos: {len(todos)} ({remaining_count} remaining)."
 
             elif action == 'reorder':
                 if new_index is None:
-                    print("**Error:** The 'reorder' action requires a 'new_index' argument.")
-                    return
+                    return "**Error:** The 'reorder' action requires a 'new_index' argument."
                 if not isinstance(new_index, int) or not (1 <= new_index <= len(todos)):
-                     print(f"**Error:** Invalid new_index: {new_index}. Must be an integer between 1 and {len(todos)}.")
-                     return
+                     return f"**Error:** Invalid new_index: {new_index}. Must be an integer between 1 and {len(todos)}."
                 
                 new_idx_0_based = new_index - 1
                 moved_task = todos.pop(idx_0_based)
                 todos.insert(new_idx_0_based, moved_task)
                 TodosUtil._save_todos(todos)
-                print(f"**Success:** Moved task from position {index} to {new_index}. Total todos: {len(todos)}.")
-                return
+                return f"**Success:** Moved task from position {index} to {new_index}. Total todos: {len(todos)}."
             
             else:
-                print(f"**Error:** Unknown action: '{action}'.")
-                return
+                return f"**Error:** Unknown action: '{action}'."
 
         except Exception as e:
-            print(f"**Error:** An unexpected error occurred in TodosUtil: {str(e)}")
-            return
+            return f"**Error:** An unexpected error occurred in TodosUtil: {str(e)}"
             
     @staticmethod
     def run(
@@ -260,7 +243,9 @@ TodosUtil.run("complete", index=1)
         Executes a to-do list action.
         This method prints the outcome of the action directly to the console and always returns None.
         """
-        TodosUtil._run_logic(action=action, index=index, task=task, new_index=new_index)
+        result_string = TodosUtil._run_logic(action=action, index=index, task=task, new_index=new_index)
+        if result_string:
+            print(result_string)
 
 
 # Module-level run function for CLI-Agent compatibility

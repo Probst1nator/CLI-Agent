@@ -9,18 +9,23 @@ from py_classes.cls_util_base import UtilBase
 
 class UtilsManager:
     def __init__(self):
+        import logging
         # Get the absolute path of the project root directory (parent of py_classes)
         self.project_root = Path(__file__).parent.parent.absolute()
         self.utils_directory = "utils"
         self.utils_path = self.project_root / self.utils_directory
         self.utils: List[Type[UtilBase]] = []
         self.util_history: List[Type[UtilBase]] = []
-        # Initializing UtilsManager silently
+        
+        logging.info(colored("  - Loading utility modules...", "cyan"))
         self._load_utils()
         
         # Initialize vector database for smart tool retrieval
+        logging.info(colored("  - Initializing tool search engine...", "cyan"))
         self.vector_db = None
         self._init_vector_db()
+        
+        logging.info(colored(f"  - Utils manager ready ({len(self.utils)} tools).", "cyan"))
 
     def _load_utils(self) -> None:
         """Dynamically load all utility modules from the utils directory"""
@@ -148,9 +153,12 @@ from utils.{util_name} import {util_cls.__name__}
     def _init_vector_db(self) -> None:
         """Initialize the vector database for smart tool retrieval"""
         try:
+            import logging
             from py_classes.cls_vector_db import ToolVectorDB
+            
             # Reset singleton to ensure we get a fresh instance with correct configuration
             ToolVectorDB.reset_singleton()
+            
             self.vector_db = ToolVectorDB()
             
             # Add all loaded utilities to the vector database
@@ -159,8 +167,8 @@ from utils.{util_name} import {util_cls.__name__}
                 
         except Exception as e:
             # If vector DB initialization fails, continue without it
-            if os.environ.get('CLAUDE_CODE_DEBUG') == '1':
-                print(f"Warning: Could not initialize vector database: {e}")
+            import logging
+            logging.warning(colored(f"Warning: Could not initialize vector database: {e}", "red"))
             self.vector_db = None
 
     def get_relevant_utils(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:

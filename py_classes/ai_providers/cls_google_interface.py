@@ -137,10 +137,10 @@ class GoogleAPI(AIProviderInterface):
         # Print status message
         if silent_reason:
             temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            g.debug_log(f"Google-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<gemini-api>', 'green')} for: {colored('<' + silent_reason + '>', 'yellow')}{temp_str}", force_print=True, with_title=False, prefix=prefix)
+            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True, prefix=prefix)
         else:
             temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            g.debug_log(f"Google-Api: {colored('<' + model_key + '>', 'green')} is using {colored('<gemini-api>', 'green')}{temp_str} to generate a response...", force_print=True, prefix=prefix)
+            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
         
         # Generate streaming response - let errors bubble up to the router
         # except for rate limit errors, which we'll handle here

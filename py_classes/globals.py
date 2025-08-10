@@ -71,6 +71,7 @@ class Globals:
         # --- Debug and UI Flags ---
         self.DEBUG_CHATS: bool = False
         self.USE_SANDBOX: bool = False
+        self.SUMMARY_MODE: bool = False
         
         # --- Utility and Tool Management ---
         self.SELECTED_UTILS: List[str] = []
@@ -111,7 +112,7 @@ class Globals:
 
     def _default_debug_log(self, message: str, color: str = None, force_print: bool = False, **kwargs):
         """A simple default logger in case the main one isn't set up yet."""
-        if force_print:
+        if force_print and not self.SUMMARY_MODE:
             if color:
                 print(colored(f"DEBUG: {message}", color))
             else:

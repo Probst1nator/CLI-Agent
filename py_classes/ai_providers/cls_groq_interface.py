@@ -62,13 +62,13 @@ class GroqAPI(AIProviderInterface):
         
         # Informational logging (not error handling)
         if silent_reason:
-            temp_str = "" if temperature == 0 or temperature == None else f" T{temperature}"
+            temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
             prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-            g.debug_log(f"🤖 {colored(model_key, 'green')}{temp_str}", force_print=True, prefix=prefix)
+            g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True, prefix=prefix)
         else:
-            temp_str = "" if temperature == 0 or temperature == None else f" T{temperature}"
+            temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
             prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-            g.debug_log(f"🤖 {colored(model_key, 'green')}{temp_str}", "green", force_print=True, prefix=prefix)
+            g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
 
         # Let any errors here bubble up to the router for centralized handling
         return client.chat.completions.create(

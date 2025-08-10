@@ -7,6 +7,8 @@ import time
 import threading
 from typing import Dict, List, Optional, Set, Any, Union, Iterator
 from termcolor import colored
+import math # <-- Added for token calculation
+
 from py_classes.ai_providers.cls_nvidia_interface import NvidiaAPI
 from py_classes.cls_text_stream_painter import TextStreamPainter
 from py_classes.cls_chat import Chat, Role
@@ -134,9 +136,13 @@ class Llm:
         return default_context
     
     @classmethod
-    def get_available_llms(cls, exclude_guards: bool = False) -> List["Llm"]:
+    def get_available_llms(cls, exclude_guards: bool = False, include_dynamic: bool = True) -> List["Llm"]:
         """
-        Get the list of available LLMs, including dynamically discovered Ollama models.
+        Get the list of available LLMs, optionally including dynamically discovered Ollama models.
+        
+        Args:
+            exclude_guards (bool): Whether to exclude guard models
+            include_dynamic (bool): Whether to include dynamic discovery (slower but complete)
         
         Returns:
             List[Llm]: A list of Llm instances representing the available models.
@@ -168,8 +174,8 @@ class Llm:
         try:
             from py_classes.ai_providers.cls_ollama_interface import OllamaClient
             llms.extend([
-                Llm(OllamaClient(), "mistral-small3.2:latest", None, None, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.VISION]),
                 Llm(OllamaClient(), "gemma3n:e4b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.STRONG]),
+                Llm(OllamaClient(), "mistral-small3.2:latest", None, None, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.VISION]),
                 Llm(OllamaClient(), "magistral:latest", None, None, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.STRONG]),
                 Llm(OllamaClient(), "qwen3:30b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.STRONG]),
                 Llm(OllamaClient(), "qwen3-coder:latest", None, None, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.STRONG]),
@@ -200,12 +206,13 @@ class Llm:
         existing_models = {llm.model_key for llm in llms}
         
         # Add dynamically discovered Ollama models (ONLY downloaded/local models)
-        try:
-            # Try different Ollama hosts
-            from py_classes.globals import g
-            ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
-            for host in ollama_hosts:
-                try:
+        # Only do this if dynamic discovery is requested (to avoid startup delays)
+        if include_dynamic:
+            try:
+                # Try different Ollama hosts
+                from py_classes.globals import g
+                ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
+                for host in ollama_hosts:
                     try:
                         from py_classes.ai_providers.cls_ollama_interface import OllamaClient
                         # IMPORTANT: Only get actually downloaded/installed models
@@ -244,16 +251,127 @@ class Llm:
                                 existing_models.add(model_name)
                     except ImportError:
                         pass  # OllamaClient not available
-                except Exception:
-                    continue  # Skip failed hosts
-        except Exception:
-            pass  # Fall back to static list if dynamic discovery fails
+                    except Exception:
+                        continue  # Skip failed hosts
+            except Exception:
+                pass  # Fall back to static list if dynamic discovery fails
         
         if exclude_guards:
             llms = [llm for llm in llms if not any(s == AIStrengths.GUARD for s in llm.strengths)]
         return llms
+    
+    # Removed duplicate static method - now using get_available_llms(include_dynamic=False)
+    
+    @classmethod
+    async def _discover_ollama_models_async(cls):
+        """Asynchronously discover Ollama models and update the cache."""
+        if cls._discovery_in_progress:
+            return
         
+        cls._discovery_in_progress = True
+        try:
+            import asyncio
+            from py_classes.globals import g
+            
+            # Get current static models
+            existing_models = {model.model_key for model in cls._discovered_models_cache}
+            new_models = []
+            
+            try:
+                from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+                
+                # Try different Ollama hosts with async timeouts
+                tasks = []
+                for host in g.DEFAULT_OLLAMA_HOSTS:
+                    # Remove protocol prefix for host checking
+                    clean_host = host.replace('http://', '').replace('https://', '')
+                    tasks.append(cls._discover_from_host_async(clean_host, existing_models))
+                
+                # Wait for all host discoveries with timeout
+                if tasks:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, list):
+                            new_models.extend(result)
+                
+                # Update cache with discovered models
+                if new_models:
+                    cls._discovered_models_cache.extend(new_models)
+                    cls._cache_timestamp = time.time()
+                    logging.info(f"🔍 Discovered {len(new_models)} additional Ollama models")
+                
+            except ImportError:
+                # OllamaClient not available
+                pass
+            except Exception as e:
+                logging.debug(f"Ollama model discovery failed: {e}")
         
+        finally:
+            cls._discovery_in_progress = False
+    
+    @classmethod
+    async def _discover_from_host_async(cls, host: str, existing_models: set) -> List["Llm"]:
+        """Discover models from a single Ollama host asynchronously."""
+        import asyncio
+        
+        try:
+            from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+            
+            # Use asyncio timeout for the entire discovery process
+            async def discover_with_timeout():
+                # Run the sync discovery in a thread pool
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(
+                    None, 
+                    lambda: OllamaClient.get_downloaded_models(host)
+                )
+            
+            # Timeout after 3 seconds per host
+            downloaded_models = await asyncio.wait_for(
+                discover_with_timeout(), 
+                timeout=3.0
+            )
+            
+            new_models = []
+            for model_info in downloaded_models:
+                model_name = model_info.get('name', '')
+                if model_name and model_name not in existing_models:
+                    # Verify this model is actually downloaded
+                    if not (model_info.get('size', 0) > 0 or model_info.get('modified_at')):
+                        continue
+                    
+                    # Determine strengths based on model name patterns
+                    strengths = [AIStrengths.LOCAL, AIStrengths.GENERAL]
+                    
+                    model_lower = model_name.lower()
+                    if any(x in model_lower for x in ['code', 'coder', 'dev']):
+                        strengths.append(AIStrengths.CODE)
+                    if any(x in model_lower for x in ['vision', 'vl', 'visual']):
+                        strengths.append(AIStrengths.VISION)
+                    if any(x in model_lower for x in ['1b', '2b', '3b', '4b', 'small']):
+                        strengths.append(AIStrengths.SMALL)
+                    elif any(x in model_lower for x in ['30b', '70b', 'large']):
+                        strengths.append(AIStrengths.STRONG)
+                    
+                    new_models.append(Llm(
+                        OllamaClient(), 
+                        model_name, 
+                        None, 
+                        None,
+                        strengths
+                    ))
+                    existing_models.add(model_name)
+            
+            return new_models
+            
+        except asyncio.TimeoutError:
+            logging.debug(f"Ollama host {host} discovery timed out")
+            return []
+        except Exception as e:
+            logging.debug(f"Failed to discover models from {host}: {e}")
+            return []
+    
+    # Removed sync discovery method to prevent startup delays
 
 class LlmRouter:
     """
@@ -284,13 +402,22 @@ class LlmRouter:
         
         # Load cache and initialize retry models and failed models set
         self.cache = self._load_cache()
-        self.retry_models = Llm.get_available_llms()
+        # Start with static models only to avoid startup delays - dynamic discovery happens when needed
+        self.retry_models = Llm.get_available_llms(include_dynamic=False)
+        self._dynamic_discovery_done = False  # Track if we've done dynamic discovery
         self._load_dynamic_model_limits()
         self.failed_models: Set[str] = set()
         # Track cache keys used in current runtime to avoid duplicate fetches for non-zero temperature
         self.runtime_used_cache_keys: Set[str] = set()
         # Lock for thread-safe cache access in MCT mode
         self._cache_lock = threading.Lock()
+    
+    def _ensure_dynamic_models_loaded(self) -> None:
+        """Load dynamic models if not already loaded."""
+        if not self._dynamic_discovery_done:
+            # Replace static models with full discovery
+            self.retry_models = Llm.get_available_llms(include_dynamic=True)
+            self._dynamic_discovery_done = True
     
     def _load_dynamic_model_limits(self) -> None: 
         """Load model limits from disk if not already loaded."""
@@ -454,6 +581,13 @@ class LlmRouter:
             List[Llm]: A list of available Llm instances that meet the specified criteria.
         """
         instance = cls()
+        
+        # Trigger dynamic discovery for comprehensive model access (e.g., LLM selector)
+        # Skip this for basic startup operations to avoid delays
+        if not preferred_models or len(preferred_models) == 0:
+            # When no specific models requested, load all available (including dynamic discovery)
+            instance._ensure_dynamic_models_loaded()
+        
         available_models: List[Llm] = []
 
         # First try to find models with exact capability matches
@@ -605,7 +739,7 @@ class LlmRouter:
                             finished_response = await callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
-                        elif not hidden_reason:
+                        elif not hidden_reason and not g.SUMMARY_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
         # ! OpenAI/NVIDIA
         elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
@@ -622,7 +756,7 @@ class LlmRouter:
                             finished_response = await callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
-                        elif not hidden_reason:
+                        elif not hidden_reason and not g.SUMMARY_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
         # ! Google Gemini - IMPROVED HANDLING
         elif isinstance(provider, GoogleAPI):
@@ -659,7 +793,7 @@ class LlmRouter:
                             if result_from_callback and isinstance(result_from_callback, str):
                                 finished_response = result_from_callback
                                 break 
-                        elif not hidden_reason:
+                        elif not hidden_reason and not g.SUMMARY_MODE:
                             g.print_token(token_stream_painter.apply_color(token_from_this_chunk))
                 
                 # If callback signaled to finish early
@@ -694,7 +828,7 @@ class LlmRouter:
                         finished_response = await callback(token)
                         if finished_response and isinstance(finished_response, str):
                             break
-                    elif not hidden_reason:
+                    elif not hidden_reason and not g.SUMMARY_MODE:
                         g.print_token(token_stream_painter.apply_color(token))
         
         # Fallback for other unknown stream types (original logic)
@@ -707,7 +841,7 @@ class LlmRouter:
                         finished_response = await callback(token)
                         if finished_response and isinstance(finished_response, str):
                             break
-                    elif not hidden_reason:
+                    elif not hidden_reason and not g.SUMMARY_MODE:
                         g.print_token(token_stream_painter.apply_color(token))
             
         
@@ -747,7 +881,7 @@ class LlmRouter:
                     finished_response = await callback(char)
                     if finished_response and isinstance(finished_response, str):
                         return finished_response
-                elif not hidden_reason:
+                elif not hidden_reason and not g.SUMMARY_MODE:
                     g.print_token(text_stream_painter.apply_color(char))
                 time.sleep(0)  # better observable for the user
             print()  # Add newline at the end
@@ -843,9 +977,9 @@ class LlmRouter:
         # Special handling for rate limit exceptions - these are already handled by the provider
         if isinstance(e, RateLimitException):
             # Rate limit exceptions are already handled by the provider with appropriate user messages
-            # Just log silently to file for debugging
+            # Just log silently to debug level to avoid spam
             if model is not None:
-                logger.info(f"Rate limit issue with model {model_key}: {e}")
+                logger.debug(f"Rate limit issue with model {model_key}: {e}")
             return
         
         # Special handling for connection issues
@@ -934,7 +1068,8 @@ class LlmRouter:
         exclude_reasoning_tokens: bool = True,
         thinking_budget: Optional[int] = None,
         generation_stream_callback: Optional[Callable] = None,
-        follows_condition_callback: Optional[Callable] = None
+        follows_condition_callback: Optional[Callable] = None,
+        decision_patterns: Optional[Dict[str, str]] = None
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -952,7 +1087,8 @@ class LlmRouter:
             exclude_reasoning_tokens (bool): Whether to exclude reasoning tokens.
             thinking_budget (Optional[int]): Token budget for model's internal reasoning process (Gemini models only). 
                                            Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
-            callback (Optional[Callable]): A function to call with each chunk of streaming data.
+            generation_stream_callback (Optional[Callable]): A function to call with each chunk of streaming data.
+            decision_patterns (Optional[Dict[str, str]]): Patterns to extract decisions from response for logging.
 
         Returns:
             str: The generated completion string.
@@ -1002,8 +1138,8 @@ class LlmRouter:
         
         # Find llm and generate response, excepts on user interruption, or total failure
         retry_count = 0
-        max_retries = 3
-        while retry_count < max_retries:
+        # Infinite retries with linear backoff (1s, 2s, 3s, etc.)
+        while True:
             try:
                 model = None  # Initialize model variable to avoid UnboundLocalError
                 if not preferred_models or (preferred_models and isinstance(preferred_models[0], str)):
@@ -1045,6 +1181,53 @@ class LlmRouter:
                             stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason, thinking_budget, auto_download)
                         else:
                             stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason, thinking_budget)
+                    
+                        # --- FIX: Log after provider call to get correct host information ---
+                        if not hidden_reason:
+                            token_count = math.ceil(len(str(chat)) * 3/4)
+                            message_count = len(chat.messages)
+                            temp_str = "" if temperature == 0 or temperature is None else f" [32mat temperature <{temperature}>"
+                            
+                            # Get host/provider information with emojis
+                            provider_info = ""
+                            provider_emoji = ""
+                            if model.provider.__class__.__name__ == 'OllamaClient' and hasattr(model.provider.__class__, 'current_host') and model.provider.__class__.current_host:
+                                provider_info = f" on <{model.provider.__class__.current_host}>"
+                                provider_emoji = "🏠 "  # Local/home emoji
+                            elif model.provider.__class__.__name__ != 'OllamaClient':
+                                # For non-Ollama providers, show the provider name with cloud emoji
+                                provider_name = model.provider.__class__.__name__.replace('API', '').replace('Client', '')
+                                provider_info = f" via <{provider_name}>"
+                                provider_emoji = "☁️  "  # Cloud emoji
+                            
+                            # Create colored version with distinct colors for text in brackets
+                            base_msg = f"{provider_emoji}[Tokens: {token_count} | Messages: {message_count}] -> Calling model  [31m"
+                            model_colored = colored(f"<{model.model_key}>", "light_blue", attrs=["bold"])
+                            temp_colored = temp_str.replace(f"<{temperature}>", colored(f"<{temperature}>", "light_blue", attrs=["bold"])) if temp_str else ""
+                            if provider_info and not model.provider.__class__.__name__ == 'OllamaClient':
+                                provider_name = model.provider.__class__.__name__.replace('API', '').replace('Client', '')
+                                if provider_name == 'Google':
+                                    # Special Google logo colors: G(blue), o(red), o(yellow), g(green), l(blue), e(red)
+                                    google_colored = (colored('G', 'blue', attrs=['bold']) + 
+                                                    colored('o', 'red', attrs=['bold']) + 
+                                                    colored('o', 'yellow', attrs=['bold']) + 
+                                                    colored('g', 'green', attrs=['bold']) + 
+                                                    colored('l', 'blue', attrs=['bold']) + 
+                                                    colored('e', 'red', attrs=['bold']))
+                                    provider_colored = provider_info.replace(f"<{provider_name}>", f"<{google_colored}>")
+                                else:
+                                    provider_colored = provider_info.replace(provider_name, colored(provider_name, "light_blue", attrs=["bold"]))
+                            else:
+                                provider_colored = provider_info
+                            if provider_info and model.provider.__class__.__name__ == 'OllamaClient' and hasattr(model.provider.__class__, 'current_host'):
+                                provider_colored = provider_info.replace(f"<{model.provider.__class__.current_host}>", colored(f"<{model.provider.__class__.current_host}>", "light_green", attrs=["bold"]))
+                            
+                            full_msg = f"{base_msg} {model_colored}{temp_colored}{provider_colored}"
+                            # If we have decision patterns, print without newline so we can append the decision
+                            if decision_patterns:
+                                print(colored(full_msg, "cyan"), end="", flush=True)
+                            else:
+                                logging.info(colored(full_msg, "cyan"))
                     else:
                         raise Exception(f"Provider {model.provider.__class__.__name__} does not support generate_response method")
                     
@@ -1057,24 +1240,40 @@ class LlmRouter:
                     import time
                     
                     class StreamActivityMonitor:
-                        def __init__(self, timeout_seconds=60):
+                        def __init__(self, timeout_seconds=60, first_token_timeout=10):
+                            self.start_time = time.time()
                             self.last_activity = time.time()
                             self.timeout_seconds = timeout_seconds
+                            self.first_token_timeout = first_token_timeout
                             self.total_chars = 0
+                            self.first_token_received = False
                             
                         def reset_activity(self):
                             self.last_activity = time.time()
                             
                         def add_chars(self, char_count):
                             self.total_chars += char_count
+                            if not self.first_token_received:
+                                self.first_token_received = True
                             self.reset_activity()
                             
                         def check_timeout(self):
-                            return time.time() - self.last_activity > self.timeout_seconds
+                            current_time = time.time()
+                            # Check first token timeout (10 seconds from start)
+                            if not self.first_token_received and (current_time - self.start_time) > self.first_token_timeout:
+                                return "first_token_timeout"
+                            # Check inactivity timeout (after first token)
+                            elif self.first_token_received and (current_time - self.last_activity) > self.timeout_seconds:
+                                return "inactivity_timeout"
+                            return None
                     
-                    # Determine inactivity timeout: 3 min for Ollama localhost, else 60s
+                    # Determine timeouts based on provider type
                     inactivity_timeout = 60
+                    first_token_timeout = 10  # Default 10 seconds for cloud providers
+                    
                     if model.provider.__class__.__name__ == 'OllamaClient':
+                        # Ollama models need longer timeouts
+                        first_token_timeout = 180  # 3 minutes for first token
                         try:
                             hosts = model.provider.reached_hosts
                             if len(hosts) > 0:
@@ -1083,14 +1282,19 @@ class LlmRouter:
                                     inactivity_timeout = 180
                         except Exception:
                             pass
-                    stream_monitor = StreamActivityMonitor(inactivity_timeout)  # 60s or 120s of inactivity
+                    
+                    stream_monitor = StreamActivityMonitor(inactivity_timeout, first_token_timeout)
                     
                     def stream_timeout_handler(signum, frame):
-                        if stream_monitor.check_timeout():
-                            raise Exception(f"Stream processing timeout after 60 seconds of inactivity for model {model.model_key} (got {stream_monitor.total_chars} chars)")
+                        timeout_type = stream_monitor.check_timeout()
+                        if timeout_type:
+                            if timeout_type == "first_token_timeout":
+                                raise Exception(f"First token timeout after {stream_monitor.first_token_timeout} seconds for model {model.model_key}")
+                            elif timeout_type == "inactivity_timeout":
+                                raise Exception(f"Stream inactivity timeout after {stream_monitor.timeout_seconds} seconds for model {model.model_key} (got {stream_monitor.total_chars} chars)")
                         else:
                             # Reset the alarm for another check  
-                            signal.alarm(10)  # Check every 10 seconds
+                            signal.alarm(5)  # Check every 5 seconds for more responsive first token detection
                     
                     # Enhanced stream callback that monitors activity
                     async def activity_aware_callback(chunk: str) -> str:
@@ -1104,7 +1308,7 @@ class LlmRouter:
                     
                     # Set up periodic timeout checking for stream processing
                     signal.signal(signal.SIGALRM, stream_timeout_handler)
-                    signal.alarm(10)  # Start checking after 10 seconds
+                    signal.alarm(5)  # Start checking after 5 seconds for first token timeout
                     
                     try:
                         full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback)
@@ -1116,7 +1320,7 @@ class LlmRouter:
                     finally:
                         signal.alarm(0)  # Clear the alarm
                     
-                    if (not full_response.endswith("\n") and not hidden_reason):
+                    if (not full_response.endswith("\n") and not hidden_reason and not g.SUMMARY_MODE):
                         print()
                     
                     if enable_caching:
@@ -1126,6 +1330,13 @@ class LlmRouter:
                     # Save the chat completion pair if requested
                     if not force_local:
                         instance._save_chat_completion_pair(chat.to_openai(), full_response, model.model_key)
+                    
+                    # Extract and log decision if patterns provided
+                    if decision_patterns and not hidden_reason:
+                        decision_found = cls._log_extracted_decision(full_response, decision_patterns, model.model_key)
+                        if not decision_found:
+                            # If no decision found, still need to complete the line
+                            print()
                     
                     return exclude_reasoning(full_response)
 
@@ -1142,9 +1353,26 @@ class LlmRouter:
             except Exception as e:
                 # This will now only catch actual, unintended errors.
                 cls._handle_model_error(e, model, instance, chat)
+                
+                # Increment retry count and implement linear backoff
+                retry_count += 1
+                wait_time = retry_count  # Linear backoff: 1s, 2s, 3s, 4s, etc.
+                
+                # Show retry message to user
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"🔄 Retrying in {wait_time}s (attempt #{retry_count})...", "cyan", force_print=True, prefix=prefix)
+                
+                # Wait with linear backoff
+                import asyncio
+                await asyncio.sleep(wait_time)
+                
+                # Reset failed models to allow retrying them
+                instance.failed_models.clear()
+                # Reset retry_models to the original list of available models
+                instance.retry_models = instance.get_models(strengths=strengths, preferred_models=preferred_models, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
         
-        # If we've exhausted all retries, raise an exception
-        raise Exception(f"Failed to find a valid model after {max_retries} retries")
+        # This should never be reached due to infinite retry loop
+        raise Exception("Unexpected exit from retry loop")
 
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """
@@ -1205,10 +1433,36 @@ class LlmRouter:
             with open(filename, 'a') as f:
                 f.write(json.dumps(training_example) + '\n')
                 
-            logger.info(f"Saved chat completion pair to {filename}")
+            logger.debug(f"Saved chat completion pair to {filename}")
         except Exception as e:
             logger.error(f"Failed to save chat completion pair: {e}")
             print(colored(f"Failed to save chat completion pair: {e}", "red"))
+    
+    @classmethod
+    def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str) -> bool:
+        """Extract and log decisions from model responses. Returns True if decision found."""
+        import re
+        
+        for decision_type, pattern in decision_patterns.items():
+            match = re.search(pattern, response, re.IGNORECASE | re.DOTALL)
+            if match:
+                if decision_type == "guard":
+                    # For guard decisions, show the verdict
+                    decision = match.group(1)
+                    decision_colored = colored(f" → {decision}", "yellow" if decision == "unfinished" else "green" if decision == "yes" else "red")
+                elif decision_type == "eval":
+                    # For eval decisions, show the selected index
+                    index = match.group(1)
+                    decision_colored = colored(f" → branch {index}", "cyan")
+                else:
+                    # Generic decision
+                    decision = match.group(1)
+                    decision_colored = colored(f" → {decision}", "cyan")
+                
+                # Print the decision on the same line (append to current line) and add newline
+                print(decision_colored)
+                return True
+        return False
     
     @classmethod
     def has_unconfirmed_data(cls) -> bool:
