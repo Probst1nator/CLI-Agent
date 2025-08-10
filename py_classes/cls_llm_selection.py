@@ -62,6 +62,57 @@ class LlmSelector:
             row_data['beams'] = 0
             row_data['eval'] = 0
             row_data['guard'] = 0
+    
+    def _estimate_context_window(self, model_key: str) -> int:
+        """
+        Estimate context window length based on model name patterns.
+        Returns reasonable estimates for common Ollama models.
+        """
+        model_lower = model_key.lower()
+        
+        # Context window estimates based on model families
+        if any(x in model_lower for x in ['llama3.3', 'llama3.2', 'llama3.1']):
+            return 128000  # Most Llama 3.x models support 128k context
+        elif 'llama3' in model_lower:
+            return 8192    # Base Llama 3 models
+        elif any(x in model_lower for x in ['llama2', 'llama']):
+            return 4096    # Llama 2 and earlier
+            
+        elif any(x in model_lower for x in ['qwen2.5', 'qwen3']):
+            return 128000  # Qwen 2.5+ supports long context
+        elif 'qwen2' in model_lower:
+            return 32768   # Qwen 2
+        elif 'qwen' in model_lower:
+            return 8192    # Earlier Qwen models
+            
+        elif any(x in model_lower for x in ['mistral', 'mixtral']):
+            if 'mixtral' in model_lower:
+                return 32768  # Mixtral MoE models
+            else:
+                return 32768  # Mistral models
+                
+        elif any(x in model_lower for x in ['phi3.5', 'phi-3.5']):
+            return 128000  # Phi 3.5 long context
+        elif any(x in model_lower for x in ['phi3', 'phi-3']):
+            return 4096    # Phi 3 base models
+        elif 'phi' in model_lower:
+            return 2048    # Earlier Phi models
+            
+        elif any(x in model_lower for x in ['gemma2', 'gemma-2']):
+            return 8192    # Gemma 2
+        elif 'gemma' in model_lower:
+            return 8192    # Gemma models
+            
+        elif any(x in model_lower for x in ['codellama', 'code-llama']):
+            return 16384   # CodeLlama models
+        elif any(x in model_lower for x in ['deepseek-coder', 'deepseek']):
+            return 16384   # DeepSeek Coder
+            
+        elif any(x in model_lower for x in ['embed', 'embedding']):
+            return 512     # Embedding models typically have smaller context
+            
+        else:
+            return 8192    # Conservative default for unknown models
 
     def _get_display_lines(self) -> FormattedText:
         """
@@ -125,7 +176,7 @@ class LlmSelector:
             status_text = f"<{style_map['provider']}>{status_text_content}</{style_map['provider']}>"
             if 'Downloaded' in status_text_content:
                 status_text = f"<downloaded>{status_text_content}</downloaded>"
-            elif 'Available' in status_text_content:
+            elif 'Downloadable' in status_text_content:
                 status_text = f"<notdownloaded>{status_text_content}</notdownloaded>"
 
             if i == self.current_row and not self.editing:
@@ -164,11 +215,57 @@ class LlmSelector:
             from py_classes.globals import g
             from py_classes.ai_providers.cls_ollama_interface import OllamaClient
 
-            available_llms = Llm.get_available_llms(exclude_guards=True)
+            available_llms = Llm.get_available_llms(exclude_guards=True, include_dynamic=True)
             saved_config = self._load_config()
+            
+            # Get both downloaded and discoverable models for Ollama
             ollama_status = {}
+            discoverable_models = set()
             try:
-                ollama_status = OllamaClient.get_comprehensive_model_status(g.DEFAULT_OLLAMA_HOSTS)
+                # Get downloaded models status - extract hostnames from URLs (without port)
+                ollama_hosts = []
+                for host_url in g.DEFAULT_OLLAMA_HOSTS:
+                    if "://" in host_url:
+                        host = host_url.split("://")[1].split("/")[0]
+                    else:
+                        host = host_url
+                    
+                    # Remove port from hostname for get_downloaded_models (it adds :11434 automatically)
+                    if ":" in host:
+                        host = host.split(":")[0]
+                    ollama_hosts.append(host)
+                ollama_status = OllamaClient.get_comprehensive_model_status(ollama_hosts)
+                
+                # Get discoverable models from Ollama library/registry
+                # This is a more comprehensive list that includes models available for download
+                for host_url in g.DEFAULT_OLLAMA_HOSTS:
+                    try:
+                        # Extract hostname from URL format (e.g., "http://localhost:11434" -> "localhost")
+                        if "://" in host_url:
+                            host = host_url.split("://")[1].split("/")[0]
+                        else:
+                            host = host_url
+                        
+                        # For reachability check, keep port; for model listing, remove port
+                        host_for_reachability = host
+                        host_for_models = host.split(":")[0] if ":" in host else host
+                        
+                        if OllamaClient.check_host_reachability(host_for_reachability):
+                            # Try to get a list of popular/available models from Ollama
+                            # We'll add some common models that are typically available
+                            common_models = [
+                                'llama3.3', 'llama3.2', 'llama3.1', 'llama3', 'llama2',
+                                'mistral', 'mixtral', 'qwen2.5', 'qwen2', 'phi3.5', 'phi3', 
+                                'codellama', 'deepseek-coder', 'gemma2', 'gemma', 
+                                'nomic-embed-text', 'mxbai-embed-large', 'bge-m3'
+                            ]
+                            for model_base in common_models:
+                                if model_base not in ollama_status:
+                                    ollama_status[model_base] = {'downloaded': False, 'hosts': []}
+                                    discoverable_models.add(model_base)
+                            break  # Only need one reachable host
+                    except Exception:
+                        continue
             except Exception as e:
                 logging.warning(f"Could not get Ollama status: {e}")
 
@@ -197,7 +294,7 @@ class LlmSelector:
                 if provider_name == "OllamaClient":
                     model_base_name = llm.model_key.split(':')[0]
                     status_info = ollama_status.get(model_base_name, {})
-                    status_text = '✓ Downloaded' if status_info.get('downloaded') else '⬇ Available'
+                    status_text = '✓ Downloaded' if status_info.get('downloaded') else '⬇ Downloadable'
                 
                 self.data.append({
                     "selected": is_selected,
@@ -211,6 +308,29 @@ class LlmSelector:
                     "download_status_text": status_text,
                 })
             
+            # Add discoverable but not downloaded Ollama models
+            existing_models = {row['model_key'] for row in self.data}
+            for model_base in discoverable_models:
+                if model_base not in existing_models:
+                    # Create a generic model entry for downloadable models
+                    model_key = f"{model_base}:latest"
+                    if model_key not in existing_models:
+                        model_config = saved_config.get(model_key, {})
+                        
+                        # Estimate context window based on model name
+                        context_window = self._estimate_context_window(model_key)
+                        
+                        self.data.append({
+                            "selected": model_config.get("selected", False),
+                            "beams": model_config.get("beams", 0),
+                            "eval": model_config.get("eval", 0),
+                            "guard": model_config.get("guard", 0),
+                            "provider": "OllamaClient",
+                            "model_key": model_key,
+                            "pricing_str": "Free",
+                            "context_window": context_window,
+                            "download_status_text": "⬇ Downloadable",
+                        })
             
             bindings = KeyBindings()
             

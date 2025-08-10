@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from py_classes.globals import g
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -87,18 +88,24 @@ class OllamaClient(AIProviderInterface):
     """
     reached_hosts: List[str] = []
     unreachable_hosts: List[str] = []
+    current_host: Optional[str] = None
+    # Host discovery cache with timestamps (host -> timestamp)
+    _host_cache: Dict[str, Dict[str, float]] = {"reachable": {}, "unreachable": {}}
+    _cache_ttl: float = 30.0  # Cache for 30 seconds
     
     @classmethod
     def reset_host_cache(cls):
         """Reset the host reachability cache to allow retrying all hosts."""
         cls.reached_hosts.clear()
         cls.unreachable_hosts.clear()
+        cls._host_cache["reachable"].clear()
+        cls._host_cache["unreachable"].clear()
         # Note: unreachable_hosts now also contains host:model combinations
 
     @classmethod
     def check_host_reachability(cls, host: str, chat: Optional[Chat] = None) -> bool:
         """
-        Validates if a host is reachable using a socket connection.
+        Validates if a host is reachable using a socket connection with caching.
         
         Args:
             host (str): The hostname to validate.
@@ -107,6 +114,23 @@ class OllamaClient(AIProviderInterface):
         Returns:
             bool: True if the host is reachable, False otherwise.
         """
+        current_time = time.time()
+        
+        # Check cache first
+        if host in cls._host_cache["reachable"]:
+            if current_time - cls._host_cache["reachable"][host] < cls._cache_ttl:
+                return True
+            else:
+                # Cache expired, remove from cache
+                del cls._host_cache["reachable"][host]
+        
+        if host in cls._host_cache["unreachable"]:
+            if current_time - cls._host_cache["unreachable"][host] < cls._cache_ttl:
+                return False
+            else:
+                # Cache expired, remove from cache
+                del cls._host_cache["unreachable"][host]
+        
         try:
             hostname, port_str = host.split(':') if ':' in host else (host, '11434')
             port = int(port_str)
@@ -115,20 +139,24 @@ class OllamaClient(AIProviderInterface):
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Ollama-Api: Checking host <{host}>...", "green", force_print=True, prefix=prefix)
             else:
-                logging.info(f"Ollama-Api: Checking host <{host}>...")
+                logging.debug(f"Ollama-Api: Checking host <{host}>...")
                 
             with socket.create_connection((hostname, port), timeout=1): # 1-second timeout
+                # Cache successful result
+                cls._host_cache["reachable"][host] = current_time
                 return True
         except (socket.timeout, socket.error, ValueError):
+            # Cache failure result
+            cls._host_cache["unreachable"][host] = current_time
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Ollama-Api: Host <{host}> is unreachable", "red", is_error=True, prefix=prefix)
             else:
-                logging.warning(f"Ollama-Api: Host <{host}> is unreachable")
+                logging.debug(f"Ollama-Api: Host <{host}> is unreachable")
             return False
 
     @staticmethod
-    def get_valid_client(model_key: str, chat: Optional[Chat] = None, auto_download: bool = True, is_small_model: bool = False) -> Tuple[ollama.Client|None, str]:
+    def get_valid_client(model_key: str, chat: Optional[Chat] = None, auto_download: bool = True, is_small_model: bool = False) -> Tuple[ollama.Client|None, str, str]:
         """
         Returns a valid client for the given model, pulling the model if necessary on auto-download hosts.
         
@@ -139,7 +167,7 @@ class OllamaClient(AIProviderInterface):
             is_small_model (bool): Whether this is a small/fast model.
         
         Returns:
-            Tuple[Optional[ollama.Client], str]: [A valid client or None, found model_key].
+            Tuple[Optional[ollama.Client], str, str]: [A valid client or None, found model_key, host].
         """
         # Get hosts from comma-separated environment variables
         ollama_host_env = os.getenv("OLLAMA_HOST", "")
@@ -229,6 +257,9 @@ class OllamaClient(AIProviderInterface):
                     serialized = json.dumps(response_dict)
                     model_list = OllamaModelList.from_json(serialized)
                     
+                    # Sort models by modification date (newest first)
+                    model_list.models.sort(key=lambda m: m.modified_at, reverse=True)
+                    
                     # Look for model name in all available models
                     logger.debug(f"\nSearching for model key: {model_key}")
                     found_model_key = next((
@@ -240,7 +271,9 @@ class OllamaClient(AIProviderInterface):
                     logger.debug("=== END MODEL PROCESSING ===\n")
                     
                     if found_model_key:
-                        return client, found_model_key 
+                        # Set current_host for logging consistency
+                        OllamaClient.current_host = host
+                        return client, found_model_key, host
                     elif auto_download and host in auto_download_hosts:
                         if chat:
                             prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
@@ -266,7 +299,9 @@ class OllamaClient(AIProviderInterface):
                                     sys.stdout.write('\r' + status)
                                     sys.stdout.flush()
                             print()
-                            return client, model_key
+                            # Set current_host for logging consistency
+                            OllamaClient.current_host = host
+                            return client, model_key, host
                         except Exception as e:
                             if chat:
                                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
@@ -293,7 +328,7 @@ class OllamaClient(AIProviderInterface):
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"No reachable Ollama hosts found for model {model_key}", "yellow", prefix=prefix)
         
-        return None, None
+        return None, None, None
 
     @staticmethod
     def generate_response(
@@ -336,9 +371,12 @@ class OllamaClient(AIProviderInterface):
         is_small_model = any(size in model_key.lower() for size in ['1b', '2b', '3b', '4b', 'small'])
         
         # Get a valid client for this model
-        client, found_model_key = OllamaClient.get_valid_client(model_key, chat_inner, auto_download, is_small_model)
+        client, found_model_key, host = OllamaClient.get_valid_client(model_key, chat_inner, auto_download, is_small_model)
         if not client:
             raise Exception("No valid host found for Ollama models")
+        
+        # Store the host information on the class for logging
+        OllamaClient.current_host = host
         
         # Use the found model key (which might be different from requested if we found a partial match)
         model_key = found_model_key
@@ -347,16 +385,6 @@ class OllamaClient(AIProviderInterface):
         if temperature is None:
             temperature = 0.0
             
-        # Informational logging (not error handling)
-        if silent_reason:
-            temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
-            g.debug_log(f"Ollama-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True, prefix=prefix)
-        else:
-            temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            prefix = chat_inner.get_debug_title_prefix() if hasattr(chat_inner, 'get_debug_title_prefix') else ""
-            g.debug_log(f"Ollama-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
-
         # Convert chat messages to Ollama format - get the messages first
         openai_messages = chat_inner.to_openai()
         
@@ -446,6 +474,8 @@ class OllamaClient(AIProviderInterface):
                         'modified_at': model_data.get('modified_at', None)
                     }
                     models.append(model_info)
+                # Sort by modification date (newest first), handling None
+                models.sort(key=lambda m: m.get('modified_at') or datetime.min, reverse=True)
                 return models
             
             # Fallback for older object-based response
@@ -458,6 +488,8 @@ class OllamaClient(AIProviderInterface):
                         'modified_at': getattr(model, 'modified_at', None)
                     }
                     models.append(model_info)
+                # Sort by modification date (newest first), handling None
+                models.sort(key=lambda m: m.get('modified_at') or datetime.min, reverse=True)
                 return models
             
             else:
@@ -557,7 +589,7 @@ class OllamaClient(AIProviderInterface):
         """
         try:
             # Get a valid client for this model
-            client, found_model_key = OllamaClient.get_valid_client(model, None, True, False)
+            client, found_model_key, _ = OllamaClient.get_valid_client(model, None, True, False)
             if not client:
                 return None
                 
@@ -605,7 +637,7 @@ def test_ollama_functionality():
     try:
         test_models = ["qwen3-coder:latest", "bge-m3", "phi3.5:3.8b"]
         for model in test_models:
-            client, found_model = OllamaClient.get_valid_client(model, None, False, False)
+            client, found_model, _ = OllamaClient.get_valid_client(model, None, False, False)
             if client and found_model:
                 print(f"   {model}: {colored('✓ Available as ' + found_model, 'green')}")
             else:

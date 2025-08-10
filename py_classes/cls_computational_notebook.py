@@ -29,18 +29,26 @@ class ComputationalNotebook:
         self.is_executing_shell = False
 
         # Clean up old temporary files from previous runs
+        import logging
+        from termcolor import colored
+        
         g.cleanup_temp_py_files()
 
         # Initialize bash session
+        logging.info(colored("  - Starting bash session...", "cyan"))
         self.child = pexpect.spawn('bash', encoding='utf-8', timeout=30)
         self._expect_bash_prompt(suppress_output=True)  # Suppress initial bash prompt
         
         # Initialize persistent Python session
+        logging.info(colored("  - Setting up Python environment...", "cyan"))
         self.python_child = None
         self._initialize_persistent_python()
+        
+        logging.info(colored("  - Notebook ready.", "cyan"))
 
     def _initialize_persistent_python(self):
         """Initialize persistent Python session."""
+        
         try:
             if self.python_child:
                 self.python_child.close()
@@ -53,7 +61,8 @@ class ComputationalNotebook:
             
             # Send initialization code line by line
             init_lines = self.get_initialization_code().strip().split('\n')
-            for line in init_lines:
+            
+            for i, line in enumerate(init_lines):
                 if line.strip():  # Skip empty lines
                     self.python_child.sendline(line)
                     # Wait for prompt or continuation
@@ -81,12 +90,8 @@ class ComputationalNotebook:
         lines = code.strip().split('\n')
         processed_lines = []
         
-        # List of utility modules that return JSON but also print
-        utility_modules = [
-            'viewfiles', 'editfile', 'web_fetch', 'searchweb', 'todos', 'showuser',
-            'removefile', 'takescreenshot', 'generateimage', 'viewimage', 
-            'homeassistant', 'tts', 'architectnewutil'
-        ]
+        # Get available utility modules dynamically
+        utility_modules = self._get_available_utils()
         
         for line in lines:
             stripped_line = line.strip()
@@ -116,6 +121,19 @@ class ComputationalNotebook:
             
             if not self.python_child:
                 raise Exception("Failed to initialize Python session")
+            
+            # Detect and import required utility modules before execution
+            required_modules = self._detect_utility_usage(command)
+            if required_modules:
+                lazy_imports = self._generate_lazy_imports(required_modules)
+                # Execute imports first
+                for import_line in lazy_imports.split('\n'):
+                    if import_line.strip():
+                        self.python_child.sendline(import_line)
+                        try:
+                            self.python_child.expect(['>>> ', '\\.\\.\\. '], timeout=5)
+                        except pexpect.TIMEOUT:
+                            pass  # Continue anyway
             
             # Suppress utility return values to prevent REPL output clutter
             processed_command = self._suppress_utility_return_values(command)
@@ -356,9 +374,6 @@ class ComputationalNotebook:
 
     def get_initialization_code(self) -> str:
         """Return initialization code for the sandbox as a single string."""
-        # Dynamically import all available utilities
-        utils_imports = self._get_utils_imports()
-        
         return f"""
 import sys, os, json, io, datetime
 sys.stdout.reconfigure(line_buffering=True)
@@ -367,22 +382,21 @@ os.chdir('{os.getcwd()}')
 sys.path.append('{g.CLIAGENT_ROOT_PATH}')
 from py_classes.globals import g
 from utils import *
-
-# Import all utility modules for easy access
-{utils_imports}
 """
 
-    def _get_utils_imports(self) -> str:
-        """Generate import statements for all available utility modules."""
+    def _get_available_utils(self) -> list:
+        """Get list of available utility modules."""
         try:
             import glob
             import os
             
             utils_path = os.path.join(g.CLIAGENT_ROOT_PATH, 'utils')
-            imports = []
+            available_modules = []
             
             # Find all Python files in utils directory
-            for py_file in glob.glob(os.path.join(utils_path, '*.py')):
+            py_files = glob.glob(os.path.join(utils_path, '*.py'))
+            
+            for py_file in py_files:
                 filename = os.path.basename(py_file)
                 
                 # Skip __init__.py and private files
@@ -397,29 +411,55 @@ from utils import *
                     import importlib
                     module = importlib.import_module(module_path)
                     if hasattr(module, 'run'):
-                        imports.append(f"import utils.{module_name} as {module_name}")
+                        available_modules.append(module_name)
                 except (ImportError, AttributeError):
                     continue
             
-            return '\n'.join(imports)
+            return available_modules
             
         except Exception:
             # Fallback to manual list if dynamic discovery fails
-            return """
-import utils.viewfiles as viewfiles
-import utils.editfile as editfile  
-import utils.web_fetch as web_fetch
-import utils.searchweb as searchweb
-import utils.todos as todos
-import utils.showuser as showuser
-import utils.removefile as removefile
-import utils.takescreenshot as takescreenshot
-import utils.generateimage as generateimage
-import utils.viewimage as viewimage
-import utils.homeassistant as homeassistant
-import utils.tts as tts
-import utils.architectnewutil as architectnewutil
-"""
+            return [
+                'viewfiles', 'editfile', 'web_fetch', 'searchweb', 'todos', 'showuser',
+                'removefile', 'takescreenshot', 'generateimage', 'viewimage', 
+                'homeassistant', 'tts', 'architectnewutil'
+            ]
+
+    def _detect_utility_usage(self, code: str) -> list:
+        """Detect which utility modules are referenced in the code."""
+        import re
+        
+        available_modules = self._get_available_utils()
+        detected_modules = []
+        
+        for module_name in available_modules:
+            # Check for module usage patterns like:
+            # module_name.run(...), module_name.something, import module_name, etc.
+            patterns = [
+                fr'\b{module_name}\.run\s*\(',  # module_name.run(
+                fr'\b{module_name}\.',          # module_name.anything
+                fr'import\s+.*\b{module_name}\b',  # import statements
+                fr'from\s+.*\b{module_name}\b',    # from statements
+            ]
+            
+            for pattern in patterns:
+                if re.search(pattern, code, re.IGNORECASE):
+                    if module_name not in detected_modules:
+                        detected_modules.append(module_name)
+                    break
+        
+        return detected_modules
+
+    def _generate_lazy_imports(self, modules: list) -> str:
+        """Generate import statements for the specified modules."""
+        if not modules:
+            return ""
+        
+        imports = []
+        for module_name in modules:
+            imports.append(f"import utils.{module_name} as {module_name}")
+        
+        return '\n'.join(imports)
 
     def _fix_python_indentation(self, code: str) -> str:
         """Fix common Python indentation issues in LLM-generated code."""
@@ -526,8 +566,17 @@ import utils.architectnewutil as architectnewutil
                     else:
                         # Non-persistent execution - use temporary script
                         py_script_path = os.path.join(g.CLIAGENT_TEMP_STORAGE_PATH, f'{datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.py')
+                        
+                        # Detect and add required utility imports
+                        required_modules = self._detect_utility_usage(cleaned_command)
+                        lazy_imports = self._generate_lazy_imports(required_modules)
+                        
                         with open(py_script_path, 'w') as py_file:
-                            py_file.write(self.get_initialization_code() + "\n" + cleaned_command)
+                            script_content = self.get_initialization_code() + "\n"
+                            if lazy_imports:
+                                script_content += lazy_imports + "\n"
+                            script_content += cleaned_command
+                            py_file.write(script_content)
                         self.child.sendline(f"python3 -u {py_script_path}")
                         self._stream_output_until_prompt(timeout=600)  # Increased to 10 minutes for AI model operations
                 except Exception as e:
