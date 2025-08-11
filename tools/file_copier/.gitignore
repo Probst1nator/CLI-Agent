@@ -1,0 +1,6 @@
+# File Copier specific ignores
+cache/
+temp/
+outputs/
+*.txt.backup
+.file_copier_cache.json

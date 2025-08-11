@@ -4,6 +4,38 @@
 
 ![cli-agent-demo](https://user-images.githubusercontent.com/1392817/233072559-9f7a7524-ac6e-443b-82d2-5a9e3f739669.gif)
 
+## 🏗️ Project Structure
+
+This repository contains multiple integrated tools organized in a clean, modular structure:
+
+```
+CLI-Agent/
+├── main.py                    # Main CLI agent
+├── core/                      # Core infrastructure (LLM routing, chat, etc.)
+├── shared/                    # Shared utilities and path resolution
+├── tools/                     # Standalone tools
+│   ├── file_copier/          # Smart file discovery and clipboard tool with GUI
+│   ├── podcast_generator/    # AI-powered podcast generation from URLs
+│   └── main_cli_agent/       # Main agent as a tool
+├── tests/                     # Comprehensive test suite
+├── run_tests.py              # Hierarchical test runner
+├── py_classes/               # Legacy core classes
+├── utils/                    # Extensible tool utilities
+└── README.md                 # This file
+```
+
+### 🧪 Testing
+
+Run the comprehensive test suite with:
+
+```bash
+python run_tests.py --level 2    # Core tests (default)
+python run_tests.py --level 4    # All tests including unit tests
+python run_tests.py --verbose    # Detailed output
+```
+
+See [TESTS.md](TESTS.md) for complete testing documentation.
+
 ## ✨ Key Features
 
 *   **🤖 Multi-LLM Routing:** Intelligently routes requests to the best-suited LLM from a wide range of providers (Ollama, OpenAI, Google, Anthropic, Groq, NVIDIA). Supports local-first or cloud-first preferences with a multi-select TUI.

@@ -1,0 +1,12 @@
+# Podcast Generator Tool Dependencies
+
+# Install shared infrastructure in editable mode
+-e ../../shared[audio]
+-e ../../core[providers]
+
+# Tool-specific dependencies
+pydub>=0.25.0  # Audio manipulation and conversion
+google-genai>=0.3.0  # Google GenAI for TTS
+prompt-toolkit>=3.0.0  # Interactive CLI interface
+PyMuPDF>=1.23.0  # PDF text extraction
+numpy>=1.20.0  # Audio data processing

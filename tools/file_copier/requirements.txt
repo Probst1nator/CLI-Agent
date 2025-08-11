@@ -1,0 +1,8 @@
+# File Copier Tool Dependencies
+
+# Install shared infrastructure in editable mode
+-e ../../shared
+-e ../../core
+
+# Tool-specific dependencies
+pyperclip>=1.8.0  # Clipboard access

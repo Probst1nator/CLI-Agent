@@ -1,0 +1,9 @@
+# Podcast Generator specific ignores
+podcast_generations/
+*.mp3
+*.wav
+*.m4a
+*.ogg
+outputs/
+temp_audio/
+tts_cache/

@@ -1,0 +1,5 @@
+# Utils specific ignores
+screenshots/
+generated_images/
+downloads/
+temp_files/

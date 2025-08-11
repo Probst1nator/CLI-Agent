@@ -1,25 +1,41 @@
 # utils/viewfiles.py
 import os
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Optional
 import markpickle
+
+# PDF processing imports
+try:
+    import PyPDF2
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
+try:
+    from pdfminer.six import extract_text
+    PDFMINER_AVAILABLE = True
+except ImportError:
+    PDFMINER_AVAILABLE = False
 
 from py_classes.cls_util_base import UtilBase
 
 class ViewFiles(UtilBase):
     """
     A utility to view the content of files or list directories.
+    Supports text files, PDFs, and directory listings.
     Returns a single, comprehensive Markdown string containing all content and a summary.
     """
     
     @staticmethod
     def get_metadata() -> Dict[str, Any]:
         return {
-            "keywords": ["read file", "view content", "display file", "show file", "file content", "examine file", "inspect file", "list directory", "directory contents", "file metadata", "multiple files"],
+            "keywords": ["read file", "view content", "display file", "show file", "file content", "examine file", "inspect file", "list directory", "directory contents", "file metadata", "multiple files", "pdf", "read pdf", "extract pdf text"],
             "use_cases": [
                 "Get the contents of 'config.json' and 'main.py'.",
                 "List all files and folders in the current directory, and see a summary of what was accessed.", 
                 "Examine the source code of multiple python files.",
-                "View the contents of 'app.js' with line numbers for easier code review."
+                "View the contents of 'app.js' with line numbers for easier code review.",
+                "Extract and view text content from PDF documents.",
+                "Process multiple PDFs and view their extracted text content."
             ],
             "arguments": {
                 "paths": "A list of absolute or relative paths to files or directories to be viewed.",
@@ -56,6 +72,49 @@ print(result_md)
         }
 
     @staticmethod
+    def _extract_pdf_text(pdf_path: str) -> Optional[str]:
+        """
+        Extract text from PDF using available libraries.
+        Tries pdfminer first (more reliable), falls back to PyPDF2.
+        """
+        filename = os.path.basename(pdf_path)
+        
+        # Try pdfminer first (better text extraction)
+        if PDFMINER_AVAILABLE:
+            try:
+                text = extract_text(pdf_path)
+                if text and text.strip():
+                    return text
+            except Exception as e:
+                print(f"Warning: pdfminer failed for {filename}: {e}")
+        
+        # Fall back to PyPDF2
+        if PDF_AVAILABLE:
+            try:
+                with open(pdf_path, 'rb') as f:
+                    reader = PyPDF2.PdfReader(f)
+                    if reader.is_encrypted:
+                        return f"❌ PDF '{filename}' is encrypted and cannot be read."
+                    
+                    text_parts = []
+                    for page in reader.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text_parts.append(page_text)
+                    
+                    full_text = "\n".join(text_parts)
+                    if full_text.strip():
+                        return full_text
+                    else:
+                        return f"⚠️ No text could be extracted from '{filename}'. It may be image-based."
+                        
+            except Exception as e:
+                return f"❌ Error reading PDF '{filename}': {str(e)}"
+        
+        # No PDF libraries available
+        return f"❌ No PDF processing libraries available. Install PyPDF2 or pdfminer.six to read PDF files."
+
+    @staticmethod
     def _run_logic(paths: List[str], show_line_numbers: bool = False) -> str:
         """
         Processes a list of paths, returning a single formatted Markdown string.
@@ -79,18 +138,33 @@ print(result_md)
     
             if os.path.isfile(abs_path):
                 try:
-                    with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        file_content = f.read()
+                    # Check if it's a PDF file
+                    if abs_path.lower().endswith('.pdf'):
+                        file_content = ViewFiles._extract_pdf_text(abs_path)
+                        if file_content is None:
+                            failed_summary.append({"path": abs_path, "reason": "PDF text extraction failed"})
+                            continue
+                        ext = 'text'  # Display PDF content as text
+                    else:
+                        # Regular text file processing
+                        with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            file_content = f.read()
+                        ext = os.path.splitext(path)[1].lstrip('.') or 'text'
                     
+                    # Apply line numbers if requested
                     if show_line_numbers:
                         lines = file_content.splitlines()
                         max_width = len(str(len(lines)))
                         numbered_lines = [f"{str(i + 1).rjust(max_width)} | {line}" for i, line in enumerate(lines)]
                         file_content = "\n".join(numbered_lines)
 
-                    ext = os.path.splitext(path)[1].lstrip('.') or 'text'
                     content_parts.append(f"### File: `{abs_path}`\n```{ext}\n{file_content}\n```")
-                    success_summary.append(f"Viewed file: `{abs_path}` ({len(file_content)} chars)")
+                    
+                    # Add appropriate success message
+                    if abs_path.lower().endswith('.pdf'):
+                        success_summary.append(f"Extracted PDF text: `{abs_path}` ({len(file_content)} chars)")
+                    else:
+                        success_summary.append(f"Viewed file: `{abs_path}` ({len(file_content)} chars)")
     
                 except Exception as e:
                     failed_summary.append({"path": abs_path, "reason": str(e)})

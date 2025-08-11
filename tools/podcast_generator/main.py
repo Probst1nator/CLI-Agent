@@ -14,7 +14,10 @@ from prompt_toolkit.widgets import CheckboxList, Frame, Label
 from prompt_toolkit.styles import Style
 from prompt_toolkit.formatted_text import HTML
 
-from py_classes.enum_ai_strengths import AIStrengths
+# Clean imports using installed packages  
+# Note: Run 'pip install -e ../../shared -e ../../core' first
+
+from core import AIStrengths
 
 # Google imports
 try:
