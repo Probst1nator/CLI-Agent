@@ -4,7 +4,7 @@ import numpy as np
 import speech_recognition as sr
 import logging
 
-from py_classes.cls_chat import Chat
+from core.chat import Chat
 
 # Configure logger with a NullHandler by default
 logger = logging.getLogger(__name__)

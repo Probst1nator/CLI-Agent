@@ -31,10 +31,7 @@ except ImportError:
 try:
     from .ai_strengths import AIStrengths
 except ImportError:
-    try:
-        from enum_ai_strengths import AIStrengths
-    except ImportError:
-        AIStrengths = None
+    AIStrengths = None
 
 try:
     from .globals import g

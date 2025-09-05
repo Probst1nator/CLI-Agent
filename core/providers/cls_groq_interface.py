@@ -1,13 +1,14 @@
 import os
-from typing import Optional, Tuple, Any, TYPE_CHECKING
+from typing import Optional, Tuple, Any, TYPE_CHECKING, List, Dict
 from groq import Groq
 from termcolor import colored
-from py_classes.cls_chat import Chat
+from core.chat import Chat
 from py_classes.unified_interfaces import AIProviderInterface
-from py_classes.cls_rate_limit_tracker import rate_limit_tracker
+from infrastructure.rate_limiting.cls_rate_limit_tracker import rate_limit_tracker
 import socket
 import logging
-from py_classes.globals import g
+import requests
+from core.globals import g
 
 # Only used for type annotations
 if TYPE_CHECKING:
@@ -77,6 +78,109 @@ class GroqAPI(AIProviderInterface):
             temperature=temperature,
             stream=True
         )
+
+    @staticmethod
+    def get_available_models(chat: Optional[Chat] = None) -> List[Dict[str, Any]]:
+        """
+        Discovers and returns available Groq models.
+        
+        This method queries the Groq API to get a real-time list of available models.
+        Can be used for dynamic model discovery in the future.
+        Currently, the LLM router uses a static list of known Groq models for 
+        performance reasons, but this method provides the foundation for dynamic discovery.
+        
+        Args:
+            chat (Optional[Chat]): The chat object for debug printing.
+            
+        Returns:
+            List[Dict[str, Any]]: List of available model information dictionaries.
+                Each dictionary contains:
+                - id: Model identifier (e.g., "llama-3.3-70b-versatile")
+                - object: Object type (typically "model")
+                - created: Creation timestamp
+                - owned_by: Model developer/owner
+                - root: Root model identifier
+                - parent: Parent model (if applicable)
+                - context_window: Maximum context window size
+        """
+        try:
+            # Check if API key is available
+            api_key = os.getenv('GROQ_API_KEY')
+            if not api_key:
+                error_msg = "Groq API key not found. Set the GROQ_API_KEY environment variable."
+                if chat:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log(f"Groq-Api: {error_msg}", "red", is_error=True, prefix=prefix)
+                logger.error(error_msg)
+                return []
+            
+            # Print status message
+            prefix = chat.get_debug_title_prefix() if chat and hasattr(chat, 'get_debug_title_prefix') else ""
+            if chat:
+                g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} discovering available models...", force_print=True, prefix=prefix)
+            
+            # Make request to Groq models endpoint
+            url = "https://api.groq.com/openai/v1/models"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            models_data = response.json()
+            models = []
+            
+            if "data" in models_data:
+                for model in models_data["data"]:
+                    model_info = {
+                        'id': model.get('id', ''),
+                        'object': model.get('object', ''),
+                        'created': model.get('created', 0),
+                        'owned_by': model.get('owned_by', ''),
+                        'root': model.get('root', ''),
+                        'parent': model.get('parent'),
+                        'context_window': model.get('context_window'),
+                        'max_model_len': model.get('max_model_len'),  # Alternative context window field
+                        'description': model.get('description', ''),
+                        'pricing': model.get('pricing', {}),
+                        'supported_modalities': model.get('supported_modalities', [])
+                    }
+                    models.append(model_info)
+                
+                if chat:
+                    g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} found {len(models)} available models", force_print=True, prefix=prefix)
+                
+                return models
+            else:
+                error_msg = "No 'data' field found in Groq API response"
+                if chat:
+                    g.debug_log(f"Groq-Api: {error_msg}", "yellow", prefix=prefix)
+                logger.warning(error_msg)
+                return []
+            
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Groq API model discovery request error: {e}"
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
+            logger.error(error_msg)
+            return []
+        except ValueError as e:
+            error_msg = f"Groq API model discovery JSON parsing error: {e}"
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
+            logger.error(error_msg)
+            return []
+        except Exception as e:
+            error_msg = f"Groq API model discovery error: {e}"
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
+            logger.error(error_msg)
+            return []
 
     @staticmethod
     def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional['Chat'] = None) -> Optional[Tuple[str, str]]:

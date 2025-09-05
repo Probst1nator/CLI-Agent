@@ -2,10 +2,10 @@ from anthropic import Anthropic
 import os
 from typing import Optional, Any
 from termcolor import colored
-from py_classes.cls_chat import Chat, Role
+from core.chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 
-from py_classes.globals import g
+from core.globals import g
 
 class AnthropicAPI(AIProviderInterface):
     """

@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 # For standalone testing, we can create a mock if the real one isn't available.
 # This allows the script to be run directly without depending on the full agent's path structure.
 try:
-    from py_classes.cls_util_base import UtilBase
+    from agent.utils_manager.util_base import UtilBase
 except ImportError:
     print("Warning: Could not import UtilBase. Using a mock class for standalone testing.")
     class UtilBase:

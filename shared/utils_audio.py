@@ -256,7 +256,7 @@ def initialize_whisper_model(model_key: str = 'tiny') -> None:
     print(f"<{colored('Whisper', 'magenta')}> Model loaded successfully.")
 
 
-def transcribe_audio(audio_array: np.ndarray, sample_rate: int = 16000) -> Tuple[str, str]:
+def transcribe_audio(audio_array: np.ndarray, sample_rate: int = 16000, whisper_model_key: str = 'tiny') -> Tuple[str, str]:
     """
     Transcribe audio using Whisper model.
     
@@ -313,7 +313,7 @@ def initialize_tts_pipeline(model_id: str) -> bool:
 
 def text_to_speech(
     text: str,
-    model_id: str = "parler-tts/parler-tts-mini-v0.1",
+    model_id: str = "microsoft/speecht5_tts",
     output_path: Optional[str] = None,
     play: bool = True,
     **generation_kwargs: Any
@@ -331,15 +331,19 @@ def text_to_speech(
     Returns:
         Optional[str]: Path to saved audio file if output_path provided, None otherwise
     """
+    # First try simpler TTS alternatives before Hugging Face
+    print(f"<{colored('TTS', 'cyan')}> Converting text to speech: '{text[:50]}...'")
+    
+    # Try system TTS first (more reliable)
+    if _try_system_tts(text):
+        return None
+        
+    # Try Hugging Face model if system TTS fails
     if not initialize_tts_pipeline(model_id):
-        print(f"<{colored('TTS Fallback', 'yellow')}> Hugging Face model failed. Trying system TTS...")
-        try:
-            subprocess.run(['espeak', text], check=True, capture_output=True)
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            print(f"<{colored('TTS Fallback', 'red')}> No system TTS found. Cannot speak.")
+        print(f"<{colored('TTS Fallback', 'red')}> All TTS methods failed. Cannot speak.")
         return None
 
-    print(f"<{colored('TTS', 'cyan')}> Synthesizing speech...")
+    print(f"<{colored('TTS', 'cyan')}> Synthesizing speech with Hugging Face model...")
     try:
         output = _tts_pipeline(text, **generation_kwargs)
         audio_array = output["audio"]
@@ -356,8 +360,45 @@ def text_to_speech(
             return output_path
     except Exception as e:
         logger.error(f"TTS synthesis failed: {e}\n{traceback.format_exc()}")
+        # Final fallback to system TTS without capture_output
+        _try_system_tts(text)
     
     return None
+
+
+def _try_system_tts(text: str) -> bool:
+    """
+    Try system TTS using espeak or other available TTS engines.
+    
+    Args:
+        text: Text to speak
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    tts_commands = [
+        ['espeak', text],
+        ['espeak-ng', text],
+        ['festival', '--tts'],
+        ['say', text],  # macOS
+        ['spd-say', text]  # speech-dispatcher
+    ]
+    
+    for cmd in tts_commands:
+        try:
+            if cmd[0] == 'festival':
+                # Festival needs text piped to stdin
+                result = subprocess.run(cmd, input=text, text=True, check=True, timeout=10)
+            else:
+                # Don't capture output for audio to work properly
+                result = subprocess.run(cmd, check=True, timeout=10)
+            print(f"<{colored('TTS System', 'green')}> Speech synthesis successful using {cmd[0]}")
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            continue
+    
+    print(f"<{colored('TTS System', 'red')}> No working system TTS found")
+    return False
 
 
 # --- Restored Helper Functions ---

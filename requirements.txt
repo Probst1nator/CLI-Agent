@@ -1,101 +1,13 @@
-# Core dependencies
-flask==2.3.3
-requests==2.31.0
-vosk==0.3.45
-numpy>=1.20.0
-scipy>=1.7.0
-sounddevice>=0.4.5
-soundfile>=0.10.3
-python-dotenv>=0.21.0
-# Specify faster-whisper but not its dependencies to avoid conflicts
-faster-whisper==1.0.0
-# Dependencies for faster-whisper
-tokenizers==0.13.3
-# ONNX Runtime for VAD filter support in faster-whisper
-onnxruntime>=1.15.0
-# PyAV needed for audio processing
-av>=10.0.0
-outetts>=0.2.1
-# Torch ecosystem - specify compatible versions to avoid conflicts
-torch>=2.0.0
-torchvision>=0.15.0
-# Hugging Face transformers for modern TTS
-transformers>=4.30.0
-# OpenAI Whisper for speech recognition (replaces faster-whisper in new implementation)
-openai-whisper>=20231117
-# Additional TTS dependencies
-datasets>=2.0.0  # Often needed by TTS models
-accelerate>=0.20.0  # For faster model loading
-termcolor>=2.0.0
-psutil>=5.9.0
-diffusers
-bitsandbytes
+# Main CLI Agent Tool Dependencies
+# Extends root CLI-Agent requirements
 
-# Server-specific dependencies
-gunicorn==21.2.0  # For production deployment
+# Core dependencies from CLI-Agent
+-r ../../requirements.txt
 
-# Python code execution sandbox dependencies
-jupyter_client>=8.0.0
-ipykernel>=6.0.0
-
-# Add paramiko for SSH connections
-paramiko>=2.11.0
-
-# TTS dependencies
-sentencepiece
-protobuf
-librosa
-pydub
-SpeechRecognition
-pyperclip
-pyfiglet
-prompt_toolkit
-uvicorn
-fastapi
-anthropic
-appdirs
-beautifulsoup4
-black
-boto3
-botocore
-browser-cookie3
-chardet
-cli-clipboard
-colorama
-docker
-ffmpeg-python
-flickrapi
-google-generativeai
-groq
-httpx
-importlib-metadata
-keyboard
-litellm
-lxml
-matplotlib
-moviepy
-notebook
-nvidia-ml-py3
-olefile
-ollama
-openai
-opencv-python
-pandas
-Pillow
-py-cord
-pyaudio
-pyautogui
-pytube
-pyyaml
-scikit-learn
-selenium
-sentence-transformers
-SQLAlchemy
-tqdm
-urllib3
-websockets
-werkzeug
-wheel
-wikipedia
-xformers
-markpickle
+# Full feature set - includes all dependencies for maximum compatibility
+pyperclip>=1.8.0  # Clipboard operations
+prompt-toolkit>=3.0.0  # Interactive CLI
+pydub>=0.25.0  # Audio processing capabilities
+soundfile>=0.12.0  # Audio I/O
+PyMuPDF>=1.23.0  # PDF processing
+numpy>=1.20.0  # Numerical operations

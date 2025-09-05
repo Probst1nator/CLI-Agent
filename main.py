@@ -1,19 +1,226 @@
 # main.py
+"""
+This script serves as the main entry point for the CLI-Agent. It orchestrates
+the primary execution loop, handling user interaction, multi-LLM reasoning via a
+Monte Carlo Action Engine, and tool invocation within a computational notebook.
+"""
 import time
-# Global timer for startup and operations
-start_time = time.time()
+start_time = time.time() # Global timer for startup and operations
+
 import logging
 import re
 from termcolor import colored
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable, Any
 import sys
 import argparse
 import os
 import math
 import asyncio
+import threading
 from collections import Counter
+import importlib
+import json
+from pathlib import Path
+from pyfiglet import figlet_format
+
+# --- Project Path Setup ---
+# Ensure all project modules can be imported correctly.
+project_root = Path(__file__).resolve().parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# --- Tool and Core Imports ---
+from tools.primitives.todos import todos
+from tools.readfile import readfile
+from shared.utils_audio import text_to_speech
+from core.globals import g
+from core.llm_router import LlmRouter, StreamInterruptedException
+from core.chat import Chat, Role
+from agent.playbook.playbook_manager import PlaybookManager
+from agent.utils_manager.utils_manager import UtilsManager
+from utils.tool_context import tool_context
+from core.permissions.enhanced_permissions import enhanced_permission_prompt
+from shared.common_utils import extract_blocks
+
+# --- Suppress Noisy Library Warnings ---
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+logging.getLogger('tensorflow').setLevel(logging.FATAL)
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers.modeling_utils")
+warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
+
+# --- Global Fallback Iterator for Cognitive Diversity ---
+class FallbackModelIterator:
+    """
+    Global iterator to cycle through fallback models across all system components
+    (branch generation, voting, guarding) to maximize cognitive diversity.
+    """
+    
+    def __init__(self):
+        self._fallback_models = []
+        self._current_index = 0
+        self._usage_count = {}  # Track how often each model has been used
+        self._failure_log = []  # Track (failed_model, reason, replacement) tuples
+        
+    def update_fallback_models(self, llm_config: Dict):
+        """Update the list of available fallback models from current config."""
+        from core.llm_router import LlmRouter
+        
+        new_fallback_models = [
+            key for key, data in llm_config.items()
+            if (data.get('selected') and 
+                key not in LlmRouter().failed_models and
+                data.get('eval', 0) == 0 and
+                data.get('guard', 0) == 0)
+        ]
+        
+        if new_fallback_models != self._fallback_models:
+            self._fallback_models = new_fallback_models
+            self._current_index = 0  # Reset when models change
+            self._usage_count = {model: 0 for model in self._fallback_models}
+            
+    def get_next_fallback(self, exclude: Optional[List[str]] = None) -> Optional[str]:
+        """
+        Get the next fallback model in round-robin fashion.
+        
+        Args:
+            exclude: List of models to exclude from selection
+            
+        Returns:
+            Next fallback model, or None if no models available
+        """
+        if not self._fallback_models:
+            return None
+            
+        exclude = exclude or []
+        available_models = [m for m in self._fallback_models if m not in exclude]
+        
+        if not available_models:
+            return None
+            
+        # Start from current index and find next available model
+        attempts = 0
+        while attempts < len(self._fallback_models):
+            candidate = self._fallback_models[self._current_index % len(self._fallback_models)]
+            self._current_index = (self._current_index + 1) % len(self._fallback_models)
+            
+            if candidate in available_models:
+                self._usage_count[candidate] = self._usage_count.get(candidate, 0) + 1
+                return candidate
+                
+            attempts += 1
+            
+        return None
+        
+    def get_multiple_fallbacks(self, count: int, exclude: Optional[List[str]] = None) -> List[str]:
+        """
+        Get multiple fallback models, cycling through the list to maximize diversity.
+        
+        Args:
+            count: Number of fallbacks needed
+            exclude: List of models to exclude
+            
+        Returns:
+            List of fallback models (may be shorter than count if not enough available)
+        """
+        exclude = exclude or []
+        fallbacks = []
+        
+        for _ in range(count):
+            fallback = self.get_next_fallback(exclude + fallbacks)
+            if fallback:
+                fallbacks.append(fallback)
+            else:
+                break
+                
+        return fallbacks
+        
+    def get_usage_stats(self) -> Dict[str, int]:
+        """Get usage statistics for debugging."""
+        return self._usage_count.copy()
+    
+    def record_failure(self, failed_model: str, reason: str, replacement: Optional[str] = None):
+        """Record a model failure and its replacement."""
+        self._failure_log.append((failed_model, reason, replacement))
+        
+    def get_failure_log(self) -> List[tuple]:
+        """Get the failure log for this session."""
+        return self._failure_log.copy()
+
+# Separate iterators for different system components to maximize cognitive diversity
+branch_fallback_iterator = FallbackModelIterator()
+guard_fallback_iterator = FallbackModelIterator() 
+evaluation_fallback_iterator = FallbackModelIterator()
 
 # --- Custom Logging Setup ---
+def parse_cli_args() -> argparse.Namespace:
+    """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
+    
+    parser = argparse.ArgumentParser(
+        description="AI CLI-Agent with backend options and more.",
+        add_help=False  # Disable automatic help to manually handle unrecognized args
+    )
+
+    parser.add_argument("-h", "--help", action="store_true", default=False,
+                        help="Display this help")
+    parser.add_argument("-a", "--auto", action="store_true", default=False,
+                        help="Automatically execute safe commands...")
+    parser.add_argument("-c", action="store_true", default=False,
+                        help="Continue the last conversation, retaining its context.")
+    parser.add_argument("-l", "--local", action="store_true", default=False,
+                        help="Use the local Ollama backend for processing. Sets g.FORCE_LOCAL=True.")
+    parser.add_argument("-m", "--message", type=str, default=[], nargs='*', 
+                        help="Enter one or more messages to process in sequence. Multiple messages can be passed like: -m 'first message' 'second message'. If no message is provided, multiline input mode will be activated.")
+    parser.add_argument("-r", "--regenerate", action="store_true", default=False,
+                        help="Regenerate the last response.")
+    parser.add_argument("-v", "--voice", action="store_true", default=False,
+                        help="Enable microphone input and text-to-speech output.")
+
+    parser.add_argument("--full_output", dest='full_output_mode', action="store_true", default=True,
+                        help="Full output mode. Shows live model output instead of hiding it.")
+    parser.add_argument("-f", "--fast", action="store_true", default=False,
+                        help="Fast mode (deprecated - kept for backward compatibility).")
+    parser.add_argument("-img", "--image", action="store_true", default=False,
+                        help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
+    parser.add_argument("-sbx", "--sandbox", action="store_true", default=False,
+                        help="Use weakly sandboxed python execution. Sets g.USE_SANDBOX=True.")
+    parser.add_argument("-o", "--online", action="store_true", default=False,
+                        help="Force use of cloud AI.")
+    parser.add_argument("-mct", "--monte-carlo", action="store_true", default=False,
+                        help="Enable multi-LLM mode with branch generation, council evaluation, and execution guards.")
+    
+    parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None,
+                        help="Specify the LLM model key to use (e.g., 'gemini-2.5-flash', 'gemma3n:e2b'). Use without value to open selection menu.")
+    
+    parser.add_argument("--gui", action="store_true", default=False,
+                        help="Open a web interface for the chat")
+    parser.add_argument("--debug-chats", action="store_true", default=False,
+                        help="Enable debug windows for chat contexts without full debug logging. Sets g.DEBUG_CHATS=True.")
+    parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
+                        help="Use private remote wake detection")
+    
+    # --- Logging Arguments ---
+    parser.add_argument("--debug", action="store_true", default=False,
+                        help="Enable detailed debug logging to the console.")
+    parser.add_argument("--log-file", type=str, default=None,
+                        help="Path to a file to write detailed logs.")
+    # --- End Logging Arguments ---
+
+    parser.add_argument("-e", "--exit", action="store_true", default=False,
+                        help="Exit after all automatic messages have been parsed successfully")
+    
+    # CORRECTED: Parse directly from sys.argv, as the pre-processing logic was removed.
+    args, unknown_args = parser.parse_known_args(sys.argv[1:])
+
+    if unknown_args or args.help:
+        if not args.help:
+            # Need a temporary logger setup for this specific warning
+            logging.basicConfig()
+            logging.getLogger().warning(colored(f"Unrecognized arguments {' '.join(unknown_args)}.", "yellow"))
+        parser.print_help()
+        exit(1)
+    
+    return args
 
 class ConsoleFormatter(logging.Formatter):
     """A logging formatter that adds a colored elapsed time prefix for the console."""
@@ -35,7 +242,7 @@ class ConsoleFormatter(logging.Formatter):
         return prefix + formatted_message
 
 class SimpleFormatter(logging.Formatter):
-    """A simple formatter that just returns the message, used after startup."""
+    """A simple formatter that just returns the message, used after startup or in TUI mode."""
     def format(self, record):
         return super().format(record)
 
@@ -54,7 +261,7 @@ class FileFormatter(logging.Formatter):
             
         return super().format(record)
 
-def setup_logging(debug_mode: bool, log_file: Optional[str] = None):
+def setup_logging(debug_mode: bool, log_file: Optional[str] = None, tui_mode: bool = False):
     """Configure the root logger for console and optional file output."""
     logger = logging.getLogger() # Get root logger
     logger.setLevel(logging.DEBUG) # Capture all messages at the root
@@ -67,7 +274,13 @@ def setup_logging(debug_mode: bool, log_file: Optional[str] = None):
     console_handler = logging.StreamHandler(sys.stdout)
     console_log_level = logging.DEBUG if debug_mode else logging.INFO
     console_handler.setLevel(console_log_level)
-    console_formatter = ConsoleFormatter("%(message)s")
+    
+    # Use a simple formatter in TUI mode to avoid cluttering the UI with timestamps
+    if tui_mode:
+        console_formatter = SimpleFormatter("%(message)s")
+    else:
+        console_formatter = ConsoleFormatter("%(message)s")
+
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
@@ -80,14 +293,14 @@ def setup_logging(debug_mode: bool, log_file: Optional[str] = None):
         logger.addHandler(file_handler)
         logging.info(colored(f"Logging to file: {log_file}", "magenta")) # Use standard logging so it gets timed
 
-    # --- FIX: Silence Noisy Loggers in Production Mode ---
-    if not debug_mode:
-        # These libraries produce a lot of INFO-level logs we don't need in a normal run.
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        logging.getLogger("py_classes.ai_providers.cls_ollama_interface").setLevel(logging.WARNING)
-        logging.getLogger("numexpr").setLevel(logging.WARNING)
-        logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
-        logging.getLogger("transformers").setLevel(logging.WARNING)
+    # --- FIX: Silence Noisy Loggers (Always, even in debug mode) ---
+    # These libraries produce networking/infrastructure logs we don't need
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("py_classes.ai_providers.cls_ollama_interface").setLevel(logging.WARNING)
+    logging.getLogger("numexpr").setLevel(logging.WARNING)
+    logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+    logging.getLogger("transformers").setLevel(logging.WARNING)
 
 def swap_to_simple_logging():
     """Swaps the console handler's formatter to a simpler one without the timer."""
@@ -102,209 +315,232 @@ def swap_to_simple_logging():
 # --- End Custom Logging Setup ---
 
 
-def print_startup_summary(args: argparse.Namespace):
-    """Prints a summary of the current agent configuration using the logger."""
+def colorize_model_name(model_name: str, tui_mode: bool = False) -> str:
+    """Applies color to a model name based on its provider."""
+    # Define colors using Textual's markup format
+    tui_colors = {
+        'local': 'green',
+        'google': 'blue',
+        'anthropic': 'yellow',
+        'openai': 'magenta',
+        'groq': 'red',
+        'default': 'cyan'
+    }
     
+    # Original termcolor colors
+    cli_colors = {
+        'local': 'green',
+        'google': 'blue',
+        'anthropic': 'yellow',
+        'openai': 'magenta',
+        'groq': 'red',
+        'default': 'cyan'
+    }
+
+    if ':' in model_name:
+        color_key = 'local'
+    else:
+        provider = model_name.split('-')[0].lower()
+        if 'gemini' in model_name or 'google' in provider: color_key = 'google'
+        elif 'claude' in provider or 'anthropic' in provider: color_key = 'anthropic'
+        elif 'openai' in provider or 'gpt' in model_name: color_key = 'openai'
+        elif 'groq' in provider: color_key = 'groq'
+        else: color_key = 'default'
+
+    if tui_mode:
+        color = tui_colors[color_key]
+        return f"[{color}]{model_name}[/{color}]"
+    else:
+        color = cli_colors[color_key]
+        return colored(model_name, color)
+
+def colorize_model_list(model_list: List[str], tui_mode: bool = False) -> str:
+    """Colorizes a list of model names and joins them into a string."""
+    return ', '.join(colorize_model_name(m, tui_mode) for m in model_list)
+
+
+
+
+def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False):
+    """Prints a comprehensive summary of the current agent configuration using the logger."""
+    
+    # --- Start Helper Function for Coloring ---
+    def get_count_color(count: int) -> str:
+        """Returns a color string based on the model count for at-a-glance status."""
+        if count == 1: return 'red'
+        if count == 2: return 'yellow'
+        if count == 3: return 'green'
+        if count > 3: return 'light_green'
+        return 'white' # Default fallback
+    # --- End Helper Function ---
+
     # Helper for status strings
     def get_status_str(state, on_text='ON', off_text='OFF'):
-        return colored(on_text, 'green', attrs=['bold']) if state else colored(off_text, 'red')
+        if tui_mode:
+            return f"[bold green]{on_text}[/bold green]" if state else f"[bold red]{off_text}[/bold red]"
+        else:
+            return colored(on_text, 'green', attrs=['bold']) if state else colored(off_text, 'red')
 
     # Column widths for alignment
     CMD_WIDTH = 24
     DESC_WIDTH = 28
     
     # Use logger.info to ensure timed prefix is applied
-    from py_classes.globals import g # Lazy import to avoid circular dependency at top level
+    from core.globals import g # Lazy import to avoid circular dependency at top level
     
-    logging.info(colored("--- Agent Configuration ---", "yellow"))
+    header = "[yellow]--- Agent Configuration ---[/yellow]" if tui_mode else colored("--- Agent Configuration ---", "yellow")
+    logging.info(header)
     
-    # Toggles - show filtered models when local mode is on
-    if g.SELECTED_LLMS:
-        if args.local:
-            # Filter to only local models (those with ':' in the name)
-            local_models = [model for model in g.SELECTED_LLMS if ':' in model]
-            if local_models:
-                llm_status = f"{colored(str(len(local_models)), 'green')} local models ({colored(str(len(g.SELECTED_LLMS)), 'yellow')} total selected)"
-            else:
-                llm_status = colored('No local models available', 'red')
-        else:
-            unique_models = list(set(g.SELECTED_LLMS))
-            llm_status = f"{colored(str(len(unique_models)), 'green')} models selected"
-    else:
-        llm_status = colored('Default', 'yellow')
-    
-    # Calculate guard count for Auto Execution status and eval count for MCT status
+    # Get detailed LLM configuration
     llm_config = g.get_llm_config()
-    guard_count = sum(
-        data.get('guard', 0) 
-        for data in llm_config.values() 
-        if data.get('selected')
-    )
-    eval_count = sum(
-        data.get('eval', 0) 
-        for data in llm_config.values() 
-        if data.get('selected')
-    )
+    # Use g.SELECTED_LLMS to preserve user selection order instead of iterating through config
+    selected_models = g.SELECTED_LLMS if g.SELECTED_LLMS else [key for key, data in llm_config.items() if data.get('selected')]
     
-    # Auto Execution status with guard info
+    # Categorize models by their roles, preserving selection order
+    branch_models = [key for key in selected_models if llm_config.get(key, {}).get('beams', 0) > 0]
+    eval_models = [key for key in selected_models if llm_config.get(key, {}).get('eval', 0) > 0]
+    guard_models = [key for key in selected_models if llm_config.get(key, {}).get('guard', 0) > 0]
+    
+    # Calculate fallback models (selected but not specialized)
+    specialized_models = set(branch_models + eval_models + guard_models)
+    fallback_models = [model for model in selected_models if model not in specialized_models]
+    
+    # Count totals for quick reference
+    guard_count = len(guard_models)
+    
+    # Auto Execution status
     if args.auto:
         if guard_count > 0:
-            auto_status_text_on = f'ON ({guard_count} guards)'
+            auto_status = f'ON ({guard_count} guards)'
         else:
-            auto_status_text_on = 'ON (manual confirmation)'
-        auto_status_text_off = 'OFF'
+            auto_status = 'ON (manual confirmation)'
     else:
-        auto_status_text_on = f'ON ({guard_count} guards)' if guard_count > 0 else 'ON (manual confirmation)'
-        auto_status_text_off = 'OFF'
+        auto_status = 'OFF'
     
-    # --- MCT status string for branch count display ---
-    eval_suffix = f', {eval_count} evals' if eval_count > 0 else ''
-    if args.mct == -1:
-        # -mct used without integer - show auto mode
-        if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 0:
-            mct_status_text_on = f'ON ({len(g.SELECTED_LLMS)} branching LLMs{eval_suffix})'
+    # LLM Selection status - show local vs cloud breakdown when available
+    if selected_models:
+        unique_models = list(set(selected_models))
+        local_count = len([m for m in unique_models if ':' in m])
+        cloud_count = len(unique_models) - local_count
+        
+        status_parts = []
+        if cloud_count > 0:
+            if tui_mode:
+                status_parts.append(f"[blue]{cloud_count} cloud[/blue]")
+            else:
+                status_parts.append(f"{colored(str(cloud_count), 'blue')} {colored('cloud', 'blue')}")
+        if local_count > 0:
+            if tui_mode:
+                status_parts.append(f"[bright_green]{local_count} local[/bright_green]")
+            else:
+                status_parts.append(f"{colored(str(local_count), 'light_green')} {colored('local', 'light_green')}")
+            
+        if status_parts:
+            llm_status = ", ".join(status_parts)
+            if len(unique_models) > (local_count + cloud_count): # Failsafe for logic errors
+                 llm_status += f" ({len(unique_models)} total)"
         else:
-            mct_status_text_on = f'ON (3 branches default{eval_suffix})'
-        mct_status_text_off = 'OFF'
+            if tui_mode:
+                llm_status = "[red]No models selected[/red]"
+            else:
+                llm_status = colored('No models selected', 'red')
     else:
-        mct_status_text_on = f'ON ({args.mct} branches{eval_suffix})'
-        mct_status_text_off = f'OFF ({args.mct} branch)'
+        if tui_mode:
+            llm_status = "[yellow]Default[/yellow]"
+        else:
+            llm_status = colored('Default', 'yellow')
     
-    config_lines = [
-        f"  {colored('Local Mode (-l)'.ljust(CMD_WIDTH), 'white')} {colored('Use only local LLMs'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.local)})",
-        f"  {colored('Auto Execution (-a)'.ljust(CMD_WIDTH), 'white')} {colored('Automatic code execution'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.auto, on_text=auto_status_text_on, off_text=auto_status_text_off)})",
-        f"  {colored('MCT Branches (--mct)'.ljust(CMD_WIDTH), 'white')} {colored('Monte Carlo Tree Search'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.mct > 1 or args.mct == -1, on_text=mct_status_text_on, off_text=mct_status_text_off)})",
-        f"  {colored('LLM Selection (--llm)'.ljust(CMD_WIDTH), 'white')} {colored('Specific LLM(s) to use'.ljust(DESC_WIDTH), 'light_grey')} (Status: {llm_status})",
-        f"  {colored('Voice Mode (-v)'.ljust(CMD_WIDTH), 'white')} {colored('Voice input/output'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.voice)})"
-    ]
+    # Main configuration display
+    if tui_mode:
+        config_lines = [
+            f"  [white]{'Local Mode (-l)'.ljust(CMD_WIDTH)}[/white] [bright_black]{'Use only local LLMs'.ljust(DESC_WIDTH)}[/bright_black] (Status: {get_status_str(args.local)})",
+            f"  [white]{'Auto Execution (-a)'.ljust(CMD_WIDTH)}[/white] [bright_black]{'Automatic code execution'.ljust(DESC_WIDTH)}[/bright_black] (Status: {get_status_str(args.auto, on_text=auto_status, off_text='OFF')})",
+            f"  [white]{'LLM Selection (--llm)'.ljust(CMD_WIDTH)}[/white] [bright_black]{'Specific LLM(s) to use'.ljust(DESC_WIDTH)}[/bright_black] (Status: {llm_status})",
+            f"  [white]{'Voice Mode (-v)'.ljust(CMD_WIDTH)}[/white] [bright_black]{'Voice input/output'.ljust(DESC_WIDTH)}[/bright_black] (Status: {get_status_str(args.voice)})"
+        ]
+    else:
+        config_lines = [
+            f"  {colored('Local Mode (-l)'.ljust(CMD_WIDTH), 'white')} {colored('Use only local LLMs'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.local)})",
+            f"  {colored('Auto Execution (-a)'.ljust(CMD_WIDTH), 'white')} {colored('Automatic code execution'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.auto, on_text=auto_status, off_text='OFF')})",
+            f"  {colored('LLM Selection (--llm)'.ljust(CMD_WIDTH), 'white')} {colored('Specific LLM(s) to use'.ljust(DESC_WIDTH), 'light_grey')} (Status: {llm_status})",
+            f"  {colored('Voice Mode (-v)'.ljust(CMD_WIDTH), 'white')} {colored('Voice input/output'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.voice)})"
+        ]
+    
     for line in config_lines:
         logging.info(line)
-    logging.info(colored("Type '-h' for a full list of commands.", "dark_grey"))
+    
+    # --- MODEL CONFIGURATION DISPLAY ---
+    if selected_models:
+        mcae_header = "[yellow]--- Monte Carlo Action Engine ---[/yellow]" if tui_mode else colored("--- Monte Carlo Action Engine ---", "yellow")
+        logging.info(mcae_header)
 
-
-def parse_cli_args() -> argparse.Namespace:
-    """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
-
-    # --- FIX: Pre-process sys.argv to handle shell escaping issues. ---
-    # This specifically targets cases like '-mct\ 2' which a shell or debugger might
-    # pass as a single argument string '-mct 2'. Argparse expects two separate tokens.
-    raw_args = sys.argv[1:]
-    processed_args = []
-    for arg in raw_args:
-        # Specifically look for '-mct' or '--mct' followed by a space and digits, all in one token.
-        match = re.match(r'^(-mct|--mct)\s+(\d+)$', arg)
-        if match:
-            # Split the single token into two: the flag and its value.
-            processed_args.append(match.group(1)) # e.g., '-mct'
-            processed_args.append(match.group(2)) # e.g., '2'
+        if branch_models:
+            count = 0
+            # Correctly count branches based on 'beams'
+            for key in branch_models:
+                count += llm_config.get(key, {}).get('beams', 1)
+            color = get_count_color(count)
+            model_list_str = colorize_model_list(branch_models, tui_mode)
+            if tui_mode:
+                line = f"  🌿 [{color}]{count} Branch Generators:[/{color}] {model_list_str}"
+            else:
+                line = colored(f"  🌿 {count} Branch Generators:".ljust(27), color) + " " + model_list_str
+            logging.info(line)
+        
+        if eval_models:
+            count = len(eval_models)
+            color = get_count_color(count)
+            model_list_str = colorize_model_list(eval_models, tui_mode)
+            if tui_mode:
+                line = f"  ⚖️  [{color}]{count} Branch Evaluators:[/{color}] {model_list_str}"
+            else:
+                line = colored(f"  ⚖️  {count} Branch Evaluators:".ljust(28), color) + " " + model_list_str
+            logging.info(line)
+        
+        if guard_models:
+            count = len(guard_models)
+            color = get_count_color(count)
+            model_list_str = colorize_model_list(guard_models, tui_mode)
+            if tui_mode:
+                line = f"  🛡️  [{color}]{count} Execution Guards:[/{color}] {model_list_str}"
+            else:
+                line = colored(f"  🛡️  {count} Execution Guards:".ljust(28), color) + " " + model_list_str
+            logging.info(line)
+        
+        # Show fallback models in Monte Carlo mode
+        count = len(fallback_models)
+        color = "light_green" if count > 0 else "red"
+        model_list_str = colorize_model_list(fallback_models, tui_mode)
+        if tui_mode:
+            line = f"  🔄 [{color}]{count} Fallback Models:[/{color}] {model_list_str}"
         else:
-            processed_args.append(arg)
+            line = colored(f"  🔄 {count} Fallback Models:".ljust(27), color) + " " + model_list_str
+        logging.info(line)
     
-    parser = argparse.ArgumentParser(
-        description="AI CLI-Agent with backend options and more.",
-        add_help=False  # Disable automatic help to manually handle unrecognized args
-    )
-
-    parser.add_argument("-h", "--help", action="store_true", default=False,
-                        help="Display this help")
-    parser.add_argument("-a", "--auto", action="store_true", default=False,
-                        help="Automatically execute safe commands...")
-    parser.add_argument("-c", action="store_true", default=False,
-                        help="Continue the last conversation, retaining its context.")
-    parser.add_argument("-l", "--local", action="store_true", default=False,
-                        help="Use the local Ollama backend for processing. Sets g.FORCE_LOCAL=True.")
-    parser.add_argument("-m", "--message", type=str, default=[], nargs='*',
-                        help="Enter one or more messages to process in sequence. Multiple messages can be passed like: -m 'first message' 'second message'. If no message is provided, multiline input mode will be activated.")
-    parser.add_argument("-r", "--regenerate", action="store_true", default=False,
-                        help="Regenerate the last response.")
-    parser.add_argument("-v", "--voice", action="store_true", default=False,
-                        help="Enable microphone input and text-to-speech output.")
-    parser.add_argument("--speak", action="store_true", default=False,
-                        help="Text-to-speech output.")
-    parser.add_argument("--full_output", dest='full_output_mode', action="store_true", default=False,
-                        help="Full output mode. Shows live model output instead of hiding it.")
-    parser.add_argument("-f", "--fast", action="store_true", default=False,
-                        help="Use only fast LLMs. Sets g.FORCE_FAST=True.")
-    parser.add_argument("-img", "--image", action="store_true", default=False,
-                        help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
-    parser.add_argument("-mct", "--mct", type=int, nargs='?', const=-1, default=1,
-                        help="Enable Monte Carlo Tree Search for acting. Use -mct alone to auto-select branches (3 default, or all selected LLMs if using --llm), or -mct N for specific count (default: 1).")
-    parser.add_argument("-sbx", "--sandbox", action="store_true", default=False,
-                        help="Use weakly sandboxed python execution. Sets g.USE_SANDBOX=True.")
-    parser.add_argument("-o", "--online", action="store_true", default=False,
-                        help="Force use of cloud AI.")
-    
-    parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None,
-                        help="Specify the LLM model key to use (e.g., 'gemini-2.5-flash', 'gemma3n:e2b'). Use without value to open selection menu.")
-    
-    parser.add_argument("--gui", action="store_true", default=False,
-                        help="Open a web interface for the chat")
-    parser.add_argument("--debug-chats", action="store_true", default=False,
-                        help="Enable debug windows for chat contexts without full debug logging. Sets g.DEBUG_CHATS=True.")
-    parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
-                        help="Use private remote wake detection")
-    parser.add_argument("--local-exec-confirm", action="store_true", default=False,
-                        help="Use local LLM for auto-execution confirmation instead of cloud models.")
-    
-    # --- Logging Arguments ---
-    parser.add_argument("--debug", action="store_true", default=False,
-                        help="Enable detailed debug logging to the console.")
-    parser.add_argument("--log-file", type=str, default=None,
-                        help="Path to a file to write detailed logs.")
-    # --- End Logging Arguments ---
-
-    parser.add_argument("-e", "--exit", action="store_true", default=False,
-                        help="Exit after all automatic messages have been parsed successfully")
-    
-    # Parse the processed arguments instead of the raw ones from sys.argv
-    args, unknown_args = parser.parse_known_args(processed_args)
-
-    if unknown_args or args.help:
-        if not args.help:
-            # Need a temporary logger setup for this specific warning
-            logging.basicConfig()
-            logging.getLogger().warning(colored(f"Unrecognized arguments {' '.join(unknown_args)}.", "yellow"))
-        parser.print_help()
-        exit(1)
-    
-    return args
+    command_hint = "[grey37]Type '-h' for a full list of commands.[/grey37]" if tui_mode else colored("Type '-h' for a full list of commands.", "dark_grey")
+    logging.info(command_hint)
 
 # --- Eager setup of args ---
 # This is done before heavy imports to allow --help to work quickly.
 args = parse_cli_args()
 
 
-# Display cool ASCII header
-from pyfiglet import figlet_format
-
-# Now print the header and startup summary
-header_dashes = colored("# # # # # # # # # # # # # # # # # # # # # # # # # #", "blue")
-header = figlet_format("CLI-Agent", font="slant")
-print(header_dashes)
-print(colored(header, "cyan", attrs=["bold"]))
-print(header_dashes)
+# Import figlet for later use
+from pathlib import Path
 
 
 # --- Main Application Imports (Lazy/Normal) ---
 # Imports are moved below arg parsing and logging setup to allow for faster startup
 # and to ensure logging is configured before any modules start logging.
 import datetime
-import json
 import traceback
 from dotenv import load_dotenv
 import pyperclip
 import socket
 import warnings
-from prompt_toolkit.application import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout
-from prompt_toolkit.widgets import CheckboxList, Frame, Label
-from prompt_toolkit.styles import Style
-from prompt_toolkit.formatted_text import HTML
 import base64
 import tempfile
 import subprocess
-import importlib.util
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -313,52 +549,22 @@ warnings.filterwarnings("ignore", message="words count mismatch on*", module="ph
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
 warnings.filterwarnings("ignore", message="Unrecognized FinishReason enum value*", module="proto.marshal.rules.enums", category=UserWarning)
 
-from py_classes.cls_computational_notebook import ComputationalNotebook
-from py_classes.cls_util_manager import UtilsManager
-from py_classes.enum_ai_strengths import AIStrengths
-from py_classes.cls_llm_router import LlmRouter, StreamInterruptedException
-from py_classes.cls_chat import Chat, Role
-from py_classes.utils.cls_utils_web_server import WebServer
-from py_classes.globals import g
-from py_classes.cls_text_stream_painter import TextStreamPainter
-
-# --- Final Logging Setup ---
-# This is done *after* all imports to ensure our configuration is not overwritten by a rogue library.
-setup_logging(args.debug, args.log_file)
-logging.info("Starting CLI-Agent...")
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-logging.info("Default imports success...")
-
-# Lazy load functions from py_methods.utils to avoid heavy imports at startup
-def get_extract_blocks():
-    from py_methods.utils import extract_blocks  # noqa: E402
-    return extract_blocks
+from agent.notebook import ComputationalNotebook
+from core.ai_strengths import AIStrengths
+from shared.utils.web import WebServer
+from core.permissions.path_detector import PathDetector
+from agent.text_painter import TextStreamPainter
 
 
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+logging.getLogger('tensorflow').setLevel(logging.FATAL)
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
+# Lazy load functions from shared audio utils to avoid heavy imports at startup
 def get_listen_microphone():
-    from py_methods.utils import listen_microphone  # noqa: E402
+    from shared.audio.audio_utils import listen_microphone  # noqa: E402
     return listen_microphone
-
-def get_take_screenshot():
-    from py_methods.utils import take_screenshot  # noqa: E402
-    return take_screenshot
-
-def get_update_cmd_collection():
-    from py_methods.utils import update_cmd_collection  # noqa: E402
-    return update_cmd_collection
-
-# Try importing with a direct import
-try:
-    from utils.viewimage import ViewImage
-except ImportError:
-    spec = importlib.util.spec_from_file_location("ViewImage", 
-                                                 os.path.join(os.path.dirname(os.path.abspath(__file__)), 
-                                                             "utils", "viewimage.py"))
-    viewimage_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(viewimage_module)
-    ViewImage = viewimage_module.ViewImage
 
 try:
     from utils.tts import TtsUtil
@@ -368,12 +574,13 @@ except ImportError:
         def run(text, **kwargs):
             logging.warning(f"TtsUtil not found. Cannot speak: {text}")
             return json.dumps({"status": "error", "message": "TtsUtil not found"})
-from utils.todos import TodosUtil
 
-logging.info("Util imports success...")
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-logging.getLogger('tensorflow').setLevel(logging.FATAL)
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
+def get_extract_blocks():
+    """
+    Returns the extract_blocks function for code block extraction.
+    This function acts as a getter to maintain compatibility with existing code.
+    """
+    return extract_blocks
 
 def get_local_ip():
     try:
@@ -395,8 +602,17 @@ def apply_default_llm_config():
     if not llm_config:
         return # No saved config to apply
 
-    selected_llms = [key for key, data in llm_config.items() if data.get('selected')]
-    evaluator_llms = [key for key, data in llm_config.items() if data.get('eval', 0) > 0]
+    # Preserve chronological selection order by using g.SELECTED_LLMS if available
+    if g.SELECTED_LLMS:
+        selected_llms = [key for key in g.SELECTED_LLMS if llm_config.get(key, {}).get('selected')]
+    else:
+        selected_llms = [key for key, data in llm_config.items() if data.get('selected')]
+    
+    # For evaluator LLMs, preserve order by checking g.SELECTED_LLMS first
+    if g.SELECTED_LLMS:
+        evaluator_llms = [key for key in g.SELECTED_LLMS if llm_config.get(key, {}).get('eval', 0) > 0]
+    else:
+        evaluator_llms = [key for key, data in llm_config.items() if data.get('eval', 0) > 0]
     
     # Only apply if there are actual selections, to not override command line flags unintentionally
     if selected_llms:
@@ -406,18 +622,100 @@ def apply_default_llm_config():
         unique_models = list(set(selected_llms))  # Deduplicate
         provider_counts = {}
         for model in unique_models:
-            if ':' in model:
-                provider = "🏠 Local" 
-            else:
-                provider_name = model.split('-')[0].title()
-                provider = f"☁️  {provider_name}"
-            provider_counts[provider] = provider_counts.get(provider, 0) + 1
+            emoji, provider_name = get_provider_emoji_and_name(model)
+            provider_key = f"{emoji} {provider_name}"
+            provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
         
         provider_summary = ", ".join([f"{provider}: {count}" for provider, count in provider_counts.items()])
-        logging.info(f"📋 Loaded default LLM configuration. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
+        logging.info(f"📋 Loaded latest LLM configuration. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
+
+def apply_monte_carlo_config():
+    """
+    Loads or creates a Monte Carlo configuration with branching, evaluation, and guarding.
+    If no config exists, creates a default with the first 3 available models.
+    """
+    import json
+    
+    llm_config = g.get_llm_config()
+    
+    # Check if Monte Carlo config already exists (has beams/eval/guard values)
+    has_monte_carlo_config = any(
+        data.get('beams', 0) > 0 or data.get('eval', 0) > 0 or data.get('guard', 0) > 0 
+        for data in llm_config.values()
+    )
+    
+    if has_monte_carlo_config:
+        # Load existing Monte Carlo configuration
+        selected_llms = [key for key, data in llm_config.items() if data.get('selected')]
+        evaluator_llms = [key for key, data in llm_config.items() if data.get('eval', 0) > 0]
         
-        if evaluator_llms:
-            logging.info(f"⚖️  Default evaluators: {colored(str(len(evaluator_llms)), 'green')} models ({', '.join(evaluator_llms)})")
+        if selected_llms:
+            g.SELECTED_LLMS = selected_llms
+            g.EVALUATOR_LLMS = evaluator_llms
+            unique_models = list(set(selected_llms))
+            provider_counts = {}
+            for model in unique_models:
+                emoji, provider_name = get_provider_emoji_and_name(model)
+                provider_key = f"{emoji} {provider_name}"
+                provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
+            
+            provider_summary = ", ".join([f"{provider}: {count}" for provider, count in provider_counts.items()])
+            logging.info(f"🎯 Loaded Monte Carlo configuration. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
+        return
+    
+    # Create default Monte Carlo configuration with first 3 available models
+    from core.llm_router import LlmRouter
+    router = LlmRouter()
+    
+    # Discover available models
+    available_models = []
+    try:
+        # Get all discovered models
+        for provider_models in router.discovered_models.values():
+            available_models.extend(provider_models.keys())
+    except:
+        # Fallback to hardcoded reliable models
+        available_models = ['gemini-2.5-flash', 'gpt-4o-mini', 'llama3.2:3b']
+    
+    # Take first 3 unique models
+    selected_models = list(set(available_models))[:3]
+    
+    if not selected_models:
+        logging.warning(colored("⚠️ No models available for Monte Carlo configuration", "yellow"))
+        return
+    
+    # Create default Monte Carlo configuration
+    new_config = {}
+    for i, model in enumerate(selected_models):
+        if i == 0:
+            # First model: main branching model
+            new_config[model] = {"selected": True, "beams": 2, "eval": 0, "guard": 1}
+        elif i == 1:
+            # Second model: evaluator
+            new_config[model] = {"selected": True, "beams": 1, "eval": 2, "guard": 0}
+        else:
+            # Third model: guard
+            new_config[model] = {"selected": True, "beams": 0, "eval": 0, "guard": 1}
+    
+    # Save the new configuration
+    try:
+        os.makedirs(os.path.dirname(g.LLM_CONFIG_PATH), exist_ok=True)
+        with open(g.LLM_CONFIG_PATH, 'w') as f:
+            json.dump(new_config, f, indent=2)
+        
+        # Reload the configuration
+        g.load_llm_config()
+        g.SELECTED_LLMS = selected_models
+        g.EVALUATOR_LLMS = [model for model, data in new_config.items() if data.get('eval', 0) > 0]
+        
+        logging.info(f"🎯 Created default Monte Carlo configuration with {colored(str(len(selected_models)), 'green')} models: {', '.join(selected_models)}")
+        
+    except Exception as e:
+        logging.error(f"❌ Failed to save Monte Carlo configuration: {e}")
+        # Continue with in-memory config
+        g._llm_config.update(new_config)
+        g.SELECTED_LLMS = selected_models
+        g.EVALUATOR_LLMS = [model for model, data in new_config.items() if data.get('eval', 0) > 0]
 
 async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[List[str]] = None) -> List[str]:
     """
@@ -425,7 +723,7 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
     This function initializes the selector, awaits user input, and processes
     the results to configure the agent's LLM settings.
     """
-    from py_classes.cls_llm_selection import LlmSelector
+    from agent.llm_selection import LlmSelector
     selector = LlmSelector()
     
     # The selector now handles its own UI, logic, and persistence.
@@ -468,17 +766,21 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
         logging.info(colored("# cli-agent: LLM set to auto, type (-h) for info", "green") )
     else:
         # Count unique models by provider and configuration
-        unique_models = list(set(args.llm))  # Deduplicate
+        # Use selected_llms directly to preserve the exact selection order from LLM selector
+        # Deduplicate while preserving order (maintain user's selection order)
+        unique_models = []
+        seen = set()
+        for model in selected_llms:  # Use selected_llms instead of args.llm
+            if model not in seen:
+                unique_models.append(model)
+                seen.add(model)
         provider_counts = {}
         branches_count = eval_count = guard_count = 0
         
         for model in unique_models:
-            if ':' in model:
-                provider = "🏠 Local"
-            else:
-                provider_name = model.split('-')[0].title()
-                provider = f"☁️  {provider_name}"
-            provider_counts[provider] = provider_counts.get(provider, 0) + 1
+            emoji, provider_name = get_provider_emoji_and_name(model)
+            provider_key = f"{emoji} {provider_name}"
+            provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
         
         for config in selected_configs:
             if config.get('beams', 0) > 0 or config.get('branches', 0) > 0:  # Support both old and new terminology
@@ -488,80 +790,60 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
             if config.get('guard', 0) > 0:
                 guard_count += 1
         
-        provider_summary = ", ".join([f"{provider}: {count}" for provider, count in provider_counts.items()])
+        # Display Monte Carlo Action Engine overview instead of simple summary
+        def get_count_color(count: int) -> str:
+            """Returns a color string based on the model count for at-a-glance status."""
+            if count == 1: return 'red'
+            if count == 2: return 'yellow' 
+            if count == 3: return 'green'
+            if count > 3: return 'light_green'
+            return 'white'
         
-        config_summary = []
-        if branches_count > 0:
-            config_summary.append(f"🌳 Branches: {colored(str(branches_count), 'green')}")
-        if eval_count > 0:
-            config_summary.append(f"⚖️  Eval: {colored(str(eval_count), 'green')}")
-        if guard_count > 0:
-            config_summary.append(f"🛡️  Guard: {colored(str(guard_count), 'green')}")
+        # Categorize models by their roles
+        branch_models = [config['model_key'] for config in selected_configs if config.get('beams', 0) > 0 or config.get('branches', 0) > 0]
+        eval_models = [config['model_key'] for config in selected_configs if config.get('eval', 0) > 0]
+        guard_models = [config['model_key'] for config in selected_configs if config.get('guard', 0) > 0]
         
-        logging.info(f"📋 LLM(s) selection updated. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
+        # Calculate fallback models (selected but not specialized)
+        specialized_models = set(branch_models + eval_models + guard_models)
+        fallback_models = [model for model in unique_models if model not in specialized_models]
         
-        if config_summary:
-            logging.info(f"⚙️  Configurations: {', '.join(config_summary)}")
+        logging.info(colored("---" + " Monte Carlo Action Engine " + "---", "yellow"))
+
+        if branch_models:
+            count = 0
+            # Count branches based on 'beams'
+            for config in selected_configs:
+                if config.get('beams', 0) > 0 or config.get('branches', 0) > 0:
+                    count += config.get('beams', config.get('branches', 1))
+            color = get_count_color(count)
+            logging.info(colored(f"  🌿 {count} Branch Generators:".ljust(27), color) + " " + colorize_model_list(branch_models))
         
-        if g.EVALUATOR_LLMS:
-            logging.info(f"⚖️  Evaluators: {colored(str(len(g.EVALUATOR_LLMS)), 'green')} models")
+        if eval_models:
+            count = len(eval_models)
+            color = get_count_color(count)
+            logging.info(colored(f"  ⚖️  {count} Branch Evaluators:".ljust(28), color) + " " + colorize_model_list(eval_models))
+        
+        if guard_models:
+            count = len(guard_models)
+            color = get_count_color(count)
+            logging.info(colored(f"  🛡️  {count} Execution Guards:".ljust(28), color) + " " + colorize_model_list(guard_models))
+        
+        # Always show fallback models for visibility, even if none are configured
+        count = len(fallback_models)
+        color = "light_green" if count > 0 else "red"
+        logging.info(colored(f"  🔄 {count} Fallback Models:".ljust(27), color) + " " + colorize_model_list(fallback_models))
         
         # Auto-sync args.auto with guard LLMs when selection changes
         if guard_count > 0 and not args.auto:
             args.auto = True
-            logging.info(colored(f"🔄 Auto-execution enabled: {guard_count} guard LLMs detected", "green"))
+            logging.info(colored(f"🔄 Auto-execution enabled: {guard_count} guard LLMs active", "green"))
         elif guard_count == 0 and args.auto:
             # Inform user that auto is on but no guards are available
-            logging.info(colored("⚠️  Auto-execution is enabled but no guard LLMs configured (manual confirmation required)", "yellow"))
+            logging.info(colored("❗ Auto-execution (args.auto) automatically disabled: no guard LLMs configured (manual confirmation will be required)", "red"))
 
     return selected_llms
 
-
-async def utils_selection(args: argparse.Namespace) -> List[str]:
-    """
-    Handles the Utils selection process, supporting multi-selection mode.
-    """
-    utils_manager = UtilsManager()
-    available_utils = utils_manager.get_util_names()
-    util_choices = []
-    add_new_tool_id = "__add_new_tool__"
-    util_choices.append((add_new_tool_id, HTML('<special>+ Add New Tool</special>')))
-    for util_name in available_utils:
-        styled_text = HTML(f'<util>{util_name}</util>')
-        util_choices.append((util_name, styled_text))
-    style = Style.from_dict({'util': 'ansigreen', 'special': 'ansiyellow bold'})
-    checkbox_list = CheckboxList(values=util_choices)
-    bindings = KeyBindings()
-    @bindings.add("e")
-    def _execute(event) -> None:
-        selected = [value for value, _ in util_choices if value in checkbox_list.current_values]
-        app.exit(result=selected)
-    @bindings.add("a")
-    def _abort(event) -> None:
-        app.exit(result=None)
-    instructions = Label(text="Use arrow keys to navigate, Space to select/deselect utils, 'e' to confirm or 'a' to abort")
-    root_container = HSplit([Frame(title="Select Utils to Use", body=checkbox_list), instructions])
-    layout = Layout(root_container)
-    app = Application(layout=layout, key_bindings=bindings, full_screen=False, style=style)
-    try:
-        selected_utils = await app.run_async()
-        if selected_utils is not None and len(selected_utils) > 0:
-            if add_new_tool_id in selected_utils:
-                return [add_new_tool_id]
-            utils_list = ", ".join(selected_utils)
-            logging.info(colored(f"# cli-agent: Selected utils: {utils_list}", "green"))
-            return selected_utils
-        else:
-            logging.warning(colored("# cli-agent: No utils selected or selection cancelled", "yellow"))
-            return []
-    except asyncio.CancelledError:
-        logging.warning(colored("# cli-agent: Utils selection was interrupted", "yellow"))
-        return []
-    except Exception as e:
-        logging.error(colored(f"# cli-agent: Error during utils selection: {str(e)}", "red"))
-        if args.debug:
-            logging.exception("Utils selection failed with traceback:")
-        return []
 def create_interruption_callback(
     response_buffer: List[str],
     painter: TextStreamPainter,
@@ -572,7 +854,7 @@ def create_interruption_callback(
 
     This callback prints the stream, accumulates it into a buffer, and can
     interrupt by raising StreamInterruptedException when a complete code block
-    (e.g., ```...```) or a complete tag (e.g., <tool>...</tool>) is detected.
+    (e.g., ```...```) or a complete tag for a known tool (e.g., <bash>...</bash>) is detected.
     This logic is consistent with the `extract_blocks` utility.
 
     Args:
@@ -584,14 +866,19 @@ def create_interruption_callback(
         An async callback function.
     """
     # Pre-compile regex for efficiency. re.DOTALL allows '.' to match newlines.
-    CODE_BLOCK_REGEX = re.compile(r"```.*?(```)", re.DOTALL)
-    TAG_BLOCK_REGEX = re.compile(r"<([a-zA-Z0-9_]+)[^>]*>.*?</\1>", re.DOTALL)
+    # CODE_BLOCK_REGEX = re.compile(r"```.*?(```)", re.DOTALL)
+    
+    # Dynamically build a regex for registered tool blocks. This is more robust
+    # and prevents premature interruption on non-tool XML tags like <filepath>.
+    tool_delimiters = list(getattr(g, 'tool_classes', {}).keys())
+    tool_tag_pattern = "|".join(re.escape(d) for d in tool_delimiters)
+    XML_TOOL_BLOCK_REGEX = re.compile(f"<({tool_tag_pattern})[^>]*>.*?</\\1>", re.DOTALL) if tool_tag_pattern else None
     
     async def _callback(chunk: str):
         # Process the chunk character by character to ensure proper interruption
         for char in chunk:
-            # 1. Print the incoming character with the live "typing" effect (only if not in summary mode)
-            if not g.SUMMARY_MODE:
+            # 1. Print the incoming character
+            if not g.SUMMARY_MODE or g.DEBUG_MODE:
                 if lock:
                     async with lock:
                         print(painter.apply_color(char), end="", flush=True)
@@ -602,43 +889,142 @@ def create_interruption_callback(
             response_buffer[0] += char
             current_buffer = response_buffer[0]
 
-            # 3. Check for interruption conditions after each character, but only when necessary
-            # Only check for patterns when we encounter potentially significant characters
+            # 3. Check for interruption conditions only when necessary
             should_check = char in '`><'
             
             if should_check:
-                # Check for a complete Markdown code block
-                code_match = CODE_BLOCK_REGEX.search(current_buffer)
-                if code_match:
-                    full_block = code_match.group(0).strip()
-                    if not g.SUMMARY_MODE:
-                        print("\n") # Add a newline for clean UI separation only in normal mode
-                    raise StreamInterruptedException(full_block)
+                # # Check for a complete Markdown code block
+                # code_match = CODE_BLOCK_REGEX.search(current_buffer)
+                # if code_match:
+                #     full_block = code_match.group(0).strip()
+                #     if not g.SUMMARY_MODE:
+                #         print("\n")
+                #     raise StreamInterruptedException(full_block)
 
-                # Check for a complete XML/HTML-like tag block
-                tag_match = TAG_BLOCK_REGEX.search(current_buffer)
-                if tag_match:
-                    full_block = tag_match.group(0).strip()
-                    if not g.SUMMARY_MODE:
-                        print("\n")
-                    raise StreamInterruptedException(full_block)
+                # Check for a complete block of a known tool
+                if XML_TOOL_BLOCK_REGEX:
+                    tool_match = XML_TOOL_BLOCK_REGEX.search(current_buffer)
+                    if tool_match:
+                        full_block = tool_match.group(0).strip()
+                        if not g.SUMMARY_MODE:
+                            print("\n")
+                        raise StreamInterruptedException(full_block)
                     
                 # CRITICAL: Also interrupt if we detect hallucinated execution output
-                if "<execution_output>" in current_buffer:
-                    logging.warning(colored("🚨 INTERRUPTING: Detected hallucinated execution_output tag!", "red"))
-                    # Find the content up to the execution_output tag
-                    output_pos = current_buffer.find("<execution_output>")
+                if "<context>" in current_buffer or "</context>" in current_buffer:
+                    # logging.warning(colored("🚨 INTERRUPTING: Detected hallucinated context tag, interrupting, splicing and continuing", "red"))
+                    # Find the content up to the context tag
+                    output_pos = current_buffer.find("<context>")
+                    if (output_pos == -1):
+                        output_pos = current_buffer.find("</context>")
                     content_before_output = current_buffer[:output_pos].strip()
-                    if not g.SUMMARY_MODE:
-                        print("\n")
+
+                    # ! Workaround for bad llms
+                    content_before_output = content_before_output.replace("```tool_code", "<python>")
+                    content_before_output = content_before_output.replace("<tool_code>", "<python>")
+                    content_before_output = content_before_output.replace("</tool_code>", "</python>")
                     raise StreamInterruptedException(content_before_output)
 
     return _callback
 
-async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str, utils_manager: 'UtilsManager') -> bool:
+def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, str]:
     """
-    Handles code execution confirmation based on the 'Guard' configuration in the LLM selector.
-    If Guard sum > 0, it runs a majority vote. If Guard sum == 0, it requires manual user confirmation.
+    Get the emoji and provider name for a model based on its provider class.
+    Returns a tuple of (emoji, provider_name)
+    """
+    # Handle local Ollama models (contain colon)
+    if ':' in model_key:
+        return "🏠", "Ollama"
+    
+    # Try to get provider from LLM router if available
+    if llm_router:
+        try:
+            llm_obj = llm_router.get_llm(model_key)
+            if llm_obj and llm_obj.provider:
+                provider_class_name = llm_obj.provider.__class__.__name__
+                
+                # Determine emoji based on provider characteristics
+                if 'Ollama' in provider_class_name:
+                    emoji = "🏠"
+                elif 'Human' in provider_class_name:
+                    emoji = "👤"
+                else:
+                    emoji = "☁️  "
+                
+                # Clean provider name from class name
+                provider_name = provider_class_name.replace('API', '').replace('Client', '').replace('Interface', '')
+                
+                return emoji, provider_name
+        except:
+            pass
+    
+    # Fallback: use model name prefix to determine provider
+    if model_key.startswith('gemini'):
+        return "☁️", "Google"
+    elif model_key.startswith('gpt') or model_key.startswith('o1'):
+        return "☁️", "OpenAI"
+    elif model_key.startswith('claude'):
+        return "☁️", "Anthropic"
+    elif any(model_key.startswith(prefix) for prefix in ['llama', 'qwen', 'moonshotai']):
+        return "☁️", "Groq"
+    else:
+        # Generic cloud provider
+        provider_name = model_key.split('-')[0].title()
+        return "☁️", provider_name
+
+def is_response_complete(response: str) -> bool:
+    """
+    Check if an interrupted response actually contains complete, usable content.
+    Returns True if the response has complete code blocks or meaningful content.
+    """
+    if not response or not response.strip():
+        return False
+    
+    # Use the same regex patterns as the interruption callback
+    CODE_BLOCK_REGEX = re.compile(r"```.*?(```)", re.DOTALL)
+    XML_CODE_BLOCK_REGEX = re.compile(r"<(python|bash|shell)([^>]*)>.*?</\1>", re.DOTALL)
+    TAG_BLOCK_REGEX = re.compile(r"<([a-zA-Z0-9_]+)[^>]*>.*?</\1>", re.DOTALL)
+    
+    # Check for complete code blocks
+    if CODE_BLOCK_REGEX.search(response) or XML_CODE_BLOCK_REGEX.search(response):
+        return True
+    
+    # Check for complete XML tags (excluding reasoning tags)
+    tag_match = TAG_BLOCK_REGEX.search(response)
+    if tag_match:
+        tag_name = tag_match.group(1)
+        if not (tag_name.startswith('antml:') or tag_name in ['thinking', 'think', 'plan', 'planning']):
+            return True
+    
+    # If response has substantial content and ends naturally, consider it complete
+    response_stripped = response.strip()
+    if len(response_stripped) > 50 and (
+        response_stripped.endswith('.') or 
+        response_stripped.endswith('!') or 
+        response_stripped.endswith('?') or
+        response_stripped.endswith(':') or
+        response_stripped.endswith(';')
+    ):
+        return True
+    
+    return False
+
+# Note: The type hint for 'UtilsManager' is a string to avoid circular dependency issues.
+# The full definition of other functions like get_extract_blocks, g, LlmRouter, etc.
+# are assumed to exist elsewhere in the project.
+
+async def confirm_code_execution(
+    args: argparse.Namespace, 
+    code_to_execute: str, 
+    utils_manager: 'UtilsManager', 
+    input_event: Optional[asyncio.Event] = None,
+    input_lock: Optional[threading.Lock] = None,
+    shared_input: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Handles code execution confirmation with a resilient, multi-stage Guard council.
+    It attempts to gather a minimum of 3 votes. If initial models fail, it dynamically
+    fetches diverse fallback models to ensure a decision can be made.
     """
     # Fast-path for simple, non-destructive shell commands
     if not get_extract_blocks()(code_to_execute, "python"):
@@ -649,35 +1035,44 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str,
             logging.info(colored("✅ Code execution permitted automatically (safe command list)", "green"))
             return True
 
-    # --- New Guard-based Logic ---
+    # --- Handle Default Mode (single LLM with manual confirmation) ---
+    if not args.monte_carlo:
+        return await enhanced_permission_prompt(
+            args, 
+            tool_name="code_execution",
+            action_description="Execute code block",
+            input_event=input_event,
+            input_lock=input_lock,
+            shared_input=shared_input,
+            get_user_input_func=get_user_input_with_bindings
+        )
+
+    # --- Guard-based Logic ---
     llm_config = g.get_llm_config()
-    total_guards = sum(
-        data.get('guard', 0) 
-        for data in llm_config.values() 
-        if data.get('selected')
-    )
+    guard_council = [key for key, data in llm_config.items() if data.get('selected') and data.get('guard', 0) > 0 for _ in range(data['guard'])]
 
-    # 1. If no guards are configured, ALWAYS require manual confirmation.
-    if total_guards == 0:
-        logging.warning(colored("🛡️", "red", attrs=["bold"]) + colored(" No Guard models configured. Manual confirmation required for execution.", "yellow"))
-        user_input = await get_user_input_with_bindings(args, None, colored("(Press Enter to confirm or 'n' to abort)", "cyan"))
-        if user_input.lower() == 'n':
-            logging.error(colored("❌ Code execution aborted by user", "red"))
-            return False
-        else:
-            logging.info(colored("✅ Code execution permitted by user", "green"))
+    # 1. If no guards are configured, fall back to manual confirmation.
+    if not guard_council:
+        if args.auto:
+            logging.info(colored("✅ Code execution permitted automatically (--auto flag, no guards configured).", "green"))
             return True
+        logging.warning(colored("🛡️", "red", attrs=["bold"]) + colored(" No Guard models configured. Manual confirmation required.", "yellow"))
+        return await enhanced_permission_prompt(
+            args, 
+            tool_name="code_execution",
+            action_description="Execute code block (no guards configured)",
+            input_event=input_event,
+            input_lock=input_lock,
+            shared_input=shared_input,
+            get_user_input_func=get_user_input_with_bindings
+        )
 
-    # 2. If guards ARE configured, proceed with the Guard Council vote.
-    guard_council = []
-    for model_key, data in llm_config.items():
-        if data.get('selected') and data.get('guard', 0) > 0:
-            guard_council.extend([model_key] * data['guard'])
+    # Display the initial guard council.
+    guard_display = [f"☁️ {colored(m, 'green')}" if ':' not in m else f"🏠 {colored(m, 'green')}" for m in guard_council]
+    logging.info(colored("🛡️", "red", attrs=["bold"]) + f"  {len(guard_council)} Guards verifying code: {', '.join(guard_display)}")
 
-    logging.info(colored("🛡️", "red", attrs=["bold"]) + colored(f"  {len(guard_council)} Guards verifying code request: {', '.join(guard_council)}", "cyan"))
-    
     async def get_verdict(model_key: str):
-        # This is a self-contained chat for the guard to prevent context pollution
+        """Gets a single verdict from a model. Returns (verdict, analysis, model_key) on success, or None on failure."""
         execution_guard_chat = Chat(
             instruction_message=f"""You are a Code Execution Guardian. Your primary goal is to prevent unsafe or incomplete code execution. Analyze the code for safety and completeness.
 - SAFE operations: Reading files (ls, cat), simple data retrieval (curl to public APIs), basic system info (ps, uname), file modifications with clear comments.
@@ -685,187 +1080,378 @@ async def confirm_code_execution(args: argparse.Namespace, code_to_execute: str,
 - INCOMPLETE code: Placeholders like `YOUR_API_KEY`, `TODO`, or unimplemented functions.
 
 **Process:**
-1. **Brief Analysis:** Explain your reasoning in 1-2 sentences.
+1. **Brief Analysis:** Follow the final guidance below
 2. **Single Word Verdict:** End your response with exactly one word: `yes`, `no`, or `unfinished`.
 
-**The following classes are custom and considered trusted, they must still be verified for reliable and intentional usage in code**
-{utils_manager.get_util_names()}
+**Although these following classes are custom and generally considered trusted. You MUST verify each line for intentional and careful usage.**
+{utils_manager.get_util_names()} 
+
+**Final guidance**
+1. Observe if the goal of the code is clarified and reasonable while any persistenly modifying operations like deletions have been backed up sensibly first. 
+2. Express your grasp on the system mindfully before responding with a final word verdict.
 """,
             debug_title=f"🛡️  Guard Vote ({model_key})"
         )
         analysis_prompt = f"Analyze this code for safe execution and completeness:\n{code_to_execute}"
         execution_guard_chat.add_message(Role.USER, analysis_prompt)
-        response = await LlmRouter.generate_completion(
-            execution_guard_chat, 
-            [model_key], 
-            force_preferred_model=True,
-            decision_patterns={"guard": r'\b(yes|no|unfinished)\b'}
-        )
         
-        # Find all verdict matches and take the LAST one (as instructed to end with verdict)
-        verdict_matches = list(re.finditer(r'\b(yes|no|unfinished)\b', response.lower(), re.DOTALL | re.MULTILINE))
-        if verdict_matches:
-            verdict_match = verdict_matches[-1]  # Take the last match
-            verdict = verdict_match.group(1)
-        else:
-            verdict = "no"  # Default to no if no verdict found
-        analysis = response.strip()
-        
-        return verdict, analysis, model_key
+        try:
+            guard_context = {'log_prefix': '🛡️  '}
+            response = await LlmRouter.generate_completion(
+                execution_guard_chat,
+                [model_key],
+                force_preferred_model=True,
+                decision_patterns={"guard": r'\b(yes|no|unfinished)\b'},
+                branch_context=guard_context
+            )
+            verdict_matches = list(re.finditer(r'\b(yes|no|unfinished)\b', response.lower(), re.DOTALL | re.MULTILINE))
+            verdict = verdict_matches[-1].group(1) if verdict_matches else "no"
+            analysis = response.strip()
+            return verdict, analysis, model_key
+        except Exception as e:
+            logging.warning(colored(f"⚠️ Guard {model_key} failed: {str(e)}", "yellow"))
+            return None
 
+    # --- Resilient, Multi-stage Guard Verification ---
+    MIN_VOTES = len(guard_council)
+    successful_results = []
+    models_attempted = set()
+    
+    # Stage 1: Attempt with the primary guard council.
     tasks = [get_verdict(model) for model in guard_council]
-    results = await asyncio.gather(*tasks)
+    models_attempted.update(guard_council)
+    batch_results = await asyncio.gather(*tasks)
+    successful_results.extend([res for res in batch_results if res is not None])
     
-    vote_counts = Counter(v[0] for v in results)
+    # Track which guard models failed
+    failed_guards = []
+    for i, model in enumerate(guard_council):
+        if batch_results[i] is None:
+            failed_guards.append(model)
+
+    # Stage 2: If needed, fetch iterative fallbacks until minimum votes are met.
+    if len(successful_results) < MIN_VOTES:
+        guard_fallback_iterator.update_fallback_models(llm_config)
     
-    # Create detailed verdict summary like branch selection voting
+    while len(successful_results) < MIN_VOTES:
+        # Fetch one fallback model at a time to replace failed models
+        fallback_model = guard_fallback_iterator.get_next_fallback(exclude=list(models_attempted))
+        fallback_models = [fallback_model] if fallback_model else []
+
+        if not fallback_models:
+            logging.warning(colored(f"🛡️  Could not gather {MIN_VOTES} guard responses. All available guard and fallback models exhausted.", "yellow"))
+            break # Exit the loop if no more models are available.
+
+        # Enhanced logging showing failed model → replacement
+        if failed_guards:
+            failed_model = failed_guards.pop(0) if failed_guards else "unknown guard"
+            replacement = fallback_models[0] if fallback_models else "none"
+            usage_stats = guard_fallback_iterator.get_usage_stats()
+            usage_count = usage_stats.get(replacement, 0)
+            
+            # Record the failure
+            guard_fallback_iterator.record_failure(failed_model, "execution timeout/error", replacement)
+            
+            logging.info(colored("🔄 Guard replacement: ", "cyan") + 
+                        colorize_model_name(failed_model) + 
+                        colored(" → ", "cyan") + 
+                        colorize_model_name(replacement) + 
+                        colored(f" ({usage_count})", "cyan"))
+        
+        tasks = [get_verdict(model) for model in fallback_models]
+        models_attempted.update(fallback_models)
+        batch_results = await asyncio.gather(*tasks)
+        successful_results.extend([res for res in batch_results if res is not None])
+
+    # --- Final Verdict Processing ---
+    if len(successful_results) < MIN_VOTES:
+        logging.error(colored(f"❌ Could not get minimum {MIN_VOTES} guard responses (got {len(successful_results)}).", "red"))
+        user_input, _ = await get_user_input_with_bindings(
+            args, None, colored("Execute code anyway? (y/n): ", "cyan"),
+            input_event=input_event, input_lock=input_lock, shared_input=shared_input
+        )
+        return user_input.lower() == 'y'
+
+    # Analyze guard responses and determine the final outcome.
+    response_counts = Counter(res[0] for res in successful_results)
+    total_responses = len(successful_results)
+    
     verdict_details = []
     for verdict in ['yes', 'no', 'unfinished']:
-        count = vote_counts.get(verdict, 0)
+        count = response_counts.get(verdict, 0)
         if count > 0:
-            models_with_verdict = [model for v, _, model in results if v == verdict]
-            verdict_details.append(f"{verdict} ({count} votes: {', '.join(models_with_verdict)})")
+            models_with_verdict = [colorize_model_name(model) for v, _, model in successful_results if v == verdict]
+            verdict_details.append(f"{verdict.capitalize()} ({count}/{total_responses} guards: {', '.join(models_with_verdict)})")
+    logging.info(colored("🛡️", "red", attrs=["bold"]) + colored(f"  Guard Consensus Summary: {'; '.join(verdict_details)}", "light_blue"))
     
-    logging.info(colored("🛡️", "red", attrs=["bold"]) + colored(f"  Guard verdict summary: {', '.join(verdict_details)}", "light_blue"))
-
-    # Determine final verdict with safety-first tie-breaking (no > unfinished > yes)
-    if vote_counts.get('no', 0) >= vote_counts.get('unfinished', 0) and vote_counts.get('no', 0) >= vote_counts.get('yes', 0):
+    if response_counts.get('no', 0) > 0:
         final_verdict = 'no'
-    elif vote_counts.get('unfinished', 0) >= vote_counts.get('yes', 0):
+    elif response_counts.get('unfinished', 0) > 0:
         final_verdict = 'unfinished'
     else:
         final_verdict = 'yes'
 
-    aggregated_analysis = "\n".join([f"- ({model}): {analysis}" for v, analysis, model in results if v == final_verdict])
-    
-    if 'yes' == final_verdict:
-        logging.info(colored("✅ Code guard permitted execution by majority vote. Reasoning:\n", "green") + colored(aggregated_analysis, "light_green"))
+    def get_analysis_for_verdict(verdict_type):
+        return "\n".join([f"- {analysis}" for v, analysis, _ in successful_results if v == verdict_type])
+
+    if final_verdict == 'yes':
+        logging.info(colored(f"✅ Code execution cleared by ({response_counts.get('yes', 0)}/{total_responses}) guards.", "green"))
         return True
-    elif 'unfinished' == final_verdict:
-        logging.warning(colored("⚠️ Code guard prompted code revision by majority vote. Reasoning:\n", "yellow") + colored(aggregated_analysis, "light_magenta"))
-        args.message.insert(0, "The code was deemed safe but unfinished. Explaining the code and its use via comments can convince the reviewers. Code review:\n" + aggregated_analysis)
-        logging.info(colored("💬 Auto prompting with reasoning...", "blue"))
+    elif final_verdict == 'unfinished':
+        analysis = get_analysis_for_verdict('unfinished')
+        logging.warning(colored(f"⚠️ Code revision requested by ({response_counts.get('unfinished', 0)}/{total_responses}) guards. Reasoning:\n", "yellow") + colored(analysis, "light_magenta"))
+        args.message.insert(0, f"The code was deemed safe but unfinished. Please add comments and complete the implementation. Code review:\n{analysis}")
+        logging.info(colored("💬 Auto-prompting with refinement instructions...", "blue"))
         return False
     else: # 'no'
-        logging.error(colored("❌ Code execution aborted by majority vote. Reasoning:\n", "red") + colored(aggregated_analysis, "magenta"))
-        user_response = await get_user_input_with_bindings(args, None, colored("Do you want to manually execute this code? (y/n): ", "cyan"))
-        if user_response.lower() == 'y':
-            logging.info(colored("✅ User overrode guard and permitted execution.", "green"))
+        analysis = get_analysis_for_verdict('no')
+        logging.error(colored(f"❌ Code execution blocked by ({response_counts.get('no', 0)}/{total_responses}) guards. Reasoning:\n", "red") + colored(analysis, "magenta"))
+        user_response, _ = await get_user_input_with_bindings(
+            args, None, colored("Execute code anyway? (y=execute, n=abort, c=refine): ", "cyan"),
+            input_event=input_event, input_lock=input_lock, shared_input=shared_input
+        )
+        
+        if user_response.lower() in ['y', 'yes', 'execute']:
+            logging.warning(colored("✅ Code execution permitted by user override", "yellow"))
             return True
-        logging.error(colored("❌ Execution remains aborted.", "red"))
-        return False
+        elif user_response.lower() in ['c', 'refine']:
+            args.message.insert(0, f"The code was rejected by security guards. Please refine the implementation. Code review:\n{analysis}")
+            logging.info(colored("💬 Auto-prompting with refinement instructions...", "blue"))
+            return False
+        else:  # 'n', 'no', 'abort', or any other input
+            logging.error(colored("✖️ Execution cancelled.", "red"))
+            return False
 
 async def select_best_branch(
     context_chat: Chat,
     assistant_responses: List[str],
+    branch_model_map: Optional[Dict[int, str]] = None,
 ) -> Tuple[int, str]:
     """
-    Uses a council of LLM judges to select the best response from multiple MCT branches.
-    
-    Returns:
-        Tuple[int, str]: (selected_index, vote_summary_string)
-    """
-    # --- 1. Identify Evaluator Models ---
-    llm_config = g.get_llm_config()
-    evaluator_council = []
-    for model_key, data in llm_config.items():
-        if data.get('selected') and data.get('eval', 0) > 0:
-            evaluator_council.extend([model_key] * data['eval'])
+    Uses a council of LLM judges to select the best response via a sophisticated tournament system.
 
-    # Fallback: If no evaluators are configured, use the first selected LLM as the judge.
+    1.  **Win Condition:** A branch wins if it gains a 2+ vote lead.
+    2.  **Reversed Temperature:** Starts at 0.6 and increases by 0.05 each round to break deadlocks.
+    3.  **Conditional Knockout:** If no winner and >2 candidates remain, a single, unambiguous
+        loser (not tied for last) is eliminated.
+    4.  **Head-to-Head:** If only 2 candidates remain, they vote until a winner emerges.
+    5.  **Performance Logging:** Each vote is timed.
+
+    Returns:
+        Tuple[int, str]: (selected_index, final_vote_summary_string)
+    """
+    # --- 1. Setup: Identify Evaluators and Candidates ---
+    llm_config = g.get_llm_config()
+    evaluator_council = [key for key, data in llm_config.items() if data.get('selected') and data.get('eval', 0) > 0 for _ in range(data['eval'])]
+
     if not evaluator_council:
-        if g.SELECTED_LLMS:
+        # Fallback logic for when no evaluators are configured
+        evaluation_fallback_iterator.update_fallback_models(llm_config)
+        fallback_evaluator = evaluation_fallback_iterator.get_next_fallback()
+        if fallback_evaluator:
+            evaluator_council.append(fallback_evaluator)
+            logging.info(colored("No specific evaluator set. Using fallback: ", "cyan") + colorize_model_name(fallback_evaluator))
+        elif g.SELECTED_LLMS:
             evaluator_council.append(g.SELECTED_LLMS[0])
-            logging.info(colored(f"No specific evaluator set. Using primary LLM to judge responses: {evaluator_council[0]}", "cyan"))
+            logging.info(colored("No fallback models available. Using primary LLM to judge: ", "yellow") + colorize_model_name(g.SELECTED_LLMS[0]))
         else:
-            logging.error(colored("⚠️ No evaluators or selected LLMs to judge branches. Defaulting to first branch.", "red"))
+            logging.error(colored("⚠️ No evaluators available to judge branches. Defaulting to first branch.", "red"))
             return 0, "No evaluator available."
 
     num_alternatives = len(assistant_responses)
-    # The prompt refers to indices 0..N-1
-    selection_prompt = f"""You are a branch selection judge. Your task is to review {num_alternatives} response options and select the best one based on helpfulness, accuracy, and completeness.
+    if num_alternatives <= 1:
+        return 0, "Only one branch generated."
 
-**Available options:**
-"""
-    for i, response in enumerate(assistant_responses):
-        selection_prompt += f"\n\n--- INDEX {i} ---\n{response}"
 
-    selection_prompt += """
-
-**Your task:**
-1.  Carefully review all the indexed responses.
-2.  Provide a brief comparative analysis explaining your choice.
-3.  **Crucially**, end your entire response with a single line: `Selected index: [number]` where `[number]` is the integer index of your choice.
-"""
-
-    async def get_vote(model_key: str):
-        # This is a self-contained chat for the judge to prevent context pollution
-        judge_chat = Chat(
-            instruction_message="You are an impartial judge. Your only goal is to select the best response from the provided list according to the user's instructions.",
-            debug_title=f"⚖️  Branch Judge ({model_key})"
-        )
-        judge_chat.add_message(Role.USER, selection_prompt)
+    async def get_vote(model_key: str, prompt_to_use: str, temperature: float, index_map: Dict[int, int]):
+        """Asks a single model to vote, times it, and returns the original branch index."""
+        judge_chat = Chat(instruction_message="You are an impartial judge...", debug_title=f"⚖️  Branch Judge ({model_key})")
+        judge_chat.add_message(Role.USER, prompt_to_use)
         
-        response = await LlmRouter.generate_completion(
-            judge_chat, 
-            [model_key], 
-            force_preferred_model=True,
-            decision_patterns={"eval": r'Selected index:\s*(\d+)'}
-        )
+        start_time = time.time()
+        try:
+            vote_context = {'start_time': start_time, 'log_printed': False, 'store_message': False, 'log_prefix': '⚖️  ', 'index_map': index_map}
+            response = await LlmRouter.generate_completion(
+                judge_chat, [model_key], force_preferred_model=True, temperature=temperature,
+                decision_patterns={"eval": r'Selected index:\s*(\d+)'}, branch_context=vote_context
+            )
+            match = re.search(r'Selected index:\s*(\d+)', response)
+            elapsed_time = time.time() - start_time
+
+            if match:
+                selected_index = int(match.group(1))
+                if selected_index in index_map:
+                    original_index = index_map[selected_index]
+                    # LlmRouter's decision pattern already logs the result, so we just return
+                    return original_index, model_key, None
+
+            logging.warning(colored(f"⚖️  ⚠️  Could not parse vote from {colorize_model_name(model_key)}: '...{response[-20:]}' ({elapsed_time:.1f}s)", "yellow"))
+            return None, model_key, "invalid response format"
+        except Exception as e:
+            elapsed_time = time.time() - start_time
+            logging.error(colored(f"⚖️  ❌ Evaluator {colorize_model_name(model_key)} failed ({elapsed_time:.1f}s): {e}", "red"))
+            return None, model_key, str(e)
+
+    # --- 2. Main Voting Loop ---
+    current_round = 1
+    current_temperature = 0.6  # Start with a more deterministic temperature
+    vote_counts = Counter()
+    candidate_indices = list(range(num_alternatives))
+
+    while True:
+        if len(candidate_indices) == 1:
+            winner_index = candidate_indices[0]
+            logging.info(colored(f"🏆 Winner by elimination: Branch {winner_index} is the last one standing.", "green"))
+            return winner_index, ""
+
+        # A. Prepare prompt for the current round's active candidates
+        index_map = {i: original_idx for i, original_idx in enumerate(candidate_indices)}
+        prompt = f"VOTING ROUND {current_round}: Please choose from these {len(candidate_indices)} options.\n"
+        for i, original_idx in enumerate(candidate_indices):
+            prompt += f"\n--- INDEX {i} (Original Branch {original_idx}) ---\n{assistant_responses[original_idx]}"
+        prompt += "\n\n**Your task:** ... end your response with `Selected index: [number]` from the list above."
         
-        match = re.search(r'Selected index:\s*(\d+)', response)
-        if match:
-            selected_index = int(match.group(1))
-            if 0 <= selected_index < num_alternatives:
-                return selected_index, model_key
-        return None, model_key
-
-    # --- 2. Gather votes from the council ---
-    logging.info(colored("⚖️", "blue", attrs=["bold"]) + colored(f"  Branch selection by {len(evaluator_council)} voters: {', '.join(evaluator_council)}", "cyan"))
-    tasks = [get_vote(model) for model in evaluator_council]
-    results = await asyncio.gather(*tasks)
-
-    # Filter out failed votes (where index is None)
-    valid_votes = [res for res in results if res[0] is not None]
-
-    if not valid_votes:
-        logging.warning(colored("⚠️ All evaluators failed to pick a valid branch. Defaulting to first branch.", "yellow"))
-        return 0, "All evaluators failed."
-    
-    # Show individual vote details
-    vote_details = []
-    for vote_result in valid_votes:
-        index, model = vote_result
-        vote_details.append(f"{model} voted for index {index}")
-    if vote_details:
-        logging.info(colored("📊", "blue") + colored(f" Individual votes: {'; '.join(vote_details)}", "light_blue"))
-
-    # --- 3. Tally votes and create summary ---
-    vote_counts = Counter(vote[0] for vote in valid_votes)
-    
-    # Group models by their vote
-    votes_by_index = {}
-    for index, model in valid_votes:
-        if index not in votes_by_index:
-            votes_by_index[index] = []
-        votes_by_index[index].append(model)
+        logging.info(colored(f"⚖️  Round {current_round} voting on {len(candidate_indices)} candidates (Temp: {current_temperature:.2f}): ", "blue", attrs=["bold"]) + colorize_model_list(evaluator_council))
         
-    # Create the summary string
-    summary_parts = []
-    for index, count in vote_counts.most_common():
-        models = ", ".join(votes_by_index[index])
-        s = 's' if count > 1 else ''
-        summary_parts.append(f"Index {index} ({count} vote{s}: {models})")
+        # B. Gather and accumulate votes
+        tasks = [get_vote(model, prompt, current_temperature, index_map) for model in evaluator_council]
+        results = await asyncio.gather(*tasks)
+        valid_votes = [res for res in results if res[0] is not None]
+        vote_counts.update(Counter(vote[0] for vote in valid_votes))
+
+        # C. Log cumulative scores for all original branches
+        if vote_counts:
+            vote_details = []
+            # Create list of (index, count) tuples and sort by count descending
+            sorted_branches = sorted(
+                [(index, vote_counts.get(index, 0)) for index in range(num_alternatives)], 
+                key=lambda x: x[1], 
+                reverse=True
+            )
+            for index, count in sorted_branches:
+                model_name = colorize_model_name(branch_model_map.get(index, 'Unknown'))
+                status = "" if index in candidate_indices else colored(" (eliminated)", "dark_grey")
+                entry_text = f"Branch {index} ({model_name}): {count} vote(s){status}"
+                vote_details.append(entry_text)
+            logging.info(f"⚖️  🗳️  Cumulative Score (Round {current_round}): {' | '.join(vote_details)}")
+
+        # D. Check for a decisive winner among *current* candidates
+        filtered_counts = Counter({i: vote_counts[i] for i in candidate_indices})
+        most_common_current = filtered_counts.most_common()
+        
+        if most_common_current:
+            winner_index, winner_count = most_common_current[0]
+            if len(most_common_current) == 1 or winner_count >= most_common_current[1][1] + 2:
+                margin = winner_count - (most_common_current[1][1] if len(most_common_current) > 1 else 0)
+                
+                logging.info(colored(f"🏆 Decisive winner found: Branch {winner_index} (", "light_green") + colorize_model_name(branch_model_map.get(winner_index, 'Unknown')) + colored(f") won with a margin of {margin}. Next: ⚖️  ➡️  🛡️", "light_green"))
+                return winner_index, ""
+
+        # E. If no winner, apply conditional knockout rule
+        # This block only runs if there are more than 2 candidates left.
+        if len(candidate_indices) > 2:
+            min_score = min(filtered_counts.values())
+            # Find all candidates tied for the lowest score
+            losers = [idx for idx, score in filtered_counts.items() if score == min_score]
+            
+            # ONLY eliminate if there is a single, unambiguous loser.
+            if len(losers) == 1:
+                eliminated_branch_index = losers[0]
+                candidate_indices.remove(eliminated_branch_index)
+                eliminated_model_name = colorize_model_name(branch_model_map.get(eliminated_branch_index, 'Unknown'))
+                logging.info(colored(f"⚖️  Knockout: Branch {eliminated_branch_index} (", "yellow") + eliminated_model_name + colored(f") eliminated ({min_score} votes).", "yellow"))
+            else:
+                logging.info(colored(f"⚖️  Deadlock for last place ({min_score} votes). No candidate will be eliminated this round.", "cyan"))
+
+        # F. Prepare for the next round
+        current_round += 1
+        current_temperature = round(current_temperature + 0.05, 2)
+
+
+def _generate_tool_documentation() -> str:
+    """
+    Dynamically discovers all tools from the tools directory and formats
+    their documentation for the system prompt.
+    """
+    docs_string = "3.  **ACT**: Decide on a tool and execute it to pass your current step. You can make use of the following tools:\n\n"
     
-    vote_summary = f"Vote Summary: {'; '.join(summary_parts)}"
+    # Import and discover tools from the tools directory
+    tools_dir = Path(__file__).parent / "tools"
+    tool_classes = {}
+    
+    if tools_dir.exists():
+        for file in tools_dir.glob("*.py"):
+            if file.name.startswith("_") or file.stem == "__init__":
+                continue
+            
+            try:
+                # Import the tool module
+                module_name = f"tools.{file.stem}"
+                module = importlib.import_module(module_name)
+                
+                # Find the tool class (should match the filename)
+                tool_class_name = file.stem
+                if hasattr(module, tool_class_name):
+                    tool_class = getattr(module, tool_class_name)
+                    if hasattr(tool_class, 'get_delim') and hasattr(tool_class, 'get_tool_info'):
+                        tool_classes[tool_class.get_delim()] = tool_class
+            except Exception as e:
+                logging.warning(f"Could not load tool from {file}: {e}")
+    
+    # Sort tools to ensure a consistent order in the prompt
+    sorted_tool_names = sorted(tool_classes.keys())
 
-    winning_index = vote_counts.most_common(1)[0][0]
+    for tool_name in sorted_tool_names:
+        tool_class = tool_classes[tool_name]
+        try:
+            info = tool_class.get_tool_info()
+            # Use four spaces for indentation in the final prompt
+            docs_string += (
+                f"    - **`{info['name']}`**: {info['description']}\n"
+                f"      *Example*: `{info['example']}`\n\n"
+            )
+        except Exception as e:
+            logging.warning(f"Could not generate documentation for tool '{tool_name}': {e}")
+    
+    # Store tool_classes globally for later use. This is a critical side-effect
+    # that makes the tools available to the rest of the application.
+    g.tool_classes = tool_classes
+    return docs_string
 
-    return winning_index, vote_summary
+
+async def construct_engineered_prompt() -> Chat:
+    """
+    Constructs the initial Chat object with a dynamically generated system prompt.
+    This prompt includes the agent's core principles and a list of available tools.
+    """
+    base_instructions = '''**SYSTEM: Agent Protocol & Capabilities**
+
+You are a sophisticated AI agent operating within a command-line interface (CLI) and a python notebook. Your primary directive is to understand user requests, formulate a plan, and execute code to achieve the goal.
+
+### Guiding Principles (Your Core Logic)
+You must follow this loop for every task.
+1.  **OBSERVE & DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
+2.  **PLAN & TRACK**: Display/update your <todos>...</todos> to align your next step(s) with the stated long term goal(s).'''
+    
+    # Dynamically generate the documentation for all available tools
+    # This also populates g.tool_classes as a side effect.
+    tool_docs = _generate_tool_documentation()
+    
+    step_4 = "4.  **ITERATE**: After executing a tool, return to Step 1 **OBSERVE & DECOMPOSE** to reflect on your observations and plan your next move."
+    
+    # Combine all parts into the final instruction message
+    default_inst = f"{base_instructions}\n{tool_docs}\n{step_4}"
+    
+    # Create and configure the new Chat object
+    context_chat = Chat(debug_title="Main Context Chat")
+    context_chat.set_instruction_message(default_inst)
+    
+    return context_chat
+
 
 async def save_current_llm_config_as_default():
     """Saves the current session's LLM selection as the new default."""
-    from py_classes.globals import g # Lazy import
+    from core.globals import g # Lazy import
     logging.info(colored("💾 Saving current LLM selection as the new default...", "magenta"))
     
     # Get the complete, most recent configuration data for ALL models
@@ -902,29 +1488,84 @@ def handle_multiline_input() -> str:
 async def get_user_input_with_bindings(
     args: argparse.Namespace,
     context_chat: Chat,
-    prompt: str = colored("💬 Enter your request: ", 'blue', attrs=["bold"]),
+    prompt: str = colored(" Enter your request: ", 'blue', attrs=["bold"]),
     input_override: str = None,
-    force_input: bool = False
-) -> str:
+    force_input: bool = False,
+    input_event: Optional[asyncio.Event] = None,
+    input_lock: Optional[threading.Lock] = None,
+    shared_input: Optional[Dict[str, Any]] = None
+) -> Tuple[str, List[str]]:
+    """Interactively captures user input and processes special keybindings.
+
+    This function serves as the primary Read-Eval-Print Loop (REPL). It
+    returns the user's text prompt. If a command that generates data (like
+    taking a screenshot) is used, it returns that data alongside an empty prompt,
+    allowing the main loop to handle it and re-prompt for text.
+
+    Args:
+        args (argparse.Namespace): The application's runtime arguments, modified
+            in place by commands.
+        context_chat (Chat): The current conversation context, modified in place
+            by commands.
+        prompt (str, optional): The prompt string to display.
+        input_override (str, optional): A string to use instead of interactive input.
+        force_input (bool, optional): If True, forces a direct `input()` call.
+
+    Returns:
+        Tuple[str, List[str]]: A tuple containing:
+            - The user's text input string.
+            - A list of base64-encoded image strings, if any were captured.
     """
-    Gets user input, handling special keybindings.
-    """
+    # --- First Call Logic ---
+    if get_user_input_with_bindings.is_first_call:
+        get_user_input_with_bindings.is_first_call = False
+
     while True:
         if prompt == "":
             user_input = ""
         elif input_override:
             user_input = input_override
         elif force_input:
-            user_input = input(prompt)
+            if input_event and input_lock and shared_input is not None:
+                await input_event.wait()
+                input_event.clear()
+                with input_lock:
+                    user_input = shared_input["value"]
+            else:
+                user_input = input(prompt)
         else:
             try:
-                if context_chat:
-                    user_input = input(f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] " + prompt)
+                # --- FIX: Use the thread-safe event/lock mechanism ---
+                if input_event and input_lock and shared_input is not None:
+                    # In TUI mode, wait for the event that signals input is ready
+                    agent_logger = logging.getLogger("agent_main")
+                    agent_logger.info("Agent waiting for input event...")
+                    await input_event.wait()
+                    agent_logger.info("Input event received! Processing...")
+                    input_event.clear() # Reset the event for the next input
+                    with input_lock:
+                        user_input = shared_input["value"]
+                        agent_logger.info(f"Retrieved user input: '{user_input}'")
                 else:
-                    user_input = input(prompt)
+                    # Original CLI behavior
+                    if context_chat:
+                        user_input = input(f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] " + prompt)
+                    else:
+                        user_input = input(prompt)
             except KeyboardInterrupt:
-                logging.warning(colored("\n# cli-agent: Exiting due to Ctrl+C.", "yellow"))
+                logging.warning(colored("\n# cli-agent: Exiting due to Ctrl+C...", "yellow"))
                 exit()
+        
+        # --- Command Handling ---
+        if user_input in ["-img", "--img", "-screenshot", "--screenshot"] or args.image:
+            logging.info(colored("# cli-agent: Taking screenshot.", "green"))
+            args.image = False
+            base64_images = await handle_screenshot_capture()
+            # Return the captured image data. The empty string signals no text prompt was entered.
+            return "", base64_images
+        elif user_input == "-m" or user_input == "--m":
+            # Return the multiline input with an empty image list.
+            return handle_multiline_input(), []
         
         if user_input == "-r" or user_input == "--r":
             if not context_chat or len(context_chat.messages) < 2:
@@ -945,7 +1586,6 @@ async def get_user_input_with_bindings(
         elif user_input == "-a" or user_input == "--auto":
             args.auto = not args.auto
             
-            # Check guard count for context
             llm_config = g.get_llm_config()
             guard_count = sum(
                 data.get('guard', 0) 
@@ -957,41 +1597,24 @@ async def get_user_input_with_bindings(
             if args.auto and guard_count > 0:
                 status_msg += f" ({guard_count} guards active)"
             elif args.auto and guard_count == 0:
-                status_msg += " (manual confirmation required)"
+                status_msg += " (no guards, will execute without confirmation)"
             elif not args.auto and guard_count > 0:
                 status_msg += f" (ignoring {guard_count} available guards)"
             
             logging.info(colored(f"{status_msg}.", "green"))
             continue
-        elif user_input == "-mct" or user_input == "--mct":
-            args.mct = int(input(colored(f"# cli-agent: Enter a branch count (current: {args.mct}): ", "green")))
-            logging.info(colored(f"# cli-agent: Monte Carlo Tree Search count set to {args.mct}", "green"))
-            if context_chat:
-                context_chat.debug_title = "MCTs Branching - Main Context Chat" if args.mct > 1 else "Main Context Chat"
-            continue
         elif user_input == "-f" or user_input == "--fast":
             args.fast = not args.fast
-            g.FORCE_STRONG = False
-            logging.info(colored(f"# cli-agent: Fast LLM mode toggled {'on' if args.fast else 'off'}.", "green"))
+            logging.info(colored(f"# cli-agent: Fast mode toggled {'on' if args.fast else 'off'} (deprecated).", "green"))
             continue
         elif user_input == "-v" or user_input == "--v":
             args.voice = not args.voice
             logging.info(colored(f"# cli-agent: Voice mode toggled {'on' if args.voice else 'off'}.", "green"))
             continue
-        elif user_input == "--speak":
-            args.speak = not args.speak
-            logging.info(colored(f"# cli-agent: Text-to-speech mode toggled {'on' if args.speak else 'off'}.", "green"))
-            continue
         elif user_input == "--full_output":
             args.full_output_mode = not args.full_output_mode
-            # Invert the logic: full_output_mode = True means SUMMARY_MODE = False
             g.SUMMARY_MODE = not args.full_output_mode
             logging.info(colored(f"# cli-agent: Full output mode toggled {'on' if args.full_output_mode else 'off'}.", "green"))
-            continue
-        elif user_input in ["-img", "--img", "-screenshot", "--screenshot"] or args.image:
-            logging.info(colored("# cli-agent: Taking screenshot.", "green"))
-            args.image = False
-            await handle_screenshot_capture(context_chat)
             continue
         elif user_input == "-p" or user_input == "--p":
             logging.info(colored("# cli-agent: Printing chat history.", "green"))
@@ -1002,8 +1625,6 @@ async def get_user_input_with_bindings(
             else:
                 print(colored("No chat history available.", "yellow"))
             continue
-        elif user_input == "-m" or user_input == "--m":
-            return handle_multiline_input()
         elif user_input in ["-o", "--o", "-online", "--online"]:
             args.online = not args.online
             logging.info(colored(f"# cli-agent: Online mode toggled {'on' if args.online else 'off'}.", "green"))
@@ -1012,8 +1633,7 @@ async def get_user_input_with_bindings(
             logging.info(colored("# cli-agent: Exiting...", "green"))
             exit(0)
         elif user_input in ["-h", "--h", "--help"]:
-            print_startup_summary(args) # Reuse the summary function
-            # Print the detailed command list
+            print_startup_summary(args)
             CMD_WIDTH = 20
             print(colored("\n--- Other Commands ---", "yellow"))
             print(f"  {colored('-r, --regenerate'.ljust(CMD_WIDTH), 'white')}Regenerate last response")
@@ -1028,13 +1648,31 @@ async def get_user_input_with_bindings(
         elif user_input in ["-s", "--save"]:
             await save_current_llm_config_as_default()
             continue
-        return user_input
-    if args.image:
-        args.image = False
+        elif user_input in ["-clear", "--clear"]:
+            context_chat = None
+            context_chat = await construct_engineered_prompt()
+            print("# cli-agent: Chat cleared.")
+            continue
+        elif user_input in ["-compact", "--compact"]:
+            if context_chat and context_chat.messages:
+                # Clear current chat and start fresh
+                print("# cli-agent: Conversation compacting instructed.")
+                g.AGENT_IS_COMPACTING = True
+                return f"Let's pause for a moment, please write a summary of our progress inside a markdown file at: {g.CLIAGENT_PERSISTENT_STORAGE_PATH }/MEMORY/replace_with_descriptive_title.md", []
+                
+            continue
+        # If the code reaches here, it's a normal text prompt.
+        return user_input, []
 
-async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
+# Initialize the stateful flag for the first call.
+get_user_input_with_bindings.is_first_call = True
+
+async def handle_screenshot_capture() -> List[str]:
     """
     Handles the screenshot capture process.
+
+    Returns:
+        List[str]: The base64 encoded image data or an empty list if failed.
     """
     base64_images: List[str] = []
     screenshots_paths: List[str] = []
@@ -1084,18 +1722,8 @@ async def handle_screenshot_capture(context_chat: Optional[Chat]) -> str:
         logging.error(colored("No images were captured.", "red"))
     if not base64_images:
         logging.warning(colored("# cli-agent: No screenshot was captured after multiple attempts.", "yellow"))
-        return ""
-    logging.info(colored("Screenshot preprocesssing...", "green"))
-    context_chat.add_message(Role.USER, f"""I am inquiring about a screenshot let's have a look at it.
-```python
-image_path = '{screenshots_paths[0]}'
-description = ViewImage.run(image_path, "Describe the screenshot in detail, focusing on any text, images, or notable features.")
-print(f"Screenshot description: {{description}}")
-```
-<execution_output>
-Screenshot description: {ViewImage.run(screenshots_paths[0], 'Describe the screenshot in detail, focusing on any text, images, or notable features.')}
-</execution_output>
-Perfect, use this description as needed for the next steps.\n""")
+        return []
+    
     return base64_images
 
 def preprocess_consecutive_sudo_commands(code: str) -> str:
@@ -1137,48 +1765,208 @@ def extract_paths(user_input: str) -> Tuple[List[str], List[str]]:
             local_paths.add(cleaned_candidate)
     return list(local_paths), list(online_paths)
 
-async def main() -> None:
+# The main() function is now the primary entry point for all logic
+def initialize_notebook_lazy():
+    """
+    Lazy initialization of the ComputationalNotebook.
+    This is called on the first use of bash or python tools.
+    """
+    import logging
+    from termcolor import colored
+    
+    if hasattr(g, 'notebook') and g.notebook is not None:
+        return g.notebook  # Already initialized
+    
+    tui_callback = getattr(g, 'tui_callback', None)
+    stdout_callback = getattr(g, 'stdout_callback', None)
+    stderr_callback = getattr(g, 'stderr_callback', None)
+    
+    if not stdout_callback or not stderr_callback:
+        raise RuntimeError("Notebook callbacks not available - main initialization may have failed")
+    
+    if tui_callback: 
+        tui_callback("  - Initializing computational notebook...", "system")
+    else: 
+        logging.info(colored("  - Initializing computational notebook (tmux + python)...", "blue"))
+    
+    notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback)
+    g.notebook = notebook
+    
+    if tui_callback: 
+        tui_callback("✔ Notebook ready.", "system_ok")
+    else: 
+        logging.info(colored("✔ Computational notebook ready.", "green"))
+    
+    return notebook
+
+async def generate_branch(model_key: str, branch_index: int, lock: asyncio.Lock, context_chat: Chat, painter: TextStreamPainter, temperature: float, base64_images: list, llm_config: dict, branch_model_map: dict, num_branches: int):
+    """Generates a single response branch, handling model fallbacks."""
     try:
-        # The `args` and logger are already set up globally at the start of the script.
+        async with lock:
+            logging.debug(f"🚀 Branch {branch_index+1} starting with primary model: {colorize_model_name(model_key)}")
         
+        branch_model_map[branch_index] = model_key
+        response_buffer_list = [""]
+        branch_update_callback = create_interruption_callback(
+            response_buffer=response_buffer_list,
+            painter=painter,
+            lock=lock
+        )
+        
+        branch_fallback_iterator.update_fallback_models(llm_config)
+        
+        exclude_list = [model_key]
+        # Get all available fallback models instead of limiting to 2
+        iterative_fallbacks = branch_fallback_iterator.get_multiple_fallbacks(
+            count=10,  # Generous limit to get all available fallbacks
+            exclude=exclude_list
+        )
+        
+        if not iterative_fallbacks:
+            other_branch_models = [
+                key for key, data in llm_config.items()
+                if (data.get('selected') and 
+                    key not in LlmRouter().failed_models and
+                    key != model_key and
+                    data.get('beams', 0) > 0)
+            ]
+            iterative_fallbacks = other_branch_models  # Use all available models
+            
+        async with lock:
+            if iterative_fallbacks:
+                usage_stats = branch_fallback_iterator.get_usage_stats()
+                usage_info = ", ".join([f"{m}({usage_stats.get(m, 0)})" for m in iterative_fallbacks])
+                logging.debug(f"🔄 Branch {branch_index+1} branch fallbacks: {usage_info}")
+        
+        models_to_try = [model_key] + iterative_fallbacks
+        
+        # Pass all models to LLM router at once for proper fallback handling
+        try:
+            context_chat.debug_title = f"MCT Branch {branch_index+1}/{num_branches}"
+            
+            async with lock:
+                logging.debug(f"🎯 Branch {branch_index+1} primary model: {colorize_model_name(model_key)} with {len(iterative_fallbacks)} fallbacks")
+            
+            branch_start_time = time.time()
+            current_branch_context = {
+                'branch_number': branch_index,
+                'store_message': True,
+                'log_printed': False,
+                'start_time': branch_start_time
+            }
+            async with lock:
+                print("🌿 ", end="", flush=True)
+
+            await LlmRouter.generate_completion(
+                chat=context_chat,
+                preferred_models=models_to_try,  # Pass ALL models for proper fallback
+                force_preferred_model=True,
+                temperature=temperature,
+                base64_images=base64_images,
+                    generation_stream_callback=branch_update_callback,
+                    strengths=g.LLM_STRENGTHS,
+                    thinking_budget=None,
+                    exclude_reasoning_tokens=True,
+                    branch_context=current_branch_context
+                )
+            async with lock:
+                elapsed_time = time.time() - current_branch_context.get('start_time', time.time())
+                timing_str = f" ({elapsed_time:.1f}s)"
+                if current_branch_context.get('log_printed', False):
+                    print(colored(f"{timing_str}", "green"))
+                else:
+                    print(colored(f"🔄 Branch {branch_index+1} completed{timing_str} ✅", "green"))
+            branch_model_map[branch_index] = model_key  # Record the primary model attempted
+            return response_buffer_list[0]
+        except StreamInterruptedException as e:
+            async with lock:
+                elapsed_time = time.time() - current_branch_context.get('start_time', time.time())
+                timing_str = f" ({elapsed_time:.1f}s)"
+                if current_branch_context.get('log_printed', False):
+                    print(colored(timing_str, "green"))
+                else:
+                    print(colored(f"🔄 Branch {branch_index+1} interrupted{timing_str} ✅", "green"))
+            branch_model_map[branch_index] = model_key
+            return e.response
+        except Exception as e:
+            async with lock:
+                all_tried = colorize_model_list(models_to_try)
+                logging.error(colored(f"❌ Branch {branch_index+1} failed after trying all models (", "red") + all_tried + colored(f"): {str(e)[:100]}", "red"))
+            return None
+    
+    except Exception as unexpected_error:
+        async with lock:
+            logging.error(colored(f"❌ Branch {branch_index+1} (", "red") + colorize_model_name(model_key) + colored(f") unexpected failure: {str(unexpected_error)[:200]}", "red"))
+        return None
+
+async def main(
+    input_event: Optional[asyncio.Event] = None, 
+    input_lock: Optional[threading.Lock] = None, 
+    shared_input: Optional[Dict[str, Any]] = None,
+    tui_callback: Optional[Callable] = None
+) -> None:
+    try:
+        # In TUI mode, create default args instead of parsing CLI
+        if input_event:  # TUI mode
+            # Create default args for TUI mode
+            global args
+            args = argparse.Namespace(
+                debug=False,
+                log_file=None,
+                auto=False,
+                local=False,
+                message=[],
+                regenerate=False,
+                voice=False,
+                sandbox=False,
+                gui=False,
+                c=False,
+                llm=None,
+                fast=False,
+                min=False,
+                image=False,
+                full_output_mode=False,
+                exit=False,
+                debug_chats=False
+            )
+            
+            # Setup logging properly for TUI mode (output goes through print/stdout)
+            setup_logging(args.debug, args.log_file, tui_mode=True)
+            
+            # Display header in TUI mode (stdout is redirected before agent starts)
+            header_dashes = colored("# # # # # # # # # # # # # # # # # # # # # # # # # #", "blue") 
+            header = figlet_format("CLI-Agent", font="slant")
+            print(header_dashes)
+            print(colored(header, "cyan", attrs=["bold"]))
+            print(header_dashes)
+            logging.info("Starting CLI-Agent...")
+        
+        # If not in TUI mode, display the header and perform standard logging setup.
+        elif not tui_callback:
+            setup_logging(args.debug, args.log_file)
+            g.DEBUG_MODE = args.debug
+            header_dashes = colored("# # # # # # # # # # # # # # # # # # # # # # # # # #", "blue")
+            header = figlet_format("CLI-Agent", font="slant")
+            print(header_dashes)
+            print(colored(header, "cyan", attrs=["bold"]))
+            print(header_dashes)
+            logging.info("Starting CLI-Agent...")
+
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
         
-        # Only apply the cached LLM config if no specific LLM flags are used. This ensures CLI args have priority.
-        if not args.llm and not args.local and not args.fast:
+        if args.monte_carlo:
+            apply_monte_carlo_config()
+        elif not args.llm and not args.local and not args.fast:
             apply_default_llm_config()
 
-        default_inst = f'''**SYSTEM: Agent Protocol & Capabilities**
+        # Create the UtilsManager first, as it's needed for prompt generation
+        utils_manager = UtilsManager()
 
-You are a sophisticated AI agent operating within a command-line interface (CLI) and a python notebook. Your primary directive is to understand user requests, formulate a plan, and execute code to achieve the goal.
-
-### 1. Guiding Principles (Your Core Logic)
-You must follow this four-step loop for every task:
-1.  **THINK & DECOMPOSE**: Analyze the user's request. Break it down into small, logical steps.
-2.  **PLAN & TRACK (Todos)**: Add your plan to the `todos` list. Keep it updated, marking steps complete as you go.
-3.  **ACT (Execute Code)**: Use your `bash` and `python` tools to execute the current step.
-4.  **VERIFY & REFINE**: Check the results of your actions. Refine your plan based on what you learned.
-
-### 2. Execution Environments
-You can switch between two environments by using the appropriate code block language:
-- **`bash`**: For direct system interaction, file system navigation, and simple commands.
-- **`python`**: For complex logic, data manipulation, and accessing your specialized `utils` library.
-
-### 3. Toolbox & Dynamic Hints
-Your specialized tools (utilities) are available within any `python` code block.
-**IMPORTANT**: For each task, a dynamic list of relevant tools and their exact usage syntax will be provided in the `# HINTS` section of the user's message. You MUST use this section as your primary reference for available tools.
-
-### 4. Rules of Engagement
-- **Workspace**: Your primary working directory is `{g.AGENTS_SANDBOX_DIR}`.
-- **Safety**: Be cautious. Prefer creating new files over overwriting existing ones.
-- **Clarity**: Announce your plan before executing code.
-'''
-
-        g.INITIAL_MCT_VALUE = args.mct
         if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip():
             args.local = True
         if args.voice:
             args.auto = True
-            logging.info(colored("# cli-agent: Voice mode enabled, automatically enabling auto execution mode", "green"))
+            if not tui_callback: logging.info(colored("# cli-agent: Voice mode enabled, automatically enabling auto execution mode", "green"))
         if args.sandbox:
             g.USE_SANDBOX = True
         
@@ -1191,9 +1979,6 @@ Your specialized tools (utilities) are available within any `python` code block.
             nonlocal stderr_buffer
             print(colored(text, "red"), end="")
             stderr_buffer += text
-        def input_callback(previous_output: str) -> bool | str:
-            logging.warning(colored("⏳ Process seems idle, continuing to wait...", "yellow"))
-            return True
             
         web_server = None
         if args.gui:
@@ -1206,206 +1991,240 @@ Your specialized tools (utilities) are available within any `python` code block.
             try:
                 context_chat = Chat.load_from_json()
                 if args.regenerate:
-                    logging.info(colored("Loading previous chat for regeneration.", "green"))
+                    if not tui_callback: logging.info(colored("Loading previous chat for regeneration.", "green"))
                     if not context_chat or len(context_chat.messages) < 2:
-                        logging.critical(colored("# cli-agent: No sufficient chat history found.", "red"))
+                        if not tui_callback: logging.critical(colored("# cli-agent: No sufficient chat history found.", "red") )
                         exit(1)
                     if context_chat.messages[-1][0] == Role.ASSISTANT:
                         context_chat.messages.pop()
-                    logging.info(colored("# cli-agent: Will regenerate response.", "green"))
+                    if not tui_callback: logging.info(colored("# cli-agent: Will regenerate response.", "green"))
                 else:
-                    logging.info(colored("Continuing previous chat.", "green"))
+                    if not tui_callback: logging.info(colored("Continuing previous chat.", "green"))
             except FileNotFoundError:
                 if args.regenerate:
-                    logging.critical(colored("No previous chat found to regenerate. Exiting.", "red"))
+                    if not tui_callback: logging.critical(colored("No previous chat found to regenerate. Exiting.", "red") )
                     exit(1)
                 else:
-                    logging.warning(colored("No previous chat found. Starting a new chat.", "yellow"))
+                    if not tui_callback: logging.warning(colored("No previous chat found. Starting a new chat.", "yellow") )
                     context_chat = None
-        
-        if args.mct and context_chat:
-            context_chat.debug_title = "MCTs Branching - Main Context Chat"
+
+        base64_images: List[str] = []
         if args.image:
-            logging.info(colored("# cli-agent: Taking screenshot due to --img flag...", "green"))
-            base64_images = await handle_screenshot_capture(context_chat)
+            if not tui_callback: logging.info(colored("# cli-agent: Taking screenshot due to --img flag...", "green"))
+            base64_images.extend(await handle_screenshot_capture())
             args.image = False
         
-        # Handle -l to auto-select all local models
+        if tui_callback:
+            tui_callback("Initializing agent...", "system")
+
         if args.local and not g.SELECTED_LLMS:
-            logging.info(colored("# cli-agent: Local mode (-l) detected. Selecting all available local models.", "green"))
-            # Get all local models that are not guard models
-            local_models = [m for m in LlmRouter.get_models(force_local=True) if not any(s == AIStrengths.GUARD for s in m.strengths)]
+            if not tui_callback: logging.info(colored("# cli-agent: Local mode (-l) detected. Selecting all available local models.", "green"))
+            local_models = LlmRouter.get_models(force_local=True)
             if local_models:
                 g.SELECTED_LLMS = [model.model_key for model in local_models]
             else:
-                logging.warning(colored("# cli-agent: Local mode enabled, but no local models were found.", "yellow"))
+                if not tui_callback: logging.warning(colored("# cli-agent: Local mode enabled, but no local models were found.", "yellow"))
 
         if args.llm == "__select__":
-            logging.info(colored("# cli-agent: Opening LLM selection...", "green"))
             await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
             args.llm = None
         elif args.llm:
             g.SELECTED_LLMS = [args.llm]
+            
+            # If -mct and -llm are used together, update Monte Carlo config with this model
+            if args.monte_carlo:
+                import json
+                try:
+                    current_config = g.get_llm_config()
+                    # Add the specified model to the Monte Carlo config
+                    current_config[args.llm] = {"selected": True, "beams": 2, "eval": 1, "guard": 1}
+                    
+                    # Save the updated configuration
+                    os.makedirs(os.path.dirname(g.LLM_CONFIG_PATH), exist_ok=True)
+                    with open(g.LLM_CONFIG_PATH, 'w') as f:
+                        json.dump(current_config, f, indent=2)
+                    
+                    g.load_llm_config()  # Reload to apply changes
+                    logging.info(f"🎯 Updated Monte Carlo configuration with {colored(args.llm, 'green')}")
+                except Exception as e:
+                    logging.error(f"❌ Failed to update Monte Carlo configuration: {e}")
         
-        # Sync args.auto with guard LLMs before showing startup summary
-        llm_config = g.get_llm_config()
-        guard_count = sum(
-            data.get('guard', 0) 
-            for data in llm_config.values() 
-            if data.get('selected')
-        )
-        if guard_count > 0 and not args.auto:
-            args.auto = True
-            logging.info(colored(f"🔄 Auto-execution enabled: {guard_count} guard LLMs detected", "green"))
+        if not args.monte_carlo:
+            args.auto = False
+        else:
+            llm_config = g.get_llm_config()
+            guard_count = sum(data.get('guard', 0) for data in llm_config.values() if data.get('selected'))
+            if guard_count > 0 and not args.auto:
+                args.auto = True
+
+        is_tui = bool(tui_callback)
+        print_startup_summary(args, tui_mode=is_tui)
         
-        # Now that LLM selections are made, print the startup summary
-        print_startup_summary(args)
+        if not tui_callback:
+            logging.info(colored("  - Starting background model discovery...", "blue"))
+        else:
+            logging.info(colored("  - Starting background model discovery...", "blue"))
+
+        g.start_background_model_discovery()
         
-        logging.info(colored("Initializing sandbox environment...", "blue"))
-        notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback, input_prompt_handler=input_callback)
-        utils_manager = UtilsManager()
+        # Store the callbacks globally for lazy notebook initialization
+        g.stdout_callback = stdout_callback
+        g.stderr_callback = stderr_callback
+        g.tui_callback = tui_callback  # Store tui_callback as well for consistent logging
         
-        logging.info(colored("Sandbox environment ready.", "blue"))
+        if tui_callback: tui_callback("  - Loading utilities and playbooks...", "system")
+        playbook_manager = PlaybookManager(vector_db=utils_manager.vector_db)
+        
+        if tui_callback: tui_callback("✔ Initialization complete.", "system_ok")
+        else: logging.info(colored("Agent ready (notebook will initialize on first use).", "blue"))
 
         if context_chat is None:
-            context_chat = Chat(debug_title="Main Context Chat")
-            if args.sandbox:
-                default_inst += f"\nPlease try to stay within your sandbox directory at {g.AGENTS_SANDBOX_DIR}\n"
-            context_chat.set_instruction_message(default_inst)
+            context_chat = await construct_engineered_prompt()
             
-            # Helper logic for the new bootstrap message
             def get_recent_files_output():
+                # This function simulates the output of the bash command for the bootstrap message.
                 directory = os.getcwd()
                 output_lines = [f"Working Directory: {directory}\n"]
                 try:
+                    # Find only files, not directories
                     all_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+                    # Sort by modification time, newest first
                     all_files.sort(key=lambda f: os.path.getmtime(os.path.join(directory, f)), reverse=True)
                     output_lines.append("5 last modified files:")
                     if not all_files:
                         output_lines.append("-> No files found in this directory.")
                     else:
+                        # Get the top 5
                         for filename in all_files[:5]:
                             output_lines.append(f"- {filename}")
                 except FileNotFoundError:
                     output_lines.append(f"Error: The directory '{directory}' does not exist.")
                 return "\n".join(output_lines)
 
-            # This new bootstrap message is a concise, pre-filled sequence to establish context.
-            initial_bootstrap_message = f"""Let's get a quick overview of our current state by listing the 5 most recently modified files.
-
-```python
-import os
-
-# Get the current working directory
-directory = os.getcwd()
-print(f"Working Directory: {{directory}}")
-
-try:
-    # 1. Get all entries in the directory that are files
-    all_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
-
-    # 2. Sort the files by their modification time (newest first)
-    all_files.sort(key=lambda f: os.path.getmtime(os.path.join(directory, f)), reverse=True)
-
-    # 3. Print the 5 most recent files
-    print("\\n5 last modified files:")
-    if not all_files:
-        print("-> No files found in this directory.")
-    else:
-        for filename in all_files[:5]:
-            print(f"- {{filename}}")
-
-except FileNotFoundError:
-    print(f"Error: The directory '{{directory}}' does not exist.")
-```
-<execution_output>
-{get_recent_files_output()}
-</execution_output>
-"""
 
         if '-m' in sys.argv or '--message' in sys.argv:
             if not args.message:
-                logging.info(colored("# cli-agent: Entering multiline input mode.", "green"))
                 multiline_input = handle_multiline_input()
                 if multiline_input.strip():
                     args.message.append(multiline_input)
 
-        logging.info(colored("Ready.", "magenta"))
-        
-        # Swap to the simple logger now that startup is complete
-        swap_to_simple_logging()
+        if not tui_callback:
+            logging.info(colored("Ready.", "magenta"))
+            swap_to_simple_logging()
 
         user_interrupt = False
-        context_chat.add_message(Role.USER, initial_bootstrap_message)
+        if not (args.c or args.regenerate):
+            context_chat.add_message(Role.USER, "Please list the 5 most recently modified files in this cwd")
+            initial_bootstrap_message = f"""<think>
+The user wants me to list the 5 most recently modified files in this current working directory.
+To successfully list them I can utilise a combination of the bash utilities ls, grep, head, awk and echo.
+</think><todos>
+- [ ] Use bash to list the 5 most recently modified filed in the cwd.
+</todos><bash>
+echo "Working Directory: $(pwd)"
+echo ""
+echo "5 last modified files:"
+# List files sorted by modification time, filter for regular files, take the top 5, and format the output.
+# The '||' part handles the case where no files are found.
+ls -lt | grep "^-" | head -n 5 | awk '{{print "- " $NF}}' || echo "-> No files found in this directory."
+</bash><context>
+{get_recent_files_output()}
+</context><think>
+I have completed the task of listing the 5 most recently modified files in the current working directory. I will now update the todos and respond to the user indicating that the task is complete and ask if they need anything else.
+</think><todos>
+- [x] Use bash to list the 5 most recently modified filed in the cwd.
+</todos>I have successfully listed the 5 most recently modified filed in the cwd, is there anything else I can assist you with?"""
+            context_chat.add_message(Role.ASSISTANT, initial_bootstrap_message)
+        
         while True:
             LlmRouter().failed_models.clear()
             user_input: Optional[str] = None
             
-            # Set LLM strengths based on --fast or --strong flags
             g.LLM_STRENGTHS = []
-            if args.fast:
-                g.LLM_STRENGTHS = [AIStrengths.SMALL]
             
-            # Sync args.auto with guard LLMs - auto-enable when guards are present
-            llm_config = g.get_llm_config()
-            guard_count = sum(
-                data.get('guard', 0) 
-                for data in llm_config.values() 
-                if data.get('selected')
-            )
-            if guard_count > 0 and not args.auto:
-                args.auto = True
-                logging.debug(colored(f"Auto-execution enabled: {guard_count} guard LLMs detected", "green"))
+            if not args.monte_carlo:
+                args.auto = False
+            else:
+                llm_config = g.get_llm_config()
+                guard_count = sum(
+                    data.get('guard', 0) 
+                    for data in llm_config.values() 
+                    if data.get('selected')
+                )
+                if guard_count > 0 and not args.auto:
+                    args.auto = True
             
-            # Explicitly set global flags from args
             g.FORCE_LOCAL = args.local
             g.DEBUG_CHATS = args.debug_chats
-            g.FORCE_FAST = args.fast
             g.LLM = args.llm
-            g.FORCE_ONLINE = args.online
             g.SUMMARY_MODE = not args.full_output_mode
-            
-            temperature = 0.85 if g.MCT > 1 else 0
-            
-            logging.debug(f"MCT active: args.mct={args.mct}, g.MCT={g.MCT}, g.SELECTED_LLMS={g.SELECTED_LLMS}")
-
-            if context_chat:
-                context_chat.save_to_json()
 
             if args.regenerate:
                 user_input = ""
-                logging.info(colored("# cli-agent: Proceeding with regeneration...", "green"))
                 args.regenerate = False
             elif args.voice:
                 user_input, _, wake_word_used = get_listen_microphone()(private_remote_wake_detection=args.private_remote_wake_detection)
             elif args.message:
                 user_input = args.message.pop(0)
-                msg_log = f"💬 Processing message: {user_input}"
-                if args.message:
-                    msg_log += colored(f" (⏳ {len(args.message)} more queued)", 'blue')
-                print(colored(msg_log, 'blue', attrs=['bold']), flush=True)
+                print(colored(f"💬 Processing message: {user_input}" + (f" (⏳ {len(args.message)} more queued)" if args.message else ""), 'blue', attrs=['bold']), flush=True)
+            elif g.AGENT_IS_COMPACTING:
+                g.AGENT_IS_COMPACTING = False
+                context_chat = await construct_engineered_prompt()
+                context_chat.add_message(Role.USER, "Hi can you please check your memory for the latest summary?")
+                context_chat.add_message(Role.ASSISTANT, """<think>
+The user wants me to search my memory for a the latest summary.
+I need to create a todo and call the summary tool with the order key set to latest.
+</think><todos>
+- [] Check my memory
+</todos><memory>
+<memory>
+latest summary LIMIT 1
+</memory>""")
             else:
-                user_input = await get_user_input_with_bindings(args, context_chat, force_input=user_interrupt)
+                agent_logger = logging.getLogger("agent_main") if input_event else None
+                if agent_logger:
+                    agent_logger.info("About to call get_user_input_with_bindings")
+                user_input, new_images = await get_user_input_with_bindings(
+                    args, context_chat, force_input=user_interrupt, 
+                    input_event=input_event, input_lock=input_lock, shared_input=shared_input
+                )
+                if agent_logger:
+                    agent_logger.info(f"Got user input from get_user_input_with_bindings: '{user_input}'")
+                if new_images:
+                    base64_images.extend(new_images)
+                
+                if base64_images:
+                    transcription_chat = Chat(
+                        instruction_message="You are an image transcription assistant. Your only goal is to describe the provided image in detail.",
+                        debug_title="Image Transcription"
+                    )
+                    transcription_chat.add_message(Role.USER, "Describe the following image.")
+                    
+                    try:
+                        transcription = await LlmRouter.generate_completion(
+                            transcription_chat,
+                            strengths=[AIStrengths.VISION],
+                            base64_images=base64_images
+                        )
+                        user_input = f"{user_input}\n\n{transcription}" if user_input.strip() else transcription
+                    except Exception:
+                        error_msg = "\n\n[SYSTEM: The attempt to analyze the provided screenshot failed.]"
+                        user_input = f"{user_input}{error_msg}"
+
+                    base64_images = []
+                
                 try:
                     from utils.viewfiles import ViewFiles
                     local_paths, _ = extract_paths(user_input)
                     for path in local_paths:
                         expanded_path = os.path.expanduser(path)
-                        if not os.path.exists(expanded_path):
-                            continue
-                        
-                        # --- FIX: Use ViewFiles for both files and directories, with correct arguments ---
-                        if os.path.isfile(expanded_path) or os.path.isdir(expanded_path):
-                            entity_type = "file" if os.path.isfile(expanded_path) else "directory"
-                            logging.info(colored(f"# cli-agent: Auto-viewing {entity_type}: {path}", "green"))
-                            # Correctly call ViewFiles.run with the 'paths' keyword and a list.
+                        if os.path.exists(expanded_path) and (os.path.isfile(expanded_path) or os.path.isdir(expanded_path)):
                             view_result_str = ViewFiles.run(paths=[expanded_path])
                             view_result = json.loads(view_result_str)
-                            # The 'result' key contains a pre-formatted markdown string.
                             if view_result.get("result"):
                                 user_input += f"\n\n# Content of: {path}\n{view_result['result']}"
-                except (ImportError, FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
-                    logging.debug("Path augmentation feature failed silently.")
+                except (ImportError, FileNotFoundError, subprocess.CalledProcessError, Exception):
+                    pass
                 user_interrupt = False
 
             if LlmRouter.has_unconfirmed_data():
@@ -1413,367 +2232,328 @@ except FileNotFoundError:
 
             action_counter, assistant_response = 0, ""
             text_stream_painter = TextStreamPainter()
-            base64_images: List[str] = []
 
             if (user_input):
-                # Capture the output of adding the task and listing the todos for the prompt context.
-                add_output_str = TodosUtil._run_logic("add", task="user_input: " + user_input)
-                list_output_str = TodosUtil._run_logic("list")
-
-                # Construct the prompt for the agent, showing the final state of the list.
-                todos_prompt = f"""**TodosUtil (`python`)**
-```python
-# Let's add my current request to the todos, please first review your todos and prioritize my task
-TodosUtil.run('add', task='{user_input}')
-TodosUtil.run('list')
-```
-<execution_output>
-{add_output_str}
-{list_output_str}
-</execution_output>
-"""
-                context_chat.add_message(Role.USER, todos_prompt)
-
-                # Use the captured string to generate hints for the next step.
+                context_chat.add_message(Role.USER, user_input)
+                # --- START RE-ADDED HINT/PLAYBOOK LOGIC ---
                 try:
                     prompt_subfix = ""
-                    # Check if the list is not empty before adding the header.
-                    if "Your to-do list is empty." not in list_output_str:
-                        prompt_subfix += f"\n\n# UPCOMING TODOS\n{list_output_str}"
-                    
-                    # Use the same captured string for hint generation.
-                    guidance_prompt = utils_manager.get_relevant_tools_prompt(list_output_str, top_k=5)
-                    if guidance_prompt:
-                        # Format the suggestions nicely with colors and proper spacing
-                        logging.info(colored("🔧 Suggested utilities based on your todo list:", "cyan", attrs=["bold"]))
-                        for line in guidance_prompt.split('\n'):
-                            if line.strip():
-                                logging.info(colored(f"   {line.strip()}", "light_blue"))
-                    if guidance_prompt:
-                        prompt_subfix += f"\n\n# HINTS\n{guidance_prompt}"
-                    
+                    # if not code_execution_just_denied:
+                    #     user_context = user_input
+                    #     if user_context:
+                    #         guidance_prompt, score_info = utils_manager.get_relevant_tools_with_scores(user_context, top_k=5)
+                    #         if guidance_prompt:
+                    #             tool_names = re.findall(r'\*\*(.*?)\*\*', guidance_prompt)
+                    #             if tool_names and score_info:
+                    #                 score_dict = {item.split("(")[0]: item.split("(")[1].rstrip(")") for item in score_info.split(", ") if "(" in item}
+                    #                 logging.info(colored("🔧 Suggested utilities based on your request:", "cyan", attrs=["bold"]))
+                    #                 formatted_tools = [f"   - {name} ({score_dict.get(name, '')})" for name in tool_names]
+                    #                 logging.info(colored("\n".join(formatted_tools), "light_blue"))
+                    #             elif tool_names:
+                    #                 logging.info(colored("🔧 Suggested utilities based on your request:", "cyan", attrs=["bold"]))
+                    #                 logging.info(colored("\n".join([f"   - {name}" for name in tool_names]), "light_blue"))
+                    #         if guidance_prompt:
+                    #             prompt_subfix += f"\n\n# RELEVANT TOOLS\n{guidance_prompt}"
+
+                    #         guidance_hints = utils_manager.get_relevant_guidance(user_context, top_k=2)
+                    #         if guidance_hints:
+                    #             logging.info(colored("💡 Relevant guidance hints:", "cyan", attrs=["bold"]))
+                    #             guidance_texts = []
+                    #             for hint in guidance_hints:
+                    #                 guidance_text = hint.get('guidance_text', '')
+                    #                 if guidance_text:
+                    #                     logging.info(colored(f"   • {hint.get('keyword', 'general')} ({hint.get('score', 0):.3f}): {guidance_text[:120]}{'...' if len(guidance_text) > 120 else ''}", "light_blue"))
+                    #                     guidance_texts.append(guidance_text)
+                    #             if guidance_texts:
+                    #                 prompt_subfix += "\n\n# GUIDANCE HINTS (EXAMPLES)\n" + "\n\n".join(guidance_texts)
+
+                    #         playbook = playbook_manager.get_relevant_playbook(user_context, threshold=0.7)
+                    #         if playbook and playbook.get("thoughts"):
+                    #             logging.info(colored("📖 Strategic guidance found:", "magenta", attrs=["bold"]))
+                    #             logging.info(colored(f"   • Strategy: {playbook['name']}", "light_magenta"))
+                    #             prompt_subfix += "\n\n# STRATEGIC HINTS (SUGGESTED PLAN)\n"
+                    #             prompt_subfix += "A relevant strategy was found. Consider this plan:\n" + "".join([f"{i+1}. {thought}\n" for i, thought in enumerate(playbook["thoughts"])])
+                    # else:
+                    #     logging.info(colored("ℹ️  Skipping tool suggestions and hints (code execution was denied)", "yellow"))
+
                     if prompt_subfix:
                         context_chat.add_message(Role.USER, prompt_subfix)
                 except Exception as e:
-                    # Handle potential errors in hint generation gracefully.
                     logging.warning(f"Could not generate hints: {e}")
+                # --- END RE-ADDED HINT/PLAYBOOK LOGIC ---
 
             last_action_signature: Optional[str] = None
             stall_counter: int = 0
             MAX_STALLS: int = 2
             
+            # Agent loop
             while True:
                 try:
-                    # --- REVISED BRANCHING AND MODEL SELECTION LOGIC ---
                     response_branches: List[str] = []
                     try:
                         if assistant_response:
-                            logging.warning(colored("WARNING: Unhandled assistant response detected.", "yellow"))
                             context_chat.add_message(Role.ASSISTANT, assistant_response)
                             assistant_response = ""
-
-                        # 1. Get the full LLM configuration from globals.
+                        if context_chat:
+                            context_chat.save_to_json()
+                        
                         llm_config = g.get_llm_config()
-                        
-                        # 2. Identify models for branching, respecting their beam counts.
-                        # A model with N beams contributes N branches to the MCT.
                         models_for_tasks = []
-                        for model_key, data in llm_config.items():
-                            if data.get('selected') and model_key not in LlmRouter().failed_models:
-                                beam_count = data.get('beams', 0)
-                                if beam_count > 0:
-                                    # Add the model to the task list 'beam_count' times
-                                    models_for_tasks.extend([model_key] * beam_count)
-
-                        # Handle MCT parameter logic
-                        user_mct_value = args.mct  # Preserve original user setting
-                        available_branches = len(models_for_tasks)
-                        
-                        # Determine effective MCT count based on user input
-                        if user_mct_value == -1:  # -mct used without integer
-                            if g.SELECTED_LLMS and len(g.SELECTED_LLMS) > 0:
-                                # Use all selected LLMs
-                                effective_mct_count = len(g.SELECTED_LLMS)
+                        if not args.monte_carlo:
+                            # Default mode: single LLM with all available models as fallback
+                            # Use g.SELECTED_LLMS to preserve chronological selection order
+                            available_models = [
+                                key for key in g.SELECTED_LLMS
+                                if llm_config.get(key, {}).get('selected') and key not in LlmRouter().failed_models
+                            ]
+                            if available_models:
+                                # Store all models for fallback, but use only one for branching
+                                g.DEFAULT_FALLBACK_MODELS = available_models
+                                models_for_tasks = [available_models[0]]  # Single model for default mode
                             else:
-                                # No LLMs selected, default to 3
-                                effective_mct_count = 3
+                                # Initialize default fallback models when none are selected
+                                default_fallbacks = ['gemini-2.5-flash', 'gemini-2.5-flash-lite-preview-06-17', 'gemini-2.5-flash-preview-05-20', 'gemma3n:e2b']
+                                g.DEFAULT_FALLBACK_MODELS = default_fallbacks
+                                models_for_tasks = [default_fallbacks[0]]
+                                logging.info(colored("🔧 No models configured - using default fallbacks: " + ", ".join(default_fallbacks), "yellow"))
                         else:
-                            # Specific integer provided
-                            effective_mct_count = user_mct_value
-                        
-                        # Limit models to effective MCT count
-                        if available_branches > effective_mct_count:
-                            models_for_tasks = models_for_tasks[:effective_mct_count]
+                            # Use g.SELECTED_LLMS to preserve chronological selection order for monte_carlo mode too
+                            models_for_tasks = [
+                                key for key in g.SELECTED_LLMS
+                                if (llm_config.get(key, {}).get('selected') and 
+                                    key not in LlmRouter().failed_models and 
+                                    llm_config.get(key, {}).get('beams', 0) > 0)
+                                for _ in range(llm_config.get(key, {}).get('beams', 0))
+                            ]
+                            if not models_for_tasks:
+                                branch_fallback_iterator.update_fallback_models(llm_config)
+                                models_for_tasks = branch_fallback_iterator.get_multiple_fallbacks(count=3) or [key for key in g.SELECTED_LLMS if llm_config.get(key, {}).get('selected') and key not in LlmRouter().failed_models]
+                                if not models_for_tasks:
+                                    logging.error(colored("❌ No available models to process the request. Check LLM selection.", "red"))
+                                    break
                         
                         num_branches = len(models_for_tasks)
-                        g.MCT = num_branches  # Don't override args.mct, keep user's original setting
-                        temperature = 0.85 if g.MCT > 1 else 0
+                        g.MCT = num_branches
+                        temperature = 0.85 if num_branches > 1 else 0
 
-                        if not models_for_tasks:
-                            # Fallback: if no beams are set, use available selected models up to effective MCT count.
-                            selected_models = [
-                                model_key for model_key, data in llm_config.items() 
-                                if data.get('selected') and model_key not in LlmRouter().failed_models
-                            ]
-                            if selected_models:
-                                # Use up to effective MCT count of available models
-                                models_for_tasks = selected_models[:effective_mct_count]
-                                num_branches = len(models_for_tasks)
-                                g.MCT = num_branches  # Don't override args.mct
-                                if num_branches == 1:
-                                    logging.warning(colored("No models with beams > 0 configured. Using single model for execution.", "yellow"))
-                                else:
-                                    logging.warning(colored(f"No models with beams > 0 configured. Using {num_branches} models for MCT execution.", "yellow"))
-                            else:
-                                logging.error(colored("❌ No available models to process the request. Check LLM selection.", "red"))
-                                break
-
-                        # 3. Execute generation tasks.
                         if num_branches > 1:
-                            # --- MCT Branching Execution ---
-                            logging.info(colored("🌿", "green", attrs=["bold"]) + colored(f" Generating {num_branches} MCT branches with models: {', '.join(models_for_tasks)}", "cyan"))
                             print_lock = asyncio.Lock()
-                            branch_model_map = {}  # Track which model generated which branch
-                            async def generate_branch(model_key: str, branch_index: int, lock: asyncio.Lock):
-                                branch_model_map[branch_index] = model_key  # Store the model name
-                                response_buffer_list = [""]
-                                branch_update_callback = create_interruption_callback(
-                                    response_buffer=response_buffer_list,
-                                    painter=text_stream_painter,
-                                    lock=lock
-                                )
+                            branch_model_map = {}
+                            tasks = [generate_branch(model_key, i, print_lock, context_chat, text_stream_painter, temperature, base64_images, llm_config, branch_model_map, num_branches) for i, model_key in enumerate(models_for_tasks)]
+                            branch_results = await asyncio.gather(*tasks)
+                            response_branches = [res for res in branch_results if res and res.strip()]
+                        else:
+                            response_buffer_list = [""]
+                            interruption_callback = create_interruption_callback(response_buffer_list, text_stream_painter)
+                            current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
+                            for assistant_prefix in ["", "<", current_todo, "<think", "<thinking>"]:
+                                if (assistant_prefix):
+                                    print(colored(f"Model did not generate text, attempting generation with prefix: {assistant_prefix}", "yellow"))
+                                if ("" == assistant_prefix and context_chat.messages[-1][1].endswith("</context>")):
+                                    assistant_prefix = "<think>"
                                 try:
-                                    context_chat.debug_title = f"MCT Branch {branch_index+1}/{num_branches}"
+                                    # In default mode, use all available models for fallback
+                                    fallback_models = getattr(g, 'DEFAULT_FALLBACK_MODELS', models_for_tasks)
                                     await LlmRouter.generate_completion(
                                         chat=context_chat,
-                                        preferred_models=[model_key],
+                                        preferred_models=fallback_models,
                                         force_preferred_model=True,
                                         temperature=temperature,
                                         base64_images=base64_images,
-                                        generation_stream_callback=branch_update_callback,
-                                        strengths=g.LLM_STRENGTHS,
-                                        thinking_budget=None,
-                                        exclude_reasoning_tokens=True
+                                        generation_stream_callback=interruption_callback,
+                                        assistant_prefix=assistant_prefix
                                     )
-                                    return response_buffer_list[0]
-                                except StreamInterruptedException as e:
-                                    return e.response
-                                except Exception as e:
-                                    if not isinstance(e, StreamInterruptedException):
-                                        async with lock:
-                                            logging.error(colored(f"❌ Branch {branch_index+1} ({model_key}) failed: {e}", "red"))
-                                        if model_key: LlmRouter().failed_models.add(model_key)
-                                    return None
+                                    generated_text = response_buffer_list[0]
+                                except StreamInterruptedException as e: # This exception is called by the tool delimiting mechanism at the end of any xml block
+                                    generated_text = e.response
+                                
+                                if (generated_text and generated_text != assistant_prefix):
+                                    response_branches.append(generated_text)
+                                    break
+                        
+                        base64_images = []
 
-                            tasks = [generate_branch(model_key, i, print_lock) for i, model_key in enumerate(models_for_tasks)]
-                            branch_results = await asyncio.gather(*tasks)
-                            response_branches = [res for res in branch_results if res and res.strip()]
-                            if not g.SUMMARY_MODE:
-                                print()
-                        else:
-                            # --- Single Branch Execution ---
-                            model_for_branch = models_for_tasks[0]
-                            context_chat.debug_title = "Main Context"
-                            response_buffer_list = [""]
-                            interruption_callback = create_interruption_callback(
-                                response_buffer=response_buffer_list,
-                                painter=text_stream_painter
-                            )
-                            try:
-                                await LlmRouter.generate_completion(
-                                    chat=context_chat,
-                                    preferred_models=[model_for_branch],
-                                    force_preferred_model=True,
-                                    temperature=temperature,
-                                    base64_images=base64_images,
-                                    generation_stream_callback=interruption_callback,
-                                    strengths=g.LLM_STRENGTHS,
-                                    thinking_budget=None,
-                                    exclude_reasoning_tokens=True
-                                )
-                                if response_buffer_list[0].strip(): 
-                                    response_branches.append(response_buffer_list[0])
-                            except StreamInterruptedException as e:
-                                if e.response and e.response.strip(): 
-                                    response_branches.append(e.response)
-
-                        base64_images = [] # Clear images after use
-                    except KeyboardInterrupt:
-                        logging.warning(colored("\n-=- User interrupted model generation -=-", "yellow"))
-                        if args.message: args.message = []
-                        context_chat.add_message(Role.ASSISTANT, response_buffer_list[0] if 'response_buffer_list' in locals() else "")
+                    except KeyboardInterrupt as e:
+                        print(colored(f"A KeyboardInterrupt was raised, e: {e}"))
                         break
                     except Exception as e:
-                        if not isinstance(e, StreamInterruptedException):
-                            LlmRouter.clear_unconfirmed_finetuning_data()
-                            logging.error(colored(f"Error generating response: {e}", "red"), exc_info=args.debug)
-                            break
-                    
-                    if response_branches:
-                        if num_branches > 1 and len(response_branches) > 1:
-                            try:
-                                selected_branch_index, vote_summary = await select_best_branch(context_chat, response_branches)
-                                assistant_response = response_branches[selected_branch_index]
-                                winning_model_name = branch_model_map.get(selected_branch_index, "Unknown")
-                                
-                                logging.info(colored(f"✅ Picked branch {selected_branch_index}. {vote_summary}", "green"))
+                        print(colored(f"A Exception was raised, e: {e}"))
+                        break
 
-                                # If in summary mode (not full output mode), print the picked branch's full response with model info
-                                if not args.full_output_mode:
-                                    print(colored(f"--- [Picked Branch: {winning_model_name}] ---", "blue", attrs=['bold']))
-                                    print(text_stream_painter.apply_color(assistant_response), flush=True)
-                                    print(colored("---------------------------------------------------------", "blue", attrs=['bold']))
-                                else:
-                                    # In normal mode, just print the response as before
-                                    print(text_stream_painter.apply_color(assistant_response), flush=True) 
-                            except Exception as e:
-                                logging.error(colored(f"Error during MCT branch selection: {e}", "red"), exc_info=args.debug)
-                                logging.warning(colored("⚠️ Defaulting to first branch.", "yellow"))
-                                assistant_response = response_branches[0]
+                    if response_branches:
+                        if len(response_branches) > 1:
+                            selected_branch_index, _ = await select_best_branch(context_chat, response_branches, branch_model_map)
+                            assistant_response = response_branches[selected_branch_index]
                         else:
-                            # Single branch or only one successful branch
                             assistant_response = response_branches[0]
-                            if num_branches > 1:
-                                logging.info(colored("✅ Using single successful branch.", "green"))
-                            
-                            # If in summary mode (not full output mode), the single response wasn't streamed, so print it now.
-                            if not args.full_output_mode:
-                                print(text_stream_painter.apply_color(assistant_response), flush=True)
                     else:
-                        logging.error(colored("All generation branches failed.", "red"))
                         break
                     
-                    # assistant response deduplication
                     if last_action_signature and assistant_response == last_action_signature:
                         stall_counter += 1
-                        logging.warning(colored(f"Stall counter: {stall_counter}/{MAX_STALLS}", "yellow"))
                     else:
                         stall_counter = 0
                     last_action_signature = assistant_response
 
                     if stall_counter >= MAX_STALLS:
-                        logging.error(colored("! Agent appears to be stalled. Intervening.", "red"))
-                        context_chat.add_message(Role.USER, "My last two attempts have failed. I need to stop, re-evaluate my strategy, and devise a new plan.")
+                        print(colored("The agent is spamming its last response instead of progressing. Aborting...", "red"))
                         stall_counter, last_action_signature = 0, None
                         break
 
-                    # assistant response generated and consumable
                     context_chat.add_message(Role.ASSISTANT, assistant_response)
                     
-                    # extract actions
-                    shell_blocks = get_extract_blocks()(assistant_response, ["shell", "bash"])
-                    python_blocks = get_extract_blocks()(assistant_response, ["python", "tool_code"])
-
-
-                    # Agent to User data output
-                    if args.voice or args.speak:
-                        verbal_text = re.sub(r'```[^`]*```', '', assistant_response)
-                        if python_blocks and shell_blocks: verbal_text += "I've implemented shell and python code."
-                        elif python_blocks: verbal_text += "I've implemented python code."
-                        elif shell_blocks: verbal_text += "I've implemented shell code."
-                        TtsUtil.run(text=verbal_text)
+                    # Display the response in summary mode (since streaming doesn't show it)
+                    if g.SUMMARY_MODE and assistant_response.strip():
+                        print(assistant_response)
                     
-                    # No actions taken and todos are left
-                    if not python_blocks and not shell_blocks:
-                        try:
-                            TodosUtil.run("add", task="HIGH PRIORITY: update the todo list entries")
-                            all_todos = TodosUtil._load_todos()
-                            if all_todos and any(not todo.get('completed', False) for todo in all_todos):
-                                todos_str = TodosUtil.run("list")
-                                auto_prompt = f"The agent has not returned any code, please ensure the todos are completed before finishing your turn.\n```python\nTodosUtil.run('list')```\n<execution_output>\n{TodosUtil._run_logic('list')}\n</execution_output>\n"
-                                assistant_response = ""
-                                context_chat.add_message(Role.USER, auto_prompt)
-                                continue
+                    # --- NEW: Generic Tool Execution Loop ---
+                    # Find all unique tool tags present in the assistant's response
+                    tool_classes = getattr(g, 'tool_classes', {})
+                    tool_tags_found = []
+                    for tool_name, tool_class in tool_classes.items():
+                        # Use a more robust regex to find any instance of the tool tag
+                        if re.search(f'<{tool_class.get_delim()}[> ]', assistant_response, re.DOTALL):
+                            tool_tags_found.append(tool_class)
 
-                        except Exception as e:
-                            logging.warning(colored(f"Could not check for pending to-dos. Error: {e}", "red"))
-                        break
-                    
-
-                    formatted_code = ""
-                    if shell_blocks: formatted_code += "```bash\n" + "\n".join(shell_blocks) + "\n```\n"
-                    if python_blocks: formatted_code += "```python\n" + python_blocks[0] + "\n```"
-
-                    context_chat.save_to_json()
-                    if await confirm_code_execution(args, formatted_code, utils_manager):
-                        logging.info(colored("🔄 Executing code...", "cyan"))
-                        try:
-                            if shell_blocks:
-                                for shell_line in shell_blocks:
-                                    l_shell_line = shell_line.strip()
-                                    if 'sudo ' in l_shell_line:
-                                        l_shell_line = preprocess_consecutive_sudo_commands(l_shell_line)
-                                        if 'sudo ' in l_shell_line and 'sudo -A ' not in l_shell_line:
-                                            l_shell_line = l_shell_line.replace("sudo ", "sudo -A ")
-                                    notebook.execute(l_shell_line)
-                            if python_blocks:
-                                notebook.execute(python_blocks[0], is_python_code=True)
-                            logging.info(colored("✅ Code execution completed.", "cyan"))
-
-                            tool_output = ""
-                            # Perform the string replacements outside the f-string expression
-                            processed_stdout = stdout_buffer.replace('\n⚙️  ', '\n').replace('\n🐍  ', '\n').strip()
-                            
-                            if stdout_buffer.strip():
-                                tool_output += f"```stdout\n{processed_stdout}\n```\n"  # noqa: F541
-                            if stderr_buffer.strip():
-                                tool_output += f"```stderr\n{stderr_buffer.strip()}\n```\n"
-                            tool_output = re.sub(r'\x1b\[[0-9;]*m', '', tool_output) # noqa: F841, E501
-
-
-                            if len(tool_output) > 4000:
-                                tool_output = tool_output[:g.OUTPUT_TRUNCATE_HEAD_SIZE] + "\n[...output truncated...]\n" + tool_output[-g.OUTPUT_TRUNCATE_TAIL_SIZE:]
-
-                            if not tool_output.strip():
-                                tool_output = "<execution_output>\nThe execution completed without output.\n</execution_output>"
+                    # If any tool tags are found, process them
+                    if tool_tags_found:
+                        # Keep the voice functionality
+                        if args.voice:
+                            verbal_text = re.sub(r'```[^`]*```', '', assistant_response)
+                            if verbal_text.strip(): # Only attempt TTS if there's actual text to speak
+                                try:
+                                    logging.info(colored(f"Attempting TTS for: '{verbal_text[:50]}...' (length: {len(verbal_text)})", "cyan"))
+                                    text_to_speech(text=verbal_text)
+                                    logging.info(colored("TTS call completed.", "cyan"))
+                                except Exception as tts_e:
+                                    logging.error(colored(f"TTS failed: {tts_e}", "red"), exc_info=True)
                             else:
-                                tool_output = f"<execution_output>\n{tool_output.strip()}\n</execution_output>"
+                                logging.info(colored("No verbal text to speak after stripping code blocks.", "yellow"))
+                        
+                        # --- Enhanced Path-Aware Permission Checking ---
+                        # Check permissions using path detection for tools with file operations
+                        should_execute = False
+                        if len(tool_tags_found) == 1 and any(k in tool_tags_found[0].__module__ for k in ["todos", "think", "searchweb", "search"]):
+                            should_execute = True
+                        elif len(tool_tags_found) > 0:
+                            # Analyze each tool for path-based permissions
+                            permission_needed = False
+                            tool_analyses = []
                             
-                            context_chat.add_message(Role.ASSISTANT, tool_output)
+                            for tool in tool_tags_found:
+                                delim = tool.get_delim()
+                                blocks = get_extract_blocks()(assistant_response, [delim])
+                                
+                                for block in blocks:
+                                    analysis = PathDetector.analyze_tool_block(delim, block)
+                                    tool_analyses.append(analysis)
+                                    
+                                    if analysis['needs_permission']:
+                                        permission_needed = True
+                            
+                            if not permission_needed:
+                                # No permission needed for safe tools
+                                should_execute = True
+                            else:
+                                # Check permissions for each tool that needs it
+                                should_execute = True  # Start optimistic
+                                
+                                for analysis in tool_analyses:
+                                    if not analysis['needs_permission']:
+                                        continue
+                                        
+                                    # Use enhanced permission system for path-aware tools
+                                    permission_granted = await enhanced_permission_prompt(
+                                        args,
+                                        tool_name=analysis['tool_name'],
+                                        action_description=analysis['action_description'],
+                                        file_path=analysis['primary_path'],
+                                        command_hash=analysis['command_hash'],
+                                        command_pattern=analysis['command_pattern'],
+                                        has_paths=analysis['has_paths'],
+                                        input_event=input_event,
+                                        input_lock=input_lock,
+                                        shared_input=shared_input,
+                                        get_user_input_func=get_user_input_with_bindings
+                                    )
+                                    
+                                    if not permission_granted:
+                                        should_execute = False
+                                        break  # If any tool is denied, deny all
+
+                        if should_execute:
+                            try:
+                                # Reset tool context for clean execution
+                                tool_context.reset()
+                                tool_results = []
+                                for tool_class in tool_tags_found:
+                                    tool_name = tool_class.get_delim()
+                                    blocks = get_extract_blocks()(assistant_response, [tool_name])
+                                    
+                                    if not blocks:
+                                        continue
+
+                                    # --- FIX: Execute only the first block for each tool to prevent duplicate execution ---
+                                    first_block = blocks[0]
+                                    if len(blocks) > 1:
+                                        logging.warning(colored(f"⚠️  Duplicate '{tool_name}' blocks detected. Only the first was executed.", "yellow"))
+                                    
+                                    # All tools now share the same simple run signature.
+                                    tool_result = tool_class.run(first_block)
+                                    
+                                    # Wrap tools returned values as tool_ouput
+                                    if tool_name not in ["todos"] and tool_result:
+                                        tool_results.append(tool_result)
+                                
+                                returned_context = ""
+                                for context in tool_results:
+                                    context = re.sub(r'\x1b\[[0-9;]*m', '', context) #  remove ANSI escape codes (also known as terminal escape sequences)
+                                    if len(context) > readfile.CHUNK_LIMIT:
+                                        context = context[:readfile.CHUNK_LIMIT//4] + "\n...output truncated...\n" + context[-readfile.CHUNK_LIMIT//4:]
+                                    returned_context += f"<context>\n{context}\n</context>"
+
+                                if (len(returned_context) > 0):
+                                    context_chat.add_message(Role.ASSISTANT, returned_context)
+                                    
+                                    # Check for images from tool context and add them to the chat
+                                    if tool_context.has_images():
+                                        context_chat.base64_images.extend(tool_context.get_images())
+                                        logging.info(colored(f"📸 Added {len(tool_context.get_images())} image(s) to chat context for vision analysis", "blue"))
+                                        tool_context.clear_images()  # Clear images after adding them
+                                
+                                assistant_response = ""
+                                action_counter += 1
+                                continue # Continue the agent loop for the next action
+                            except Exception:
+                                error_output = f"<context>\n{traceback.format_exc()}\n</context>"
+                                context_chat.add_message(Role.ASSISTANT, error_output)
+                                assistant_response = ""
+                                continue # Continue the agent loop for the next action
+                        else:
+                            cancellation_notice = "<context>\nCode execution cancelled by user or guard.\n</context>"
+                            context_chat.add_message(Role.ASSISTANT, cancellation_notice)
                             assistant_response = ""
-                            stdout_buffer, stderr_buffer = "", ""
-                            action_counter += 1
-                            continue
-                        except Exception as e:
-                            logging.error(colored(f"❌ Error executing code: {e}", "red"), exc_info=args.debug)
-                            error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
-                            context_chat.add_message(Role.ASSISTANT, f"{assistant_response}{error_output}")
-                            assistant_response, stdout_buffer, stderr_buffer = "", "", ""
-                            break
+                            break # Ask for user input
                     else:
-                        logging.warning(colored("✖️  Execution cancelled.", "yellow"))
-                        cancellation_notice = "<execution_output>\nCode execution cancelled\n</execution_output>"
-                        context_chat.add_message(Role.ASSISTANT, f"{assistant_response}{cancellation_notice}")
-                        assistant_response, stdout_buffer, stderr_buffer = "", "", ""
-                        break
+                        # No tools found, this is a conversational response.
+                        break # Ask for user input
                 except KeyboardInterrupt:
-                    logging.warning(colored("=== User interrupted execution (Ctrl+C) ===", "yellow"))
                     user_interrupt = True
-                    break
+                    break # Ask for user input
                 except Exception as e:
-                    LlmRouter.clear_unconfirmed_finetuning_data()
-                    if "ctrl+c" in str(e).lower():
-                        logging.warning(colored("=== User interrupted execution (Ctrl+C) ===", "yellow"))
-                        user_interrupt = True
-                        break
-                    logging.critical(colored(f"An unexpected error occurred in the agent loop: {e}", "red"), exc_info=args.debug)
-                    try:
-                        error_output = f"<execution_output>\n```error\n{traceback.format_exc()}\n```\n</execution_output>"
-                        context_chat.add_message(Role.ASSISTANT, f"{assistant_response}{error_output}")
-                    except Exception as context_e:
-                        logging.error(colored(f"Failed to add error to context: {context_e}", "red"))
-                    assistant_response, stdout_buffer, stderr_buffer = "", "", ""
-                    break
+                    if "ctrl+c" not in str(e).lower():
+                        logging.critical(colored(f"An unexpected error occurred in the agent loop: {e}", "red"), exc_info=args.debug)
+                    user_interrupt = True
+                    break # Ask for user input
             
-            if context_chat:
-                context_chat.save_to_json()
+            else:
+                print("# cli-agent: No conversation to compact.")
+
             if args.exit and not args.message:
-                logging.info(colored("All automatic messages processed successfully. Exiting...", "green"))
                 exit(0)
-        logging.info(colored("CLI-Agent is shutting down.", "cyan"))
 
     except (asyncio.CancelledError, KeyboardInterrupt):
-        logging.warning(colored("CLI-Agent was interrupted. Shutting down gracefully...", "yellow"))
+        logging.warning(colored("CLI-Agent was interrupted. Shutting down gracefully...", "yellow") )
     except Exception as e:
         if not isinstance(e, StreamInterruptedException):
             logging.critical(colored(f"CLI-Agent encountered a fatal error: {e}", "red"), exc_info=True)
@@ -1782,7 +2562,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print(colored("\nCLI-Agent was interrupted by user. Shutting down...", "yellow"))
+        print(colored("\nCLI-Agent was interrupted by user. Shutting down...", "yellow") )
     except Exception as e:
         if not isinstance(e, StreamInterruptedException):
             print(colored(f"\nCLI-Agent encountered a fatal error during startup: {e}", "red"))

@@ -5,8 +5,8 @@ import soundfile as sf
 import numpy as np
 from termcolor import colored
 
-from py_classes.ai_providers.cls_whisper_interface import WhisperInterface
-from py_methods import utils_audio
+from core.providers.cls_whisper_interface import WhisperInterface
+from shared import utils_audio
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ class PyAiHost:
     DEPRECATED: This class is deprecated and will be removed in a future version.
     Please use the WhisperInterface class instead:
     
-    from py_classes.ai_providers.cls_whisper_interface import WhisperInterface
+    from core.providers.cls_whisper_interface import WhisperInterface
     
     This class now serves as a thin wrapper around WhisperInterface for backward compatibility.
     """
@@ -105,7 +105,7 @@ class PyAiHost:
             return cls.remote_host_client.wait_for_wake_word()
         
         # Import here to avoid circular imports
-        from py_methods.utils_audio import wait_for_wake_word as utils_wait_for_wake_word
+        from shared.utils_audio import wait_for_wake_word as utils_wait_for_wake_word
         return utils_wait_for_wake_word()
 
     @classmethod
@@ -154,14 +154,12 @@ class PyAiHost:
                 return np.array([]), sample_rate
         
         # Import here to avoid circular imports
-        from py_methods.utils_audio import record_audio as utils_record_audio
+        from shared.utils_audio import record_audio as utils_record_audio
         return utils_record_audio(
             sample_rate=sample_rate,
             threshold=threshold,
             silence_duration=silence_duration,
-            min_duration=min_duration,
-            max_duration=max_duration,
-            use_wake_word=False  # Already handled wake word above
+            max_duration=max_duration
         )
 
     @classmethod

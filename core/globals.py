@@ -23,7 +23,7 @@ def _get_persistent_storage_path() -> str:
     if os.name == 'nt':  # Windows
         return os.path.join(os.environ.get('APPDATA', ''), 'cli-agent')
     else:  # macOS, Linux, and other UNIX-like systems
-        return os.path.join(Path.home(), '.cli-agent')
+        return os.path.join(Path.home(), 'cli-agent')
 
 # --- Main Globals Class ---
 class Globals:
@@ -35,7 +35,7 @@ class Globals:
         # --- Path Configurations ---
         self.CLIAGENT_ROOT_PATH: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.CLIAGENT_PERSISTENT_STORAGE_PATH: str = _get_persistent_storage_path()
-        self.CLIAGENT_TEMP_STORAGE_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, ".temp")
+        self.CLIAGENT_TEMP_STORAGE_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "temp")
         self.AGENTS_SANDBOX_DIR: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "sandbox")
         
         # --- File Path Configurations ---
@@ -61,24 +61,27 @@ class Globals:
         self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
         
         # --- Forcing Flags (runtime modifiers) ---
-        from py_classes.enum_ai_strengths import AIStrengths # Local import
+        from core.ai_strengths import AIStrengths # Local import
         self.FORCE_LOCAL: bool = False
-        self.FORCE_ONLINE: bool = False
-        self.FORCE_FAST: bool = False
-        self.FORCE_STRONG: bool = False
         self.LLM_STRENGTHS: List[AIStrengths] = []
 
         # --- Debug and UI Flags ---
         self.DEBUG_CHATS: bool = False
+        self.DEBUG_MODE: bool = False
         self.USE_SANDBOX: bool = False
         self.SUMMARY_MODE: bool = False
+        self.VERBOSE_DEBUG: bool = False  # Set to True to enable verbose API debugging
         
         # --- Utility and Tool Management ---
         self.SELECTED_UTILS: List[str] = []
+        self.AGENT_IS_COMPACTING: bool = False
 
         # --- Output Truncation Settings ---
         self.OUTPUT_TRUNCATE_HEAD_SIZE: int = 2000
         self.OUTPUT_TRUNCATE_TAIL_SIZE: int = 2000
+        
+        # --- API Timeout Settings ---
+        self.GOOGLE_API_TIMEOUT_SECONDS: int = 300  # 5 minutes to respect rate limit delays
 
         # --- Cross-module Communication & State ---
         self.web_server: Optional[Any] = None
@@ -86,6 +89,12 @@ class Globals:
         self.debug_log: Callable[..., None] = self._default_debug_log
         self._user_config: Dict[str, Any] = {}
         self._llm_config: Dict[str, Any] = {}
+
+        # --- Model Discovery Cache ---
+        self._model_discovery_cache: Optional[Dict[str, Any]] = None
+        self._model_discovery_task: Optional[Any] = None  # Background asyncio task
+        self._model_discovery_timestamp: float = 0
+        self.MODEL_CACHE_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, 'model_cache.json')
 
         # --- Initial Setup on Instantation ---
         self._initialize_directories()
@@ -176,5 +185,212 @@ class Globals:
             logging.warning(f"Could not clean up temporary files: {e}")
         except Exception as e:
             logging.error(f"An unexpected error occurred during temp file cleanup: {e}")
+    
+    def start_background_model_discovery(self, force_refresh: bool = False) -> None:
+        """Start background model discovery task."""
+        import asyncio
+        import time
+        
+        # First, try to load from persistent cache for immediate availability
+        if not force_refresh:
+            persistent_cache = self.load_persistent_model_cache()
+            if persistent_cache:
+                self._model_discovery_cache = persistent_cache
+                self._model_discovery_timestamp = time.time()
+                
+                # Check if cache is fresh enough to skip background refresh
+                cache_age_hours = self.get_persistent_cache_age_hours()
+                if cache_age_hours < 6:  # Cache less than 6 hours old, skip background refresh
+                    logging.debug(f"Using fresh persistent cache ({cache_age_hours:.1f}h old), skipping background refresh")
+                    return
+                else:
+                    logging.debug(f"Loaded persistent cache ({cache_age_hours:.1f}h old), will refresh in background")
+        
+        async def discover_models():
+            """Background task to discover and cache model information."""
+            try:
+                from core.providers.cls_ollama_interface import OllamaClient
+                
+                # Get ollama hosts
+                ollama_hosts = []
+                for host_url in self.DEFAULT_OLLAMA_HOSTS:
+                    if "://" in host_url:
+                        host = host_url.split("://")[1].split("/")[0]
+                    else:
+                        host = host_url
+                    if ":" in host:
+                        host = host.split(":")[0]
+                    ollama_hosts.append(host)
+                
+                # Discover models in background
+                logging.debug("Starting background model discovery...")
+                start_time = time.time()
+                
+                model_status = OllamaClient.get_comprehensive_downloadable_models(ollama_hosts)
+                
+                discovery_time = time.time() - start_time
+                variant_count = sum(len(info.get('variants', {})) for info in model_status.values())
+                
+                # Cache the results
+                self._model_discovery_cache = model_status
+                self._model_discovery_timestamp = time.time()
+                
+                # Save to persistent cache
+                self.save_persistent_model_cache(model_status)
+                
+                logging.debug(f"Background model discovery completed in {discovery_time:.1f}s: {len(model_status)} model bases, {variant_count} variants")
+                
+            except Exception as e:
+                logging.debug(f"Background model discovery failed: {e}")
+                # Don't overwrite existing cache on failure
+                if self._model_discovery_cache is None:
+                    self._model_discovery_cache = {}
+                    self._model_discovery_timestamp = time.time()
+        
+        # Create and start the background task
+        try:
+            loop = asyncio.get_event_loop()
+            self._model_discovery_task = loop.create_task(discover_models())
+        except RuntimeError:
+            # If no event loop is running, we'll do lazy loading instead
+            logging.debug("No event loop available for background model discovery")
+    
+    def get_cached_model_discovery(self) -> Optional[Dict[str, Any]]:
+        """Get cached model discovery results."""
+        return self._model_discovery_cache
+    
+    def is_model_discovery_ready(self) -> bool:
+        """Check if model discovery cache is ready."""
+        return self._model_discovery_cache is not None
+    
+    def wait_for_model_discovery(self, timeout: float = 10.0) -> bool:
+        """Wait for model discovery to complete, with timeout."""
+        if self._model_discovery_cache is not None:
+            return True
+            
+        if self._model_discovery_task is None:
+            return False
+        
+        import asyncio
+        import time
+        
+        start_time = time.time()
+        try:
+            loop = asyncio.get_event_loop()
+            # Use run_until_complete to properly await the task
+            loop.run_until_complete(asyncio.wait_for(self._model_discovery_task, timeout=timeout))
+            return self._model_discovery_cache is not None
+        except asyncio.TimeoutError:
+            elapsed = time.time() - start_time
+            logging.debug(f"Model discovery timeout after {elapsed:.1f}s")
+            return False
+        except RuntimeError:
+            # No event loop running - can't wait synchronously
+            # Poll the task completion status instead
+            elapsed = 0
+            while elapsed < timeout:
+                if self._model_discovery_cache is not None:
+                    return True
+                time.sleep(0.1)
+                elapsed = time.time() - start_time
+            logging.debug(f"Model discovery polling timeout after {elapsed:.1f}s")
+            return False
+        except Exception as e:
+            logging.debug(f"Model discovery wait failed: {e}")
+            return False
+    
+    def invalidate_model_discovery_cache(self) -> None:
+        """Invalidate the model discovery cache to force refresh."""
+        self._model_discovery_cache = None
+        self._model_discovery_timestamp = 0
+        if self._model_discovery_task:
+            try:
+                self._model_discovery_task.cancel()
+            except:
+                pass
+            self._model_discovery_task = None
+        logging.debug("Model discovery cache invalidated")
+    
+    def refresh_model_discovery(self) -> None:
+        """Refresh model discovery cache by starting a new background task."""
+        self.invalidate_model_discovery_cache()
+        self.start_background_model_discovery()
+        logging.debug("Model discovery refresh initiated")
+    
+    def is_model_cache_stale(self, max_age_minutes: int = 30) -> bool:
+        """Check if the model cache is stale and needs refresh."""
+        if self._model_discovery_cache is None:
+            return True
+        
+        import time
+        age_seconds = time.time() - self._model_discovery_timestamp
+        age_minutes = age_seconds / 60
+        
+        return age_minutes > max_age_minutes
+    
+    def load_persistent_model_cache(self) -> Optional[Dict[str, Any]]:
+        """Load model cache from persistent storage."""
+        if not os.path.exists(self.MODEL_CACHE_PATH):
+            return None
+        
+        try:
+            with open(self.MODEL_CACHE_PATH, 'r') as f:
+                cache_data = json.load(f)
+            
+            # Check cache age (default: cache valid for 24 hours)
+            cache_timestamp = cache_data.get('timestamp', 0)
+            import time
+            age_hours = (time.time() - cache_timestamp) / 3600
+            
+            if age_hours > 24:  # Cache older than 24 hours
+                logging.debug(f"Persistent cache is {age_hours:.1f} hours old, will refresh in background")
+                return cache_data.get('model_data', {})  # Return old data for immediate use
+            
+            logging.debug(f"Loaded persistent model cache: {len(cache_data.get('model_data', {}))} model bases (age: {age_hours:.1f}h)")
+            return cache_data.get('model_data', {})
+            
+        except (json.JSONDecodeError, Exception) as e:
+            logging.warning(f"Failed to load persistent model cache: {e}")
+            return None
+    
+    def save_persistent_model_cache(self, model_data: Dict[str, Any]) -> None:
+        """Save model cache to persistent storage."""
+        try:
+            import time
+            cache_data = {
+                'timestamp': time.time(),
+                'model_data': model_data,
+                'version': 1  # For future compatibility
+            }
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.MODEL_CACHE_PATH), exist_ok=True)
+            
+            # Write to temporary file first, then rename (atomic operation)
+            temp_path = self.MODEL_CACHE_PATH + '.tmp'
+            with open(temp_path, 'w') as f:
+                json.dump(cache_data, f, indent=2, default=str)  # default=str handles datetime objects
+            
+            os.rename(temp_path, self.MODEL_CACHE_PATH)
+            
+            variant_count = sum(len(info.get('variants', {})) for info in model_data.values())
+            logging.debug(f"Saved persistent model cache: {len(model_data)} model bases, {variant_count} variants")
+            
+        except Exception as e:
+            logging.error(f"Failed to save persistent model cache: {e}")
+    
+    def get_persistent_cache_age_hours(self) -> float:
+        """Get the age of persistent cache in hours."""
+        if not os.path.exists(self.MODEL_CACHE_PATH):
+            return float('inf')
+        
+        try:
+            with open(self.MODEL_CACHE_PATH, 'r') as f:
+                cache_data = json.load(f)
+            cache_timestamp = cache_data.get('timestamp', 0)
+            import time
+            return (time.time() - cache_timestamp) / 3600
+        except:
+            return float('inf')
 
 g = Globals()

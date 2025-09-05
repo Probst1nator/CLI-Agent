@@ -10,7 +10,7 @@ import threading
 import queue
 from termcolor import colored
 
-from py_classes.globals import g
+from core.globals import g
 from ollama._types import Message
 
 logger = logging.getLogger(__name__)
@@ -559,9 +559,26 @@ class Chat:
                     if images_to_include:
                         current_message = gemini_messages[-1]
                         for image in images_to_include:
+                            # Detect MIME type from base64 header or default to jpeg
+                            mime_type = "image/jpeg"  # default
+                            try:
+                                import base64
+                                # Try to detect format from magic bytes
+                                image_data = base64.b64decode(image[:100])  # Just first few bytes for detection
+                                if image_data.startswith(b'\x89PNG'):
+                                    mime_type = "image/png"
+                                elif image_data.startswith(b'GIF8'):
+                                    mime_type = "image/gif"
+                                elif image_data.startswith(b'\xff\xd8\xff'):
+                                    mime_type = "image/jpeg"
+                                elif image_data.startswith(b'RIFF') and b'WEBP' in image_data[:20]:
+                                    mime_type = "image/webp"
+                            except Exception:
+                                pass  # Keep default
+                            
                             current_message["parts"].append({
                                 "inline_data": {
-                                    "mime_type": "image/jpeg",
+                                    "mime_type": mime_type,
                                     "data": image
                                 }
                             })

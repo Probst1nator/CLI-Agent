@@ -4,21 +4,23 @@ import logging
 from termcolor import colored
 import google.generativeai as genai
 from google.generativeai import types
-from py_classes.cls_chat import Chat, Role
+from core.chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
-from py_classes.cls_rate_limit_tracker import rate_limit_tracker
-from py_classes.globals import g
-import re
+from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
+from infrastructure.rate_limiting.cls_rate_limit_parsers import RateLimitParserFactory
+from infrastructure.rate_limiting.cls_rate_limit_config import RateLimitConfig
+from core.globals import g
 # Import audio utility functions
-from py_methods.utils_audio import save_binary_file, convert_to_wav
+from shared.utils_audio import save_binary_file, convert_to_wav
 import mimetypes
 # Import exceptions from Groq interface to avoid duplication
-from py_classes.ai_providers.cls_groq_interface import RateLimitException
+from core.providers.cls_groq_interface import RateLimitException
 
 logger = logging.getLogger(__name__)
 
 # Flag to track if API has been configured
 _gemini_api_configured = False
+
 
 class GoogleAPI(AIProviderInterface):
     """
@@ -59,6 +61,17 @@ class GoogleAPI(AIProviderInterface):
         silent_reason: str = "", 
         thinking_budget: Optional[int] = None
     ) -> Any:  # Return type changed to Any to avoid circular imports
+        if g.VERBOSE_DEBUG:
+            print(f"🔍 GOOGLE API ENTRY: model={model_key}, temp={temperature}, chat_type={type(chat).__name__}")
+            if hasattr(chat, 'messages'):
+                print(f"🔍 CHAT MESSAGES: {len(chat.messages)} messages")
+                for i, (role, content) in enumerate(chat.messages):
+                    print(f"🔍   MSG {i}: {role.value} -> {len(str(content))} chars")
+            if hasattr(chat, 'base64_images'):
+                print(f"🔍 BASE64 IMAGES: {len(chat.base64_images)} images")
+                for i, img in enumerate(chat.base64_images):
+                    print(f"🔍   IMG {i}: {len(img)} chars, starts with: {img[:50]}...")
+            print(f"🔍 SILENT REASON: '{silent_reason}'")
         """
         Generates a response using the Google Gemini API.
         
@@ -87,22 +100,48 @@ class GoogleAPI(AIProviderInterface):
         # Get the prefix for debug logging
         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
 
-        # Check if the model is rate limited
-        if rate_limit_tracker.is_rate_limited(model_key):
-            remaining_time = rate_limit_tracker.get_remaining_time(model_key)
-            rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
-            
+        # Initialize rate limits for this model if not already done
+        RateLimitConfig.initialize_model_limits(model_key, is_paid=False, provider="gemini")
+
+        # Estimate token cost (rough approximation)
+        token_cost = 0
+        image_count = 0
+        if isinstance(chat, Chat):
+            # Rough token estimation: 4 chars per token
+            text_content = str(chat)
+            token_cost = len(text_content) // 4
+            # Count images in chat
+            for role, content in chat.messages:
+                if isinstance(content, dict) and 'images' in content:
+                    image_count += len(content['images'])
+        
+        # Check if request can be made with enhanced rate limiting
+        can_make_request, reason = enhanced_rate_limit_tracker.can_make_request(
+            model_key, token_cost=token_cost, image_count=image_count
+        )
+        
+        if not can_make_request:
             if not silent_reason:
-                g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True, prefix=prefix)
+                g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(f'rate limited ({reason})', 'yellow')}", force_print=True, prefix=prefix)
             
-            # Raise a silent rate limit exception
-            raise RateLimitException(f"Model {model_key} is rate limited. Try again in {remaining_time:.1f} seconds")
+            # Get suggested retry delay
+            retry_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(model_key)
+            if retry_delay == -1:
+                raise RateLimitException(f"Model {model_key} exceeded maximum retry attempts")
+            else:
+                raise RateLimitException(f"Model {model_key} is rate limited: {reason}. Retry in {retry_delay:.1f}s")
 
         # Configure the API if not already done - let any error here bubble up to the router
+        if g.VERBOSE_DEBUG:
+            print(f"🔍 CONFIGURING API: _gemini_api_configured={_gemini_api_configured}")
         GoogleAPI._configure_api()
         
         # Get the appropriate model
+        if g.VERBOSE_DEBUG:
+            print(f"🔍 CREATING MODEL: {model_key}")
         model = genai.GenerativeModel(model_key)
+        if g.VERBOSE_DEBUG:
+            print(f"🔍 MODEL CREATED: {model}")
         
         # Set up the generation config with temperature and thinking budget
         generation_config = genai.GenerationConfig(
@@ -129,67 +168,155 @@ class GoogleAPI(AIProviderInterface):
         
         # Use the Chat's to_gemini method to create Gemini-compatible messages
         if isinstance(chat, Chat):
+            if g.VERBOSE_DEBUG:
+                print("🔍 CONVERTING CHAT TO GEMINI FORMAT")
             gemini_messages = chat.to_gemini()
+            
+            if g.VERBOSE_DEBUG:
+                print(f"🔍 GEMINI MESSAGES: {len(gemini_messages)} messages")
+                for i, msg in enumerate(gemini_messages):
+                    print(f"🔍   GEMINI MSG {i}: role={msg.get('role', 'unknown')}, parts={len(msg.get('parts', []))}")
+                    for j, part in enumerate(msg.get('parts', [])):
+                        if isinstance(part, dict) and 'inline_data' in part:
+                            mime_type = part['inline_data'].get('mime_type', 'unknown')
+                            data_len = len(part['inline_data'].get('data', ''))
+                            print(f"🔍     PART {j}: IMAGE ({mime_type}, {data_len} chars)")
+                        elif isinstance(part, str):
+                            print(f"🔍     PART {j}: TEXT ({len(part)} chars)")
+                        else:
+                            print(f"🔍     PART {j}: OTHER ({type(part).__name__})")
+            
+            # Debug vision requests
+            has_images = any(
+                isinstance(part, dict) and 'inline_data' in part 
+                for msg in gemini_messages 
+                for part in msg.get('parts', [])
+            )
+            if has_images and not silent_reason:
+                g.debug_log(f"Google-Api: Sending vision request with {sum(len([p for p in msg.get('parts', []) if isinstance(p, dict) and 'inline_data' in p]) for msg in gemini_messages)} image(s)", "cyan", prefix=prefix)
         else:
             # Simple string input case (should not happen due to conversion above, but just in case)
+            if g.VERBOSE_DEBUG:
+                print(f"🔍 USING STRING INPUT: {len(str(chat))} chars")
             gemini_messages = [{"role": "user", "parts": [str(chat)]}]
             
-        # Print status message
+        # Print status message with timeout info
         if silent_reason:
             temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str}...", force_print=True, prefix=prefix)
+            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", force_print=True, prefix=prefix)
         else:
             temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
+            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", "green", force_print=True, prefix=prefix)
         
-        # Generate streaming response - let errors bubble up to the router
+        # Generate streaming response with timeout - let errors bubble up to the router
         # except for rate limit errors, which we'll handle here
         try:
-            response = model.generate_content(
-                gemini_messages,
-                generation_config=generation_config,
-                stream=True
-            )
+            import threading
+            
+            # Debug the actual request being sent
+            if g.VERBOSE_DEBUG:
+                message_count = len(gemini_messages)
+                total_parts = sum(len(msg.get('parts', [])) for msg in gemini_messages)
+                image_parts = sum(len([p for p in msg.get('parts', []) if isinstance(p, dict) and 'inline_data' in p]) for msg in gemini_messages)
+                print(f"🔍 REQUEST SUMMARY: {message_count} messages, {total_parts} parts, {image_parts} images")
+                print(f"🔍 GENERATION CONFIG: temp={generation_config.temperature}, max_tokens={generation_config.max_output_tokens}")
+            
+            # Use threading for synchronous genai call with timeout
+            def _generate_with_timeout():
+                try:
+                    if g.VERBOSE_DEBUG:
+                        print("🔍 CALLING model.generate_content() with stream=True")
+                        print(f"🔍 Model info: {model}")
+                    
+                    result = model.generate_content(
+                        gemini_messages,
+                        generation_config=generation_config,
+                        stream=True
+                    )
+                    
+                    if g.VERBOSE_DEBUG:
+                        print(f"🔍 API CALL SUCCESSFUL: Got result {type(result).__name__}")
+                    
+                    return result
+                except Exception as inner_e:
+                    if g.VERBOSE_DEBUG:
+                        print(f"🔍 INNER API ERROR: {str(inner_e)}")
+                        print(f"🔍 INNER API ERROR TYPE: {type(inner_e).__name__}")
+                        print(f"🔍 INNER API ERROR ARGS: {inner_e.args}")
+                        import traceback
+                        print("🔍 INNER API TRACEBACK:")
+                        traceback.print_exc()
+                    raise
+            
+            # Create a result container
+            result_container = {'result': None, 'exception': None}
+            
+            def _run_generation():
+                try:
+                    result_container['result'] = _generate_with_timeout()
+                except Exception as e:
+                    result_container['exception'] = e
+            
+            # Run with extended timeout (120 seconds for image analysis tasks)
+            thread = threading.Thread(target=_run_generation)
+            thread.daemon = True
+            thread.start()
+            
+            # Provide progress feedback during long operations
+            timeout_seconds = float(g.GOOGLE_API_TIMEOUT_SECONDS)
+            check_interval = 5.0  # Check every 5 seconds
+            elapsed = 0.0
+            
+            while thread.is_alive() and elapsed < timeout_seconds:
+                thread.join(timeout=check_interval)
+                elapsed += check_interval
+                if thread.is_alive() and not silent_reason:
+                    # Show progress indicator every 15 seconds
+                    if int(elapsed) % 15 == 0:
+                        g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} still processing... ({int(elapsed)}s elapsed)", "yellow", force_print=True, prefix=prefix)
+            
+            if thread.is_alive():
+                # Thread is still running, timeout occurred
+                raise Exception(f"Request timed out after {timeout_seconds} seconds for model {model_key}")
+            
+            if result_container['exception']:
+                raise result_container['exception']
+            
+            response = result_container['result']
+            
+            # Record successful request
+            enhanced_rate_limit_tracker.record_request(model_key, token_cost=token_cost, image_count=image_count)
             
             return response
         except Exception as e:
-            # Check if this is a quota exceeded error (429 error with specific message)
+            # Use enhanced parser for better rate limit handling
             error_str = str(e)
-            if "429" in error_str and "quota" in error_str.lower() and "exceeded" in error_str.lower():
-                # Extract retry delay from the error message
-                retry_seconds = 60  # default
-                retry_matches = re.findall(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_str)
-                if retry_matches:
-                    retry_seconds = int(retry_matches[0])
-                
-                # Update rate limit tracker
-                rate_limit_tracker.update_rate_limit(model_key, retry_seconds)
-                
-                # Show only a single line warning for quota exceeded
-                if not silent_reason:
-                    g.debug_log(f"⚡ Quota exceeded for {model_key} - retry in {retry_seconds}s", "yellow", force_print=True, prefix=prefix)
-                
-                # Mark the exception as already logged and raise as RateLimitException
-                setattr(e, 'already_logged', True)
-                raise RateLimitException(f"Model {model_key} quota exceeded. Try again in {retry_seconds} seconds")
             
-            # Check if this is a general rate limit error
-            elif "quota" in error_str.lower() or "rate" in error_str.lower():
-                retry_seconds = 60
-                retry_matches = re.findall(r"retry in (\d+)", error_str)
-                if retry_matches:
-                    retry_seconds = int(retry_matches[0])
+            # Check if this is a rate limit error
+            if ("429" in error_str or "quota" in error_str.lower() or 
+                "rate" in error_str.lower() or "limit" in error_str.lower()):
                 
-                # Update rate limit tracker
-                rate_limit_tracker.update_rate_limit(model_key, retry_seconds)
+                # Parse the error using the Gemini-specific parser
+                parser = RateLimitParserFactory.get_parser("gemini")
+                limit_type, cooldown_seconds, extra_info = parser.parse_error(error_str)
                 
-                # Show only a single line warning for rate limits
+                # Update limits based on error info if needed
+                RateLimitConfig.update_limits_from_error(model_key, error_str)
+                
+                # Apply the rate limit
+                enhanced_rate_limit_tracker.apply_rate_limit(
+                    model_key, limit_type, cooldown_seconds, 
+                    retry_delay=extra_info.get('api_suggested_delay', 0)
+                )
+                
+                # Show user-friendly message
                 if not silent_reason:
-                    g.debug_log(f"⚡ Rate limit reached for {model_key} - retry in {retry_seconds}s", "yellow", force_print=True, prefix=prefix)
+                    limit_name = limit_type.value.replace('_', ' ').title()
+                    g.debug_log(f"⚡ {limit_name} limit reached for {model_key} - retry in {cooldown_seconds}s", "yellow", force_print=True, prefix=prefix)
                 
                 # Mark the exception as already logged and raise as RateLimitException
                 setattr(e, 'already_logged', True)
-                raise RateLimitException(f"Model {model_key} is rate limited. Try again in {retry_seconds} seconds")
+                raise RateLimitException(f"Model {model_key} {limit_type.value} limit exceeded. Try again in {cooldown_seconds:.1f} seconds")
             
             # Log other errors here so we don't get duplicate logs
             if not silent_reason:
@@ -263,6 +390,69 @@ class GoogleAPI(AIProviderInterface):
             # Keep returning None for embeddings as this appears to be the expected behavior
             # This is different from generate_response and generate_speech which re-raise exceptions
             return None
+
+    @staticmethod
+    def get_available_models(chat: Optional[Chat] = None) -> List[Dict[str, Any]]:
+        """
+        Discovers and returns available Gemini models.
+        
+        This method queries the Google Generative AI API to get a real-time list of 
+        available models. Can be used for dynamic model discovery in the future.
+        Currently, the LLM router uses a static list of known Google models for 
+        performance reasons, but this method provides the foundation for dynamic discovery.
+        
+        Args:
+            chat (Optional[Chat]): The chat object for debug printing.
+            
+        Returns:
+            List[Dict[str, Any]]: List of available model information dictionaries.
+                Each dictionary contains:
+                - name: Model identifier (e.g., "models/gemini-1.5-pro")
+                - display_name: Human-readable name
+                - description: Model description
+                - supported_generation_methods: List of supported methods
+                - input_token_limit: Maximum input tokens (if available)
+                - output_token_limit: Maximum output tokens (if available)
+        """
+        try:
+            # Configure the API if not already done
+            GoogleAPI._configure_api()
+            
+            # Print status message
+            prefix = chat.get_debug_title_prefix() if chat and hasattr(chat, 'get_debug_title_prefix') else ""
+            if chat:
+                g.debug_log(f"Google-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} discovering available models...", force_print=True, prefix=prefix)
+            
+            models = []
+            
+            # Use genai.list_models() to retrieve available models
+            for model in genai.list_models():
+                model_info = {
+                    'name': model.name,
+                    'display_name': model.display_name,
+                    'description': model.description or "",
+                    'supported_generation_methods': list(model.supported_generation_methods) if model.supported_generation_methods else [],
+                    'version': getattr(model, 'version', ''),
+                    'input_token_limit': getattr(model, 'input_token_limit', None),
+                    'output_token_limit': getattr(model, 'output_token_limit', None),
+                    'temperature': getattr(model, 'temperature', None),
+                    'top_p': getattr(model, 'top_p', None),
+                    'top_k': getattr(model, 'top_k', None)
+                }
+                models.append(model_info)
+            
+            if chat:
+                g.debug_log(f"Google-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} found {len(models)} available models", force_print=True, prefix=prefix)
+            
+            return models
+            
+        except Exception as e:
+            error_msg = f"Google API model discovery error: {e}"
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
+            logger.error(error_msg)
+            return []
 
     @staticmethod
     def generate_speech(

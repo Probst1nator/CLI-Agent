@@ -6,8 +6,8 @@ import numpy as np
 import speech_recognition as sr
 
 from py_classes.unified_interfaces import AudioProviderInterface
-from py_classes.globals import g
-from py_methods.utils_audio import (
+from core.globals import g
+from shared.utils_audio import (
     transcribe_audio as utils_transcribe_audio,
     play_notification,
     play_audio,
@@ -52,9 +52,13 @@ class WhisperInterface(AudioProviderInterface):
                 else:
                     raise TypeError("audio_data must be either sr.AudioData or numpy.ndarray")
             
+            # Read the audio data from the temporary file
+            audio_array, file_sample_rate = sf.read(temp_audio_file_path)
+            
             # Transcribe the audio using our utility function
             transcribed_text, detected_language = utils_transcribe_audio(
-                audio_path=temp_audio_file_path,
+                audio_array=audio_array,
+                sample_rate=file_sample_rate,
                 whisper_model_key=model
             )
             

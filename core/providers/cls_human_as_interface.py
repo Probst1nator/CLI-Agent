@@ -4,14 +4,14 @@ from typing import Optional, Callable, Union, TYPE_CHECKING
 from openai import OpenAI
 from termcolor import colored
 import speech_recognition as sr
-from py_classes.globals import g
-from py_classes.cls_text_stream_painter import TextStreamPainter
+from core.globals import g
+from agent.text_painter.stream_painter import TextStreamPainter
 
 from py_classes.unified_interfaces import AIProviderInterface
 
 # Only used for type annotations, not actual imports
 if TYPE_CHECKING:
-    from py_classes.cls_chat import Chat, Role
+    from core.chat import Chat, Role
 
 class HumanAPI(AIProviderInterface):
     """

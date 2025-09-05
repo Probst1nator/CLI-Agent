@@ -7,8 +7,8 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import CheckboxList, Frame, Label
-from py_classes.globals import g
-from py_classes.ai_providers.cls_ollama_interface import OllamaClient
+from core.globals import g
+from core.providers.cls_ollama_interface import OllamaClient
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pyperclip

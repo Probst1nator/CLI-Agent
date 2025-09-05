@@ -8,24 +8,21 @@ import tempfile
 from typing import Any, List, Optional, Tuple, Union, TypedDict
 import sqlite3
 import chromadb
-import pyaudio
+# import pyaudio  # Moved to lazy import in functions that need it
 import logging
 from termcolor import colored
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from py_classes.ai_providers.cls_groq_interface import GroqAPI
+from core.providers.cls_groq_interface import GroqAPI
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 from speech_recognition import Microphone, Recognizer, WaitTimeoutError
 from io import StringIO
-from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
-from pdfminer.converter import TextConverter
-from pdfminer.layout import LAParams
-from pdfminer.pdfpage import PDFPage
+# Moved pdfminer imports to lazy loading in functions that need them
 
-from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-from py_classes.globals import g
+from core.providers.cls_ollama_interface import OllamaClient
+from core.globals import g
 
 import os
 import base64
@@ -60,6 +57,7 @@ def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
     """
     global r, source
     if not r:
+        import pyaudio  # Lazy import
         pyaudio_instance = pyaudio.PyAudio()
         default_microphone_info = pyaudio_instance.get_default_input_device_info()
         microphone_device_index = default_microphone_info["index"]
@@ -155,7 +153,7 @@ def listen_microphone(
                             with sr.AudioFile(temp_audio_file_path) as source:
                                 audio_data = r.record(source)
                             
-                            from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
+                            from core.providers.cls_openai_interface import OpenAIAPI
                             transcription, detected_language = OpenAIAPI.transcribe_audio(audio_data)
                             print(colored("✅ OpenAI cloud transcription successful", "green"))
                             cloud_success = True
@@ -228,6 +226,12 @@ def save_to_cache(cache_file: str, content: Union[str, List[str]]) -> None:
         pickle.dump(content, f)
 
 def extract_text_from_pdf(pdf_path: str) -> List[str]:
+    # Lazy import pdfminer modules
+    from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
+    from pdfminer.converter import TextConverter
+    from pdfminer.layout import LAParams
+    from pdfminer.pdfpage import PDFPage
+    
     resource_manager = PDFResourceManager()
     page_contents = []
     

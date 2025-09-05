@@ -9,16 +9,17 @@ from typing import Dict, List, Optional, Set, Any, Union, Iterator
 from termcolor import colored
 import math # <-- Added for token calculation
 
-from py_classes.ai_providers.cls_nvidia_interface import NvidiaAPI
-from py_classes.cls_text_stream_painter import TextStreamPainter
-from py_classes.cls_chat import Chat, Role
-from py_classes.ai_providers.cls_anthropic_interface import AnthropicAPI
-from py_classes.enum_ai_strengths import AIStrengths
+from core.providers.cls_nvidia_interface import NvidiaAPI
+from agent.text_painter.stream_painter import TextStreamPainter
+from core.chat import Chat, Role
+from core.providers.cls_anthropic_interface import AnthropicAPI
+from core.ai_strengths import AIStrengths
 from py_classes.unified_interfaces import AIProviderInterface
-from py_classes.ai_providers.cls_groq_interface import GroqAPI, TimeoutException, RateLimitException
-from py_classes.ai_providers.cls_openai_interface import OpenAIAPI
-from py_classes.ai_providers.cls_google_interface import GoogleAPI
-from py_classes.globals import g
+from core.providers.cls_groq_interface import GroqAPI, TimeoutException, RateLimitException
+from core.providers.cls_openai_interface import OpenAIAPI
+from core.providers.cls_google_interface import GoogleAPI
+from core.llm import Llm
+from core.globals import g
 import logging
 
 # Get a logger for this module. It will inherit its configuration from the root logger set up in main.py.
@@ -35,343 +36,6 @@ class StreamInterruptedException(Exception):
     def __init__(self, response):
         self.response = response
         super().__init__("Stream interrupted by callback to signal completion.")
-
-class Llm:
-    """
-    Class representing a Language Model (LLM) with its properties and capabilities.
-    """
-
-    def __init__(
-        self, 
-        provider: AIProviderInterface, 
-        model_key: str, 
-        pricing_in_dollar_per_1M_tokens: Optional[float], 
-        context_window: int, 
-        strengths: List[AIStrengths] = [], 
-    ):
-        """
-        Initialize an LLM instance.
-
-        Args:
-            provider (ChatClientInterface): The chat client interface for the LLM.
-            model_key (str): Unique identifier for the model.
-            pricing_in_dollar_per_1M_tokens (Optional[float]): Pricing information.
-            context_window (int): The context window size of the model.
-            strength (AIStrengths): The strength category of the model.
-        """
-        self.provider = provider
-        self.model_key = model_key
-        self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
-        self.context_window = context_window
-        self.strengths = strengths
-    
-    def __str__(self) -> str:
-        """
-        Returns a string representation of the LLM.
-        
-        Returns:
-            str: A formatted string with the LLM's attributes
-        """
-        provider_name = self.provider.__class__.__name__
-        pricing = f"${self.pricing_in_dollar_per_1M_tokens}/1M tokens" if self.pricing_in_dollar_per_1M_tokens else "Free"
-        strengths = ", ".join(s.name for s in self.strengths) if self.strengths else "None"
-        
-        return f"LLM(provider={provider_name}, model={self.model_key}, pricing={pricing}, " \
-               f"context_window={self.context_window}, strengths=[{strengths}])"
-    
-    @property
-    def local(self) -> bool:
-        """Returns whether the model is available locally."""
-        return any(s == AIStrengths.LOCAL for s in self.strengths)
-    
-    @property
-    def has_vision(self) -> bool:
-        """Returns whether the model has vision capabilities."""
-        return any(s == AIStrengths.VISION for s in self.strengths)
-    
-    @property
-    def is_small_model(self) -> bool:
-        """Returns whether this is a small/fast model."""
-        return any(s == AIStrengths.SMALL for s in self.strengths)
-    
-    def get_context_window(self) -> int:
-        """
-        Get the context window size. If None, fetch dynamically from Ollama.
-        
-        Returns:
-            int: The context window size
-        """
-        if self.context_window is not None:
-            return self.context_window
-        
-        # For Ollama models, fetch context length dynamically
-        if self.provider.__class__.__name__ == 'OllamaClient':
-            try:
-                from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-                # Try different Ollama hosts
-                from py_classes.globals import g
-                ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
-                for host in ollama_hosts:
-                    try:
-                        context_length = OllamaClient.get_model_context_length(self.model_key, host)
-                        if context_length is not None:
-                            # Cache the result to avoid repeated calls
-                            self.context_window = context_length
-                            return context_length
-                    except Exception:
-                        continue
-                # If all hosts failed, use consistent fallback
-                fallback_context = 128000
-                self.context_window = fallback_context
-                return fallback_context
-            except Exception:
-                # Final fallback - consistent value for all models
-                fallback_context = 128000
-                self.context_window = fallback_context
-                return fallback_context
-        
-        # For non-Ollama models, return consistent default
-        default_context = 128000
-        self.context_window = default_context
-        return default_context
-    
-    @classmethod
-    def get_available_llms(cls, exclude_guards: bool = False, include_dynamic: bool = True) -> List["Llm"]:
-        """
-        Get the list of available LLMs, optionally including dynamically discovered Ollama models.
-        
-        Args:
-            exclude_guards (bool): Whether to exclude guard models
-            include_dynamic (bool): Whether to include dynamic discovery (slower but complete)
-        
-        Returns:
-            List[Llm]: A list of Llm instances representing the available models.
-        """
-        # Static cloud models and configured Ollama models
-        llms = [
-            # Llm(HumanAPI(), "human", None, 131072, [AIStrengths.STRONG, AIStrengths.LOCAL, AIStrengths.VISION]), # For testing
-            
-            Llm(GoogleAPI(), "gemini-2.5-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE]),
-            Llm(GoogleAPI(), "gemini-2.5-pro", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.STRONG]),
-            Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
-            Llm(GoogleAPI(), "gemini-2.5-flash-lite-preview-06-17", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
-            Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.VISION, AIStrengths.ONLINE, AIStrengths.SMALL]),
-            
-            Llm(GroqAPI(), "moonshotai/kimi-k2-instruct", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.STRONG]),
-            Llm(GroqAPI(), "qwen/qwen3-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
-            Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
-            Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE, AIStrengths.SMALL]),
-            Llm(GroqAPI(), "qwen-qwq-32b", None, 128000, [AIStrengths.GENERAL, AIStrengths.REASONING, AIStrengths.ONLINE, AIStrengths.SMALL]),
-            Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, [AIStrengths.SMALL, AIStrengths.CODE, AIStrengths.ONLINE, AIStrengths.SMALL]),
-            
-            # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.ONLINE]),
-            
-            # Static configured Ollama models (these will be supplemented by dynamic discovery)
-            # Context lengths will be dynamically fetched from Ollama
-        ]
-        
-        # Import OllamaClient here to avoid circular import
-        try:
-            from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-            llms.extend([
-                Llm(OllamaClient(), "gemma3n:e4b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "mistral-small3.2:latest", None, None, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.VISION]),
-                Llm(OllamaClient(), "magistral:latest", None, None, [AIStrengths.GENERAL, AIStrengths.LOCAL, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "qwen3:30b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "qwen3-coder:latest", None, None, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "devstral:latest", None, None, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "gemma3n:e2b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
-                
-                
-                Llm(OllamaClient(), "qwen2.5vl:3b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL, AIStrengths.VISION]),
-                Llm(OllamaClient(), "cogito:32b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.STRONG]),
-                Llm(OllamaClient(), "qwen3:1.7b", None, None, [AIStrengths.GENERAL, AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
-                Llm(OllamaClient(), "qwen2.5-coder:1.5b", None, None, [AIStrengths.CODE, AIStrengths.LOCAL, AIStrengths.SMALL]),
-                
-                
-                # Guard models
-                Llm(OllamaClient(), "llama-guard3:8b", None, None, [AIStrengths.GUARD, AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "shieldgemma:2b", None, None, [AIStrengths.GUARD, AIStrengths.LOCAL, AIStrengths.SMALL]),
-            ])
-        except ImportError:
-            # OllamaClient not available, skip Ollama models
-            pass
-            
-        # Non-Ollama guard models
-        llms.extend([
-            Llm(GroqAPI(), "llama-guard-4-12b", None, 128000, [AIStrengths.GUARD]),
-        ])
-        
-        # Get existing model keys to avoid duplicates
-        existing_models = {llm.model_key for llm in llms}
-        
-        # Add dynamically discovered Ollama models (ONLY downloaded/local models)
-        # Only do this if dynamic discovery is requested (to avoid startup delays)
-        if include_dynamic:
-            try:
-                # Try different Ollama hosts
-                from py_classes.globals import g
-                ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
-                for host in ollama_hosts:
-                    try:
-                        from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-                        # IMPORTANT: Only get actually downloaded/installed models
-                        # Never include downloadable-but-not-installed models in auto-selection
-                        downloaded_models = OllamaClient.get_downloaded_models(host)
-                        for model_info in downloaded_models:
-                            model_name = model_info.get('name', '')
-                            if model_name and model_name not in existing_models:
-                                # Verify this model is actually downloaded by checking if it has size/modified info
-                                # This ensures we don't accidentally include downloadable models
-                                if not (model_info.get('size', 0) > 0 or model_info.get('modified_at')):
-                                    continue  # Skip if no size/modified info (not actually downloaded)
-                                
-                                # Determine strengths based on model name patterns
-                                strengths = [AIStrengths.LOCAL, AIStrengths.GENERAL]
-                                
-                                # Add specific strengths based on model name
-                                model_lower = model_name.lower()
-                                if any(x in model_lower for x in ['code', 'coder', 'dev']):
-                                    strengths.append(AIStrengths.CODE)
-                                if any(x in model_lower for x in ['vision', 'vl', 'visual']):
-                                    strengths.append(AIStrengths.VISION)
-                                if any(x in model_lower for x in ['1b', '2b', '3b', '4b', 'small']):
-                                    strengths.append(AIStrengths.SMALL)
-                                elif any(x in model_lower for x in ['30b', '70b', 'large']):
-                                    strengths.append(AIStrengths.STRONG)
-                                
-                                # Create dynamic Llm instance (only for actually downloaded models)
-                                llms.append(Llm(
-                                    OllamaClient(), 
-                                    model_name, 
-                                    None, 
-                                    None,  # Context window will be fetched dynamically
-                                    strengths
-                                ))
-                                existing_models.add(model_name)
-                    except ImportError:
-                        pass  # OllamaClient not available
-                    except Exception:
-                        continue  # Skip failed hosts
-            except Exception:
-                pass  # Fall back to static list if dynamic discovery fails
-        
-        if exclude_guards:
-            llms = [llm for llm in llms if not any(s == AIStrengths.GUARD for s in llm.strengths)]
-        return llms
-    
-    # Removed duplicate static method - now using get_available_llms(include_dynamic=False)
-    
-    @classmethod
-    async def _discover_ollama_models_async(cls):
-        """Asynchronously discover Ollama models and update the cache."""
-        if cls._discovery_in_progress:
-            return
-        
-        cls._discovery_in_progress = True
-        try:
-            import asyncio
-            from py_classes.globals import g
-            
-            # Get current static models
-            existing_models = {model.model_key for model in cls._discovered_models_cache}
-            new_models = []
-            
-            try:
-                from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-                
-                # Try different Ollama hosts with async timeouts
-                tasks = []
-                for host in g.DEFAULT_OLLAMA_HOSTS:
-                    # Remove protocol prefix for host checking
-                    clean_host = host.replace('http://', '').replace('https://', '')
-                    tasks.append(cls._discover_from_host_async(clean_host, existing_models))
-                
-                # Wait for all host discoveries with timeout
-                if tasks:
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    for result in results:
-                        if isinstance(result, list):
-                            new_models.extend(result)
-                
-                # Update cache with discovered models
-                if new_models:
-                    cls._discovered_models_cache.extend(new_models)
-                    cls._cache_timestamp = time.time()
-                    logging.info(f"🔍 Discovered {len(new_models)} additional Ollama models")
-                
-            except ImportError:
-                # OllamaClient not available
-                pass
-            except Exception as e:
-                logging.debug(f"Ollama model discovery failed: {e}")
-        
-        finally:
-            cls._discovery_in_progress = False
-    
-    @classmethod
-    async def _discover_from_host_async(cls, host: str, existing_models: set) -> List["Llm"]:
-        """Discover models from a single Ollama host asynchronously."""
-        import asyncio
-        
-        try:
-            from py_classes.ai_providers.cls_ollama_interface import OllamaClient
-            
-            # Use asyncio timeout for the entire discovery process
-            async def discover_with_timeout():
-                # Run the sync discovery in a thread pool
-                loop = asyncio.get_event_loop()
-                return await loop.run_in_executor(
-                    None, 
-                    lambda: OllamaClient.get_downloaded_models(host)
-                )
-            
-            # Timeout after 3 seconds per host
-            downloaded_models = await asyncio.wait_for(
-                discover_with_timeout(), 
-                timeout=3.0
-            )
-            
-            new_models = []
-            for model_info in downloaded_models:
-                model_name = model_info.get('name', '')
-                if model_name and model_name not in existing_models:
-                    # Verify this model is actually downloaded
-                    if not (model_info.get('size', 0) > 0 or model_info.get('modified_at')):
-                        continue
-                    
-                    # Determine strengths based on model name patterns
-                    strengths = [AIStrengths.LOCAL, AIStrengths.GENERAL]
-                    
-                    model_lower = model_name.lower()
-                    if any(x in model_lower for x in ['code', 'coder', 'dev']):
-                        strengths.append(AIStrengths.CODE)
-                    if any(x in model_lower for x in ['vision', 'vl', 'visual']):
-                        strengths.append(AIStrengths.VISION)
-                    if any(x in model_lower for x in ['1b', '2b', '3b', '4b', 'small']):
-                        strengths.append(AIStrengths.SMALL)
-                    elif any(x in model_lower for x in ['30b', '70b', 'large']):
-                        strengths.append(AIStrengths.STRONG)
-                    
-                    new_models.append(Llm(
-                        OllamaClient(), 
-                        model_name, 
-                        None, 
-                        None,
-                        strengths
-                    ))
-                    existing_models.add(model_name)
-            
-            return new_models
-            
-        except asyncio.TimeoutError:
-            logging.debug(f"Ollama host {host} discovery timed out")
-            return []
-        except Exception as e:
-            logging.debug(f"Failed to discover models from {host}: {e}")
-            return []
-    
-    # Removed sync discovery method to prevent startup delays
 
 class LlmRouter:
     """
@@ -411,6 +75,11 @@ class LlmRouter:
         self.runtime_used_cache_keys: Set[str] = set()
         # Lock for thread-safe cache access in MCT mode
         self._cache_lock = threading.Lock()
+        # Store detailed failure reason for better error messages
+        self._last_failure_reason: str = "Unknown reason"
+        # Store original error from single model attempts for better reporting
+        self._original_single_model_error: str = ""
+        self._failed_model_key: str = ""
     
     def _ensure_dynamic_models_loaded(self) -> None:
         """Load dynamic models if not already loaded."""
@@ -525,7 +194,7 @@ class LlmRouter:
             print(colored(f"Failed to update cache: {e}", "red"))
             print("Continuing without updating cache file...")
 
-    def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, allow_general: bool = True) -> bool:
+    def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, debug_model_key: str = None) -> tuple[bool, str | None]:
         """
         Check if a model is capable of handling the given constraints.
         
@@ -536,36 +205,50 @@ class LlmRouter:
             local (bool): Whether the model should be local.
             force_free (bool): Whether to force free models only.
             has_vision (bool): Whether vision capability is required.
-            allow_general (bool): Whether to allow GENERAL strength as a fallback.
+            debug_model_key (str): Optional model key for debugging output.
 
         Returns:
-            bool: True if the model is capable, False otherwise.
+            tuple[bool, str | None]: (True, None) if capable, (False, reason) if not capable.
         """
+        def debug_log(reason: str):
+            if debug_model_key:
+                logger.warning(f"Model '{debug_model_key}' capability check failed: {reason}")
+        
         if force_free and model.pricing_in_dollar_per_1M_tokens is not None:
-            return False
+            reason = f"not free (costs ${model.pricing_in_dollar_per_1M_tokens} per 1M tokens)"
+            debug_log(reason)
+            return False, reason
         if has_vision and not model.has_vision:
-            return False
+            reason = "no vision support"
+            debug_log(reason)
+            return False, reason
             
         if model.model_key in self._model_limits:
             token_limit = self._model_limits[model.model_key]
             if len(chat) >= token_limit:
-                return False
+                reason = f"exceeds saved token limit ({token_limit} < {len(chat)} tokens)"
+                debug_log(reason)
+                return False, reason
         
         if model.get_context_window() < len(chat):
-            return False
+            reason = f"context window too small ({model.get_context_window()} < {len(chat)} tokens)"
+            debug_log(reason)
+            return False, reason
         if strengths and model.strengths:
             # Check if ALL of the required strengths are included in the model's strengths
             if not all(s.value in [ms.value for ms in model.strengths] for s in strengths):
-                # Only check for GENERAL if allowed
-                if allow_general:
-                    return any(s.value == AIStrengths.GENERAL.value for s in model.strengths)
-                return False
+                missing_strengths = [s.name for s in strengths if s.value not in [ms.value for ms in model.strengths]]
+                reason = f"missing required strengths: {missing_strengths}"
+                debug_log(reason)
+                return False, reason
         if local != model.local:
-            return False
-        return True
+            reason = f"local mismatch (required: {local}, model: {model.local})"
+            debug_log(reason)
+            return False, reason
+        return True, None
 
     @classmethod
-    def get_models(cls, preferred_models: List[str] = [], strengths: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False) -> List[Llm]:
+    def get_models(cls, preferred_models: List[str] = [], strengths: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> List[Llm]:
         """
         Get a list of available models based on the given constraints.
         
@@ -576,6 +259,7 @@ class LlmRouter:
             force_local (bool): Whether to force local models only.
             force_free (bool): Whether to force free models only.
             has_vision (bool): Whether to require models with vision capability.
+            force_preferred_model (bool): Whether to only consider preferred models.
 
         Returns:
             List[Llm]: A list of available Llm instances that meet the specified criteria.
@@ -583,44 +267,107 @@ class LlmRouter:
         instance = cls()
         
         # Trigger dynamic discovery for comprehensive model access (e.g., LLM selector)
-        # Skip this for basic startup operations to avoid delays
-        if not preferred_models or len(preferred_models) == 0:
-            # When no specific models requested, load all available (including dynamic discovery)
+        # Also trigger when we have preferred models that might need discovery
+        if not preferred_models or len(preferred_models) == 0 or force_preferred_model:
+            # When no specific models requested OR when forcing preferred models, load all available (including dynamic discovery)
             instance._ensure_dynamic_models_loaded()
         
         available_models: List[Llm] = []
 
         # First try to find models with exact capability matches
         for model_key in preferred_models:
-            if model_key and model_key not in instance.failed_models:
+            logger.debug(f"Processing preferred model: {model_key}")
+            if model_key:
+                if model_key in instance.failed_models:
+                    logger.debug(f"Skipping {model_key}: in failed_models list")
+                    continue
                 model = next((model for model in instance.retry_models if model_key in model.model_key), None)
-                if model and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=False):
-                    available_models.append(model)
+                logger.debug(f"Found model object for {model_key}: {model}")
+                if model:
+                    capability_result, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, debug_model_key=model_key)
+                    logger.debug(f"Capability check for {model_key}: {capability_result}")
+                    if capability_result:
+                        available_models.append(model)
+                else:
+                    logger.debug(f"No model object found for {model_key}")
         
         # If no preferred models with exact capabilities, check all models
         if not available_models:
             for model in instance.retry_models:
                 if model.model_key not in instance.failed_models and model.model_key not in [model.model_key for model in available_models]:
-                    if (not force_local or model.local) and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=False):
+                    capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision)
+                    if (not force_local or model.local) and capable:
                         available_models.append(model)
         
-        # If still no models found, try again allowing GENERAL capability
+        # If still no models found, fallback to preferred models without strict capability matching
         if not available_models and strengths:
             # First check preferred models
             for model_key in preferred_models:
                 if model_key and model_key not in instance.failed_models:
                     model = next((model for model in instance.retry_models if model_key in model.model_key), None)
-                    if model and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=True):
+                    capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision)
+                    if model and capable:
                         available_models.append(model)
             
             # Then check all models
             if not available_models:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and model.model_key not in [model.model_key for model in available_models]:
-                        if (not force_local or model.local) and instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, allow_general=True):
+                        capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision)
+                        if (not force_local or model.local) and capable:
                             available_models.append(model)
 
         return available_models
+
+    @classmethod
+    def get_provider_info(cls, model_key: str, colored_output: bool = False) -> tuple[str, str]:
+        """
+        Get provider info and emoji for a model_key.
+        
+        Args:
+            model_key (str): The model key to get provider info for
+            colored_output (bool): Whether to return colored provider info
+            
+        Returns:
+            tuple[str, str]: (provider_info, provider_emoji) where provider_info is like " via <Provider>" or " on <host>"
+        """
+        try:
+            models = cls.get_models([model_key])
+            if not models:
+                return "", ""
+                
+            model = models[0]
+            provider_info = ""
+            provider_emoji = ""
+            
+            if model.provider.__class__.__name__ == 'OllamaClient' and hasattr(model.provider.__class__, 'current_host') and model.provider.__class__.current_host:
+                provider_info = f" on <{model.provider.__class__.current_host}>"
+                provider_emoji = "🏠 "  # Local/home emoji
+                if colored_output:
+                    from termcolor import colored
+                    provider_info = provider_info.replace(f"<{model.provider.__class__.current_host}>", colored(f"<{model.provider.__class__.current_host}>", "light_green", attrs=["bold"]))
+            elif model.provider.__class__.__name__ != 'OllamaClient':
+                # For non-Ollama providers, show the provider name with cloud emoji
+                provider_name = model.provider.__class__.__name__.replace('API', '').replace('Client', '')
+                provider_info = f" via <{provider_name}>"
+                provider_emoji = "☁️  "  # Cloud emoji
+                if colored_output:
+                    from termcolor import colored
+                    if provider_name == 'Google':
+                        # Special Google logo colors: G(blue), o(red), o(yellow), g(green), l(blue), e(red)
+                        google_colored = (colored('G', 'blue', attrs=['bold']) + 
+                                        colored('o', 'red', attrs=['bold']) + 
+                                        colored('o', 'yellow', attrs=['bold']) + 
+                                        colored('g', 'green', attrs=['bold']) + 
+                                        colored('l', 'blue', attrs=['bold']) + 
+                                        colored('e', 'red', attrs=['bold']))
+                        provider_info = provider_info.replace(f"<{provider_name}>", f"<{google_colored}>")
+                    else:
+                        provider_info = provider_info.replace(provider_name, colored(provider_name, "light_blue", attrs=["bold"]))
+                        
+            return provider_info, provider_emoji
+        except Exception:
+            return "", ""
 
     @classmethod
     def get_model(cls, preferred_models: List[str] = [], strengths: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
@@ -641,6 +388,11 @@ class LlmRouter:
         """
         instance = cls()
 
+        # Trigger dynamic discovery for comprehensive model access
+        # Especially important when forcing preferred models that might need discovery/auto-download
+        if not preferred_models or len(preferred_models) == 0 or force_preferred_model:
+            instance._ensure_dynamic_models_loaded()
+
         # Debug print for large token counts
         if (len(chat) > 4000 and not force_free and not force_local):
             print(colored("DEBUG: len(chat) returned: " + str(len(chat)), "yellow"))
@@ -652,53 +404,78 @@ class LlmRouter:
         for model_key in preferred_models:
             if (model_key not in instance.failed_models) and model_key:
                 model = next((model for model in instance.retry_models if model_key in model.model_key and (not has_vision or has_vision == model.has_vision)), None)
-                if model and instance.model_capable_check(model, chat, strengths, model.local, False, has_vision, allow_general=False):
-                    candidate_models.append(model)
+                if model:
+                    capable, _ = instance.model_capable_check(model, chat, strengths, model.local, False, has_vision, debug_model_key=model_key)
+                    if capable:
+                        candidate_models.append(model)
 
         # If no preferred candidates and force_preferred_model is True
+        # Try auto-download for any Ollama models that might not be downloaded yet
         if not candidate_models and force_preferred_model:
-            # If forcing a preferred model, but none were found, we should
-            # still try to find *any* model that meets the other criteria
-            # rather than just giving up. This is especially important for --fast
-            # where the user just wants a fast model, not a specific one.
-            pass
+            # Try to create dynamic Ollama models for auto-download
+            # This handles cases where the model exists but isn't downloaded yet
+            try:
+                from core.providers.cls_ollama_interface import OllamaClient
+                for model_key in preferred_models:
+                    if model_key not in instance.failed_models:
+                        # Only attempt auto-download for models that look like Ollama models
+                        # (i.e., not containing / which indicates a cloud provider model)
+                        if '/' not in model_key and ':' in model_key:
+                            # Create a dynamic Ollama model for auto-download attempt
+                            strengths = [AIStrengths.LOCAL]  # All Ollama models are local
+                            if any(x in model_key.lower() for x in ['vision', 'vl', 'visual']):
+                                strengths.append(AIStrengths.VISION)
+                            if any(x in model_key.lower() for x in ['uncensored', 'dolphin', 'wizard']):
+                                strengths.append(AIStrengths.UNCENSORED)
+                            
+                            dynamic_model = Llm(OllamaClient(), model_key, None, None, strengths)
+                            capable, _ = instance.model_capable_check(dynamic_model, chat, strengths, True, False, has_vision)
+                            if capable:
+                                candidate_models.append(dynamic_model)
+            except ImportError:
+                pass
         
         # Continue gathering candidates from other models if needed
-        # Allow fallback even when force_preferred_model=True if no preferred models worked
-        if not candidate_models:
+        # Only allow fallback if force_preferred_model is False
+        if not candidate_models and not force_preferred_model:
             # Search online models by exact capability next
             if not force_local:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and not model.local:
-                        if instance.model_capable_check(model, chat, strengths, local=False, force_free=force_free, has_vision=has_vision, allow_general=False):
+                        capable, _ = instance.model_capable_check(model, chat, strengths, local=False, force_free=force_free, has_vision=has_vision)
+                        if capable:
                             candidate_models.append(model)
                 
-                # Add online models with GENERAL capability
+                # Add online models as fallback
                 if not candidate_models and strengths:
                     for model in instance.retry_models:
                         if model.model_key not in instance.failed_models and not model.local:
-                            if instance.model_capable_check(model, chat, strengths, local=False, force_free=force_free, has_vision=has_vision, allow_general=True):
+                            capable, _ = instance.model_capable_check(model, chat, strengths, local=False, force_free=force_free, has_vision=has_vision)
+                            if capable:
                                 candidate_models.append(model)
 
             # Add local models by exact capability
             if not candidate_models or force_local:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and model.local:
-                        if instance.model_capable_check(model, chat, strengths, local=True, force_free=force_free, has_vision=has_vision, allow_general=False):
+                        capable, _ = instance.model_capable_check(model, chat, strengths, local=True, force_free=force_free, has_vision=has_vision)
+                        if capable:
                             candidate_models.append(model)
             
-            # Add local models with GENERAL capability
+            # Add local models as fallback
             if not candidate_models and strengths:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and model.local:
-                        if instance.model_capable_check(model, chat, strengths, local=True, force_free=force_free, has_vision=has_vision, allow_general=True):
+                        capable, _ = instance.model_capable_check(model, chat, strengths, local=True, force_free=force_free, has_vision=has_vision)
+                        if capable:
                             candidate_models.append(model)
             
             # Last resort: try with empty chat to ignore context length
             if not candidate_models:
                 for model in instance.retry_models:
                     if model.model_key not in instance.failed_models and model.local:
-                        if instance.model_capable_check(model, Chat(), strengths, local=True, force_free=force_free, has_vision=has_vision, allow_general=True):
+                        capable, _ = instance.model_capable_check(model, Chat(), strengths, local=True, force_free=force_free, has_vision=has_vision)
+                        if capable:
                             candidate_models.append(model)
         
         # Return the first valid candidate
@@ -710,7 +487,8 @@ class LlmRouter:
         stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
         provider: AIProviderInterface,
         hidden_reason: str,
-        callback: Optional[Callable] = None
+        callback: Optional[Callable] = None,
+        existing_prefix: str = ""
     ) -> str:
         """
         Process a stream of tokens from any provider.
@@ -720,13 +498,23 @@ class LlmRouter:
             provider (AIProviderInterface): The provider interface
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
+            existing_prefix (str): Any existing assistant message prefix to include at the beginning
             
         Returns:
             str: The full response string
         """
-        full_response = ""
+        full_response = existing_prefix  # Start with any existing prefix
         finished_response = ""
         token_stream_painter = TextStreamPainter()
+        
+        # If we have an existing prefix, process it first with the callback/display
+        if existing_prefix:
+            if callback is not None:
+                finished_response = await callback(existing_prefix)
+                if finished_response and isinstance(finished_response, str):
+                    return finished_response
+            elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
+                g.print_token(token_stream_painter.apply_color(existing_prefix))
         
         # Handle different stream types
         # ! Anthropic
@@ -739,7 +527,7 @@ class LlmRouter:
                             finished_response = await callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
-                        elif not hidden_reason and not g.SUMMARY_MODE:
+                        elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
         # ! OpenAI/NVIDIA
         elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
@@ -756,7 +544,7 @@ class LlmRouter:
                             finished_response = await callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
-                        elif not hidden_reason and not g.SUMMARY_MODE:
+                        elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
         # ! Google Gemini - IMPROVED HANDLING
         elif isinstance(provider, GoogleAPI):
@@ -793,7 +581,7 @@ class LlmRouter:
                             if result_from_callback and isinstance(result_from_callback, str):
                                 finished_response = result_from_callback
                                 break 
-                        elif not hidden_reason and not g.SUMMARY_MODE:
+                        elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token_from_this_chunk))
                 
                 # If callback signaled to finish early
@@ -828,7 +616,7 @@ class LlmRouter:
                         finished_response = await callback(token)
                         if finished_response and isinstance(finished_response, str):
                             break
-                    elif not hidden_reason and not g.SUMMARY_MODE:
+                    elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
                         g.print_token(token_stream_painter.apply_color(token))
         
         # Fallback for other unknown stream types (original logic)
@@ -841,7 +629,7 @@ class LlmRouter:
                         finished_response = await callback(token)
                         if finished_response and isinstance(finished_response, str):
                             break
-                    elif not hidden_reason and not g.SUMMARY_MODE:
+                    elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
                         g.print_token(token_stream_painter.apply_color(token))
             
         
@@ -859,7 +647,8 @@ class LlmRouter:
         text_stream_painter: TextStreamPainter,
         hidden_reason: str,
         debug_title:str,
-        callback: Optional[Callable] = None
+        callback: Optional[Callable] = None,
+        branch_context: Optional[Dict] = None
     ) -> str:
         """
         Process a cached response.
@@ -870,18 +659,24 @@ class LlmRouter:
             text_stream_painter (TextStreamPainter): Token coloring utility
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
+            branch_context (Optional[Dict]): Branch context for MCT formatting
             
         Returns:
             str: The processed response string
         """
         if not hidden_reason:
-            g.debug_log(f"\n{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>", "blue", force_print=True, prefix=f"[{debug_title}]")
+            # For branch context, don't add leading newline to preserve inline formatting
+            cache_msg = f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>"
+            if branch_context and branch_context.get('store_message'):
+                g.debug_log(cache_msg, "blue", force_print=True, prefix=f"[{debug_title}]")
+            else:
+                g.debug_log(f"\n{cache_msg}", "blue", force_print=True, prefix=f"[{debug_title}]")
             for char in cached_completion:
                 if callback:
                     finished_response = await callback(char)
                     if finished_response and isinstance(finished_response, str):
                         return finished_response
-                elif not hidden_reason and not g.SUMMARY_MODE:
+                elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
                     g.print_token(text_stream_painter.apply_color(char))
                 time.sleep(0)  # better observable for the user
             print()  # Add newline at the end
@@ -935,7 +730,8 @@ class LlmRouter:
             # We still need to update the failed models list though
             if model is not None and model.model_key not in instance.failed_models:
                 instance.failed_models.add(model.model_key)
-                instance.retry_models.remove(model)
+                if model in instance.retry_models:
+                    instance.retry_models.remove(model)
             return
             
         error_msg = str(e)
@@ -954,24 +750,25 @@ class LlmRouter:
             if model.model_key in instance.failed_models:
                 return
             instance.failed_models.add(model.model_key)
-            instance.retry_models.remove(model)
+            if model in instance.retry_models:
+                instance.retry_models.remove(model)
         
-        # Special handling for timeout issues - SHOW USER MESSAGE instead of silent logging
+        # Special handling for timeout issues - SHOW USER MESSAGE and allow retries
         if (isinstance(e, TimeoutException) or 
             "request timed out" in error_msg.lower() or 
             "timeout" in error_msg.lower() or 
             "timed out" in error_msg.lower() or
             "inactivity" in error_msg.lower()):
             
-            # Show timeout message to user
+            # Show timeout message to user with more context
             if "inactivity" in error_msg.lower():
-                g.debug_log(f"⏱️ Model {model_key} timed out due to inactivity - trying next model", "yellow", force_print=True, prefix=prefix)
+                g.debug_log(f"⏱️ Model {model_key} timed out due to inactivity - will retry with extended timeout", "yellow", force_print=True, prefix=prefix)
             else:
-                g.debug_log(f"⏱️ Model {model_key} timed out - trying next model", "yellow", force_print=True, prefix=prefix)
+                g.debug_log(f"⏱️ Model {model_key} timed out during processing - will retry with extended timeout", "yellow", force_print=True, prefix=prefix)
             
-            # Log silently to file for debugging
-            if model is not None:
-                logger.info(f"Timeout issue with model {model_key}: {e}")
+            # For timeout errors, don't permanently fail the model - just skip this attempt
+            # This allows the model to be retried in future requests
+            logger.debug(f"Timeout issue with model {model_key}: {e}")
             return
         
         # Special handling for rate limit exceptions - these are already handled by the provider
@@ -1006,13 +803,22 @@ class LlmRouter:
         if "OllamaClient" in provider_name:
             # Provide more detailed error messages for common Ollama issues
             if "timeout" in error_msg.lower():
-                g.debug_log(f"❌ Ollama-Api: Model {model_key} timed out during generation (stream may be stuck)", "red", is_error=True, prefix=prefix)
+                if "first token" in error_msg.lower():
+                    g.debug_log(f"⏱️  Ollama-Api: Model {model_key} failed to start generation (3min timeout) - likely not installed or Ollama server issue", "red", is_error=True, prefix=prefix)
+                elif "inactivity" in error_msg.lower():
+                    g.debug_log(f"⏱️  Ollama-Api: Model {model_key} timed out during generation (stream stuck/slow)", "red", is_error=True, prefix=prefix)
+                else:
+                    g.debug_log(f"⏱️  Ollama-Api: Model {model_key} timed out during generation", "red", is_error=True, prefix=prefix)
             elif "empty response" in error_msg.lower():
-                g.debug_log(f"❌ Ollama-Api: Model {model_key} returned empty response (generation failure)", "red", is_error=True, prefix=prefix)
+                g.debug_log(f"❌ Ollama-Api: Model {model_key} returned empty response (generation failure or blocking)", "red", is_error=True, prefix=prefix)
             elif "No valid host found" in error_msg:
-                g.debug_log(f"⚠️  Ollama-Api: {error_msg} (trying next model)", "yellow", prefix=prefix)
-            elif "model not found" in error_msg.lower():
-                g.debug_log(f"⚠️  Ollama-Api: Model {model_key} not found (trying next model)", "yellow", prefix=prefix)
+                g.debug_log(f"🌐 Ollama-Api: {error_msg} - check Ollama server connectivity", "yellow", prefix=prefix)
+            elif "model not found" in error_msg.lower() or "404" in error_msg:
+                g.debug_log(f"❓ Ollama-Api: Model {model_key} not found/installed - run 'ollama pull {model_key}' to install", "yellow", prefix=prefix)
+            elif "connection refused" in error_msg.lower():
+                g.debug_log("🚫 Ollama-Api: Connection refused to Ollama server - check if Ollama is running", "red", is_error=True, prefix=prefix)
+            elif "no such model" in error_msg.lower():
+                g.debug_log(f"❓ Ollama-Api: Model {model_key} not available - verify model name and installation", "yellow", prefix=prefix)
             else:
                 g.debug_log(f"❌ Ollama-Api: Failed to generate response with model {model_key}: {e}", "red", is_error=True, prefix=prefix)
             # Add to unreachable hosts if applicable
@@ -1066,10 +872,12 @@ class LlmRouter:
         force_preferred_model: bool = False,
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
-        thinking_budget: Optional[int] = None,
+        thinking_budget: Optional[int] = 4096,
         generation_stream_callback: Optional[Callable] = None,
         follows_condition_callback: Optional[Callable] = None,
-        decision_patterns: Optional[Dict[str, str]] = None
+        decision_patterns: Optional[Dict[str, str]] = None,
+        branch_context: Optional[Dict] = None,
+        assistant_prefix: Optional[str] = ""
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -1089,6 +897,7 @@ class LlmRouter:
                                            Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
             generation_stream_callback (Optional[Callable]): A function to call with each chunk of streaming data.
             decision_patterns (Optional[Dict[str, str]]): Patterns to extract decisions from response for logging.
+            assistant_prefix: Optional[str]: Add a prefix to the assistants response to have it continue from there
 
         Returns:
             str: The generated completion string.
@@ -1099,27 +908,32 @@ class LlmRouter:
         # Check global force flags
         if g.LLM:
             preferred_models = [g.LLM]
-        if g.FORCE_FAST:
-            strengths.append(AIStrengths.SMALL)
         if g.LLM_STRENGTHS:
             strengths.extend(g.LLM_STRENGTHS)
-        if g.FORCE_ONLINE:
-            strengths = [s for s in strengths if s != AIStrengths.LOCAL]
-            strengths.append(AIStrengths.ONLINE)
-            # ! force_free = False
         
         # Local has higher priority than online
         if g.FORCE_LOCAL:
             force_local = True
-            strengths = [s for s in strengths if s != AIStrengths.ONLINE]
-            strengths.append(AIStrengths.LOCAL)
         
         def exclude_reasoning(response: str) -> str:
             if exclude_reasoning_tokens and ("</think>" in response or "</thinking>" in response):
                 if "</think>" in response:
-                    return response.split("</think>")[1]
+                    after_thinking = response.split("</think>")[1]
+                    # If there's actual content after the reasoning tokens, return it
+                    if after_thinking.strip():
+                        return after_thinking
+                    else:
+                        # No content after reasoning tokens - return original response
+                        # This preserves the reasoning for debugging while indicating the issue
+                        return response
                 elif "</thinking>" in response:
-                    return response.split("</thinking>")[1]
+                    after_thinking = response.split("</thinking>")[1] 
+                    # If there's actual content after the reasoning tokens, return it
+                    if after_thinking.strip():
+                        return after_thinking
+                    else:
+                        # No content after reasoning tokens - return original response
+                        return response
                 elif "</" in response: # Weird fallback, helps for small models
                     return response.split("</")[1].split(">")[1]
             return response
@@ -1154,80 +968,203 @@ class LlmRouter:
                 # If no model is available, all available models have failed.
                 if not model:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    g.debug_log("No available models to process the request. All options have been tried.", "yellow", prefix=prefix)
+                    
+                    # Provide detailed information about what failed
+                    failed_count = len(instance.failed_models)
+                    available_count = len(instance.retry_models) + failed_count
+                    
+                    if failed_count > 0:
+                        failed_list = ", ".join(list(instance.failed_models)[:3])  # Show first 3 failed models
+                        if failed_count > 3:
+                            failed_list += f" (and {failed_count - 3} others)"
+                        
+                        g.debug_log(f"All {available_count} available models failed. Recently failed: {failed_list}", "red", is_error=True, prefix=prefix)
+                        
+                        # Store the failure reason for the final exception
+                        instance._last_failure_reason = f"All {available_count} models failed (including: {failed_list})"
+                    else:
+                        # For single preferred model, be more specific about why it wasn't found
+                        if force_preferred_model and len(preferred_models) == 1:
+                            requested_model = preferred_models[0]
+                            
+                            # Check if the model exists in the full model list but was filtered out
+                            all_models = Llm.get_available_llms(include_dynamic=True)
+                            model_exists = any(requested_model in model.model_key for model in all_models)
+                            
+                            if model_exists:
+                                # Model exists but was filtered out due to constraints
+                                # Check what constraint caused the exclusion
+                                exclusion_reasons = []
+                                detailed_diagnostics = []
+                                matching_model = next((model for model in all_models if requested_model in model.model_key), None)
+                                
+                                if matching_model:
+                                    # Use the actual model_capable_check method to get the real exclusion reason
+                                    capable, exclusion_reason = instance.model_capable_check(
+                                        matching_model, chat, strengths, 
+                                        local=force_local, force_free=force_free, 
+                                        has_vision=bool(base64_images)
+                                    )
+                                    
+                                    if not capable:
+                                        if exclusion_reason:
+                                            exclusion_reasons.append(exclusion_reason)
+                                        else:
+                                            # Perform detailed diagnostic checks to understand why it was excluded
+                                            # Check if model is in failed models list
+                                            if matching_model.model_key in instance.failed_models:
+                                                detailed_diagnostics.append("model previously failed and is in failed_models list")
+                                            
+                                            # Check if model is rate limited (enhanced rate limiting)
+                                            try:
+                                                from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
+                                                token_cost = len(str(chat)) // 4  # Rough estimate
+                                                can_request, rate_reason = enhanced_rate_limit_tracker.can_make_request(
+                                                    matching_model.model_key, token_cost=token_cost, image_count=len(base64_images) if base64_images else 0
+                                                )
+                                                if not can_request:
+                                                    detailed_diagnostics.append(f"rate limited: {rate_reason}")
+                                            except Exception as rate_check_error:
+                                                # If rate limiting check fails, note it but don't fail
+                                                detailed_diagnostics.append(f"rate limiting check failed: {rate_check_error}")
+                                            
+                                            # Check pricing constraint
+                                            if force_free and matching_model.pricing_in_dollar_per_1M_tokens is not None:
+                                                detailed_diagnostics.append(f"not free (costs ${matching_model.pricing_in_dollar_per_1M_tokens} per 1M tokens)")
+                                            
+                                            # Check vision requirement
+                                            if bool(base64_images) and not matching_model.has_vision:
+                                                detailed_diagnostics.append("no vision support required for images")
+                                            
+                                            # Check local/remote constraint
+                                            if force_local != matching_model.local:
+                                                detailed_diagnostics.append(f"local constraint mismatch (required: {force_local}, model: {matching_model.local})")
+                                            
+                                            # Check token limits
+                                            if matching_model.model_key in instance._model_limits:
+                                                token_limit = instance._model_limits[matching_model.model_key]
+                                                if len(chat) >= token_limit:
+                                                    detailed_diagnostics.append(f"exceeds saved token limit ({token_limit} < {len(chat)} tokens)")
+                                            
+                                            # Check context window
+                                            if matching_model.get_context_window() < len(chat):
+                                                detailed_diagnostics.append(f"context window too small ({matching_model.get_context_window()} < {len(chat)} tokens)")
+                                            
+                                            # Check strengths requirement
+                                            if strengths and matching_model.strengths:
+                                                if not all(s.value in [ms.value for ms in matching_model.strengths] for s in strengths):
+                                                    missing_strengths = [s.name for s in strengths if s.value not in [ms.value for ms in matching_model.strengths]]
+                                                    detailed_diagnostics.append(f"missing required strengths: {missing_strengths}")
+                                            
+                                            # If we still don't know why, check additional factors
+                                            if not detailed_diagnostics:
+                                                # Check if it's in the retry_models list at all
+                                                if matching_model not in instance.retry_models:
+                                                    detailed_diagnostics.append("not in available retry_models list")
+                                                else:
+                                                    detailed_diagnostics.append("passed all capability checks but still excluded (possible race condition or logic error)")
+                                
+                                # Combine all reasons
+                                all_reasons = exclusion_reasons + detailed_diagnostics
+                                
+                                if all_reasons:
+                                    reason_str = ", ".join(all_reasons)
+                                    g.debug_log(f"Model '{requested_model}' available but excluded: {reason_str}", "red", is_error=True, prefix=prefix)
+                                    instance._last_failure_reason = f"Model '{requested_model}' excluded: {reason_str}"
+                                else:
+                                    # Model exists but no clear exclusion reason - allow it to be tried once
+                                    g.debug_log(f"Model '{requested_model}' available but reason unclear - allowing attempt", "yellow", prefix=prefix)
+                                    # Don't exclude, let it be tried - if it fails, the retry logic will handle it
+                                    pass
+                            else:
+                                # Model truly doesn't exist - show relevant alternatives
+                                if force_local:
+                                    # For local requests, only show local models
+                                    local_models = [m.model_key for m in instance.retry_models if m.local][:5]
+                                    available_str = ", ".join(local_models)
+                                    if len([m for m in instance.retry_models if m.local]) > 5:
+                                        available_str += f" (and {len([m for m in instance.retry_models if m.local]) - 5} others)"
+                                    model_type = "local"
+                                else:
+                                    # For general requests, show all models
+                                    available_models = [m.model_key for m in instance.retry_models[:5]]
+                                    available_str = ", ".join(available_models)
+                                    if len(instance.retry_models) > 5:
+                                        available_str += f" (and {len(instance.retry_models) - 5} others)"
+                                    model_type = ""
+                                
+                                g.debug_log(f"Model '{requested_model}' not found in {model_type} models", "red", is_error=True, prefix=prefix)
+                                g.debug_log(f"Available {model_type} models: {available_str}", "yellow", prefix=prefix)
+                                instance._last_failure_reason = f"Model '{requested_model}' not found in {model_type} models."
+                        else:
+                            g.debug_log("No models found matching the specified criteria", "yellow", prefix=prefix)
+                            instance._last_failure_reason = "No models found matching criteria"
+                    
                     break # Exit the while loop, the exception below will be raised.
                 
                 # Enable caching for all temperatures - behavior differs based on temperature
                 enable_caching = True
                 instance.last_used_model = model.model_key
                 
-                # Check for cached completion (behavior varies by temperature)
-                cached_completion = instance._get_cached_completion(model.model_key, str(chat), base64_images, temperature)
-                if cached_completion:
-                    return exclude_reasoning(await cls._process_cached_response(
-                        cached_completion, model, TextStreamPainter(), hidden_reason, chat.debug_title, generation_stream_callback
-                    ))
-
-                try:
-                    # Determine if this model was manually selected or auto-selected
-                    # If g.LLM is set, it means the user manually selected this model via -llm
-                    # Also allow auto-download in local mode to use already downloaded models
-                    auto_download = bool(g.LLM) or g.FORCE_LOCAL  # Allow auto-download for manually selected models or in local mode
+                # --- FIX: Log BEFORE cache check to ensure all branch attempts are visible ---
+                if not hidden_reason:
+                    token_count = math.ceil(len(str(chat)) * 3/4)
+                    message_count = len(chat.messages)
+                    temp_str = "" if temperature == 0 or temperature is None else f" at temperature <{temperature}>"
                     
-                    # Get the stream from the provider
-                    if hasattr(model.provider, 'generate_response'):
-                        # Check if the provider supports auto_download parameter (Ollama)
-                        if model.provider.__class__.__name__ == 'OllamaClient':
-                            stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason, thinking_budget, auto_download)
+                    # Get host/provider information with emojis
+                    provider_info, provider_emoji = cls.get_provider_info(model.model_key, colored_output=True)
+                    
+                    # Create colored version with distinct colors for text in brackets
+                    # Add context-specific prefix if provided
+                    context_prefix = ""
+                    if branch_context and branch_context.get('log_prefix'):
+                        context_prefix = branch_context['log_prefix']
+                    base_msg = f"{context_prefix}{provider_emoji}[Tokens: {token_count} | Messages: {message_count}] -> Calling model "
+                    model_colored = colored(f"<{model.model_key}>", "light_blue", attrs=["bold"])
+                    temp_colored = temp_str.replace(f"<{temperature}>", colored(f"<{temperature}>", "light_blue", attrs=["bold"])) if temp_str else ""
+                    # provider_info is already colored from get_provider_info call above
+                    
+                    # Add branch context if provided
+                    branch_suffix = ""
+                    if branch_context:
+                        branch_num = branch_context.get('branch_number', '')
+                        if branch_num:
+                            branch_suffix = f" → branch {branch_num}"
+                    
+                    full_msg = f"{base_msg}{model_colored}{temp_colored}{provider_info}{branch_suffix}"
+                    # If we have decision patterns, print without newline so we can append the decision
+                    if decision_patterns:
+                        print(colored(full_msg, "cyan"), end="", flush=True)
+                    else:
+                        # Store the message for potential status update
+                        if branch_context and branch_context.get('store_message'):
+                            branch_context['stored_message'] = full_msg
+                            branch_context['log_printed'] = True
+                            print(colored(full_msg, "cyan"), end="", flush=True)
                         else:
-                            stream = model.provider.generate_response(chat, model.model_key, temperature, hidden_reason, thinking_budget)
-                    
-                        # --- FIX: Log after provider call to get correct host information ---
-                        if not hidden_reason:
-                            token_count = math.ceil(len(str(chat)) * 3/4)
-                            message_count = len(chat.messages)
-                            temp_str = "" if temperature == 0 or temperature is None else f" [32mat temperature <{temperature}>"
-                            
-                            # Get host/provider information with emojis
-                            provider_info = ""
-                            provider_emoji = ""
-                            if model.provider.__class__.__name__ == 'OllamaClient' and hasattr(model.provider.__class__, 'current_host') and model.provider.__class__.current_host:
-                                provider_info = f" on <{model.provider.__class__.current_host}>"
-                                provider_emoji = "🏠 "  # Local/home emoji
-                            elif model.provider.__class__.__name__ != 'OllamaClient':
-                                # For non-Ollama providers, show the provider name with cloud emoji
-                                provider_name = model.provider.__class__.__name__.replace('API', '').replace('Client', '')
-                                provider_info = f" via <{provider_name}>"
-                                provider_emoji = "☁️  "  # Cloud emoji
-                            
-                            # Create colored version with distinct colors for text in brackets
-                            base_msg = f"{provider_emoji}[Tokens: {token_count} | Messages: {message_count}] -> Calling model  [31m"
-                            model_colored = colored(f"<{model.model_key}>", "light_blue", attrs=["bold"])
-                            temp_colored = temp_str.replace(f"<{temperature}>", colored(f"<{temperature}>", "light_blue", attrs=["bold"])) if temp_str else ""
-                            if provider_info and not model.provider.__class__.__name__ == 'OllamaClient':
-                                provider_name = model.provider.__class__.__name__.replace('API', '').replace('Client', '')
-                                if provider_name == 'Google':
-                                    # Special Google logo colors: G(blue), o(red), o(yellow), g(green), l(blue), e(red)
-                                    google_colored = (colored('G', 'blue', attrs=['bold']) + 
-                                                    colored('o', 'red', attrs=['bold']) + 
-                                                    colored('o', 'yellow', attrs=['bold']) + 
-                                                    colored('g', 'green', attrs=['bold']) + 
-                                                    colored('l', 'blue', attrs=['bold']) + 
-                                                    colored('e', 'red', attrs=['bold']))
-                                    provider_colored = provider_info.replace(f"<{provider_name}>", f"<{google_colored}>")
-                                else:
-                                    provider_colored = provider_info.replace(provider_name, colored(provider_name, "light_blue", attrs=["bold"]))
-                            else:
-                                provider_colored = provider_info
-                            if provider_info and model.provider.__class__.__name__ == 'OllamaClient' and hasattr(model.provider.__class__, 'current_host'):
-                                provider_colored = provider_info.replace(f"<{model.provider.__class__.current_host}>", colored(f"<{model.provider.__class__.current_host}>", "light_green", attrs=["bold"]))
-                            
-                            full_msg = f"{base_msg} {model_colored}{temp_colored}{provider_colored}"
-                            # If we have decision patterns, print without newline so we can append the decision
-                            if decision_patterns:
+                            # For consistency, always use print for branch context to avoid mixed output streams
+                            if branch_context:
+                                branch_context['log_printed'] = True
                                 print(colored(full_msg, "cyan"), end="", flush=True)
                             else:
                                 logging.info(colored(full_msg, "cyan"))
+
+                # Check for cached completion (behavior varies by temperature)
+                prefixed_chat = chat.deep_copy()
+                if (assistant_prefix):
+                    prefixed_chat.add_message(Role.ASSISTANT, assistant_prefix)
+
+                cached_completion = instance._get_cached_completion(model.model_key, str(chat), base64_images, temperature)
+                if cached_completion:
+                    return exclude_reasoning(await cls._process_cached_response(
+                        cached_completion, model, TextStreamPainter(), hidden_reason, prefixed_chat.debug_title, generation_stream_callback, branch_context
+                    ))
+
+                try:
+                    # Get the stream from the provider
+                    if hasattr(model.provider, 'generate_response'):
+                        stream = model.provider.generate_response(prefixed_chat, model.model_key, temperature, hidden_reason, thinking_budget)
                     else:
                         raise Exception(f"Provider {model.provider.__class__.__name__} does not support generate_response method")
                     
@@ -1279,7 +1216,7 @@ class LlmRouter:
                             if len(hosts) > 0:
                                 host = hosts[0]
                                 if host in ("localhost", "127.0.0.1") or host in g.ollama_host_env:
-                                    inactivity_timeout = 180
+                                    inactivity_timeout = 300
                         except Exception:
                             pass
                     
@@ -1311,32 +1248,37 @@ class LlmRouter:
                     signal.alarm(5)  # Start checking after 5 seconds for first token timeout
                     
                     try:
-                        full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback)
+                        # Detect existing assistant message prefix before processing stream
+                        full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback, assistant_prefix)
                         
-                        # Check for empty responses
-                        if not full_response or not full_response.strip():
-                            raise Exception(f"Model {model.model_key} returned empty response - possible generation failure")
-                            
                     finally:
                         signal.alarm(0)  # Clear the alarm
                     
                     if (not full_response.endswith("\n") and not hidden_reason and not g.SUMMARY_MODE):
-                        print()
+                        # Don't print newline for branch context - success status will be added inline
+                        if not branch_context or not branch_context.get('store_message'):
+                            print()
                     
                     if enable_caching:
                         # Cache the response
-                        instance._update_cache(model.model_key, str(chat), base64_images, full_response)
+                        instance._update_cache(model.model_key, str(prefixed_chat), base64_images, full_response)
                     
                     # Save the chat completion pair if requested
                     if not force_local:
-                        instance._save_chat_completion_pair(chat.to_openai(), full_response, model.model_key)
+                        instance._save_chat_completion_pair(prefixed_chat.to_openai(), full_response, model.model_key)
                     
                     # Extract and log decision if patterns provided
                     if decision_patterns and not hidden_reason:
-                        decision_found = cls._log_extracted_decision(full_response, decision_patterns, model.model_key)
+                        elapsed_time = time.time() - monitor.start_time if 'monitor' in locals() else None
+                        decision_found = cls._log_extracted_decision(full_response, decision_patterns, model.model_key, elapsed_time, branch_context)
                         if not decision_found:
                             # If no decision found, still need to complete the line
-                            print()
+                            # Don't print newline for branch context - success status will be added inline
+                            if not branch_context or not branch_context.get('store_message'):
+                                print()
+                    
+                    # Branch context completion is handled in main.py for MCT branches
+                    # No need to print success status here as it's handled at the branch level
                     
                     return exclude_reasoning(full_response)
 
@@ -1351,28 +1293,89 @@ class LlmRouter:
                 # so they can be handled by the caller in main.py.
                 raise
             except Exception as e:
-                # This will now only catch actual, unintended errors.
+                # Handle model errors and capture the specific failure reason
+                
+                # Debug vision-specific issues
+                if g.VERBOSE_DEBUG:
+                    print(f"🔍 ROUTER EXCEPTION: Model {model.model_key if model else 'unknown'}")
+                    print(f"🔍 ROUTER ERROR: {str(e)}")
+                    print(f"🔍 ROUTER ERROR TYPE: {type(e).__name__}")
+                    if base64_images:
+                        print(f"🔍 VISION REQUEST: {len(base64_images)} images")
+                        for i, img in enumerate(base64_images):
+                            print(f"🔍   IMAGE {i}: {len(img)} chars")
+                    print(f"🔍 CHAT TYPE: {type(chat).__name__}")
+                    if hasattr(chat, 'messages'):
+                        print(f"🔍 CHAT MESSAGES: {len(chat.messages)}")
+                
                 cls._handle_model_error(e, model, instance, chat)
                 
-                # Increment retry count and implement linear backoff
+                # For force_preferred_model with a single model, don't retry indefinitely
+                # Instead, capture the original error and fail fast after a few attempts
+                if force_preferred_model and len(preferred_models) == 1:
+                    if retry_count == 0:
+                        # Store the original error from the first attempt
+                        instance._original_single_model_error = str(e)
+                        instance._failed_model_key = model.model_key if model else "unknown"
+                    
+                    # Limit retries for single preferred model to avoid infinite loops
+                    if retry_count >= 2:  # Allow 3 total attempts (0, 1, 2)
+                        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                        original_error = getattr(instance, '_original_single_model_error', str(e))
+                        failed_model = getattr(instance, '_failed_model_key', 'unknown')
+                        g.debug_log(f"Model {failed_model} failed after 3 attempts", "red", is_error=True, prefix=prefix)
+                        raise Exception(f"Model {failed_model} failed: {original_error}")
+                
+                # For multiple preferred models, try all models before giving up
+                elif force_preferred_model and len(preferred_models) > 1:
+                    # Allow more attempts when we have multiple fallback models to try
+                    max_attempts = len(preferred_models) * 2  # 2 attempts per model
+                    if retry_count >= max_attempts:
+                        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                        g.debug_log(f"All {len(preferred_models)} fallback models failed after {max_attempts} attempts", "red", is_error=True, prefix=prefix)
+                        failure_reason = getattr(instance, '_last_failure_reason', "All fallback models failed")
+                        raise Exception(f"Model generation failed: {failure_reason}")
+                
+                # Increment retry count and use API-suggested delay or linear backoff
                 retry_count += 1
-                wait_time = retry_count  # Linear backoff: 1s, 2s, 3s, 4s, etc.
+                
+                # Check if there's a suggested delay from the API (e.g., rate limiting)
+                suggested_delay = 0
+                try:
+                    from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
+                    suggested_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(failed_model)
+                except Exception:
+                    pass  # Fall back to linear backoff if rate tracker unavailable
+                
+                wait_time = max(suggested_delay, retry_count) if suggested_delay > 0 else retry_count
                 
                 # Show retry message to user
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                g.debug_log(f"🔄 Retrying in {wait_time}s (attempt #{retry_count})...", "cyan", force_print=True, prefix=prefix)
+                if suggested_delay > retry_count:
+                    g.debug_log(f"🔄 Respecting API rate limit: waiting {wait_time}s (attempt #{retry_count})...", "cyan", force_print=True, prefix=prefix)
+                else:
+                    g.debug_log(f"🔄 Retrying in {wait_time}s (attempt #{retry_count})...", "cyan", force_print=True, prefix=prefix)
                 
-                # Wait with linear backoff
+                # Wait with API-suggested delay or linear backoff
                 import asyncio
                 await asyncio.sleep(wait_time)
                 
                 # Reset failed models to allow retrying them
                 instance.failed_models.clear()
+                
                 # Reset retry_models to the original list of available models
-                instance.retry_models = instance.get_models(strengths=strengths, preferred_models=preferred_models, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
+                # When force_preferred_model is True, only include preferred models in retry list
+                if force_preferred_model and preferred_models:
+                    # Only retry with preferred models, but still do capability checking
+                    instance.retry_models = instance.get_models(strengths=strengths, preferred_models=preferred_models, force_local=force_local, force_free=force_free, has_vision=bool(base64_images), force_preferred_model=True)
+                else:
+                    # Normal retry behavior - use all available models
+                    instance.retry_models = instance.get_models(strengths=strengths, preferred_models=preferred_models, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
         
         # This should never be reached due to infinite retry loop
-        raise Exception("Unexpected exit from retry loop")
+        # If we get here, provide the specific failure reason stored earlier
+        failure_reason = getattr(instance, '_last_failure_reason', "Unknown reason")
+        raise Exception(f"Model generation failed: {failure_reason}")
 
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """
@@ -1433,35 +1436,49 @@ class LlmRouter:
             with open(filename, 'a') as f:
                 f.write(json.dumps(training_example) + '\n')
                 
-            logger.debug(f"Saved chat completion pair to {filename}")
+            logger.debug(f"\nSaved chat completion pair to {filename}")
         except Exception as e:
             logger.error(f"Failed to save chat completion pair: {e}")
             print(colored(f"Failed to save chat completion pair: {e}", "red"))
     
     @classmethod
-    def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str) -> bool:
+    def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str, elapsed_time: float = None, branch_context: Dict = None) -> bool:
         """Extract and log decisions from model responses. Returns True if decision found."""
         import re
         
         for decision_type, pattern in decision_patterns.items():
-            match = re.search(pattern, response, re.IGNORECASE | re.DOTALL)
-            if match:
-                if decision_type == "guard":
-                    # For guard decisions, show the verdict
-                    decision = match.group(1)
-                    decision_colored = colored(f" → {decision}", "yellow" if decision == "unfinished" else "green" if decision == "yes" else "red")
-                elif decision_type == "eval":
-                    # For eval decisions, show the selected index
-                    index = match.group(1)
-                    decision_colored = colored(f" → branch {index}", "cyan")
-                else:
-                    # Generic decision
-                    decision = match.group(1)
-                    decision_colored = colored(f" → {decision}", "cyan")
-                
-                # Print the decision on the same line (append to current line) and add newline
-                print(decision_colored)
-                return True
+            if decision_type == "guard":
+                # For guard decisions, find ALL matches and take the LAST one (same as voting logic)
+                matches = list(re.finditer(pattern, response, re.IGNORECASE | re.DOTALL))
+                if matches:
+                    decision = matches[-1].group(1)  # Take the last match
+                    timing_str = f" ({elapsed_time:.1f}s)" if elapsed_time is not None else ""
+                    decision_colored = colored(f" → {decision}{timing_str}", "yellow" if decision == "unfinished" else "green" if decision == "yes" else "red")
+                    # Print the decision on the same line (append to current line) and add newline
+                    print(decision_colored)
+                    return True
+            else:
+                # For non-guard decisions, use first match as before
+                match = re.search(pattern, response, re.IGNORECASE | re.DOTALL)
+                if match:
+                    timing_str = f" ({elapsed_time:.1f}s)" if elapsed_time is not None else ""
+                    if decision_type == "eval":
+                        # For eval decisions, show the selected index with source model
+                        index = int(match.group(1))
+                        # If we have an index_map from voting context, use it to convert to original branch index
+                        if branch_context and branch_context.get('index_map') and index in branch_context['index_map']:
+                            original_index = branch_context['index_map'][index]
+                            decision_colored = colored(f" → branch {original_index} ({model_key}){timing_str}", "cyan")
+                        else:
+                            decision_colored = colored(f" → branch {index} ({model_key}){timing_str}", "cyan")
+                    else:
+                        # Generic decision
+                        decision = match.group(1)
+                        decision_colored = colored(f" → {decision}{timing_str}", "cyan")
+                    
+                    # Print the decision on the same line (append to current line) and add newline
+                    print(decision_colored)
+                    return True
         return False
     
     @classmethod
@@ -1508,3 +1525,26 @@ class LlmRouter:
             str: The formatted prefix string
         """
         return chat.get_debug_title_prefix()
+    
+    @classmethod
+    def _detect_assistant_prefix(cls, chat: Chat) -> str:
+        """
+        Detect if the latest assistant message already contains text that should be included
+        as a prefix before processing the generated stream.
+        
+        Args:
+            chat (Chat): The chat context to examine
+            
+        Returns:
+            str: The existing assistant message prefix, or empty string if none
+        """
+        if not chat.messages:
+            return ""
+        
+        # Check if the last message is from the assistant
+        last_role, last_content = chat.messages[-1]
+        if last_role.value == "assistant" and last_content:
+            # Return the existing assistant content as prefix
+            return last_content
+        
+        return ""

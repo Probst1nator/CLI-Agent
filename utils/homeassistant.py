@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 # Import base class and globals
-from py_classes.cls_util_base import UtilBase
-from py_classes.globals import g
+from agent.utils_manager.util_base import UtilBase
+from core.globals import g
 
 class HomeAssistant(UtilBase):
     """

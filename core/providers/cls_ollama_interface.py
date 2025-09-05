@@ -3,17 +3,63 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 import ollama
 from termcolor import colored
-from py_classes.cls_chat import Chat, Role
+from core.chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 import os
 import socket
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from py_classes.globals import g
+from core.globals import g
 import logging
 import time
+import re
 
 logger = logging.getLogger(__name__)
+
+def parse_relative_date(date_str: str) -> Optional[datetime]:
+    """
+    Convert relative date strings like '14 hours ago' to datetime objects.
+    
+    Args:
+        date_str (str): Relative date string like "14 hours ago", "3 days ago"
+        
+    Returns:
+        Optional[datetime]: Parsed datetime or None if parsing fails
+    """
+    if not date_str:
+        return None
+        
+    try:
+        # Parse relative dates like "14 hours ago", "3 days ago"
+        match = re.search(r'(\d+)\s*(hours?|days?|weeks?|months?|years?)\s*ago', date_str, re.IGNORECASE)
+        if match:
+            amount = int(match.group(1))
+            unit = match.group(2).lower()
+            
+            from datetime import timedelta
+            now = datetime.now()
+            
+            if unit.startswith('hour'):
+                return now - timedelta(hours=amount)
+            elif unit.startswith('day'):
+                return now - timedelta(days=amount)
+            elif unit.startswith('week'):
+                return now - timedelta(weeks=amount)
+            elif unit.startswith('month'):
+                # Approximate: 30 days per month
+                return now - timedelta(days=amount * 30)
+            elif unit.startswith('year'):
+                # Approximate: 365 days per year
+                return now - timedelta(days=amount * 365)
+        
+        # Try parsing absolute dates
+        if re.match(r'\d{4}-\d{2}-\d{2}', date_str):
+            return datetime.strptime(date_str, '%Y-%m-%d')
+            
+    except Exception as e:
+        logging.debug(f"Failed to parse relative date '{date_str}': {e}")
+        
+    return None
 
 @dataclass
 class OllamaModel:
@@ -156,14 +202,13 @@ class OllamaClient(AIProviderInterface):
             return False
 
     @staticmethod
-    def get_valid_client(model_key: str, chat: Optional[Chat] = None, auto_download: bool = True, is_small_model: bool = False) -> Tuple[ollama.Client|None, str, str]:
+    def get_valid_client(model_key: str, chat: Optional[Chat] = None, is_small_model: bool = False) -> Tuple[ollama.Client|None, str, str]:
         """
-        Returns a valid client for the given model, pulling the model if necessary on auto-download hosts.
+        Returns a valid client for the given model, automatically downloading if not found.
         
         Args:
             model_key (str): The model to find a valid client for.
             chat (Optional[Chat]): Chat object for debug printing with title.
-            auto_download (bool): Whether to automatically download models if not found.
             is_small_model (bool): Whether this is a small/fast model.
         
         Returns:
@@ -185,27 +230,13 @@ class OllamaClient(AIProviderInterface):
                 ollama_hosts.remove(socket.gethostbyname(socket.gethostname()))
             except Exception:
                 pass
-        
-        auto_download_hosts = set(os.getenv("OLLAMA_HOST_AUTO_DOWNLOAD_MODELS", "").split(","))
-        small_only_hosts = set(os.getenv("OLLAMA_HOST_ONLY_SMALL_MODELS", "").split(","))
-        
-        # If no auto_download hosts are set, default to all hosts for local development
-        if not auto_download_hosts or (len(auto_download_hosts) == 1 and "" in auto_download_hosts):
-            auto_download_hosts = set(ollama_hosts)
-        
-        # Remove empty strings from fast_only_hosts
-        small_only_hosts.discard("")
-        
+
         # Track failed hosts for this specific attempt to reduce noise
         failed_hosts_this_attempt = []
         
         for host in ollama_hosts:
             host = host.strip()
             if not host:
-                continue
-            
-            # Skip hosts that are restricted to fast models if this isn't a small model
-            if host in small_only_hosts and not is_small_model:
                 continue
             
             # Skip host+model combinations that have recently failed with connection issues
@@ -274,40 +305,79 @@ class OllamaClient(AIProviderInterface):
                         # Set current_host for logging consistency
                         OllamaClient.current_host = host
                         return client, found_model_key, host
-                    elif auto_download and host in auto_download_hosts:
+                    else:
+                        # Model not found on this host, add to debug info
+                        available_models = [model.model for model in model_list.models[:5]]  # Show first 5 available models
+                        logger.debug(f"Model {model_key} not found on host {host}. Available: {available_models}")
+                    
+                    # Always attempt to download missing models
+                    if chat:
+                        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                        g.debug_log(f"{host} is pulling {model_key}...", "yellow", force_print=True, prefix=prefix)
+                    else:
+                        logging.info(colored(f"{host} is pulling {model_key}...", "yellow"))
+                    try:
+                        import time
+                        from datetime import datetime, timedelta
+                        
+                        def bytes_to_mb(bytes_value):
+                            return bytes_value / (1024 * 1024)
+
+                        # Download speed tracking
+                        download_start_time = time.time()
+                        total_downloaded = 0
+                        last_update_time = download_start_time
+                        
+                        for response in client.pull(model_key, stream=True):
+                            if "status" in response:
+                                if response["status"] == "pulling manifest":
+                                    status = colored("Pulling manifest...", "yellow")
+                                elif response["status"].startswith("pulling"):
+                                    digest = response.get("digest", "")
+                                    total = bytes_to_mb(response.get("total", 0))
+                                    completed = bytes_to_mb(response.get("completed", 0))
+                                    total_downloaded = max(total_downloaded, completed)
+                                    
+                                    # Calculate speed and ETA after 2 seconds of downloading
+                                    current_time = time.time()
+                                    elapsed_time = current_time - download_start_time
+                                    
+                                    if elapsed_time >= 2.0 and total > 0:
+                                        # Calculate average speed in MB/s
+                                        speed_mbps = completed / elapsed_time if elapsed_time > 0 else 0
+                                        
+                                        # Calculate ETA
+                                        remaining_mb = total - completed
+                                        eta_seconds = remaining_mb / speed_mbps if speed_mbps > 0 else 0
+                                        
+                                        # Format ETA
+                                        if eta_seconds > 60:
+                                            eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
+                                        else:
+                                            eta_str = f"{int(eta_seconds)}s"
+                                        
+                                        # Calculate finish time
+                                        finish_time = datetime.now() + timedelta(seconds=eta_seconds)
+                                        finish_str = finish_time.strftime("%H:%M:%S")
+                                        
+                                        status = colored(f"Pulling {digest}: {completed:.1f}/{total:.1f} MB ({speed_mbps:.1f} MB/s, ETA: {eta_str}, done ~{finish_str})", "yellow")
+                                    else:
+                                        status = colored(f"Pulling {digest}: {completed:.2f}/{total:.2f} MB", "yellow")
+                                else:
+                                    continue
+                                
+                                sys.stdout.write('\r' + status)
+                                sys.stdout.flush()
+                        print()
+                        # Set current_host for logging consistency
+                        OllamaClient.current_host = host
+                        return client, model_key, host
+                    except Exception as e:
                         if chat:
                             prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                            g.debug_log(f"{host} is pulling {model_key}...", "yellow", force_print=True, prefix=prefix)
+                            g.debug_log(f"Error pulling model {model_key} on host {host}: {e}", "red", is_error=True, prefix=prefix)
                         else:
-                            logging.info(colored(f"{host} is pulling {model_key}...", "yellow"))
-                        try:
-                            def bytes_to_mb(bytes_value):
-                                return bytes_value / (1024 * 1024)
-
-                            for response in client.pull(model_key, stream=True):
-                                if "status" in response:
-                                    if response["status"] == "pulling manifest":
-                                        status = colored("Pulling manifest...", "yellow")
-                                    elif response["status"].startswith("pulling"):
-                                        digest = response.get("digest", "")
-                                        total = bytes_to_mb(response.get("total", 0))
-                                        completed = bytes_to_mb(response.get("completed", 0))
-                                        status = colored(f"Pulling {digest}: {completed:.2f}/{total:.2f} MB", "yellow")
-                                    else:
-                                        continue
-                                    
-                                    sys.stdout.write('\r' + status)
-                                    sys.stdout.flush()
-                            print()
-                            # Set current_host for logging consistency
-                            OllamaClient.current_host = host
-                            return client, model_key, host
-                        except Exception as e:
-                            if chat:
-                                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                                g.debug_log(f"Error pulling model {model_key} on host {host}: {e}", "red", is_error=True, prefix=prefix)
-                            else:
-                                print(f"Error pulling model {model_key} on host {host}: {e}")
+                            print(f"Error pulling model {model_key} on host {host}: {e}")
                 except Exception as e:
                     if chat:
                         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
@@ -323,10 +393,92 @@ class OllamaClient(AIProviderInterface):
                     # but don't mark this host as completely unreachable
         
         # Only show summary error if no hosts were reachable and we actually tried some
-        if failed_hosts_this_attempt and len(failed_hosts_this_attempt) == len([h.strip() for h in ollama_hosts if h.strip() and (not small_only_hosts or h.strip() not in small_only_hosts or is_small_model)]):
+        eligible_hosts = [h.strip() for h in ollama_hosts if h.strip()]
+        if failed_hosts_this_attempt and len(failed_hosts_this_attempt) == len(eligible_hosts):
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                g.debug_log(f"No reachable Ollama hosts found for model {model_key}", "yellow", prefix=prefix)
+                failed_host_list = ", ".join(failed_hosts_this_attempt[:3])
+                if len(failed_hosts_this_attempt) > 3:
+                    failed_host_list += f" (and {len(failed_hosts_this_attempt) - 3} others)"
+                g.debug_log(f"No reachable Ollama hosts found for model {model_key}. Failed hosts: {failed_host_list}", "red", is_error=True, prefix=prefix)
+        elif len(eligible_hosts) == 0:
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"No eligible Ollama hosts for model {model_key}", "yellow", prefix=prefix)
+        
+        # If we reach here, no host had the model. Try to download on the first reachable host
+        if OllamaClient.reached_hosts:
+            first_host = OllamaClient.reached_hosts[0]
+            client = ollama.Client(host=f'http://{first_host}:11434')
+            
+            if chat:
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                g.debug_log(f"{first_host} is pulling {model_key}...", "yellow", force_print=True, prefix=prefix)
+            else:
+                logging.info(colored(f"{first_host} is pulling {model_key}...", "yellow"))
+                
+            try:
+                import time
+                from datetime import datetime, timedelta
+                
+                def bytes_to_mb(bytes_value):
+                    return bytes_value / (1024 * 1024)
+
+                # Download speed tracking
+                download_start_time = time.time()
+                total_downloaded = 0
+                last_update_time = download_start_time
+                
+                for response in client.pull(model_key, stream=True):
+                    if "status" in response:
+                        if response["status"] == "pulling manifest":
+                            status = colored("Pulling manifest...", "yellow")
+                        elif response["status"].startswith("pulling"):
+                            digest = response.get("digest", "")
+                            total = bytes_to_mb(response.get("total", 0))
+                            completed = bytes_to_mb(response.get("completed", 0))
+                            total_downloaded = max(total_downloaded, completed)
+                            
+                            # Calculate speed and ETA after 2 seconds of downloading
+                            current_time = time.time()
+                            elapsed_time = current_time - download_start_time
+                            
+                            if elapsed_time >= 2.0 and total > 0:
+                                # Calculate average speed in MB/s
+                                speed_mbps = completed / elapsed_time if elapsed_time > 0 else 0
+                                
+                                # Calculate ETA
+                                remaining_mb = total - completed
+                                eta_seconds = remaining_mb / speed_mbps if speed_mbps > 0 else 0
+                                
+                                # Format ETA
+                                if eta_seconds > 60:
+                                    eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
+                                else:
+                                    eta_str = f"{int(eta_seconds)}s"
+                                
+                                # Calculate finish time
+                                finish_time = datetime.now() + timedelta(seconds=eta_seconds)
+                                finish_str = finish_time.strftime("%H:%M:%S")
+                                
+                                status = colored(f"Pulling {digest}: {completed:.1f}/{total:.1f} MB ({speed_mbps:.1f} MB/s, ETA: {eta_str}, done ~{finish_str})", "yellow")
+                            else:
+                                status = colored(f"Pulling {digest}: {completed:.2f}/{total:.2f} MB", "yellow")
+                        else:
+                            continue
+                        
+                        sys.stdout.write('\r' + status)
+                        sys.stdout.flush()
+                print()
+                # Set current_host for logging consistency
+                OllamaClient.current_host = first_host
+                return client, model_key, first_host
+            except Exception as e:
+                if chat:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log(f"Error pulling model {model_key} on host {first_host}: {e}", "red", is_error=True, prefix=prefix)
+                else:
+                    logging.error(f"Error pulling model {model_key} on host {first_host}: {e}")
         
         return None, None, None
 
@@ -336,11 +488,10 @@ class OllamaClient(AIProviderInterface):
         model_key: str = "phi3.5:3.8b",
         temperature: Optional[float] = None,
         silent_reason: str = "",
-        thinking_budget: Optional[int] = None,
-        auto_download: bool = True
+        thinking_budget: Optional[int] = None
     ) -> Any:
         """
-        Generates a response using the Ollama API, with support for tool calling.
+        Generates a response using the Ollama API, automatically downloading models if needed.
 
         Args:
             chat (Chat | str): The chat object containing messages or a string prompt.
@@ -348,7 +499,6 @@ class OllamaClient(AIProviderInterface):
             temperature (Optional[float]): The temperature setting for the model.
             silent_reason (str): If provided, suppresses output and shows this reason.
             thinking_budget (Optional[int]): Not used in Ollama, kept for compatibility.
-            auto_download (bool): Whether to automatically download models if not found.
 
         Returns:
             Any: A stream object that yields response chunks.
@@ -371,9 +521,16 @@ class OllamaClient(AIProviderInterface):
         is_small_model = any(size in model_key.lower() for size in ['1b', '2b', '3b', '4b', 'small'])
         
         # Get a valid client for this model
-        client, found_model_key, host = OllamaClient.get_valid_client(model_key, chat_inner, auto_download, is_small_model)
+        client, found_model_key, host = OllamaClient.get_valid_client(model_key, chat_inner, is_small_model)
         if not client:
-            raise Exception("No valid host found for Ollama models")
+            # Provide more detailed information about why no client was found
+            if len(OllamaClient.unreachable_hosts) > 0:
+                unreachable_info = ", ".join(OllamaClient.unreachable_hosts[:3])
+                if len(OllamaClient.unreachable_hosts) > 3:
+                    unreachable_info += f" (and {len(OllamaClient.unreachable_hosts) - 3} others)"
+                raise Exception(f"No valid Ollama host found for model {original_model_key}. Unreachable hosts/models: {unreachable_info}")
+            else:
+                raise Exception(f"No valid Ollama host found for model {original_model_key}. Check if Ollama is running and the model is available.")
         
         # Store the host information on the class for logging
         OllamaClient.current_host = host
@@ -576,6 +733,377 @@ class OllamaClient(AIProviderInterface):
             return None
 
     @staticmethod
+    def get_model_variants_from_web(model_name: str, timeout: int = 10) -> List[Dict[str, Any]]:
+        """
+        Scrape comprehensive model variant information from Ollama library pages.
+        
+        Args:
+            model_name (str): The base model name (e.g., 'llama3.1', 'gpt-oss')
+            timeout (int): Request timeout in seconds
+            
+        Returns:
+            List[Dict[str, Any]]: List of model variant information with tags, sizes, and specs
+        """
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            import re
+            
+            url = f"https://ollama.com/library/{model_name}"
+            
+            response = requests.get(url, timeout=timeout, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; OllamaClient/1.0)'
+            })
+            
+            if response.status_code != 200:
+                logging.debug(f"Failed to fetch {url}: HTTP {response.status_code}")
+                return []
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            variants = []
+            
+            # Get full page text for global size searching
+            full_page_text = soup.get_text()
+            
+            # Look for global file size patterns in the page content
+            global_sizes = {}  # tag -> size
+            
+            # Split into lines for better parsing
+            lines = full_page_text.split('\n')
+            global_dates = {}  # tag -> modification date
+            
+            for i, line in enumerate(lines):
+                # Look for model tag lines, then check surrounding lines for sizes and dates
+                model_tag_match = re.search(re.escape(model_name) + r':(\w+)', line, re.IGNORECASE)
+                if model_tag_match:
+                    tag = model_tag_match.group(1)
+                    
+                    # Check current line and next few lines for size and date information
+                    search_lines = lines[i:i+5] if i+5 < len(lines) else lines[i:]
+                    for search_line in search_lines:
+                        # Look for size patterns like "14GB", "65GB", etc.
+                        size_match = re.search(r'(\d+(?:\.\d+)?\s*[GMT]B)', search_line, re.IGNORECASE)
+                        if size_match and tag not in global_sizes:
+                            size = size_match.group(1)
+                            global_sizes[tag] = size
+                            logging.debug(f"Found size for {model_name}:{tag}: {size}")
+                        
+                        # Look for modification date patterns like "14 hours ago", "3 days ago", etc.
+                        date_match = re.search(r'(\d+)\s*(hours?|days?|weeks?|months?|years?)\s*ago', search_line, re.IGNORECASE)
+                        if date_match and tag not in global_dates:
+                            amount = int(date_match.group(1))
+                            unit = date_match.group(2).lower()
+                            date_str = f"{amount} {unit} ago"
+                            global_dates[tag] = date_str
+                            logging.debug(f"Found date for {model_name}:{tag}: {date_str}")
+                        
+                        # Also look for absolute dates if present
+                        abs_date_match = re.search(r'(\d{4}-\d{2}-\d{2})', search_line)
+                        if abs_date_match and tag not in global_dates:
+                            date_str = abs_date_match.group(1)
+                            global_dates[tag] = date_str
+                            logging.debug(f"Found absolute date for {model_name}:{tag}: {date_str}")
+                
+                # Also look for standalone tags that might be associated with sizes and dates
+                # (sometimes the model name is on one line, tag on another, size/date on a third)
+                standalone_tag_match = re.search(r'^(\w+b|latest|instruct|code)$', line.strip(), re.IGNORECASE)
+                if standalone_tag_match:
+                    tag = standalone_tag_match.group(1)
+                    # Look backwards and forwards for model name, size, and date
+                    context_lines = lines[max(0, i-3):i+4]
+                    has_model_name = any(model_name in context_line.lower() for context_line in context_lines)
+                    if has_model_name:
+                        for context_line in context_lines:
+                            # Look for size
+                            size_match = re.search(r'(\d+(?:\.\d+)?\s*[GMT]B)', context_line, re.IGNORECASE)
+                            if size_match and tag not in global_sizes:
+                                size = size_match.group(1)
+                                global_sizes[tag] = size
+                                logging.debug(f"Found size for {model_name}:{tag} via context: {size}")
+                            
+                            # Look for date
+                            date_match = re.search(r'(\d+)\s*(hours?|days?|weeks?|months?|years?)\s*ago', context_line, re.IGNORECASE)
+                            if date_match and tag not in global_dates:
+                                amount = int(date_match.group(1))
+                                unit = date_match.group(2).lower()
+                                date_str = f"{amount} {unit} ago"
+                                global_dates[tag] = date_str
+                                logging.debug(f"Found date for {model_name}:{tag} via context: {date_str}")
+            
+            # Also try broader patterns for sizes near model names
+            broader_patterns = re.findall(
+                r'(?:' + re.escape(model_name) + r':(\w+).*?(\d+(?:\.\d+)?\s*[GMT]B))|(?:(\d+(?:\.\d+)?\s*[GMT]B).*?' + re.escape(model_name) + r':(\w+))', 
+                full_page_text, 
+                re.IGNORECASE | re.DOTALL
+            )
+            
+            for pattern in broader_patterns:
+                if pattern[0] and pattern[1]:  # model:tag ... size format
+                    tag, size = pattern[0], pattern[1]
+                    if tag not in global_sizes:  # Don't overwrite more specific matches
+                        global_sizes[tag] = size
+                elif pattern[2] and pattern[3]:  # size ... model:tag format  
+                    size, tag = pattern[2], pattern[3]
+                    if tag not in global_sizes:
+                        global_sizes[tag] = size
+            
+            # Look for model variant sections - these contain the download tags
+            # Pattern 1: Look for elements with model tags (like :7b, :13b, :70b)
+            tag_elements = soup.find_all(text=re.compile(r':[\w\d\.]+b$|:latest$|:instruct$|:code$'))
+            
+            for tag_text in tag_elements:
+                tag_match = re.search(r':(\w[\w\d\.]*(?:b|latest|instruct|code|chat|text))$', tag_text.strip())
+                if tag_match:
+                    tag = tag_match.group(1)
+                    full_name = f"{model_name}:{tag}"
+                    
+                    # Try to get size and date from global patterns first, then local context
+                    size_info = global_sizes.get(tag, "")  # Check global size patterns first
+                    date_info = global_dates.get(tag, "")   # Check global date patterns first
+                    context_window = None
+                    
+                    # If no global size found, look in local context
+                    if not size_info:
+                        parent = tag_text.parent if hasattr(tag_text, 'parent') else None
+                        if parent:
+                            parent_text = parent.get_text()
+                            # First, look specifically for file sizes (GB, MB, TB) - actual download sizes
+                            file_size_match = re.search(r'([\d\.]+\s*[GMT]B)', parent_text, re.IGNORECASE)
+                            if file_size_match:
+                                size_info = file_size_match.group(1)
+                            # If no clear file size, look for broader patterns but exclude parameter counts
+                            elif not size_info:
+                                broader_match = re.search(r'([\d\.]+\s*[KMGT]?B)(?!\s*param)', parent_text, re.IGNORECASE)
+                                if broader_match and any(unit in broader_match.group(1).upper() for unit in ['GB', 'MB', 'TB']):
+                                    size_info = broader_match.group(1)
+                    
+                    # Extract context window info from parent context if available
+                    if not context_window:
+                        parent = tag_text.parent if hasattr(tag_text, 'parent') else None
+                        if parent:
+                            parent_text = parent.get_text()
+                            # Look for context window info
+                            context_match = re.search(r'(\d+)k?\s*context', parent_text, re.IGNORECASE)
+                            if context_match:
+                                context_num = int(context_match.group(1))
+                                context_window = context_num * 1000 if 'k' in context_match.group(0).lower() else context_num
+                    
+                    variants.append({
+                        'name': full_name,
+                        'tag': tag,
+                        'size_str': size_info,
+                        'context_window': context_window,
+                        'model_base': model_name,
+                        'variant_modified_at': date_info  # Individual variant modification date
+                    })
+            
+            # Pattern 2: Look for structured model information in tables or lists
+            # Find download buttons or model cards that might contain variant info
+            model_cards = soup.find_all(['div', 'section'], class_=re.compile(r'model|variant|download', re.IGNORECASE))
+            
+            for card in model_cards:
+                card_text = card.get_text()
+                # Look for patterns like "ollama run llama3.1:7b"
+                run_patterns = re.findall(r'ollama\s+run\s+([\w\-\.]+:[\w\d\.]+(?:b|latest|instruct|code|chat|text))', card_text, re.IGNORECASE)
+                
+                for pattern in run_patterns:
+                    if pattern.startswith(model_name + ':'):
+                        tag = pattern.split(':')[1]
+                        full_name = pattern
+                        
+                        # Extract additional info from the card
+                        size_info = ""
+                        date_info = ""
+                        context_window = None
+                        
+                        # Look for actual file sizes (GB, MB, TB) in card text
+                        file_size_match = re.search(r'([\d\.]+\s*[GMT]B)', card_text, re.IGNORECASE)
+                        if file_size_match:
+                            size_info = file_size_match.group(1)
+                        # Fallback to broader pattern but prefer actual file sizes
+                        elif not size_info:
+                            broader_match = re.search(r'([\d\.]+\s*[KMGT]?B)(?!\s*param)', card_text, re.IGNORECASE)
+                            if broader_match and any(unit in broader_match.group(1).upper() for unit in ['GB', 'MB', 'TB']):
+                                size_info = broader_match.group(1)
+                        
+                        # Look for modification dates in card text
+                        date_match = re.search(r'(\d+)\s*(hours?|days?|weeks?|months?|years?)\s*ago', card_text, re.IGNORECASE)
+                        if date_match:
+                            amount = int(date_match.group(1))
+                            unit = date_match.group(2).lower()
+                            date_info = f"{amount} {unit} ago"
+                        
+                        context_match = re.search(r'(\d+)k?\s*context', card_text, re.IGNORECASE)
+                        if context_match:
+                            context_num = int(context_match.group(1))
+                            context_window = context_num * 1000 if 'k' in context_match.group(0).lower() else context_num
+                        
+                        # Check if we already have this variant
+                        if not any(v['name'] == full_name for v in variants):
+                            variants.append({
+                                'name': full_name,
+                                'tag': tag,
+                                'size_str': size_info,
+                                'context_window': context_window,
+                                'model_base': model_name,
+                                'variant_modified_at': date_info  # Individual variant modification date
+                            })
+            
+            # Remove duplicates and sort by tag (parameter count)
+            unique_variants = {}
+            for variant in variants:
+                if variant['name'] not in unique_variants:
+                    unique_variants[variant['name']] = variant
+            
+            result = list(unique_variants.values())
+            
+            # Sort by parameter count (extract numbers from tags)
+            def sort_key(variant):
+                tag = variant['tag']
+                # Extract numeric part for sorting (e.g., '7b' -> 7, '13b' -> 13)
+                numeric_match = re.search(r'(\d+(?:\.\d+)?)', tag)
+                if numeric_match:
+                    return float(numeric_match.group(1))
+                elif tag == 'latest':
+                    return 999  # Put latest at the end
+                else:
+                    return 0  # Unknown tags at the beginning
+            
+            result.sort(key=sort_key)
+            
+            logging.debug(f"Scraped {len(result)} variants for {model_name}: {[v['name'] for v in result]}")
+            return result
+            
+        except ImportError:
+            logging.debug("BeautifulSoup not available for web scraping, install with: pip install beautifulsoup4")
+            return []
+        except Exception as e:
+            logging.debug(f"Failed to scrape model variants for {model_name}: {e}")
+            return []
+
+    @staticmethod
+    def get_comprehensive_downloadable_models(hosts: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Get comprehensive list of downloadable models using web scraping and API integration.
+        
+        Args:
+            hosts (List[str]): List of Ollama hosts to check
+            
+        Returns:
+            Dict[str, Dict[str, Any]]: Comprehensive model information including variants
+        """
+        model_status = {}
+        
+        try:
+            # First, get downloaded models status
+            for host in hosts:
+                try:
+                    downloaded_models = OllamaClient.get_downloaded_models(host)
+                    for model_info in downloaded_models:
+                        model_name = model_info['name']
+                        base_name = model_name.split(':')[0]
+                        
+                        if base_name not in model_status:
+                            model_status[base_name] = {
+                                'downloaded': False,
+                                'hosts': [],
+                                'variants': {}
+                            }
+                        
+                        model_status[base_name]['downloaded'] = True
+                        model_status[base_name]['hosts'].append({
+                            'host': host,
+                            'full_name': model_name,
+                            'size': model_info.get('size', 0)
+                        })
+                        
+                        # Add this specific variant as downloaded
+                        if 'variants' not in model_status[base_name]:
+                            model_status[base_name]['variants'] = {}
+                        
+                        model_status[base_name]['variants'][model_name] = {
+                            'downloaded': True,
+                            'size': model_info.get('size', 0),
+                            'modified_at': model_info.get('modified_at')
+                        }
+                        
+                except Exception:
+                    continue
+                    
+            # Now get comprehensive model list from APIs and web scraping
+            try:
+                import requests
+                
+                # Get popular models from community API with last_updated dates
+                community_models = {}  # model_name -> last_updated
+                try:
+                    community_url = "https://ollamadb.dev/api/v1/models?sort_by=last_updated&order=desc&limit=100"
+                    response = requests.get(community_url, timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        for model_data in data.get('models', []):
+                            model_name = model_data.get('model_name', '')
+                            last_updated = model_data.get('last_updated', '')
+                            if model_name and last_updated:
+                                community_models[model_name] = last_updated
+                    logging.debug(f"Fetched {len(community_models)} models with dates from Community API")
+                except Exception as e:
+                    logging.debug(f"Community API failed: {e}")
+                    pass
+                
+                # Add common models if API fails
+                if not community_models:
+                    from datetime import datetime
+                    fallback_date = datetime.now().strftime('%Y-%m-%d')  # Use today's date as fallback
+                    community_models = {
+                        model: fallback_date for model in [
+                            'llama3.3', 'llama3.2', 'llama3.1', 'llama3', 'llama2',
+                            'mistral', 'mixtral', 'qwen2.5', 'qwen2', 'qwen3', 'phi3.5', 'phi3',
+                            'codellama', 'deepseek-coder', 'gemma2', 'gemma', 'gpt-oss',
+                            'nomic-embed-text', 'mxbai-embed-large', 'bge-m3'
+                        ]
+                    }
+                
+                # For each model, get comprehensive variant information via web scraping
+                for model_base, last_updated in community_models.items():
+                    if model_base not in model_status:
+                        model_status[model_base] = {
+                            'downloaded': False,
+                            'hosts': [],
+                            'variants': {},
+                            'api_modified_at': last_updated  # Store API last_updated date
+                        }
+                    else:
+                        # Add API date even for downloaded models
+                        model_status[model_base]['api_modified_at'] = last_updated
+                    
+                    # Get variants via web scraping
+                    scraped_variants = OllamaClient.get_model_variants_from_web(model_base)
+                    
+                    for variant_info in scraped_variants:
+                        variant_name = variant_info['name']
+                        
+                        # Only add if not already marked as downloaded
+                        if variant_name not in model_status[model_base]['variants']:
+                            model_status[model_base]['variants'][variant_name] = {
+                                'downloaded': False,
+                                'tag': variant_info['tag'],
+                                'size_str': variant_info.get('size_str', ''),
+                                'context_window': variant_info.get('context_window'),
+                                'model_base': variant_info['model_base'],
+                                'api_modified_at': last_updated,  # Propagate API date to variants
+                                'variant_modified_at': variant_info.get('variant_modified_at', '')  # Individual variant date
+                            }
+                
+            except Exception as e:
+                logging.debug(f"Failed to get comprehensive model list: {e}")
+                
+        except Exception as e:
+            logging.warning(f"Error getting comprehensive downloadable models: {e}")
+            
+        return model_status
+
+    @staticmethod
     def generate_embedding(text: str, model: str = "bge-m3", **kwargs) -> Optional[List[float]]:
         """
         Generate embeddings for text using Ollama embedding models.
@@ -589,7 +1117,7 @@ class OllamaClient(AIProviderInterface):
         """
         try:
             # Get a valid client for this model
-            client, found_model_key, _ = OllamaClient.get_valid_client(model, None, True, False)
+            client, found_model_key, _ = OllamaClient.get_valid_client(model, None, False)
             if not client:
                 return None
                 
@@ -625,7 +1153,7 @@ def test_ollama_functionality():
     
     # Test 1: Check host reachability
     print(colored("\n1. Testing host reachability...", "yellow"))
-    from py_classes.globals import g
+    from core.globals import g
     test_hosts = g.DEFAULT_OLLAMA_HOSTS
     for host in test_hosts:
         reachable = OllamaClient.check_host_reachability(host)
@@ -637,7 +1165,7 @@ def test_ollama_functionality():
     try:
         test_models = ["qwen3-coder:latest", "bge-m3", "phi3.5:3.8b"]
         for model in test_models:
-            client, found_model, _ = OllamaClient.get_valid_client(model, None, False, False)
+            client, found_model, _ = OllamaClient.get_valid_client(model, None, False)
             if client and found_model:
                 print(f"   {model}: {colored('✓ Available as ' + found_model, 'green')}")
             else:

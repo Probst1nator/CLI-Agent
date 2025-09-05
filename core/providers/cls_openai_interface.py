@@ -3,10 +3,10 @@ import os
 from typing import Any, Optional
 from openai import OpenAI
 from termcolor import colored
-from py_classes.cls_chat import Chat
+from core.chat import Chat
 from py_classes.unified_interfaces import AIProviderInterface
 import speech_recognition as sr
-from py_classes.globals import g
+from core.globals import g
 
 class OpenAIAPI(AIProviderInterface):
     """

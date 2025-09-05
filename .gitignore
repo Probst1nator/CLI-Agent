@@ -1,9 +1,12 @@
-# Global Python ignores
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-*.pyc
-*.pyo
-*.pyd
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -17,55 +20,81 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
 
-# Virtual environments
-.venv/
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Environment variables
+.env
+.venv
+env/
 venv/
 ENV/
-env/
+env.bak/
+venv.bak/
 
-# IDE and editors
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS generated files
+# OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# Environment and secrets
-.env
-.env.local
-.env.*.local
-
-# Cache and temporary files
-**/*cache*
+# CLI-Agent specific
+.cliagent/
 *.log
-*.tmp
-*.temp
 temp/
+tmp/
 cache/
+outputs/
+screenshots/
+audio_outputs/
 
-# Development artifacts
-.cliagent
-**.bin
-**.claude
-**.sqlite3
+# Backup directories
+*_backup/
+CLI-Agent_backup/
 
-# Deprecated scripts and docs
-run_screen_grabber.sh
-CLAUDE.md
-GEMINI.md
-QWEN.md
-*.deprecatedassets/sam_vit_b_01ec64.pth
+# Model and data files
+models/
+embeddings/
+vector_db/
+*.model
+*.pkl
+*.pickle
+
+# TUI debug logs
+tui_debug.log
+
+# Persistent storage
+persistent_storage/

@@ -6,9 +6,9 @@ import asyncio
 from typing import Dict, Any
 
 try:
-    from py_classes.cls_util_base import UtilBase
-    from py_classes.cls_llm_router import LlmRouter
-    from py_classes.enum_ai_strengths import AIStrengths
+    from agent.utils_manager.util_base import UtilBase
+    from core.llm_router import LlmRouter
+    from core.ai_strengths import AIStrengths
 except ImportError:
     print("Warning: Could not import required classes. Using mock classes for standalone testing.")
     class UtilBase:
