@@ -2,8 +2,8 @@ import os
 import json
 from typing import Dict, Any
 
-from py_classes.cls_util_base import UtilBase
-from utils.todos import TodosUtil
+from agent.utils_manager.util_base import UtilBase
+from .deprecated.todos import TodosUtil
 
 class ArchitectNewUtil(UtilBase):
     """
@@ -34,19 +34,19 @@ class ArchitectNewUtil(UtilBase):
             "code_examples": [
                 {
                     "description": "Create a websocket utility",
-                    "code": """```python
+                    "code": """<python>
 from utils.architectnewutil import ArchitectNewUtil
 result = ArchitectNewUtil.run("A util which can connect to a websocket and send/receive messages", "WebsocketUtil")
 print(result)
-```"""
+</python>"""
                 },
                 {
                     "description": "Build an API integration utility",
-                    "code": """```python
+                    "code": """<python>
 from utils.architectnewutil import ArchitectNewUtil
 result = ArchitectNewUtil.run("Create a utility to interact with the Spotify API for playlist management", "SpotifyUtil")
 print(result)
-```"""
+</python>"""
                 }
             ]
         }
