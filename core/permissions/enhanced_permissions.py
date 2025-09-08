@@ -178,7 +178,6 @@ async def enhanced_permission_prompt(
             return text + " " * (width - len(text))
         
         # Build box
-        print()  # Empty line before box
         print(colored(f"{top_left}{horizontal * (box_width - 2)}{top_right}", "yellow"))
         
         # Title line
@@ -212,7 +211,6 @@ async def enhanced_permission_prompt(
     create_tool_operation_box(tool_name, action_description, file_path, format_xml_args(xml_content))
     
     # Build options text with better formatting
-    print()  # Empty line
     print(colored("┌─ Permission Options ─────────────────────────────────────────────┐", "cyan"))
     
     # Add voice keywords if voice mode is active
