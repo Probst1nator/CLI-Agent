@@ -2003,6 +2003,26 @@ def show_unified_bindings_display():
     print(colored("└───────────────────────────────────────────────────────────────────┘", "cyan"))
     print()
 
+def get_recent_files_output():
+    # This function simulates the output of the bash command for the bootstrap message.
+    directory = os.getcwd()
+    output_lines = [f"Working Directory: {directory}\n"]
+    try:
+        # Find only files, not directories
+        all_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+        # Sort by modification time, newest first
+        all_files.sort(key=lambda f: os.path.getmtime(os.path.join(directory, f)), reverse=True)
+        output_lines.append("5 last modified files:")
+        if not all_files:
+            output_lines.append("-> No files found in this directory.")
+        else:
+            # Get the top 5
+            for filename in all_files[:5]:
+                output_lines.append(f"- {filename}")
+    except FileNotFoundError:
+        output_lines.append(f"Error: The directory '{directory}' does not exist.")
+    return "\n".join(output_lines)
+
 def preprocess_consecutive_sudo_commands(code: str) -> str:
     """Combine consecutive shell commands with sudo to reduce password prompts."""
     lines = code.strip().split('\n')
@@ -2369,27 +2389,6 @@ async def main(
 
         if context_chat is None:
             context_chat: Chat = await construct_engineered_prompt(args.voice)
-            
-            def get_recent_files_output():
-                # This function simulates the output of the bash command for the bootstrap message.
-                directory = os.getcwd()
-                output_lines = [f"Working Directory: {directory}\n"]
-                try:
-                    # Find only files, not directories
-                    all_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
-                    # Sort by modification time, newest first
-                    all_files.sort(key=lambda f: os.path.getmtime(os.path.join(directory, f)), reverse=True)
-                    output_lines.append("5 last modified files:")
-                    if not all_files:
-                        output_lines.append("-> No files found in this directory.")
-                    else:
-                        # Get the top 5
-                        for filename in all_files[:5]:
-                            output_lines.append(f"- {filename}")
-                except FileNotFoundError:
-                    output_lines.append(f"Error: The directory '{directory}' does not exist.")
-                return "\n".join(output_lines)
-
 
         if '-m' in sys.argv or '--message' in sys.argv:
             if not args.message:
@@ -2605,8 +2604,27 @@ latest summary LIMIT 1
                         if assistant_response:
                             context_chat.add_message(Role.ASSISTANT, assistant_response)
                             assistant_response = ""
+
                         if context_chat:
                             context_chat.save_to_json()
+
+                        UNCOMPRESSED_HISTORY = 4 # Compresses reasoning traces after x messages
+                        if (len(context_chat)>UNCOMPRESSED_HISTORY):
+                            for i in range(UNCOMPRESSED_HISTORY,UNCOMPRESSED_HISTORY+1): # do prompt engineering to the 7th and 8th messages automatically
+                                role = context_chat.messages[-i][0]
+                                msg = context_chat.messages[-i][1]
+                                if "<think>" in msg:
+                                    # Extract content within <think> tags
+                                    think_content_match = re.search(r'<think>(.*?)</think>', msg, re.DOTALL)
+                                    if think_content_match:
+                                        think_content = think_content_match.group(1).strip()
+                                        # Find the first line until a newline
+                                        first_line_match = re.match(r'^([^\n]*)', think_content)
+                                        if first_line_match:
+                                            first_line = first_line_match.group(1).strip()
+                                            # Replace the original <think> content with only the first line
+                                            msg = re.sub(r'<think>(.*?)</think>', f'<think>{first_line}</think>', msg, flags=re.DOTALL)
+                                context_chat.messages[-i] = (role, msg)
                         
                         llm_config = g.get_llm_config()
                         models_for_tasks = []
