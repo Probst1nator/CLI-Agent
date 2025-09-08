@@ -7,8 +7,20 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 # Import base class and globals
-from py_classes.cls_util_base import UtilBase
-from py_classes.globals import g
+try:
+    from agent.utils_manager.util_base import UtilBase
+    from core.globals import g
+except ImportError:
+    # Fallback for standalone testing
+    class UtilBase:
+        @staticmethod
+        def get_metadata():
+            return {}
+    
+    class MockGlobals:
+        CLIAGENT_PERSISTENT_STORAGE_PATH = os.path.expanduser("~/.cli-agent")
+    
+    g = MockGlobals()
 
 class HomeAssistant(UtilBase):
     """
@@ -96,10 +108,24 @@ class HomeAssistant(UtilBase):
                 'total_history_entries': total_entries
             }
             
-            with open(cls._INTERACTED_ENTITIES_FILE, 'w') as f:
+            # Atomic write to prevent corruption
+            temp_file = cls._INTERACTED_ENTITIES_FILE + '.tmp'
+            with open(temp_file, 'w') as f:
                 json.dump(data, f, indent=2)
+            
+            # Replace the old file atomically
+            if os.name == 'nt':  # Windows
+                if os.path.exists(cls._INTERACTED_ENTITIES_FILE):
+                    os.remove(cls._INTERACTED_ENTITIES_FILE)
+            os.rename(temp_file, cls._INTERACTED_ENTITIES_FILE)
         except Exception:
-            pass
+            # Clean up temp file if it exists
+            temp_file = cls._INTERACTED_ENTITIES_FILE + '.tmp'
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
 
     @classmethod
     def _track_entity_interaction(cls, entity_id: str, interaction_type: str = "state_query", 
@@ -147,14 +173,24 @@ class HomeAssistant(UtilBase):
     def _get_config() -> tuple[str, str]:
         """
         Retrieves Home Assistant URL and a long-lived access token from environment variables.
+        
+        Raises:
+            ValueError: When required environment variables are not set.
         """
-        load_dotenv()
+        try:
+            load_dotenv()
+        except Exception:
+            # dotenv is optional
+            pass
+            
         hass_url = os.environ.get("HASS_URL")
         hass_token = os.environ.get("HASS_TOKEN")
 
         if not hass_url or not hass_token:
             raise ValueError(
-                "HASS_URL and HASS_TOKEN environment variables must be set."
+                "HASS_URL and HASS_TOKEN environment variables must be set. "
+                "Example: export HASS_URL='http://192.168.1.100:8123' && "
+                "export HASS_TOKEN='your-long-lived-access-token'"
             )
         return hass_url, hass_token
 
@@ -984,6 +1020,12 @@ class HomeAssistant(UtilBase):
                 error_result = {"error": f"Invalid action '{action}'. Must be one of: {', '.join(valid_actions)}."}
                 return json.dumps(error_result, indent=2)
 
+        except ValueError as e:
+            error_result = {"error": f"Configuration error: {str(e)}"}
+            return json.dumps(error_result, indent=2)
+        except KeyError as e:
+            error_result = {"error": f"Missing required parameter: {str(e)}"}
+            return json.dumps(error_result, indent=2)
         except Exception as e:
             error_result = {"error": f"Unexpected error in HomeAssistant tool: {str(e)}"}
             return json.dumps(error_result, indent=2)

@@ -1,14 +1,12 @@
 import os
 import gc
 import json
-import sys
 import torch
 import warnings
 from typing import Optional, Dict, Any
 
-# Add parent directory to path to import py_classes
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from py_classes.cls_util_base import UtilBase
+# Use modern import structure - no path manipulation needed
+from agent.utils_manager.util_base import UtilBase
 
 try:
     import diffusers

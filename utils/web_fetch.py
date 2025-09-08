@@ -4,7 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import Dict, Any
 
-from py_classes.cls_util_base import UtilBase
+from agent.utils_manager.util_base import UtilBase
 
 class WebFetchUtil(UtilBase):
     """
