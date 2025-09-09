@@ -16,6 +16,40 @@ class PathDetector:
         'file_management': ['bash', 'python']  # Only when they contain file operations
     }
     
+    # Define common development tool patterns for smart quick actions
+    COMMON_DEV_TOOLS = {
+        'linting': {
+            'patterns': ['ruff', 'flake8', 'pylint', 'black', 'isort', 'mypy'],
+            'quick_key': 'r',  # Quick action key
+            'display_name': 'linting tools (ruff, black, etc.)',
+            'permission_scope': 'project'  # file, directory, project, global
+        },
+        'testing': {
+            'patterns': ['pytest', 'python -m pytest', 'python -m unittest', 'nose', 'tox'],
+            'quick_key': 't',
+            'display_name': 'testing commands (pytest, etc.)',
+            'permission_scope': 'project'
+        },
+        'building': {
+            'patterns': ['npm install', 'npm run', 'yarn install', 'pip install', 'poetry install', 'make', 'cargo build'],
+            'quick_key': 'b',
+            'display_name': 'build tools (npm, pip, etc.)',
+            'permission_scope': 'project'
+        },
+        'formatting': {
+            'patterns': ['black', 'prettier', 'autopep8', 'yapf'],
+            'quick_key': 'f',
+            'display_name': 'code formatters',
+            'permission_scope': 'directory'
+        },
+        'git': {
+            'patterns': ['git add', 'git commit', 'git status', 'git diff', 'git push', 'git pull'],
+            'quick_key': 'g',
+            'display_name': 'git commands',
+            'permission_scope': 'project'
+        }
+    }
+    
     # Define sensitive keywords that should trigger automatic blocking
     SENSITIVE_KEYWORDS = {
         'sudo',           # Environment files
@@ -46,6 +80,131 @@ class PathDetector:
     def get_group_tools(group_name: str) -> List[str]:
         """Get all tools that belong to a permission group."""
         return PathDetector.PERMISSION_GROUPS.get(group_name, [])
+    
+    @staticmethod
+    def detect_dev_tool_category(command_pattern: str) -> Tuple[Optional[str], Optional[Dict]]:
+        """
+        Detect what category of development tool this command represents.
+        
+        Args:
+            command_pattern: The command pattern to analyze
+            
+        Returns:
+            Tuple of (category_name, category_config) or (None, None) if no match
+        """
+        command_lower = command_pattern.lower()
+        
+        for category, config in PathDetector.COMMON_DEV_TOOLS.items():
+            for pattern in config['patterns']:
+                if pattern.lower() in command_lower:
+                    return category, config
+        
+        return None, None
+    
+    @staticmethod
+    def get_smart_quick_action(tool_name: str, command_pattern: str, file_path: str = None) -> Optional[Dict]:
+        """
+        Get a smart quick action suggestion for this command.
+        
+        Args:
+            tool_name: Name of the tool
+            command_pattern: The command being executed
+            file_path: Optional file path being operated on
+            
+        Returns:
+            Dictionary with quick action details or None if no smart action available
+        """
+        # Only provide quick actions for bash commands (where dev tools are typically run)
+        if tool_name != 'bash':
+            return None
+            
+        category, config = PathDetector.detect_dev_tool_category(command_pattern)
+        if not category or not config:
+            return None
+            
+        # Determine the permission scope based on file path and category config
+        scope_path = None
+        scope_description = ""
+        
+        if file_path:
+            abs_path = os.path.abspath(file_path)
+            
+            if config['permission_scope'] == 'file':
+                scope_path = abs_path
+                scope_description = f"this file ({os.path.basename(abs_path)})"
+            elif config['permission_scope'] == 'directory':
+                scope_path = os.path.dirname(abs_path) + "/*"
+                scope_description = f"this directory ({os.path.basename(os.path.dirname(abs_path))})"
+            elif config['permission_scope'] == 'project':
+                # Find project root (look for common project indicators)
+                project_root = PathDetector._find_project_root(abs_path)
+                if project_root:
+                    scope_path = project_root + "/*"
+                    scope_description = f"this project ({os.path.basename(project_root)})"
+                else:
+                    scope_path = os.path.dirname(abs_path) + "/*"
+                    scope_description = f"this directory ({os.path.basename(os.path.dirname(abs_path))})"
+        else:
+            # No file path, use project scope if possible
+            cwd = os.getcwd()
+            if config['permission_scope'] == 'project':
+                project_root = PathDetector._find_project_root(cwd)
+                if project_root:
+                    scope_path = project_root + "/*"
+                    scope_description = f"this project ({os.path.basename(project_root)})"
+                else:
+                    scope_path = cwd + "/*"
+                    scope_description = f"current directory ({os.path.basename(cwd)})"
+            elif config['permission_scope'] == 'global':
+                scope_path = category  # Use category name as global pattern
+                scope_description = "globally"
+            else:
+                scope_path = cwd + "/*"
+                scope_description = f"current directory ({os.path.basename(cwd)})"
+        
+        return {
+            'category': category,
+            'quick_key': config['quick_key'],
+            'display_name': config['display_name'],
+            'scope_path': scope_path,
+            'scope_description': scope_description,
+            'permission_scope': config['permission_scope']
+        }
+    
+    @staticmethod
+    def _find_project_root(start_path: str) -> Optional[str]:
+        """
+        Find the project root by looking for common project indicators.
+        
+        Args:
+            start_path: Path to start searching from
+            
+        Returns:
+            Project root path or None if not found
+        """
+        current = os.path.abspath(start_path)
+        
+        # Common project root indicators
+        project_indicators = [
+            '.git',
+            'package.json',
+            'pyproject.toml',
+            'requirements.txt',
+            'Cargo.toml',
+            'pom.xml',
+            'build.gradle',
+            'Makefile',
+            '.gitignore'
+        ]
+        
+        # Walk up the directory tree
+        while current != os.path.dirname(current):  # Not at root
+            for indicator in project_indicators:
+                if os.path.exists(os.path.join(current, indicator)):
+                    return current
+            current = os.path.dirname(current)
+        
+        return None
     
     @staticmethod
     def extract_paths_from_xml(xml_content: str, tool_name: str) -> List[Tuple[str, str]]:

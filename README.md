@@ -55,7 +55,7 @@ cp .env.example .env
 python main.py
 ```
 
-### Running with TUI
+### Running with TUI (Terminal User Interface)
 ```bash
 python tui_main.py
 ```
@@ -69,10 +69,10 @@ python test.py --full
 ## Architecture
 
 - `core/`: Core AI infrastructure (LLM routing, chat, providers)
-- `shared/`: Shared utilities (audio, web, search, RAG)
-- `main_cli_agent/`: Main agent implementation
-- `py_classes/`: Legacy classes (remote host, interfaces)
-- `tests/`: Comprehensive test suite
+- `shared/`: Shared utilities (audio, web, search, RAG)  
+- `tools/`: Individual tool implementations (file operations, search, etc.)
+- `py_classes/`: Legacy classes and utilities
+- `tests/`: Comprehensive test suite including tool testing framework
 - `docs/`: Documentation and architecture guides
 
 ## Configuration

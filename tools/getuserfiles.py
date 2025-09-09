@@ -247,7 +247,6 @@ class getuserfiles:
         try:
             # Check if we're already in an event loop
             try:
-                loop = asyncio.get_running_loop()
                 # We're in an async context - create a new thread to run the async code
                 import concurrent.futures
                 
@@ -311,7 +310,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="File Provider Tool with Dynamic Discovery")
-    parser.add_argument('--test', action='store_true', help='Test connection discovery')
+    parser.add_argument('--test', action='store_true', help='Run the tool and print the exact content returned by the run method')
     parser.add_argument('--config', action='store_true', help='Create user config file')
     parser.add_argument('--host', default=DEFAULT_HOST, help='WebSocket host for config')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT, help='WebSocket port for config')
@@ -321,15 +320,17 @@ if __name__ == "__main__":
     if args.config:
         getuserfiles.create_user_config(args.host, args.port)
     elif args.test:
-        # Test the discovery mechanism
-        discovery = WebSocketDiscovery()
-        try:
-            uri = asyncio.run(discovery.discover_websocket_endpoint())
-            print(colored(f"🎉 Discovery successful: {uri}", "green", attrs=["bold"]))
-        except Exception as e:
-            print(colored(f"💥 Discovery failed: {e}", "red", attrs=["bold"]))
+        print(colored("--- Executing Test Run ---", "yellow", attrs=["bold"]))
+        # The run method already prints its own progress messages.
+        # This will execute the full discovery and fetch process.
+        result = getuserfiles.run("")
+        
+        # After the run method completes, print its exact return value.
+        print(colored("\n--- Exact Content Returned by run() Method ---", "yellow", attrs=["bold"]))
+        print(result)
+        print(colored("--- End of Test Run ---", "yellow", attrs=["bold"]))
     else:
-        # Run the tool
+        # Run the tool and display formatted output
         result = getuserfiles.run("")
         if not result.startswith("Error:"):
             print("\n" + "="*60)
