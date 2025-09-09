@@ -120,6 +120,11 @@ async def enhanced_permission_prompt(
         create_granted_operation_box(tool_name, action_description, file_path)
         return True
     
+    # Get smart quick action for this command
+    from .path_detector import PathDetector
+    command_pattern = PathDetector.get_command_pattern(tool_name, xml_content or "")
+    smart_action = PathDetector.get_smart_quick_action(tool_name, command_pattern, file_path)
+    
     # Build enhanced visual permission prompt with box
     def create_tool_operation_box(tool_name: str, action_description: str, file_path: str = None, args_content: str = None):
         """Create a visually appealing box for tool operations."""
@@ -213,19 +218,54 @@ async def enhanced_permission_prompt(
     # Build options text with better formatting
     print(colored("┌─ Permission Options ─────────────────────────────────────────────┐", "cyan"))
     
+    # Get permission suggestions to show directly
+    suggestions = permissions_manager.get_permission_suggestions(tool_name, file_path, command_pattern, has_paths)
+    
     # Add voice keywords if voice mode is active
     if hasattr(args, 'voice') and args.voice:
         print(colored("│", "cyan") + f" {colored('Enter', 'light_green', attrs=['bold'])} or {colored('y', 'light_green', attrs=['bold'])} (say '{colored('yes', 'light_green')}' or '{colored('execute', 'light_green')}') → Confirm this operation".ljust(65) + colored("│", "cyan"))
         print(colored("│", "cyan") + f" {colored('n', 'red', attrs=['bold'])} (say '{colored('no', 'red')}' or '{colored('abort', 'red')}') → Abort this operation".ljust(65) + colored("│", "cyan"))
-        print(colored("│", "cyan") + f" {colored('a', 'blue', attrs=['bold'])} (say '{colored('always', 'blue')}') → Always permit (save preference)".ljust(65) + colored("│", "cyan"))
-        print(colored("│", "cyan") + f" {colored('d', 'magenta', attrs=['bold'])} (say '{colored('deny', 'magenta')}') → Always deny (save preference)".ljust(65) + colored("│", "cyan"))
+        
+        # Add smart quick action if available
+        if smart_action:
+            quick_key = smart_action['quick_key']
+            display_name = smart_action['display_name']
+            scope_desc = smart_action['scope_description']
+            print(colored("│", "cyan") + f" {colored(quick_key, 'light_blue', attrs=['bold'])} (say '{colored(smart_action['category'], 'light_blue')}') → Always allow {display_name} for {scope_desc}".ljust(65) + colored("│", "cyan"))
+        
+        # Show direct always-allow options
+        option_keys = ['a', 's', 'p', 't']
+        for i, suggestion in enumerate(suggestions[:4]):  # Show up to 4 direct options
+            key = option_keys[i]
+            print(colored("│", "cyan") + f" {colored(key, 'blue', attrs=['bold'])} (say '{colored(f'always{i+1}', 'blue')}') → {suggestion}".ljust(65) + colored("│", "cyan"))
+        
+        # Show direct always-deny options
+        print(colored("│", "cyan") + f" {colored('d', 'magenta', attrs=['bold'])} (say '{colored('deny', 'magenta')}') → Always deny this file".ljust(65) + colored("│", "cyan"))
+        print(colored("│", "cyan") + f" {colored('D', 'magenta', attrs=['bold'])} (say '{colored('denyall', 'magenta')}') → Always deny all {tool_name} operations".ljust(65) + colored("│", "cyan"))
+        
         print(colored("│", "cyan") + f" {colored('m', 'yellow', attrs=['bold'])} (say '{colored('manage', 'yellow')}') → Manage all saved permissions".ljust(65) + colored("│", "cyan"))
         print(colored("│", "cyan") + f" {colored('?', 'yellow', attrs=['bold'])} (say '{colored('help', 'yellow')}') → Show detailed help".ljust(65) + colored("│", "cyan"))
     else:
         print(colored("│", "cyan") + f" {colored('Enter', 'light_green', attrs=['bold'])} or {colored('y', 'light_green', attrs=['bold'])} → Confirm this operation".ljust(65) + colored("│", "cyan"))
         print(colored("│", "cyan") + f" {colored('n', 'red', attrs=['bold'])} → Abort this operation".ljust(65) + colored("│", "cyan"))
-        print(colored("│", "cyan") + f" {colored('a', 'blue', attrs=['bold'])} → Always permit (save preference)".ljust(65) + colored("│", "cyan"))
-        print(colored("│", "cyan") + f" {colored('d', 'magenta', attrs=['bold'])} → Always deny (save preference)".ljust(65) + colored("│", "cyan"))
+        
+        # Add smart quick action if available
+        if smart_action:
+            quick_key = smart_action['quick_key']
+            display_name = smart_action['display_name']
+            scope_desc = smart_action['scope_description']
+            print(colored("│", "cyan") + f" {colored(quick_key, 'light_blue', attrs=['bold'])} → Always allow {display_name} for {scope_desc}".ljust(65) + colored("│", "cyan"))
+        
+        # Show direct always-allow options
+        option_keys = ['a', 's', 'p', 't']
+        for i, suggestion in enumerate(suggestions[:4]):  # Show up to 4 direct options
+            key = option_keys[i]
+            print(colored("│", "cyan") + f" {colored(key, 'blue', attrs=['bold'])} → {suggestion}".ljust(65) + colored("│", "cyan"))
+        
+        # Show direct always-deny options
+        print(colored("│", "cyan") + f" {colored('d', 'magenta', attrs=['bold'])} → Always deny this file".ljust(65) + colored("│", "cyan"))
+        print(colored("│", "cyan") + f" {colored('D', 'magenta', attrs=['bold'])} → Always deny all {tool_name} operations".ljust(65) + colored("│", "cyan"))
+        
         print(colored("│", "cyan") + f" {colored('m', 'yellow', attrs=['bold'])} → Manage all saved permissions".ljust(65) + colored("│", "cyan"))
         print(colored("│", "cyan") + f" {colored('?', 'yellow', attrs=['bold'])} → Show detailed help".ljust(65) + colored("│", "cyan"))
     
@@ -257,7 +297,6 @@ async def enhanced_permission_prompt(
             
             args_display = format_xml_args(xml_content)
             
-            print()
             print(colored("┌─ OPERATION CANCELLED ────────────────────────────────────────────┐", "red"))
             print(colored("│", "red") + f" ❌ {tool_emoji} {tool_name} operation cancelled by user".ljust(65) + colored("│", "red"))
             if file_path:
@@ -270,13 +309,31 @@ async def enhanced_permission_prompt(
                 action_display = (action_description[:55] + "...") if len(action_description) > 55 else action_description
                 print(colored("│", "red") + f"    Action: {action_display}".ljust(65) + colored("│", "red"))
             print(colored("└───────────────────────────────────────────────────────────────────┘", "red"))
-            print()
             return False
-        elif user_input == 'a' or user_input == 'always':
-            await handle_always_allow(tool_name, file_path, permissions_manager, get_user_input_func, args, input_event, input_lock, shared_input, command_hash, command_pattern, has_paths)
+        elif smart_action and (user_input == smart_action['quick_key'] or user_input == smart_action['category']):
+            # Handle smart quick action
+            await handle_smart_quick_action(smart_action, tool_name, file_path, permissions_manager, command_pattern)
             return True
-        elif user_input == 'd' or user_input == 'deny':
-            await handle_always_deny(tool_name, file_path, permissions_manager, get_user_input_func, args, input_event, input_lock, shared_input)
+        elif user_input in ['a', 's', 'p', 't'] and len(suggestions) > 0:
+            # Handle direct always-allow options
+            option_map = {'a': 0, 's': 1, 'p': 2, 't': 3}
+            suggestion_index = option_map[user_input]
+            if suggestion_index < len(suggestions):
+                await handle_direct_always_allow(suggestions[suggestion_index], tool_name, file_path, permissions_manager, command_hash)
+                return True
+        elif user_input == 'd':
+            # Always deny this file
+            if file_path:
+                permissions_manager.add_always_deny(tool_name, file_path)
+                print(colored(f"❌ Always deny {tool_name} on this file", "red"))
+                print(colored(f"   File: {file_path}", "white"))
+            else:
+                print(colored("❌ No file specified for denial", "yellow"))
+            return False
+        elif user_input == 'D':
+            # Always deny all operations for this tool
+            permissions_manager.add_always_deny(tool_name)
+            print(colored(f"❌ Always deny all {tool_name} operations", "red"))
             return False
         elif user_input == 'm' or user_input == 'manage':
             await handle_permission_management(get_user_input_func, args, input_event, input_lock, shared_input)
@@ -285,103 +342,62 @@ async def enhanced_permission_prompt(
         elif user_input == '?' or user_input == 'help':
             show_permission_help(tool_name, file_path)
         else:
-            print(colored("❓ Invalid option. Enter one of: [Enter/y], n, a, d, m, ?", "yellow"))
+            valid_options = "[Enter/y], n, a/s/p/t, d/D, m, ?"
+            if smart_action:
+                valid_options = f"[Enter/y], n, {smart_action['quick_key']}, a/s/p/t, d/D, m, ?"
+            print(colored(f"❓ Invalid option. Enter one of: {valid_options}", "yellow"))
 
-async def handle_always_allow(tool_name: str, file_path: str, permissions_manager, get_user_input_func, args, input_event, input_lock, shared_input, command_hash: str = None, command_pattern: str = None, has_paths: bool = False):
-    """Handle always-allow permission setup."""
-    suggestions = permissions_manager.get_permission_suggestions(tool_name, file_path, command_pattern, has_paths)
+async def handle_direct_always_allow(suggestion: str, tool_name: str, file_path: str, permissions_manager, command_hash: str):
+    """Handle direct always-allow option based on suggestion."""
     
-    print(colored("\n📝 Always allow options:", "blue"))
-    
-    # Voice-friendly keywords for common permission types
-    voice_keywords = [
-        "exact",      # For exact command matches
-        "code",       # For code execution tools  
-        "files",      # For file management tools
-        "shell",      # For shell/bash operations
-        "pattern"     # For pattern-based matches
-    ]
-    
-    for i, suggestion in enumerate(suggestions, 1):
-        if hasattr(args, 'voice') and args.voice:
-            keyword = voice_keywords[i-1] if i-1 < len(voice_keywords) else f"option{i}"
-            print(colored(f"  {i}. ", "cyan") + colored(suggestion, "white") + colored(f" (say '{keyword}')", "cyan"))
+    if "Exact command:" in suggestion and command_hash:
+        # Add command-specific permission
+        permissions_manager.add_always_allow(tool_name, command_hash=command_hash)
+        print(colored(f"✅ {suggestion}", "green"))
+    elif "Exact file:" in suggestion:
+        permissions_manager.add_always_allow(tool_name, file_path)
+        print(colored(f"✅ {suggestion}", "green"))
+    elif "Directory:" in suggestion:
+        dir_path = suggestion.split("Directory: ")[1]
+        permissions_manager.add_always_allow(tool_name, None, dir_path)
+        print(colored(f"✅ {suggestion}", "green"))
+    elif "Project:" in suggestion:
+        project_path = suggestion.split("Project: ")[1]
+        permissions_manager.add_always_allow(tool_name, None, project_path)
+        print(colored(f"✅ {suggestion}", "green"))
+    elif "tools (" in suggestion:
+        # Group-based permission
+        # Extract group name from "All File Editing tools (editfile, writefile, appendfile)"
+        group_display = suggestion.split("All ")[1].split(" tools")[0]
+        group_name = group_display.lower().replace(' ', '_')
+        
+        if file_path:
+            permissions_manager.add_always_allow(tool_name, file_path, group_name=group_name)
         else:
-            print(colored(f"  {i}. ", "cyan") + colored(suggestion, "white"))
+            permissions_manager.add_always_allow(tool_name, group_name=group_name)
+        print(colored(f"✅ {suggestion}", "green"))
+    elif "All " in suggestion:
+        permissions_manager.add_always_allow(tool_name)
+        print(colored(f"✅ {suggestion}", "green"))
+
+async def handle_smart_quick_action(smart_action: Dict, tool_name: str, file_path: str, permissions_manager, command_pattern: str):
+    """Handle the smart quick action by adding appropriate permission rule."""
+    category = smart_action['category']
+    scope_path = smart_action['scope_path']
+    scope_description = smart_action['scope_description']
+    display_name = smart_action['display_name']
     
-    if hasattr(args, 'voice') and args.voice:
-        print(colored("  c. Custom pattern", "cyan") + colored(" (say 'custom')", "cyan"))
-        print(colored("  x. Cancel", "cyan") + colored(" (say 'cancel')", "cyan"))
+    # Add the permission rule based on the smart action
+    if smart_action['permission_scope'] == 'global':
+        # Add global permission for this dev tool category
+        permissions_manager.add_always_allow(tool_name, dev_tool_category=category, pattern=category)
+        print(colored(f"✅ Always allow {display_name} {scope_description}", "green"))
+        print(colored(f"   Category: {category}", "white"))
     else:
-        print(colored("  c. Custom pattern", "cyan"))
-        print(colored("  x. Cancel", "cyan"))
-    
-    while True:
-        if get_user_input_func:
-            choice, _ = await get_user_input_func(
-                args, None, colored("Select option (1-{}, c, x): ".format(len(suggestions)), "cyan"),
-                input_event=input_event, input_lock=input_lock, shared_input=shared_input
-            )
-        else:
-            choice = input(colored("Select option (1-{}, c, x): ".format(len(suggestions)), "cyan"))
-        
-        choice = choice.strip().lower()
-        
-        if choice == 'x':
-            print(colored("Cancelled", "yellow"))
-            return
-        elif choice == 'c':
-            if get_user_input_func:
-                custom_pattern, _ = await get_user_input_func(
-                    args, None, colored("Enter custom pattern: ", "cyan"),
-                    input_event=input_event, input_lock=input_lock, shared_input=shared_input
-                )
-            else:
-                custom_pattern = input(colored("Enter custom pattern: ", "cyan"))
-            
-            permissions_manager.add_always_allow(tool_name, file_path, custom_pattern.strip())
-            print(colored(f"✅ Always allow rule added for pattern: {custom_pattern.strip()}", "green"))
-            return
-        else:
-            try:
-                index = int(choice) - 1
-                if 0 <= index < len(suggestions):
-                    selected = suggestions[index]
-                    if "Exact command:" in selected and command_hash:
-                        # Add command-specific permission
-                        permissions_manager.add_always_allow(tool_name, command_hash=command_hash)
-                        print(colored(f"✅ Always allow rule added for exact command: {command_pattern}", "green"))
-                    elif "Exact file:" in selected:
-                        permissions_manager.add_always_allow(tool_name, file_path)
-                        print(colored(f"✅ Always allow rule added: {selected}", "green"))
-                    elif "Directory:" in selected:
-                        dir_path = selected.split("Directory: ")[1]
-                        permissions_manager.add_always_allow(tool_name, None, dir_path)
-                        print(colored(f"✅ Always allow rule added: {selected}", "green"))
-                    elif "Project:" in selected:
-                        project_path = selected.split("Project: ")[1]
-                        permissions_manager.add_always_allow(tool_name, None, project_path)
-                        print(colored(f"✅ Always allow rule added: {selected}", "green"))
-                    elif "tools (" in selected:
-                        # Group-based permission
-                        # Extract group name from "All File Editing tools (editfile, writefile, appendfile)"
-                        group_display = selected.split("All ")[1].split(" tools")[0]
-                        group_name = group_display.lower().replace(' ', '_')
-                        
-                        if file_path:
-                            permissions_manager.add_always_allow(tool_name, file_path, group_name=group_name)
-                        else:
-                            permissions_manager.add_always_allow(tool_name, group_name=group_name)
-                        print(colored(f"✅ Always allow rule added: {selected}", "green"))
-                    elif "All " in selected:
-                        permissions_manager.add_always_allow(tool_name)
-                        print(colored(f"✅ Always allow rule added: {selected}", "green"))
-                    
-                    return
-                else:
-                    print(colored("❓ Invalid selection", "yellow"))
-            except ValueError:
-                print(colored("❓ Invalid selection", "yellow"))
+        # Add path-based permission for this dev tool category
+        permissions_manager.add_always_allow(tool_name, dev_tool_category=category, pattern=scope_path)
+        print(colored(f"✅ Always allow {display_name} for {scope_description}", "green"))
+        print(colored(f"   Pattern: {scope_path}", "white"))
 
 async def handle_always_deny(tool_name: str, file_path: str, permissions_manager, get_user_input_func, args, input_event, input_lock, shared_input):
     """Handle always-deny permission setup."""

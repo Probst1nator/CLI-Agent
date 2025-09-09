@@ -1721,35 +1721,35 @@ async def get_user_input_with_bindings(
             else:
                 print(colored("No chat history available.", "yellow"))
             continue
-        elif user_input in ["-o", "--o", "-online", "--online"]:
+        elif user_input in ["/o", "//o", "/online", "//online"]:
             args.online = not args.online
             logging.info(colored(f"# cli-agent: Online mode toggled {'on' if args.online else 'off'}.", "green"))
             continue
-        elif user_input in ["-e", "--e", "--exit"]:
-            logging.info(colored("# cli-agent: Exiting...", "green"))
+        elif user_input in ["/e", "//e", "//exit"]:
+            logging.info(colored("# cli/agent: Exiting...", "green"))
             exit(0)
-        elif user_input in ["-h", "--h", "--help"]:
+        elif user_input in ["/h", "//h", "//help"]:
             print_startup_summary(args)
             CMD_WIDTH = 20
             print(colored("\n--- Other Commands ---", "yellow"))
-            print(f"  {colored('-r, --regenerate'.ljust(CMD_WIDTH), 'white')}Regenerate last response")
-            print(f"  {colored('-img, --image'.ljust(CMD_WIDTH), 'white')}Take screenshot")
-            print(f"  {colored('-p, --p'.ljust(CMD_WIDTH), 'white')}Print chat history")
-            print(f"  {colored('-m, --m'.ljust(CMD_WIDTH), 'white')}Enter multiline input mode")
-            print(f"  {colored('-e, --exit'.ljust(CMD_WIDTH), 'white')}Exit CLI-Agent")
-            print(f"  {colored('-h, --help'.ljust(CMD_WIDTH), 'white')}Show this help")
-            print(f"  {colored('-s, --save'.ljust(CMD_WIDTH), 'white')}Save current LLM selection as default")
-            print(f"  {colored('--full_output'.ljust(CMD_WIDTH), 'white')}Show full model output instead of summary")
+            print(f"  {colored('/r, //regenerate'.ljust(CMD_WIDTH), 'white')}Regenerate last response")
+            print(f"  {colored('/img, //image'.ljust(CMD_WIDTH), 'white')}Take screenshot")
+            print(f"  {colored('/p, //p'.ljust(CMD_WIDTH), 'white')}Print chat history")
+            print(f"  {colored('/m, //m'.ljust(CMD_WIDTH), 'white')}Enter multiline input mode")
+            print(f"  {colored('/e, //exit'.ljust(CMD_WIDTH), 'white')}Exit CLI-Agent")
+            print(f"  {colored('/h, //help'.ljust(CMD_WIDTH), 'white')}Show this help")
+            print(f"  {colored('/s, //save'.ljust(CMD_WIDTH), 'white')}Save current LLM selection as default")
+            print(f"  {colored('//full_output'.ljust(CMD_WIDTH), 'white')}Show full model output instead of summary")
             continue
-        elif user_input in ["-s", "--save"]:
+        elif user_input in ["/s", "//save"]:
             await save_current_llm_config_as_default()
             continue
-        elif user_input in ["-clear", "--clear"]:
+        elif user_input in ["/clear", "//clear"]:
             context_chat = None
             context_chat = await construct_engineered_prompt(args.voice)
             print("# cli-agent: Chat cleared.")
             continue
-        elif user_input in ["-compact", "--compact"]:
+        elif user_input in ["/compact", "//compact"]:
             if context_chat and context_chat.messages:
                 # Clear current chat and start fresh
                 print("# cli-agent: Conversation compacting instructed.")
@@ -1972,13 +1972,13 @@ def show_unified_bindings_display():
     
     CMD_WIDTH = 25
     bindings = [
-        ("-h, --help", "Show detailed help and configuration"),
+        ("/h, -/help", "Show detailed help and configuration"),
         ("/r", "Regenerate last AI response"),
         ("/img", "Take screenshot for visual analysis"),
         ("/p", "Print full chat history"),
         ("/m", "Enter multiline input mode"),
-        ("-e, --exit", "Exit CLI-Agent"),
-        ("-s, --save", "Save current LLM selection as default"),
+        ("/e, //exit", "Exit CLI-Agent"),
+        ("/s, //save", "Save current LLM selection as default"),
         ("/full_output", "Show complete model output"),
     ]
     
@@ -2262,21 +2262,12 @@ async def main(
         # Create the UtilsManager first, as it's needed for prompt generation
         utils_manager = UtilsManager()
 
-        if os.getenv("DEFAULT_FORCE_LOCAL") == get_local_ip():
-            args.local = True
-        if args.voice:
-            args.auto = True
-            if not tui_callback: logging.info(colored("# cli-agent: Voice mode enabled, automatically enabling auto execution mode", "green"))
-        
         # Configure TTS engine priority based on --remote-tts flag
         if getattr(args, 'online_voice', False):
             # User explicitly requested remote TTS - prioritize API engines
             remote_priority = ["openai", "elevenlabs", "piper", "coqui", "huggingface", "system"]
             g.set_tts_engine_priority(remote_priority)
             if not tui_callback: logging.info(colored("# cli-agent: Online voice enabled - using cloud TTS and transcription APIs", "green"))
-        else:
-            # Default: local-first (already set in globals, but make it explicit)
-            if not tui_callback: logging.info(colored("# cli-agent: Using local voice engines (use --online_voice for cloud APIs)", "blue"))
         
         stdout_buffer, stderr_buffer = "", ""
         def stdout_callback(text: str):
@@ -2623,7 +2614,7 @@ latest summary LIMIT 1
                                         if first_line_match:
                                             first_line = first_line_match.group(1).strip()
                                             # Replace the original <think> content with only the first line
-                                            msg = re.sub(r'<think>(.*?)</think>', f'<think>{first_line}</think>', msg, flags=re.DOTALL)
+                                            msg = re.sub(r'<think>(.*?)</think>', f'<think>\n{first_line}\n</think>', msg, flags=re.DOTALL)
                                 context_chat.messages[-i] = (role, msg)
                         
                         llm_config = g.get_llm_config()
@@ -2855,8 +2846,58 @@ latest summary LIMIT 1
                             context_chat.add_message(Role.ASSISTANT, cancellation_notice)
                             assistant_response = ""
                             break # Ask for user input
+                    
+                    # --- FIX: Re-introduce special handling for bash and python ---
+                    elif code_blocks := get_extract_blocks()(assistant_response, ["bash", "python"]):
+                        
+                        # Combine all code blocks into one for execution
+                        full_code_to_execute = "\n".join(code_blocks)
+
+                        # Get permission before executing
+                        permission_granted = await confirm_code_execution(
+                            args, 
+                            full_code_to_execute, 
+                            utils_manager,
+                            input_event=input_event,
+                            input_lock=input_lock,
+                            shared_input=shared_input
+                        )
+
+                        if permission_granted:
+                            notebook = initialize_notebook_lazy()
+                            
+                            # Determine if it's bash or python and execute
+                            if get_extract_blocks()(assistant_response, "bash"):
+                                await notebook.execute_bash(full_code_to_execute)
+                            else:
+                                await notebook.execute_python(full_code_to_execute)
+                            
+                            # Get output and format it for context
+                            output = notebook.get_stdout()
+                            error = notebook.get_stderr()
+                            
+                            returned_context = ""
+                            if output.strip():
+                                returned_context += f"STDOUT:\n{output.strip()}\n"
+                            if error.strip():
+                                returned_context += f"STDERR:\n{error.strip()}\n"
+                            
+                            if not returned_context.strip():
+                                returned_context = "Code executed with no output."
+
+                            # Add the result as a context message for the agent
+                            context_chat.add_message(Role.ASSISTANT, f"<context>\n{returned_context.strip()}\n</context>")
+                            assistant_response = ""
+                            continue # Loop back to let the agent process the result
+                        else:
+                            # Permission was denied
+                            cancellation_notice = "<context>\nCode execution cancelled by user or guard.\n</context>"
+                            context_chat.add_message(Role.ASSISTANT, cancellation_notice)
+                            assistant_response = ""
+                            break # Ask for new user input
+
                     else:
-                        # No tools found, this is a conversational response.
+                        # No tools or code found, this is a conversational response.
                         break # Ask for user input
                 except KeyboardInterrupt:
                     user_interrupt = True

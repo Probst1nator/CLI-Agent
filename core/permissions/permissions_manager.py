@@ -33,6 +33,7 @@ class PermissionsManager:
             "always_deny_commands": {},   # tool_name -> set of command_hashes
             "always_allow_groups": {},  # group_name -> set of paths/patterns
             "always_deny_groups": {},   # group_name -> set of paths/patterns
+            "always_allow_dev_tools": {},  # dev_tool_category -> set of paths/patterns
             "global_always_allow": False
         }
     
@@ -125,6 +126,12 @@ class PermissionsManager:
             group_perms = self.permissions.get("always_allow_groups", {}).get(group, [])
             group_permissions.extend(group_perms)
         
+        # Check development tool category permissions based on command content
+        if xml_content and tool_name == 'bash':
+            command_pattern = PathDetector.get_command_pattern(tool_name, xml_content)
+            if self._is_dev_tool_allowed(command_pattern):
+                return True
+        
         # Combine tool and group permissions
         all_permissions = tool_permissions + group_permissions
         
@@ -174,8 +181,8 @@ class PermissionsManager:
         
         return False
     
-    def add_always_allow(self, tool_name: str, file_path: str = None, pattern: str = None, command_hash: str = None, group_name: str = None):
-        """Add an always-allow permission for a tool/path/command/group combination."""
+    def add_always_allow(self, tool_name: str, file_path: str = None, pattern: str = None, command_hash: str = None, group_name: str = None, dev_tool_category: str = None):
+        """Add an always-allow permission for a tool/path/command/group/dev_tool combination."""
         if command_hash:
             # Add command-specific permission
             if "always_allow_commands" not in self.permissions:
@@ -186,6 +193,19 @@ class PermissionsManager:
             
             if command_hash not in self.permissions["always_allow_commands"][tool_name]:
                 self.permissions["always_allow_commands"][tool_name].append(command_hash)
+                self._save_permissions()
+        elif dev_tool_category:
+            # Add dev tool category permission
+            if "always_allow_dev_tools" not in self.permissions:
+                self.permissions["always_allow_dev_tools"] = {}
+            
+            if dev_tool_category not in self.permissions["always_allow_dev_tools"]:
+                self.permissions["always_allow_dev_tools"][dev_tool_category] = []
+            
+            permission_target = pattern if pattern else (os.path.abspath(file_path) if file_path else dev_tool_category)
+            
+            if permission_target not in self.permissions["always_allow_dev_tools"][dev_tool_category]:
+                self.permissions["always_allow_dev_tools"][dev_tool_category].append(permission_target)
                 self._save_permissions()
         elif group_name:
             # Add group-specific permission
@@ -290,11 +310,53 @@ class PermissionsManager:
         
         return suggestions
     
+    def _is_dev_tool_allowed(self, command_pattern: str) -> bool:
+        """
+        Check if a development tool command pattern is allowed based on category permissions.
+        
+        Args:
+            command_pattern: The command pattern to check
+            
+        Returns:
+            True if the command pattern is allowed by category permissions
+        """
+        from .path_detector import PathDetector
+        
+        # Detect what category this command belongs to
+        category, config = PathDetector.detect_dev_tool_category(command_pattern)
+        if not category:
+            return False
+        
+        # Check if we have permissions for this dev tool category
+        dev_tool_permissions = self.permissions.get("always_allow_dev_tools", {})
+        
+        # Check for exact category permissions
+        if category in dev_tool_permissions:
+            category_perms = dev_tool_permissions[category]
+            
+            # Check if permission applies to current working directory
+            cwd = os.getcwd()
+            for perm_pattern in category_perms:
+                if perm_pattern.endswith("/*"):
+                    # Directory pattern
+                    dir_pattern = perm_pattern[:-2]
+                    if cwd.startswith(dir_pattern):
+                        return True
+                elif perm_pattern == category:
+                    # Global category permission
+                    return True
+                elif os.path.abspath(perm_pattern) == cwd:
+                    # Exact directory match
+                    return True
+        
+        return False
+    
     def clear_all_permissions(self):
         """Clear all stored permissions."""
         self.permissions = {
             "always_allow_tools": {},
             "always_deny_tools": {},
+            "always_allow_dev_tools": {},  # Add dev tools category
             "global_always_allow": False
         }
         self._save_permissions()
