@@ -26,16 +26,20 @@ class PermissionsManager:
             except (json.JSONDecodeError, IOError):
                 pass
         
-        return {
+        # Initialize default permissions structure with safe search tools pre-approved
+        default_permissions = {
             "always_allow_tools": {},  # tool_name -> set of paths/patterns
             "always_deny_tools": {},   # tool_name -> set of paths/patterns
             "always_allow_commands": {},  # tool_name -> set of command_hashes
             "always_deny_commands": {},   # tool_name -> set of command_hashes
             "always_allow_groups": {},  # group_name -> set of paths/patterns
             "always_deny_groups": {},   # group_name -> set of paths/patterns
-            "always_allow_dev_tools": {},  # dev_tool_category -> set of paths/patterns
+            "always_allow_dev_tools": {
+                "search": ["search"]  # Global permission for search tools like grep
+            },  # dev_tool_category -> set of paths/patterns
             "global_always_allow": False
         }
+        return default_permissions
     
     def _save_permissions(self):
         """Save permissions to config file."""
