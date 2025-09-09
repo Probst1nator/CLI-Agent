@@ -8,6 +8,7 @@ import pexpect
 import io
 import uuid
 import logging
+import re
 from typing import Callable, Optional
 from termcolor import colored
 
@@ -71,10 +72,14 @@ class BashSession:
         """Processes and streams a single, complete line of output."""
         self.stdout_callback(f"⚙️  {line}\n")
 
-    def execute(self, command: str) -> str:
+    def execute(self, command: str, timeout: int) -> str:
         """
         Executes a command using an active reading loop to provide true
         live output streaming and capture the full result.
+        
+        Args:
+            command: The shell command to execute.
+            timeout: The maximum time in seconds to wait for the command to complete.
         """
         if not self.child or not self.child.isalive():
             raise ConnectionError("Bash session is not active.")
@@ -95,7 +100,7 @@ class BashSession:
             while True:
                 # Expect either the boundary or a newline. This allows for line-by-line streaming.
                 patterns = self.child.compile_pattern_list([boundary, r'\r\n'])
-                index = self.child.expect_list(patterns, timeout=300)
+                index = self.child.expect_list(patterns, timeout=timeout)
 
                 # The output since the last match is in `child.before`.
                 output_fragment = self.child.before
@@ -163,8 +168,8 @@ class bash:
     def get_tool_info() -> dict:
         return {
             "name": "bash",
-            "description": "Executes shell commands in a persistent terminal session, streaming output live. Essential for file system operations, running scripts, and system interaction.",
-            "example": "<bash>\nls -l /app/src\n</bash>"
+            "description": "Executes shell commands in a persistent terminal session, streaming output live. Requires a <timeout> tag specifying the maximum execution time in seconds. Essential for file system operations, running scripts, and system interaction.",
+            "example": "<bash><timeout>30</timeout>\nls -l /app/src\n</bash>"
         }
 
     @staticmethod
@@ -191,12 +196,32 @@ class bash:
     @staticmethod
     def run(content: str) -> str:
         """
-        Executes a shell command. Live output is streamed to the console,
-        and the full, clean output is returned as a string upon completion.
+        Parses XML-like input to extract a command and a timeout, then executes
+        the shell command. Live output is streamed to the console, and the full,
+        clean output is returned as a string upon completion.
         """
         try:
+            # Parse the timeout and command from the content
+            timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
+            
+            if not timeout_match:
+                return "Error: The <bash> tool requires a <timeout> tag with an integer value (e.g., <timeout>60</timeout>)."
+
+            # if timeout wasnt passed fallback to default = 10
+            timeout = int(timeout_match.group(1))
+            if timeout <= 0:
+                timeout = 10
+
+            # Extract the command by removing the timeout tag from the content
+            command_content = content.replace(timeout_match.group(0), '').strip()
+
+            if not command_content:
+                return "Error: No command provided to execute in the <bash> tool."
+
             session = bash._get_session()
-            bash_return = session.execute(content)
+            # Pass the parsed values to the modified execute method
+            bash_return = session.execute(command_content, timeout=timeout)
+            
             if (not bash_return.strip()):
                 bash_return = "The bash tool exited successfully."
             return bash_return

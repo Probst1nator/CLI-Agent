@@ -47,6 +47,12 @@ class PathDetector:
             'quick_key': 'g',
             'display_name': 'git commands',
             'permission_scope': 'project'
+        },
+        'search': {
+            'patterns': ['grep', 'rg', 'ripgrep', 'find', 'ack', 'ag'],
+            'quick_key': 's',
+            'display_name': 'search tools (grep, find, etc.)',
+            'permission_scope': 'global'
         }
     }
     

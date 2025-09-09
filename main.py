@@ -5,6 +5,8 @@ the primary execution loop, handling user interaction, multi-LLM reasoning via a
 Monte Carlo Action Engine, and tool invocation within a computational notebook.
 """
 import time
+
+from tools.viewpermissions import viewpermissions
 start_time = time.time() # Global timer for startup and operations
 
 import logging
@@ -1470,10 +1472,10 @@ async def construct_engineered_prompt(voice_agent: str) -> Chat:
     """
     base_instructions = f'''**SYSTEM: Agent Protocol & Capabilities**
 
-You are a sophisticated AI agent operating within a command-line interface (CLI) and a python notebook. Your primary directive is to understand user requests, formulate a plan, and execute code to achieve the goal.
+You are a sophisticated AI agent capable of using tools to achieve your todos. Your primary directive is to understand user requests, formulate a plan, and execute code to achieve the goal.
 {'The user is interacting with you via voice recognition, confirm his intend if unclear before proceeding with actions. Keep your user interaction short and poignant.\n' if voice_agent else ''}
 ### Guiding Principles (Your Core Logic)
-You must follow this loop for every task.
+The following loop is a suggestion of how to behave effectively, you may freely reorder your usage of the xml tools if it fits your needs, you aim for long term stability and progress in your responses.
 1.  **OBSERVE & DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
 2.  **PLAN & TRACK**: Display/update your <todos>...</todos> to align your next step(s) with the stated long term goal(s).'''
     
@@ -1679,6 +1681,20 @@ async def get_user_input_with_bindings(
             logging.info(colored("# cli-agent: Opening LLM selection.", "green"))
             await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
             continue
+        elif user_input == "/unsay":
+            logging.info(colored("# cli-agent: Removed last user message and assistant response.", "green"))
+            if len(context_chat.messages) >= 2:
+                # Remove the last assistant message and the user message before it
+                context_chat.messages.pop()
+                context_chat.messages.pop()
+                logging.info(colored("Last user message and assistant response removed.", "green"))
+            elif len(context_chat.messages) == 1 and context_chat.messages[-1][0] == Role.USER:
+                # If only one message and it's from the user, remove it
+                context_chat.messages.pop()
+                logging.info(colored("Last user message removed.", "green"))
+            else:
+                logging.warning(colored("No messages to remove.", "yellow"))
+            continue
         elif user_input == "/a":
             args.auto = not args.auto
             
@@ -1823,13 +1839,13 @@ async def handle_screenshot_capture() -> List[str]:
     return base64_images
 
 async def handle_permission_flags(user_input: str, get_user_input_func, args, input_event, input_lock, shared_input):
-    """Handle permission management flags like -permissions, --permissions, -p, --p."""
+    """Handle permission management flags like /permissions, //permissions, -p, --p."""
     from tools.permissions import permissions
     from termcolor import colored
     
     # Parse the command
     parts = user_input.split()
-    command = parts[0]  # -permissions, --permissions, -p, or --p
+    command = parts[0]  # /permissions, //permissions, -p, or --p
     
     try:
         if len(parts) == 1:
@@ -1963,16 +1979,30 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
 
 def show_unified_bindings_display():
     """Display all available bindings and commands at startup for user reference."""
-    from termcolor import colored
-    
+    BOX_WIDTH = 80
+    INNER_WIDTH = BOX_WIDTH - 2
+
+    # Helper function to format lines correctly with padding, handling color codes
+    def format_line(content: str, color: str = "cyan") -> str:
+        # Strip ANSI color codes to measure the real visual length
+        visual_content = re.sub(r'\x1b\[[0-9;]*m', '', content)
+        padding = " " * (INNER_WIDTH - len(visual_content))
+        return colored("│", color) + content + padding + colored("│", color)
+
+    # --- Build and Print the Menu ---
     print()
-    print(colored("┌─ CLI-AGENT COMMAND REFERENCE ────────────────────────────────────┐", "cyan"))
-    print(colored("│", "cyan") + colored(" 🎮 Interactive Bindings".ljust(65), "yellow", attrs=['bold']) + colored("│", "cyan"))
-    print(colored("├───────────────────────────────────────────────────────────────────┤", "cyan"))
     
-    CMD_WIDTH = 25
+    # Top Border with Title
+    title = "─ CLI-AGENT COMMAND REFERENCE "
+    print(colored(f"┌{title}{'─' * (INNER_WIDTH - len(title))}┐", "cyan"))
+
+    # Interactive Bindings Section
+    print(format_line(colored(" 🎮 Interactive Bindings", "yellow", attrs=['bold'])))
+    print(colored(f"├{'─' * INNER_WIDTH}┤", "cyan"))
+
+    CMD_WIDTH = 28
     bindings = [
-        ("/h, -/help", "Show detailed help and configuration"),
+        ("/h, /help", "Show detailed help and configuration"),
         ("/r", "Regenerate last AI response"),
         ("/img", "Take screenshot for visual analysis"),
         ("/p", "Print full chat history"),
@@ -1983,12 +2013,14 @@ def show_unified_bindings_display():
     ]
     
     for cmd, desc in bindings:
-        print(colored("│", "cyan") + f" {colored(cmd.ljust(CMD_WIDTH), 'white')}{desc[:38]}".ljust(65) + colored("│", "cyan"))
-    
-    print(colored("├───────────────────────────────────────────────────────────────────┤", "cyan"))
-    print(colored("│", "cyan") + colored(" 🔐 Permission Management".ljust(65), "yellow", attrs=['bold']) + colored("│", "cyan"))
-    print(colored("├───────────────────────────────────────────────────────────────────┤", "cyan"))
-    
+        line_content = f"  {colored(cmd.ljust(CMD_WIDTH), 'white')} {desc}"
+        print(format_line(line_content))
+
+    # Permission Management Section
+    print(colored(f"├{'─' * INNER_WIDTH}┤", "cyan"))
+    print(format_line(colored(" 🔐 Permission Management", "yellow", attrs=['bold'])))
+    print(colored(f"├{'─' * INNER_WIDTH}┤", "cyan"))
+
     perm_bindings = [
         ("/permissions list", "List all saved permissions"),
         ("/permissions remove <id>", "Remove specific permission by ID"),
@@ -1996,11 +2028,13 @@ def show_unified_bindings_display():
         ("/permissions interactive", "Open interactive permission manager"),
         ("/p list", "Short alias for /permissions list"),
     ]
-    
+
     for cmd, desc in perm_bindings:
-        print(colored("│", "cyan") + f" {colored(cmd.ljust(CMD_WIDTH), 'light_blue')}{desc[:38]}".ljust(65) + colored("│", "cyan"))
-    
-    print(colored("└───────────────────────────────────────────────────────────────────┘", "cyan"))
+        line_content = f"  {colored(cmd.ljust(CMD_WIDTH), 'light_blue')} {desc}"
+        print(format_line(line_content))
+
+    # Bottom Border
+    print(colored(f"└{'─' * INNER_WIDTH}┘", "cyan"))
     print()
 
 def get_recent_files_output():
@@ -2406,7 +2440,7 @@ echo ""
 echo "5 last modified files:"
 # List files sorted by modification time, filter for regular files, take the top 5, and format the output.
 # The '||' part handles the case where no files are found.
-ls -lt | grep "^-" | head -n 5 | awk '{{print "- " $NF}}' || echo "-> No files found in this directory."
+ls -tp | grep -v '/$' | head -n 5 | sed 's/^/- /'
 </bash><context>
 {get_recent_files_output()}
 </context><think>
@@ -2414,7 +2448,20 @@ I have completed the task of listing the 5 most recently modified files in the c
 </think><todos>
 - [x] Use bash to list the 5 most recently modified filed in the cwd.
 </todos>I have successfully listed the 5 most recently modified filed in the cwd, is there anything else I can assist you with?"""
+            
+            
             context_chat.add_message(Role.ASSISTANT, initial_bootstrap_message)
+            context_chat.add_message(Role.USER, "view your permissions")
+            context_chat.add_message(Role.ASSISTANT, f"""<todos>
+- [] View permissions.
+</todos><viewpermissions>
+</viewpermissions><context>
+{viewpermissions.run()}
+</context><think>
+I have successfully viewed my permissions. I will now update the todos and respond to the user indicating that the task is complete and ask if they need anything else.
+</think><todos>
+- [x] View permissions.
+</todos>I have successfully viewed my permissions. Is there anything else I can assist you with?""")
         
         assistant_response = ""
         while True:
@@ -2600,7 +2647,7 @@ latest summary LIMIT 1
                             context_chat.save_to_json()
 
                         UNCOMPRESSED_HISTORY = 4 # Compresses reasoning traces after x messages
-                        if (len(context_chat)>UNCOMPRESSED_HISTORY):
+                        if (len(context_chat.messages) > UNCOMPRESSED_HISTORY):
                             for i in range(UNCOMPRESSED_HISTORY,UNCOMPRESSED_HISTORY+1): # do prompt engineering to the 7th and 8th messages automatically
                                 role = context_chat.messages[-i][0]
                                 msg = context_chat.messages[-i][1]
@@ -2833,9 +2880,13 @@ latest summary LIMIT 1
                                         context_chat.base64_images.extend(tool_context.get_images())
                                         logging.info(colored(f"📸 Added {len(tool_context.get_images())} image(s) to chat context for vision analysis", "blue"))
                                         tool_context.clear_images()  # Clear images after adding them
-                                
-                                assistant_response = ""
-                                continue # Continue the agent loop for the next action
+                                    
+                                    assistant_response = ""
+                                    continue # Continue the agent loop for the next action
+                                else:
+                                    # No meaningful context was added (only invisible tools like todos/think were executed)
+                                    # Break and wait for user input instead of continuing the loop
+                                    break
                             except Exception:
                                 error_output = f"<context>\n{traceback.format_exc()}\n</context>"
                                 context_chat.add_message(Role.ASSISTANT, error_output)
