@@ -4,7 +4,6 @@ This file implements the 'viewpermissions' tool. It allows the agent to inspect
 the saved permission rules that govern automatic tool execution.
 """
 from core.permissions.permissions_manager import get_permissions_manager
-from core.permissions.path_detector import PathDetector
 
 class viewpermissions:
     """
@@ -53,7 +52,7 @@ class viewpermissions:
                             'building': 'Build Tools (npm, pip, make, etc.)',
                             'formatting': 'Code Formatters (black, prettier, etc.)',
                             'git': 'Git Commands (add, commit, status, etc.)',
-                            'search': 'Search Tools (grep, find, ripgrep, etc.)'
+                            'grepsearch': 'Search Tools (grep, find, ripgrep, etc.)'
                         }.get(category, f'{category.title()} Tools')
                         
                         output_lines.append(f"   ✓ {category_display}")
@@ -62,7 +61,7 @@ class viewpermissions:
                                 location = pattern[:-2].split('/')[-1] if '/' in pattern else pattern[:-2]
                                 output_lines.append(f"     → In project: {location}")
                             elif pattern == category:
-                                output_lines.append(f"     → Globally allowed")
+                                output_lines.append("     → Globally allowed")
                             else:
                                 output_lines.append(f"     → Pattern: {pattern}")
 
@@ -136,7 +135,7 @@ class viewpermissions:
             if allow_commands:
                 has_rules = True
                 total_commands = sum(len(hashes) for hashes in allow_commands.values())
-                output_lines.append(f"\n⚡ SAVED COMMANDS:")
+                output_lines.append("\n⚡ SAVED COMMANDS:")
                 output_lines.append(f"   ✓ {total_commands} specific command(s) pre-approved")
                 output_lines.append("     → These run instantly without confirmation")
 

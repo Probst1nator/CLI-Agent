@@ -1,24 +1,24 @@
-# tools/search.py
+# tools/grepsearch.py
 """
-This file implements the 'search' tool. It allows the agent to search for a
+This file implements the 'grepsearch' tool. It allows the agent to search for a
 pattern within file contents, filenames, and directory names in a specified path.
 """
 import os
 import re
 
-class search:
+class grepsearch:
     MAX_RESULTS = 100 # To prevent overwhelming the context window
 
     @staticmethod
     def get_delim() -> str:
-        return 'search'
+        return 'grepsearch'
 
     @staticmethod
     def get_tool_info() -> dict:
         return {
-            "name": "search",
-            "description": f"Recursively searches for a regex pattern in file contents and names, starting from a given path. Defaults to the current directory. Stops after {search.MAX_RESULTS} matches.",
-            "example": "<search><pattern>my_function</pattern><path>./src</path></search>"
+            "name": "grepsearch",
+            "description": f"Recursively searches for a regex pattern in file contents and names, starting from a given path. Defaults to the current directory. Stops after {grepsearch.MAX_RESULTS} matches.",
+            "example": "<grepsearch><pattern>my_function</pattern><path>./src</path></grepsearch>"
         }
 
     @staticmethod
@@ -54,7 +54,7 @@ class search:
             
             # If the path is a file, just search that one file
             if os.path.isfile(full_path):
-                search._search_in_file(full_path, regex, matches)
+                grepsearch._search_in_file(full_path, regex, matches)
             
             # If the path is a directory, walk through it
             elif os.path.isdir(full_path):
@@ -62,19 +62,19 @@ class search:
                     # Prune common large/binary directories to speed up search
                     dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'build', 'dist']]
                     
-                    if len(matches) >= search.MAX_RESULTS: break
+                    if len(matches) >= grepsearch.MAX_RESULTS: break
 
                     # Search in directory names
                     for d in dirs:
-                        if len(matches) >= search.MAX_RESULTS: break
+                        if len(matches) >= grepsearch.MAX_RESULTS: break
                         if regex.search(d):
                             matches.append(f"DIR:  {os.path.join(root, d)}")
                     
                     # Search in file names and contents
                     for f in files:
-                        if len(matches) >= search.MAX_RESULTS: break
+                        if len(matches) >= grepsearch.MAX_RESULTS: break
                         file_path = os.path.join(root, f)
-                        search._search_in_file(file_path, regex, matches)
+                        grepsearch._search_in_file(file_path, regex, matches)
             else:
                 return f"Error: Path is not a file or directory: '{full_path}'"
 
@@ -82,24 +82,24 @@ class search:
                 return "No matches found."
             
             result_str = "\n".join(matches)
-            if len(matches) >= search.MAX_RESULTS:
-                result_str += f"\n... (Search stopped after reaching {search.MAX_RESULTS} results limit)"
+            if len(matches) >= grepsearch.MAX_RESULTS:
+                result_str += f"\n... (Search stopped after reaching {grepsearch.MAX_RESULTS} results limit)"
                 
             return result_str
 
         except Exception as e:
-            return f"Error executing search tool: {str(e)}"
+            return f"Error executing grepsearch tool: {str(e)}"
             
     @staticmethod
     def _search_in_file(file_path: str, regex: re.Pattern, matches: list):
         """Helper function to search a single file's name and content."""
-        if len(matches) >= search.MAX_RESULTS:
+        if len(matches) >= grepsearch.MAX_RESULTS:
             return
 
         # Check filename
         if regex.search(os.path.basename(file_path)):
             matches.append(f"FILE: {file_path}")
-            if len(matches) >= search.MAX_RESULTS: return
+            if len(matches) >= grepsearch.MAX_RESULTS: return
         
         # Check content, avoiding large binary files
         try:
@@ -107,7 +107,7 @@ class search:
                 return
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 for i, line in enumerate(f, 1):
-                    if len(matches) >= search.MAX_RESULTS: return
+                    if len(matches) >= grepsearch.MAX_RESULTS: return
                     if regex.search(line):
                         matches.append(f"LINE: {file_path}:{i}: {line.strip()}")
         except (OSError, UnicodeDecodeError):

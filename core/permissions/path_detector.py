@@ -5,7 +5,7 @@ Detects file paths in XML tags containing 'path' substring and determines tool a
 """
 import re
 import os
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 
 class PathDetector:
     # Define permission groups for related tools
@@ -88,7 +88,7 @@ class PathDetector:
         return PathDetector.PERMISSION_GROUPS.get(group_name, [])
     
     @staticmethod
-    def detect_dev_tool_category(command_pattern: str) -> Tuple[Optional[str], Optional[Dict]]:
+    def detect_dev_tool_category(command_pattern: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
         Detect what category of development tool this command represents.
         
@@ -108,7 +108,7 @@ class PathDetector:
         return None, None
     
     @staticmethod
-    def get_smart_quick_action(tool_name: str, command_pattern: str, file_path: str = None) -> Optional[Dict]:
+    def get_smart_quick_action(tool_name: str, command_pattern: str, file_path: str = None) -> Optional[Dict[str, Any]]:
         """
         Get a smart quick action suggestion for this command.
         
@@ -314,6 +314,18 @@ class PathDetector:
             Human-readable action description
         """
         if not paths:
+            # For bash/python, try to show the actual command being executed
+            if tool_name in ["bash", "python"]:
+                # Extract the command content from XML
+                content = xml_content.strip()
+                # Remove the outer tool tags
+                inner_content = re.sub(rf'^<{tool_name}[^>]*>|</{tool_name}>$', '', content, flags=re.MULTILINE).strip()
+                if inner_content:
+                    # Truncate long commands and show first line
+                    first_line = inner_content.split('\n')[0]
+                    if len(first_line) > 60:
+                        first_line = first_line[:57] + "..."
+                    return f"Execute {tool_name}: {first_line}"
             return f"Execute {tool_name} (no file paths detected)"
         
         # Tool-specific action descriptions
@@ -538,7 +550,7 @@ class PathDetector:
             return f"{tool_name}: {clean_content}"
 
     @staticmethod
-    def analyze_tool_block(tool_name: str, xml_content: str) -> Dict:
+    def analyze_tool_block(tool_name: str, xml_content: str) -> Dict[str, Any]:
         """
         Analyze a tool block and extract relevant information for permission checking.
         

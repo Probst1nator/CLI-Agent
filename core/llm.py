@@ -331,7 +331,21 @@ class Llm:
                     if model_name.startswith('models/'):
                         model_name = model_name[7:]
                     
-                    if model_name and model_name not in existing_models:
+                    # Skip models that might conflict with statically defined Ollama models
+                    # Check for exact match or partial match for model families like "mistral"
+                    skip_model = False
+                    if model_name in existing_models:
+                        skip_model = True
+                    else:
+                        # Check for model family conflicts (e.g., don't let Google override Ollama mistral models)
+                        model_base_name = model_name.split(':')[0].split('-')[0].lower()
+                        for existing_model in existing_models:
+                            existing_base_name = existing_model.split(':')[0].split('-')[0].lower()
+                            if model_base_name == existing_base_name and len(model_base_name) > 3:  # Avoid false positives like "gpt"
+                                skip_model = True
+                                break
+                    
+                    if model_name and not skip_model:
                         # Determine context window from model info
                         context_window = model_info.get('input_token_limit') or 1000000
                         
@@ -416,7 +430,20 @@ class Llm:
                 for model_info in discovered_groq_models:
                     model_name = model_info.get('id', '')
                     
-                    if model_name and model_name not in existing_models:
+                    # Skip models that might conflict with statically defined models
+                    skip_model = False
+                    if model_name in existing_models:
+                        skip_model = True
+                    else:
+                        # Check for model family conflicts
+                        model_base_name = model_name.split(':')[0].split('-')[0].lower()
+                        for existing_model in existing_models:
+                            existing_base_name = existing_model.split(':')[0].split('-')[0].lower()
+                            if model_base_name == existing_base_name and len(model_base_name) > 3:
+                                skip_model = True
+                                break
+                    
+                    if model_name and not skip_model:
                         # Get context window from model info
                         context_window = model_info.get('context_window') or model_info.get('max_model_len') or 128000
                         

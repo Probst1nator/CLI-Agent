@@ -1,14 +1,13 @@
 """
-Search Tool Tests
+GrepSearch Tool Tests
 
-Tests for the search tool including recursive file/content search,
+Tests for the grepsearch tool including recursive file/content search,
 regex pattern matching, and result limiting.
 """
 
 import os
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 
 # Setup test imports
@@ -16,7 +15,7 @@ test_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(test_root))
 
 # Import the tool
-from tools.search import search
+from tools.grepsearch import grepsearch
 
 
 def create_test_directory_structure(base_dir):
@@ -76,7 +75,7 @@ Contains some helper information.
             f.write(content)
 
 
-def test_search_content_matching():
+def test_grepsearch_content_matching():
     """Test searching for content within files"""
     with tempfile.TemporaryDirectory() as temp_dir:
         create_test_directory_structure(temp_dir)
@@ -85,7 +84,7 @@ def test_search_content_matching():
         xml_input = f"""<pattern>helper</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find content matches
         assert "LINE:" in result, f"Should find line matches, got: {result}"
@@ -99,7 +98,7 @@ def test_search_content_matching():
         return True
 
 
-def test_search_filename_matching():
+def test_grepsearch_filename_matching():
     """Test searching for filenames"""
     with tempfile.TemporaryDirectory() as temp_dir:
         create_test_directory_structure(temp_dir)
@@ -108,7 +107,7 @@ def test_search_filename_matching():
         xml_input = f"""<pattern>helper</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find filename matches
         assert "FILE:" in result, f"Should find file matches, got: {result}"
@@ -118,7 +117,7 @@ def test_search_filename_matching():
         return True
 
 
-def test_search_directory_matching():
+def test_grepsearch_directory_matching():
     """Test searching for directory names"""
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create directory with searchable name
@@ -132,7 +131,7 @@ def test_search_directory_matching():
         xml_input = f"""<pattern>test</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find directory matches
         assert "DIR:" in result, f"Should find directory matches, got: {result}"
@@ -141,7 +140,7 @@ def test_search_directory_matching():
         return True
 
 
-def test_search_regex_patterns():
+def test_grepsearch_regex_patterns():
     """Test regex pattern matching"""
     with tempfile.TemporaryDirectory() as temp_dir:
         create_test_directory_structure(temp_dir)
@@ -150,7 +149,7 @@ def test_search_regex_patterns():
         xml_input = f"""<pattern>def \\w+_function</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find function definitions
         assert "main_function" in result, "Should find main_function"
@@ -160,7 +159,7 @@ def test_search_regex_patterns():
         return True
 
 
-def test_search_specific_file():
+def test_grepsearch_specific_file():
     """Test searching within a specific file"""
     with tempfile.TemporaryDirectory() as temp_dir:
         test_file = os.path.join(temp_dir, "specific.txt")
@@ -177,7 +176,7 @@ Line 4: Another line with pattern"""
         xml_input = f"""<pattern>pattern</pattern>
 <path>{test_file}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find matches with line numbers
         assert "LINE:" in result, f"Should find line matches, got: {result}"
@@ -188,7 +187,7 @@ Line 4: Another line with pattern"""
         return True
 
 
-def test_search_no_matches():
+def test_grepsearch_no_matches():
     """Test searching for patterns with no matches"""
     with tempfile.TemporaryDirectory() as temp_dir:
         create_test_directory_structure(temp_dir)
@@ -197,7 +196,7 @@ def test_search_no_matches():
         xml_input = f"""<pattern>nonexistent_xyz_pattern</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should return no matches message
         assert result == "No matches found.", f"Should return no matches message, got: {result}"
@@ -205,7 +204,7 @@ def test_search_no_matches():
         return True
 
 
-def test_search_current_directory():
+def test_grepsearch_current_directory():
     """Test searching in current directory (default)"""
     original_cwd = os.getcwd()
     
@@ -220,7 +219,7 @@ def test_search_current_directory():
             # Search without specifying path (defaults to current directory)
             xml_input = "<pattern>searchable</pattern>"
             
-            result = search.run(xml_input)
+            result = grepsearch.run(xml_input)
             
             # Should find the file and content
             assert "searchable content" in result, f"Should find content in current directory, got: {result}"
@@ -232,7 +231,7 @@ def test_search_current_directory():
     return True
 
 
-def test_search_case_sensitivity():
+def test_grepsearch_case_sensitivity():
     """Test case-sensitive search behavior"""
     with tempfile.TemporaryDirectory() as temp_dir:
         test_file = os.path.join(temp_dir, "case_test.txt")
@@ -248,7 +247,7 @@ This line has MixedCase text"""
         xml_input = f"""<pattern>UPPERCASE</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find exact case match
         assert "UPPERCASE" in result, f"Should find UPPERCASE, got: {result}"
@@ -257,7 +256,7 @@ This line has MixedCase text"""
         return True
 
 
-def test_search_error_cases():
+def test_grepsearch_error_cases():
     """Test various error conditions"""
     with tempfile.TemporaryDirectory() as temp_dir:
         
@@ -281,7 +280,7 @@ def test_search_error_cases():
         return True
 
 
-def test_search_special_characters():
+def test_grepsearch_special_characters():
     """Test searching for content with special characters"""
     with tempfile.TemporaryDirectory() as temp_dir:
         test_file = os.path.join(temp_dir, "special.txt")
@@ -298,7 +297,7 @@ Line with regex chars: []()+?.*^$|\\{}"""
         xml_input = f"""<pattern>ñáéíóú</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find unicode characters
         assert "ñáéíóú" in result, f"Should find unicode characters, got: {result}"
@@ -307,7 +306,7 @@ Line with regex chars: []()+?.*^$|\\{}"""
         xml_input = f"""<pattern>\\[\\]\\(\\)</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find literal brackets and parentheses
         assert "[]()+" in result, f"Should find literal regex chars, got: {result}"
@@ -315,7 +314,7 @@ Line with regex chars: []()+?.*^$|\\{}"""
         return True
 
 
-def test_search_binary_file_handling():
+def test_grepsearch_binary_file_handling():
     """Test handling of binary files (should be skipped)"""
     with tempfile.TemporaryDirectory() as temp_dir:
         
@@ -334,7 +333,7 @@ def test_search_binary_file_handling():
         xml_input = f"""<pattern>searchable</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find text file but not process binary file
         assert "text.txt" in result, f"Should find text file, got: {result}"
@@ -344,7 +343,7 @@ def test_search_binary_file_handling():
         return True
 
 
-def test_search_line_number_accuracy():
+def test_grepsearch_line_number_accuracy():
     """Test accuracy of line number reporting"""
     with tempfile.TemporaryDirectory() as temp_dir:
         test_file = os.path.join(temp_dir, "lines.txt")
@@ -366,7 +365,7 @@ def test_search_line_number_accuracy():
         xml_input = f"""<pattern>target pattern</pattern>
 <path>{temp_dir}</path>"""
         
-        result = search.run(xml_input)
+        result = grepsearch.run(xml_input)
         
         # Should find matches on correct lines
         assert "lines.txt:2:" in result, f"Should find match on line 2, got: {result}"
@@ -378,15 +377,15 @@ def test_search_line_number_accuracy():
 
 
 # Test level assignments
-test_search_content_matching.level = 2
-test_search_filename_matching.level = 2
-test_search_directory_matching.level = 2
-test_search_regex_patterns.level = 2
-test_search_specific_file.level = 2
-test_search_no_matches.level = 2
-test_search_current_directory.level = 2
-test_search_case_sensitivity.level = 2
-test_search_error_cases.level = 2
-test_search_special_characters.level = 2
-test_search_binary_file_handling.level = 3
-test_search_line_number_accuracy.level = 2
+test_grepsearch_content_matching.level = 2
+test_grepsearch_filename_matching.level = 2
+test_grepsearch_directory_matching.level = 2
+test_grepsearch_regex_patterns.level = 2
+test_grepsearch_specific_file.level = 2
+test_grepsearch_no_matches.level = 2
+test_grepsearch_current_directory.level = 2
+test_grepsearch_case_sensitivity.level = 2
+test_grepsearch_error_cases.level = 2
+test_grepsearch_special_characters.level = 2
+test_grepsearch_binary_file_handling.level = 3
+test_grepsearch_line_number_accuracy.level = 2

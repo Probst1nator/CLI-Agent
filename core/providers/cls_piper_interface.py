@@ -8,7 +8,7 @@ Supports German, English, and many other languages with offline processing.
 import os
 import tempfile
 import logging
-from typing import Optional, List, Union, Tuple, Dict
+from typing import Optional, List, Union, Tuple, Dict, Any
 from pathlib import Path
 import urllib.request
 import numpy as np
@@ -372,7 +372,7 @@ class PiperInterface(AudioProviderInterface):
         """Get list of available voices."""
         return list(self.VOICES.keys())
     
-    def get_voice_info(self, voice_name: str) -> Dict:
+    def get_voice_info(self, voice_name: str) -> Dict[str, Any]:
         """Get information about a specific voice."""
         if voice_name in self.VOICES:
             return self.VOICES[voice_name].copy()

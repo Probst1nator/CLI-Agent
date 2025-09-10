@@ -4,6 +4,8 @@ This file implements the 'readfile' tool. It allows the agent to read the
 content of a file from the local file system. To prevent overwhelming the
 context window, it truncates large files, showing the beginning and end.
 Now supports reading images and registering them as base64 data for vision models.
+If the file is not found at the specified path, it will attempt a recursive
+search from the expected parent directory.
 """
 import os
 import base64
@@ -160,8 +162,8 @@ class readfile:
         """Provides standardized documentation for this tool for the agent's system prompt."""
         return {
             "name": "readfile",
-            "description": f"Reads the content of a file. Supports both text files and images (PNG, JPG, GIF, etc.). Text files larger than {readfile.CHUNK_LIMIT} characters will be truncated. Images are automatically encoded for vision analysis. Supports line-indexed reading with <lines> tag.",
-            "example": "<readfile>./src/assets/icon.png</readfile> or <readfile>./src/components/main.js</readfile> or <readfile><filepath>./src/main.py</filepath><lines>10-20</lines></readfile> or <readfile><filepath>./src/main.py</filepath><lines>15</lines></readfile>"
+            "description": f"Reads the content of a file. If not found, performs a recursive search. Supports text, images (PNG, JPG, etc.), and line-indexed reading with the <lines> tag. Text files >{readfile.CHUNK_LIMIT} characters are truncated.",
+            "example": "<readfile>./src/icon.png</readfile> or <readfile>main.js</readfile> or <readfile><filepath>./src/main.py</filepath><lines>10-20</lines></readfile>"
         }
     
     @staticmethod
@@ -262,6 +264,7 @@ class readfile:
         """
         Reads the content of the file specified in the input string.
         Supports both simple filepath format and XML format with line ranges.
+        If file is not found, performs a recursive search from the parent directory.
 
         Args:
             content: A string containing the path to the file or XML with filepath and lines.
@@ -291,14 +294,37 @@ class readfile:
 
             # Resolve the path relative to the current working directory for consistency and security
             full_path = os.path.abspath(filepath)
+            search_message = ""
 
-            # Check if the file exists and is actually a file
+            # Check if the file exists. If not, perform a fallback recursive search.
             if not os.path.isfile(full_path):
-                return f"Error: File not found at '{full_path}'"
+                filename_to_find = os.path.basename(filepath)
+                search_root = os.path.dirname(full_path)
+
+                if not os.path.isdir(search_root):
+                     return f"Error: File not found at '{full_path}' and parent directory '{search_root}' does not exist to start a search."
+
+                found_files = []
+                for root, dirs, files in os.walk(search_root):
+                    # Prune common large/binary directories to speed up search
+                    dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'build', 'dist']]
+                    if filename_to_find in files:
+                        found_files.append(os.path.join(root, filename_to_find))
+                
+                if len(found_files) == 1:
+                    original_full_path = full_path
+                    full_path = found_files[0]  # Update the path to the found file
+                    search_message = f"File not found at '{original_full_path}'. Found at '{full_path}' instead. Reading from new location.\n\n"
+                elif len(found_files) > 1:
+                    paths_str = '\n - '.join(found_files)
+                    return f"Error: File '{filename_to_find}' not found at specified path. Found multiple possible matches in '{search_root}':\n - {paths_str}\nPlease provide a more specific path."
+                else:
+                     return f"Error: File not found at '{full_path}' (and not found in a recursive search from '{search_root}')."
 
             # Check if this is an image file
             if readfile.is_image_file(full_path):
-                return readfile.process_image_file(full_path)
+                image_result = readfile.process_image_file(full_path)
+                return search_message + image_result
 
             # Attempt to read the file with UTF-8 encoding, replacing errors
             try:
@@ -316,7 +342,8 @@ class readfile:
             if line_spec:
                 try:
                     start_line, end_line = readfile._parse_line_range(line_spec)
-                    return readfile._extract_lines(file_content, start_line, end_line)
+                    line_content = readfile._extract_lines(file_content, start_line, end_line)
+                    return search_message + line_content
                 except ValueError:
                     return f"Error: Invalid line specification '{line_spec}'. Use formats like '15', '10-20', '10-', or '-20'."
                 except Exception as e:
@@ -327,10 +354,6 @@ class readfile:
             
             # Check if the content exceeds the chunk limit
             if len(file_content) > readfile.CHUNK_LIMIT and not was_previously_truncated:
-                # --- FIX APPLIED HERE ---
-                # The original error was caused by using float division (`/`), which
-                # results in a float (e.g., 12500.0). Slice indices must be integers.
-                # Using integer division (`//`) ensures the result is an integer.
                 chunk_size = readfile.CHUNK_LIMIT // 4
 
                 truncated_message = (
@@ -346,15 +369,16 @@ class readfile:
                 
                 # Mark this file as truncated for future reads
                 readfile._mark_file_truncated(full_path)
-                return truncated_content
+                return search_message + truncated_content
             else:
                 # If file was previously truncated, show full content and clear state
                 if was_previously_truncated:
                     readfile._clear_truncation_state(full_path)
-                    return f"📄 Showing full content of {os.path.basename(full_path)} ({len(file_content)} characters):\n\n{file_content}"
+                    full_content_message = f"📄 Showing full content of {os.path.basename(full_path)} ({len(file_content)} characters):\n\n{file_content}"
+                    return search_message + full_content_message
                 
                 # If the file is within the limit, return its full content
-                return file_content
+                return search_message + file_content
 
         except Exception as e:
             return f"An unexpected error occurred in the readfile tool: {str(e)}"

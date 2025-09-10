@@ -28,7 +28,7 @@ def test_all_tools_can_import_core():
 def test_all_tools_can_import_shared():
     """Test that all tools can import shared utilities"""
     try:
-        from shared import get_dia_model, AIFixPath  # extract_blocks might not be available
+        from shared import get_dia_model, extract_blocks
         return True
     except ImportError:
         return False

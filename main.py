@@ -25,6 +25,13 @@ import json
 from pathlib import Path
 from pyfiglet import figlet_format
 
+# --- Prompt Toolkit for Command Completion ---
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.formatted_text import HTML
+
 # --- Project Path Setup ---
 # Ensure all project modules can be imported correctly.
 project_root = Path(__file__).resolve().parent
@@ -34,9 +41,10 @@ if str(project_root) not in sys.path:
 # --- Tool and Core Imports ---
 from tools.primitives.todos import todos
 from tools.readfile import readfile
+from tools.bash import bash
 from shared.utils_audio import text_to_speech
 from core.globals import g
-from core.llm_router import LlmRouter, StreamInterruptedException
+from core.llm_router import LlmRouter, StreamInterruptedException, UserInterruptedException
 from core.chat import Chat, Role
 from agent.playbook.playbook_manager import PlaybookManager
 from agent.utils_manager.utils_manager import UtilsManager
@@ -50,6 +58,150 @@ logging.getLogger('tensorflow').setLevel(logging.FATAL)
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers.modeling_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
+
+# --- UNIFIED COMMAND DEFINITION SYSTEM ---
+
+# The single source of truth for all CLI commands.
+# Each entry defines:
+#   - canonical: The unique, internal name for the command.
+#   - aliases: A list of all user-facing strings that trigger the command (e.g., ['/r', '/regenerate']).
+#   - description: The help text for the command.
+#   - sub_commands: (Optional) A dictionary for commands with sub-actions.
+_COMMAND_DEFINITIONS = [
+    # Basic commands
+    {'canonical': 'screenshot', 'aliases': ['/img', '/screenshot'], 'description': 'Take a screenshot for visual analysis'},
+    {'canonical': 'multiline', 'aliases': ['/m', '/message'], 'description': 'Enter multiline input mode'},
+    {'canonical': 'regenerate', 'aliases': ['/r', '/regenerate'], 'description': 'Regenerate the last AI response'},
+    {'canonical': 'local', 'aliases': ['/l', '/local'], 'description': 'Toggle local-only LLM mode'},
+    {'canonical': 'llm', 'aliases': ['/llm'], 'description': 'Open LLM selection interface'},
+    {'canonical': 'unsay', 'aliases': ['/unsay'], 'description': 'Remove last user message and AI response'},
+    {'canonical': 'auto_execute', 'aliases': ['/a', '/auto'], 'description': 'Toggle automatic code execution mode'},
+    {'canonical': 'fast_mode', 'aliases': ['/f', '/fast'], 'description': 'Toggle fast mode (deprecated)'},
+    {'canonical': 'voice_mode', 'aliases': ['/v', '/voice'], 'description': 'Toggle voice input/output mode'},
+    {'canonical': 'full_output', 'aliases': ['/fo', '/full_output'], 'description': 'Show full model output instead of summary'},
+    {'canonical': 'print', 'aliases': ['/p', '/print'], 'description': 'Print complete chat history'},
+
+    # Navigation & session commands
+    {'canonical': 'online', 'aliases': ['/o', '/online'], 'description': 'Toggle online mode for web-enabled features'},
+    {'canonical': 'exit', 'aliases': ['/e', '/exit'], 'description': 'Exit CLI-Agent'},
+    {'canonical': 'help', 'aliases': ['/h', '/help'], 'description': 'Show help and available commands'},
+    {'canonical': 'save', 'aliases': ['/s', '/save'], 'description': 'Save current LLM selection as default'},
+    {'canonical': 'clear', 'aliases': ['/clear'], 'description': 'Clear chat history and start fresh'},
+    {'canonical': 'compact', 'aliases': ['/compact'], 'description': 'Compact conversation (create summary)'},
+
+    # Permission management commands
+    {
+        'canonical': 'permissions',
+        'aliases': ['/perms', '/permissions'],
+        'description': 'Manage tool execution permissions',
+        'sub_commands': {
+            'list': 'List all saved permissions',
+            'remove': 'Remove specific permission by ID',
+            'clear': 'Clear all saved permissions',
+            'interactive': 'Open interactive permission manager',
+            'manage': 'Open interactive permission manager',
+        }
+    }
+]
+
+def get_command_definitions() -> Dict[str, Any]:
+    """Dynamically generates command definitions for the completer."""
+    defs = {}
+    for cmd_info in _COMMAND_DEFINITIONS:
+        for alias in cmd_info['aliases']:
+            if 'sub_commands' in cmd_info:
+                # Create a simple structure for the completer
+                defs[alias] = {sub: None for sub in cmd_info['sub_commands']}
+            else:
+                defs[alias] = None
+    return defs
+
+def get_command_descriptions() -> Dict[str, str]:
+    """Dynamically generates command descriptions for the completer tooltips."""
+    descs = {}
+    for cmd_info in _COMMAND_DEFINITIONS:
+        for alias in cmd_info['aliases']:
+            descs[alias] = cmd_info['description']
+        if 'sub_commands' in cmd_info:
+            for sub_cmd, sub_desc in cmd_info['sub_commands'].items():
+                # Provide descriptions for sub-commands as well
+                for alias in cmd_info['aliases']:
+                    descs[f"{alias} {sub_cmd}"] = sub_desc
+    return descs
+
+def _build_command_map() -> Dict[str, str]:
+    """
+    Builds a map from every alias to its canonical command name for the dispatcher.
+    Example: {'/r': 'regenerate', '/regenerate': 'regenerate'}
+    """
+    command_map = {}
+    for cmd_info in _COMMAND_DEFINITIONS:
+        canonical_name = cmd_info['canonical']
+        for alias in cmd_info['aliases']:
+            command_map[alias] = canonical_name
+    return command_map
+
+# This class remains the same, but it will now be powered by the dynamic functions above.
+class CommandCompleterWithDescriptions(Completer):
+    """Custom completer that shows command descriptions in completion tooltips."""
+    
+    def __init__(self):
+        self.commands = get_command_definitions()
+        self.descriptions = get_command_descriptions()
+    
+    def get_completions(self, document, complete_event):
+        """Generate completions with descriptions for the current input."""
+        text = document.text_before_cursor
+        
+        if not text.startswith('/'):
+            return
+            
+        words = text.split()
+        
+        if len(words) <= 1:
+            prefix = words[0] if words else ''
+            for command in self.commands.keys():
+                if command.startswith(prefix):
+                    description = self.descriptions.get(command, 'No description available')
+                    yield Completion(
+                        command,
+                        start_position=-len(prefix),
+                        display_meta=description
+                    )
+        
+        elif len(words) == 2:
+            main_command = words[0]
+            subcommand_prefix = words[1]
+            
+            if main_command in self.commands and isinstance(self.commands[main_command], dict):
+                for subcommand in self.commands[main_command].keys():
+                    if subcommand.startswith(subcommand_prefix):
+                        full_command = f"{main_command} {subcommand}"
+                        description = self.descriptions.get(full_command, 'No description available')
+                        yield Completion(
+                            subcommand,
+                            start_position=-len(subcommand_prefix),
+                            display_meta=description
+                        )
+
+# --- Global Prompt Session for Command Completion ---
+# Initialize this once to maintain command history and completion across calls
+_prompt_session = None
+
+def get_prompt_session() -> PromptSession:
+    """Get the global prompt session for command completion and history."""
+    global _prompt_session
+    if _prompt_session is None:
+        command_completer = CommandCompleterWithDescriptions()
+        history = FileHistory(os.path.expanduser('~/.cli_agent_history'))
+        
+        _prompt_session = PromptSession(
+            completer=command_completer,
+            history=history,
+            auto_suggest=AutoSuggestFromHistory(),
+            complete_while_typing=True
+        )
+    return _prompt_session
 
 # --- Global Fallback Iterator for Cognitive Diversity ---
 class FallbackModelIterator:
@@ -879,6 +1031,101 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
 
     return selected_llms
 
+def validate_xml_completeness(text: str, tool_delimiters: List[str]) -> Optional[str]:
+    """
+    Validates that XML blocks are complete and well-formed before tool routing.
+    
+    This function ensures that tool XML blocks have properly matched opening
+    and closing tags, preventing malformed XML from causing incorrect tool routing.
+    
+    Args:
+        text: The text content to validate
+        tool_delimiters: List of valid tool tag names
+        
+    Returns:
+        The complete, valid XML block if found, None otherwise
+    """
+    if not tool_delimiters:
+        return None
+        
+    # Build regex pattern for any tool delimiter
+    tool_tag_pattern = "|".join(re.escape(d) for d in tool_delimiters)
+    
+    # Find all potential tool opening tags
+    opening_pattern = f"<({tool_tag_pattern})(?:[^>]*)>"
+    opening_matches = list(re.finditer(opening_pattern, text, re.DOTALL))
+    
+    if not opening_matches:
+        return None
+    
+    # Collect all valid blocks and return the longest (most complete) one
+    valid_blocks = []
+    
+    # For each opening tag, check if there's a complete, well-formed block
+    for match in opening_matches:
+        tag_name = match.group(1)
+        start_pos = match.start()
+        
+        # Look for the corresponding closing tag
+        closing_pattern = f"</{re.escape(tag_name)}>"
+        closing_match = re.search(closing_pattern, text[match.end():], re.DOTALL)
+        
+        if closing_match:
+            # Found a potential complete block
+            end_pos = match.end() + closing_match.end()
+            potential_block = text[start_pos:end_pos]
+            
+            # Validate that the XML is well-formed by checking for unclosed tags
+            if _is_xml_well_formed(potential_block, tag_name):
+                valid_blocks.append((potential_block, len(potential_block), start_pos))
+    
+    if not valid_blocks:
+        return None
+    
+    # Return the longest valid block (most complete)
+    # In case of equal length, prefer the one that starts first
+    valid_blocks.sort(key=lambda x: (-x[1], x[2]))
+    return valid_blocks[0][0]
+
+def _is_xml_well_formed(xml_block: str, root_tag: str) -> bool:
+    """
+    Check if an XML block is well-formed by validating tag matching.
+    
+    Args:
+        xml_block: The XML block to validate
+        root_tag: The expected root tag name
+        
+    Returns:
+        True if the XML is well-formed, False otherwise
+    """
+    try:
+        # Use a simple tag stack to validate proper nesting
+        tag_stack = []
+        
+        # Find all opening and closing tags
+        tag_pattern = r'<(/?)([a-zA-Z0-9_]+)(?:[^>]*)>'
+        matches = re.finditer(tag_pattern, xml_block)
+        
+        for match in matches:
+            is_closing = bool(match.group(1))  # '/' present for closing tags
+            tag_name = match.group(2)
+            
+            if is_closing:
+                # Closing tag - should match the most recent opening tag
+                if not tag_stack or tag_stack[-1] != tag_name:
+                    return False  # Mismatched closing tag
+                tag_stack.pop()
+            else:
+                # Opening tag - add to stack
+                tag_stack.append(tag_name)
+        
+        # All tags should be properly closed (empty stack) and root tag should match
+        return len(tag_stack) == 0
+        
+    except Exception:
+        # If any parsing error occurs, consider it malformed
+        return False
+
 def create_interruption_callback(
     response_buffer: List[str],
     painter: TextStreamPainter,
@@ -905,8 +1152,17 @@ def create_interruption_callback(
     
     # Dynamically build a regex for registered tool blocks. This is more robust
     # and prevents premature interruption on non-tool XML tags like <filepath>.
-    tool_delimiters = list(getattr(g, 'tool_classes', {}).keys())
-    tool_tag_pattern = "|".join(re.escape(d) for d in tool_delimiters)
+    # Define tags that should NOT interrupt the stream, allowing the agent to output them fully before pausing.
+    non_interrupting_tags = {'think', 'todos'}
+
+    # Get all tool delimiters and add the final <response> tag.
+    all_delimiters = list(getattr(g, 'tool_classes', {}).keys()) + ['response']
+
+    # Filter this list to get only the tags that SHOULD cause an interruption.
+    interrupting_delimiters = [d for d in all_delimiters if d not in non_interrupting_tags]
+    
+    # Build the regex from the filtered list of interrupting tags.
+    tool_tag_pattern = "|".join(re.escape(d) for d in interrupting_delimiters)
     XML_TOOL_BLOCK_REGEX = re.compile(f"<({tool_tag_pattern})[^>]*>.*?</\\1>", re.DOTALL) if tool_tag_pattern else None
     
     async def _callback(chunk: str):
@@ -1472,8 +1728,8 @@ async def construct_engineered_prompt(voice_agent: str) -> Chat:
     """
     base_instructions = f'''**SYSTEM: Agent Protocol & Capabilities**
 
-You are a sophisticated AI agent capable of using tools to achieve your todos. Your primary directive is to understand user requests, formulate a plan, and execute code to achieve the goal.
-{'The user is interacting with you via voice recognition, confirm his intend if unclear before proceeding with actions. Keep your user interaction short and poignant.\n' if voice_agent else ''}
+You are a sophisticated AI agent capable of thinking and using tools to achieve your todos. Your primary directive is to understand user requests, formulate a plan, and perform actions to achieve the current needs.
+{'The user is interacting with you in speech mode, please be aware of potential transcription issues. Provide concise responses and be helpful to the user.\n' if voice_agent else ''}
 ### Guiding Principles (Your Core Logic)
 The following loop is a suggestion of how to behave effectively, you may freely reorder your usage of the xml tools if it fits your needs, you aim for long term stability and progress in your responses.
 1.  **OBSERVE & DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
@@ -1484,6 +1740,7 @@ The following loop is a suggestion of how to behave effectively, you may freely 
     tool_docs = _generate_tool_documentation()
     
     step_4 = "4.  **ITERATE**: After executing a tool, return to Step 1 **OBSERVE & DECOMPOSE** to reflect on your observations and plan your next move."
+
     
     # Combine all parts into the final instruction message
     default_inst = f"{base_instructions}\n{tool_docs}\n{step_4}"
@@ -1548,6 +1805,8 @@ async def get_user_input_with_bindings(
     returns the user's text prompt. If voice mode is active and this is a
     confirmation prompt, it will use TTS and STT.
     """
+    COMMAND_MAP = _build_command_map() # <-- ADD THIS LINE
+    
     # --- First Call Logic ---
     if get_user_input_with_bindings.is_first_call:
         get_user_input_with_bindings.is_first_call = False
@@ -1645,135 +1904,161 @@ async def get_user_input_with_bindings(
                         user_input = shared_input["value"]
                         agent_logger.info(f"Retrieved user input: '{user_input}'")
                 else:
-                    # Original CLI behavior
-                    if context_chat:
-                        user_input = input(f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] " + prompt)
-                    else:
-                        user_input = input(prompt)
+                    # Enhanced CLI behavior with command completion
+                    try:
+                        session = get_prompt_session()
+                        # Convert to prompt_toolkit's HTML format for proper styling
+                        # Strip ANSI codes from prompt and use the actual prompt parameter
+                        import re
+                        clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt)
+                        
+                        if context_chat:
+                            token_info = f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] "
+                            # Use very subtle coloring - just a gentle emphasis
+                            html_prompt = HTML(token_info + f'<dim>{clean_prompt}</dim>')
+                            user_input = await session.prompt_async(html_prompt)
+                        else:
+                            # Use very subtle coloring - just a gentle emphasis
+                            html_prompt = HTML(f'<dim>{clean_prompt}</dim>')
+                            user_input = await session.prompt_async(html_prompt)
+                    except (ImportError, Exception):
+                        # Fallback to regular input if prompt_toolkit fails
+                        if context_chat:
+                            user_input = input(f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] " + prompt)
+                        else:
+                            user_input = input(prompt)
             except KeyboardInterrupt:
                 logging.warning(colored("\n# cli-agent: Exiting due to Ctrl+C...", "yellow"))
                 exit()
         
         # --- Command Handling ---
-        if user_input in ["/img", "/screenshot"] or args.image:
-            logging.info(colored("# cli-agent: Taking screenshot.", "green"))
-            args.image = False
-            base64_images = await handle_screenshot_capture()
-            # Return the captured image data. The empty string signals no text prompt was entered.
-            return "", base64_images
-        elif user_input == "/m":
-            # Return the multiline input with an empty image list.
-            return handle_multiline_input(), []
-        
-        if user_input == "/r":
-            if not context_chat or len(context_chat.messages) < 2:
-                logging.error(colored("# cli-agent: No chat history found, cannot regenerate.", "red"))
+        if user_input.startswith('/'):
+            parts = user_input.split()
+            command_alias = parts[0]
+            canonical_command = COMMAND_MAP.get(command_alias)
+
+            if not canonical_command:
+                logging.error(colored(f"# cli-agent: Unknown command '{command_alias}'. Type '/help' for a list of commands.", "red"))
                 continue
-            logging.info(colored("# cli-agent: Regenerating last response.", "green"))
-            context_chat.messages.pop()
-            user_input = ""
-        elif user_input == "/l":
-            args.local = not args.local
-            g.FORCE_LOCAL = args.local
-            logging.info(colored(f"# cli-agent: Local mode toggled {'on' if args.local else 'off'}.", "green"))
-            continue
-        elif user_input == "/llm":
-            logging.info(colored("# cli-agent: Opening LLM selection.", "green"))
-            await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
-            continue
-        elif user_input == "/unsay":
-            logging.info(colored("# cli-agent: Removed last user message and assistant response.", "green"))
-            if len(context_chat.messages) >= 2:
-                # Remove the last assistant message and the user message before it
+
+            # --- Command Dispatcher ---
+            if canonical_command == 'screenshot':
+                logging.info(colored("# cli-agent: Taking screenshot.", "green"))
+                base64_images = await handle_screenshot_capture()
+                return "", base64_images
+
+            elif canonical_command == 'multiline':
+                return handle_multiline_input(), []
+
+            elif canonical_command == 'regenerate':
+                if not context_chat or len(context_chat.messages) < 2:
+                    logging.error(colored("# cli-agent: No chat history found, cannot regenerate.", "red"))
+                    continue
+                logging.info(colored("# cli-agent: Regenerating last response.", "green"))
                 context_chat.messages.pop()
-                context_chat.messages.pop()
-                logging.info(colored("Last user message and assistant response removed.", "green"))
-            elif len(context_chat.messages) == 1 and context_chat.messages[-1][0] == Role.USER:
-                # If only one message and it's from the user, remove it
-                context_chat.messages.pop()
-                logging.info(colored("Last user message removed.", "green"))
-            else:
-                logging.warning(colored("No messages to remove.", "yellow"))
-            continue
-        elif user_input == "/a":
-            args.auto = not args.auto
+                return "", [] # Return empty to trigger regeneration
+
+            elif canonical_command == 'local':
+                args.local = not args.local
+                g.FORCE_LOCAL = args.local
+                logging.info(colored(f"# cli-agent: Local mode toggled {'on' if args.local else 'off'}.", "green"))
+                continue
+
+            elif canonical_command == 'llm':
+                logging.info(colored("# cli-agent: Opening LLM selection.", "green"))
+                await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
+                continue
             
-            llm_config = g.get_llm_config()
-            guard_count = sum(
-                data.get('guard', 0) 
-                for data in llm_config.values() 
-                if data.get('selected')
-            )
+            elif canonical_command == 'unsay':
+                if context_chat and len(context_chat.messages) >= 2:
+                    context_chat.messages.pop() # Assistant
+                    context_chat.messages.pop() # User
+                    logging.info(colored("# cli-agent: Removed last user message and AI response.", "green"))
+                elif context_chat and len(context_chat.messages) == 1:
+                    context_chat.messages.pop() # User
+                    logging.info(colored("# cli-agent: Removed last user message.", "green"))
+                else:
+                    logging.warning(colored("# cli-agent: No messages to remove.", "yellow"))
+                continue
+
+            elif canonical_command == 'auto_execute':
+                args.auto = not args.auto
+                # (Your existing logic for displaying guard status can remain here)
+                logging.info(colored(f"# cli-agent: Automatic execution toggled {'on' if args.auto else 'off'}.", "green"))
+                continue
+
+            elif canonical_command == 'fast_mode':
+                args.fast = not args.fast
+                logging.info(colored(f"# cli-agent: Fast mode toggled {'on' if args.fast else 'off'} (deprecated).", "green"))
+                continue
+
+            elif canonical_command == 'voice_mode':
+                args.voice = not args.voice
+                logging.info(colored(f"# cli-agent: Voice mode toggled {'on' if args.voice else 'off'}.", "green"))
+                continue
+
+            elif canonical_command == 'full_output':
+                args.full_output_mode = not args.full_output_mode
+                g.SUMMARY_MODE = not args.full_output_mode
+                logging.info(colored(f"# cli-agent: Full output mode toggled {'on' if args.full_output_mode else 'off'}.", "green"))
+                continue
             
-            status_msg = f"# cli-agent: Automatic execution toggled {'on' if args.auto else 'off'}"
-            if args.auto and guard_count > 0:
-                status_msg += f" ({guard_count} guards active)"
-            elif args.auto and guard_count == 0:
-                status_msg += " (no guards, will execute without confirmation)"
-            elif not args.auto and guard_count > 0:
-                status_msg += f" (ignoring {guard_count} available guards)"
+            elif canonical_command == 'print':
+                logging.info(colored("# cli-agent: Printing chat history.", "green"))
+                os.system('clear')
+                print(colored("Chat history:", "green"))
+                if context_chat:
+                    context_chat.print_chat()
+                else:
+                    print(colored("No chat history available.", "yellow"))
+                continue
+
+            elif canonical_command == 'online':
+                args.online = not args.online
+                logging.info(colored(f"# cli-agent: Online mode toggled {'on' if args.online else 'off'}.", "green"))
+                continue
+
+            elif canonical_command == 'exit':
+                logging.info(colored("# cli-agent: Exiting...", "green"))
+                exit(0)
+
+            elif canonical_command == 'help':
+                print_startup_summary(args)
+                print(colored("\n--- Available Commands ---", "yellow"))
+                CMD_WIDTH = 28
+                for cmd_info in _COMMAND_DEFINITIONS:
+                    aliases = ', '.join(cmd_info['aliases'])
+                    line = f"  {colored(aliases.ljust(CMD_WIDTH), 'white')}{cmd_info['description']}"
+                    print(line)
+                continue
             
-            logging.info(colored(f"{status_msg}.", "green"))
-            continue
-        elif user_input == "/f":
-            args.fast = not args.fast
-            logging.info(colored(f"# cli-agent: Fast mode toggled {'on' if args.fast else 'off'} (deprecated).", "green"))
-            continue
-        elif user_input == "/v":
-            args.voice = not args.voice
-            logging.info(colored(f"# cli-agent: Voice mode toggled {'on' if args.voice else 'off'}.", "green"))
-            continue
-        elif user_input == "/full_output":
-            args.full_output_mode = not args.full_output_mode
-            g.SUMMARY_MODE = not args.full_output_mode
-            logging.info(colored(f"# cli-agent: Full output mode toggled {'on' if args.full_output_mode else 'off'}.", "green"))
-            continue
-        elif user_input == "/p":
-            logging.info(colored("# cli-agent: Printing chat history.", "green"))
-            os.system('clear')
-            print(colored("Chat history:", "green"))
-            if context_chat:
-                context_chat.print_chat()
-            else:
-                print(colored("No chat history available.", "yellow"))
-            continue
-        elif user_input in ["/o", "//o", "/online", "//online"]:
-            args.online = not args.online
-            logging.info(colored(f"# cli-agent: Online mode toggled {'on' if args.online else 'off'}.", "green"))
-            continue
-        elif user_input in ["/e", "//e", "//exit"]:
-            logging.info(colored("# cli/agent: Exiting...", "green"))
-            exit(0)
-        elif user_input in ["/h", "//h", "//help"]:
-            print_startup_summary(args)
-            CMD_WIDTH = 20
-            print(colored("\n--- Other Commands ---", "yellow"))
-            print(f"  {colored('/r, //regenerate'.ljust(CMD_WIDTH), 'white')}Regenerate last response")
-            print(f"  {colored('/img, //image'.ljust(CMD_WIDTH), 'white')}Take screenshot")
-            print(f"  {colored('/p, //p'.ljust(CMD_WIDTH), 'white')}Print chat history")
-            print(f"  {colored('/m, //m'.ljust(CMD_WIDTH), 'white')}Enter multiline input mode")
-            print(f"  {colored('/e, //exit'.ljust(CMD_WIDTH), 'white')}Exit CLI-Agent")
-            print(f"  {colored('/h, //help'.ljust(CMD_WIDTH), 'white')}Show this help")
-            print(f"  {colored('/s, //save'.ljust(CMD_WIDTH), 'white')}Save current LLM selection as default")
-            print(f"  {colored('//full_output'.ljust(CMD_WIDTH), 'white')}Show full model output instead of summary")
-            continue
-        elif user_input in ["/s", "//save"]:
-            await save_current_llm_config_as_default()
-            continue
-        elif user_input in ["/clear", "//clear"]:
-            context_chat = None
-            context_chat = await construct_engineered_prompt(args.voice)
-            print("# cli-agent: Chat cleared.")
-            continue
-        elif user_input in ["/compact", "//compact"]:
-            if context_chat and context_chat.messages:
-                # Clear current chat and start fresh
-                print("# cli-agent: Conversation compacting instructed.")
-                g.AGENT_IS_COMPACTING = True
-                return f"Let's pause for a moment, please write a summary of our progress inside a markdown file at: {g.CLIAGENT_PERSISTENT_STORAGE_PATH }/MEMORY/replace_with_descriptive_title.md", []
-                
-            continue
-        # If the code reaches here, it's a normal text prompt.
+            elif canonical_command == 'save':
+                await save_current_llm_config_as_default()
+                continue
+
+            elif canonical_command == 'clear':
+                if context_chat:
+                    context_chat.messages.clear()
+                context_chat = await construct_engineered_prompt(args.voice)
+                logging.info(colored("# cli-agent: Chat cleared.", "green"))
+                continue
+            
+            elif canonical_command == 'compact':
+                if context_chat and context_chat.messages:
+                    logging.info(colored("# cli-agent: Compacting conversation...", "green"))
+                    g.AGENT_IS_COMPACTING = True
+                    automated_message = "Let's pause. Please summarize our conversation and progress into a markdown file at: {}/MEMORY/summary_{}.md".format(g.CLIAGENT_PERSISTENT_STORAGE_PATH, time.strftime("%Y%m%d_%H%M%S"))
+                    return automated_message, []
+                else:
+                    logging.warning(colored("# cli-agent: No conversation to compact.", "yellow"))
+                continue
+            
+            elif canonical_command == 'permissions':
+                # The dispatcher calls the handler, passing the full user input
+                await handle_permission_flags(user_input, get_user_input_with_bindings, args, input_event, input_lock, shared_input)
+                continue
+
+        # If it's not a command, it's a normal text prompt.
         return user_input, []
 
 # Initialize the stateful flag for the first call.
@@ -1839,13 +2124,13 @@ async def handle_screenshot_capture() -> List[str]:
     return base64_images
 
 async def handle_permission_flags(user_input: str, get_user_input_func, args, input_event, input_lock, shared_input):
-    """Handle permission management flags like /permissions, //permissions, -p, --p."""
+    """Handle permission management flags like /permissions, -p, --p."""
     from tools.permissions import permissions
     from termcolor import colored
     
     # Parse the command
     parts = user_input.split()
-    command = parts[0]  # /permissions, //permissions, -p, or --p
+    command = parts[0]  # /permissions, -p, or --p
     
     try:
         if len(parts) == 1:
@@ -1873,15 +2158,20 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
             print(colored("\n⚠️  WARNING: This will clear ALL saved permissions!", "red", attrs=['bold']))
             print(colored("Type 'yes' to confirm or anything else to cancel:", "yellow"))
             
-            if get_user_input_func:
-                confirmation, _ = await get_user_input_func(
-                    args, None, colored("> ", "cyan"),
-                    input_event=input_event,
-                    input_lock=input_lock,
-                    shared_input=shared_input
-                )
-            else:
-                confirmation = input(colored("> ", "cyan"))
+            try:
+                if get_user_input_func:
+                    confirmation, _ = await get_user_input_func(
+                        args, None, colored("> ", "cyan"),
+                        input_event=input_event,
+                        input_lock=input_lock,
+                        shared_input=shared_input
+                    )
+                else:
+                    confirmation = input(colored("> ", "cyan"))
+            except KeyboardInterrupt:
+                # User pressed Ctrl+C during clear confirmation - treat as cancel
+                print(colored("\n❌ Clear operation cancelled (Ctrl+C).", "yellow"))
+                return
             
             if confirmation.strip().lower() == 'yes':
                 result = permissions._clear_all_permissions()
@@ -1929,17 +2219,22 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
         print(colored("  exit, quit, back        # Return to main CLI", "white"))
         print()
         
-        if get_user_input_func:
-            user_cmd, _ = await get_user_input_func(
-                args, None, colored("Permissions> ", "cyan"),
-                input_event=input_event,
-                input_lock=input_lock,
-                shared_input=shared_input
-            )
-        else:
-            user_cmd = input(colored("Permissions> ", "cyan"))
-        
-        user_cmd = user_cmd.strip().lower()
+        try:
+            if get_user_input_func:
+                user_cmd, _ = await get_user_input_func(
+                    args, None, colored("Permissions> ", "cyan"),
+                    input_event=input_event,
+                    input_lock=input_lock,
+                    shared_input=shared_input
+                )
+            else:
+                user_cmd = input(colored("Permissions> ", "cyan"))
+            
+            user_cmd = user_cmd.strip().lower()
+        except KeyboardInterrupt:
+            # User pressed Ctrl+C in interactive permission manager - exit gracefully
+            print(colored("\n↩️  Returning to main CLI (Ctrl+C)...", "yellow"))
+            break
         
         if user_cmd in ['exit', 'quit', 'back', '']:
             print(colored("↩️  Returning to main CLI...", "green"))
@@ -1957,15 +2252,20 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
             print(colored("\n⚠️  WARNING: This will clear ALL saved permissions!", "red", attrs=['bold']))
             print(colored("Type 'yes' to confirm or anything else to cancel:", "yellow"))
             
-            if get_user_input_func:
-                confirmation, _ = await get_user_input_func(
-                    args, None, colored("> ", "cyan"),
-                    input_event=input_event,
-                    input_lock=input_lock,
-                    shared_input=shared_input
-                )
-            else:
-                confirmation = input(colored("> ", "cyan"))
+            try:
+                if get_user_input_func:
+                    confirmation, _ = await get_user_input_func(
+                        args, None, colored("> ", "cyan"),
+                        input_event=input_event,
+                        input_lock=input_lock,
+                        shared_input=shared_input
+                    )
+                else:
+                    confirmation = input(colored("> ", "cyan"))
+            except KeyboardInterrupt:
+                # User pressed Ctrl+C during clear confirmation - treat as cancel
+                print(colored("\n❌ Clear operation cancelled (Ctrl+C).", "yellow"))
+                continue
             
             if confirmation.strip().lower() == 'yes':
                 result = permissions._clear_all_permissions()
@@ -2002,18 +2302,19 @@ def show_unified_bindings_display():
 
     CMD_WIDTH = 28
     bindings = [
-        ("/h, /help", "Show detailed help and configuration"),
-        ("/r", "Regenerate last AI response"),
-        ("/img", "Take screenshot for visual analysis"),
-        ("/p", "Print full chat history"),
-        ("/m", "Enter multiline input mode"),
-        ("/e, //exit", "Exit CLI-Agent"),
-        ("/s, //save", "Save current LLM selection as default"),
-        ("/full_output", "Show complete model output"),
+        (["/h" , "/help"], "Show detailed help and configuration"),
+        (["/r" , "/regenerate"], "Regenerate last AI response"),
+        (["/i" , "/img"], "Take screenshot for visual analysis"),
+        (["/p" , "/print"], "Print full chat history"),
+        (["/m" , "/multiline"], "Enter multiline input mode"),
+        (["/e" , "/exit"], "Exit CLI-Agent"),
+        (["/s" , "/save"], "Save current LLM selection as default"),
+        (["/f" , "/full_output"], "Show complete model output"),
     ]
     
     for cmd, desc in bindings:
-        line_content = f"  {colored(cmd.ljust(CMD_WIDTH), 'white')} {desc}"
+        cmd_str = ", ".join(cmd) if isinstance(cmd, list) else cmd
+        line_content = f"  {colored(cmd_str.ljust(CMD_WIDTH), 'white')} {desc}"
         print(format_line(line_content))
 
     # Permission Management Section
@@ -2035,7 +2336,6 @@ def show_unified_bindings_display():
 
     # Bottom Border
     print(colored(f"└{'─' * INNER_WIDTH}┘", "cyan"))
-    print()
 
 def get_recent_files_output():
     # This function simulates the output of the bash command for the bootstrap message.
@@ -2430,38 +2730,37 @@ async def main(
         if not (args.c or args.regenerate):
             context_chat.add_message(Role.USER, "Please list the 5 most recently modified files in this cwd")
             initial_bootstrap_message = f"""<think>
-The user wants me to list the 5 most recently modified files in this current working directory.
-To successfully list them I can utilise a combination of the bash utilities ls, grep, head, awk and echo.
+I can list the 5 most recently modified by constructing a bash command. Some commands i should consider are: ls, grep, head, awk and echo.
 </think><todos>
-- [ ] Use bash to list the 5 most recently modified filed in the cwd.
+- [ ] List 5 most recently modified files.
 </todos><bash>
-echo "Working Directory: $(pwd)"
-echo ""
-echo "5 last modified files:"
-# List files sorted by modification time, filter for regular files, take the top 5, and format the output.
-# The '||' part handles the case where no files are found.
-ls -tp | grep -v '/$' | head -n 5 | sed 's/^/- /'
+ls -tp | grep -v /$ | head -5 | sed 's/^/- /'
 </bash><context>
-{get_recent_files_output()}
-</context><think>
-I have completed the task of listing the 5 most recently modified files in the current working directory. I will now update the todos and respond to the user indicating that the task is complete and ask if they need anything else.
-</think><todos>
-- [x] Use bash to list the 5 most recently modified filed in the cwd.
-</todos>I have successfully listed the 5 most recently modified filed in the cwd, is there anything else I can assist you with?"""
+{bash.run("ls -tp | grep -v /$ | head -5 | sed 's/^/- /'")}
+</context><todos>
+- [x] List 5 most recently modified files.
+</todos><response>
+These are the 5 most recently modified filess. Would you like me to inspect any of them?
+</response>"""
             
             
             context_chat.add_message(Role.ASSISTANT, initial_bootstrap_message)
-            context_chat.add_message(Role.USER, "view your permissions")
-            context_chat.add_message(Role.ASSISTANT, f"""<todos>
-- [] View permissions.
+
+            permissions_str = viewpermissions.run()
+            if (permissions_str):
+                context_chat.add_message(Role.USER, "view your permissions")
+                context_chat.add_message(Role.ASSISTANT, f"""<todos>
+- [ ] View permissions.
 </todos><viewpermissions>
 </viewpermissions><context>
-{viewpermissions.run()}
+{permissions_str}
 </context><think>
-I have successfully viewed my permissions. I will now update the todos and respond to the user indicating that the task is complete and ask if they need anything else.
+The viewed permissions show the actions i can take without asking. This implies a free range of autonomy which I can use to service the user.
 </think><todos>
 - [x] View permissions.
-</todos>I have successfully viewed my permissions. Is there anything else I can assist you with?""")
+</todos><response>
+I have successfully viewed my permissions. Is there anything else I can assist you with?
+</response>""")
         
         assistant_response = ""
         while True:
@@ -2469,6 +2768,7 @@ I have successfully viewed my permissions. I will now update the todos and respo
             user_input: Optional[str] = None
             
             g.LLM_STRENGTHS = []
+            assistant_response = ""
             
             if not args.monte_carlo:
                 args.auto = False
@@ -2488,8 +2788,8 @@ I have successfully viewed my permissions. I will now update the todos and respo
             g.SUMMARY_MODE = not args.full_output_mode
             
             # Auto compact chat length limit in chars
-            if (len(str(context_chat)) > 200000):
-                print("# cli-agent: 200.000 char threshold reached: Auto compacting conversation...")
+            if (len(str(context_chat)) > 50000):
+                print("# cli-agent: 50.000 char threshold reached: Auto compacting conversation...")
                 g.AGENT_IS_COMPACTING = True
 
             if args.regenerate:
@@ -2500,7 +2800,7 @@ I have successfully viewed my permissions. I will now update the todos and respo
                 while (user_input == ""):
                     # Keep the voice functionality
                     if args.voice:
-                        spoken_text = assistant_response.strip().split(">")[-1].strip()
+                        spoken_text = context_chat.messages[-1][1].strip().split(">")[-1].strip()
                         if (len(spoken_text)>0):
                             try:
                                 text_to_speech(text=spoken_text, use_piper=True)
@@ -2519,7 +2819,7 @@ I have successfully viewed my permissions. I will now update the todos and respo
 The user wants me to search my memory for a the latest summary.
 I need to create a todo and call the summary tool with the order key set to latest.
 </think><todos>
-- [] Check my memory
+- [ ] Check my memory
 </todos><memory>
 <memory>
 latest summary LIMIT 1
@@ -2536,11 +2836,6 @@ latest summary LIMIT 1
                     agent_logger.info(f"Got user input from get_user_input_with_bindings: '{user_input}'")
                 if new_images:
                     base64_images.extend(new_images)
-                
-                # Check for permission management flags
-                if user_input.strip().startswith(('/permissions', '/p')):
-                    await handle_permission_flags(user_input.strip(), get_user_input_with_bindings, args, input_event, input_lock, shared_input)
-                    continue
                 
                 if base64_images:
                     transcription_chat = Chat(
@@ -2743,6 +3038,11 @@ latest summary LIMIT 1
                     except KeyboardInterrupt as e:
                         print(colored(f"A KeyboardInterrupt was raised, e: {e}", "red"))
                         break
+                    except UserInterruptedException:
+                        # User interrupted model generation with Ctrl+C - handle gracefully
+                        print(colored("\n⚠️  Model generation interrupted by user (Ctrl+C)", "yellow", attrs=['bold']))
+                        user_interrupt = True
+                        break
                     except Exception as e:
                         print(colored(f"An Exception was raised, e: {e}", "red"))
                         traceback.print_exc()
@@ -2789,7 +3089,7 @@ latest summary LIMIT 1
                         # --- Enhanced Path-Aware Permission Checking ---
                         # Check permissions using path detection for tools with file operations
                         should_execute = False
-                        if len(tool_tags_found) == 1 and any(k in tool_tags_found[0].__module__ for k in ["todos", "think", "searchweb", "search"]):
+                        if len(tool_tags_found) == 1 and any(k in tool_tags_found[0].__module__ for k in ["todos", "think", "searchweb", "grepsearch"]):
                             should_execute = True
                         elif len(tool_tags_found) > 0:
                             # Analyze each tool for path-based permissions
@@ -2860,6 +3160,10 @@ latest summary LIMIT 1
                                     
                                     # All tools now share the same simple run signature.
                                     tool_result = tool_class.run(first_block)
+
+                                    # Handle both sync and async tools
+                                    if asyncio.iscoroutine(tool_result):
+                                        tool_result = await tool_result
 
                                     # Wrap tools returned values as tool_ouput
                                     if tool_name not in ["todos"] and tool_result:

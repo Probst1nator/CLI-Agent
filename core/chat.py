@@ -10,6 +10,8 @@ import threading
 import queue
 from termcolor import colored
 
+# This import is no longer strictly necessary for the modified save/load functions,
+# but might be used elsewhere in the project. We'll leave it for now.
 from core.globals import g
 from ollama._types import Message
 
@@ -295,20 +297,29 @@ class Chat:
 
     def save_to_json(self, file_name: str = "recent_chat.json", merge: bool = False):
         """
-        Saves the chat instance to a JSON file.
+        Saves the chat instance to a JSON file in a .cli-agent folder in the current working directory.
         
         :param file_name: The name of the file to save to.
         :param merge: Whether to merge with existing file content (read-modify-write operation).
                      If True, loads existing file, merges messages, and overwrites the entire file.
                      For true append operations, consider using save_to_jsonl instead.
         """
-        file_path = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH,file_name)
+        # Define the storage path in the current working directory
+        storage_path = os.path.join(os.getcwd(), ".cli-agent")
+        file_path = os.path.join(storage_path, file_name)
+        
+        # Ensure the directory exists
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
         if merge:
-            few_shot_prompts = Chat.load_from_json(file_name)
-            few_shot_prompts.add_message(self.messages[0][0], self.messages[0][1])
-            few_shot_prompts.add_message(self.messages[1][0], self.messages[1][1])
+            try:
+                # Load from the same CWD-based path
+                few_shot_prompts = Chat.load_from_json(file_name)
+                few_shot_prompts.add_message(self.messages[0][0], self.messages[0][1])
+                few_shot_prompts.add_message(self.messages[1][0], self.messages[1][1])
+            except FileNotFoundError:
+                # If the file doesn't exist when merging, start a new one
+                few_shot_prompts = self
         else:
             few_shot_prompts = self
 
@@ -318,12 +329,15 @@ class Chat:
     @classmethod
     def load_from_json(cls, file_name: str = "recent_chat.json") -> "Chat":
         """
-        Loads a Chat instance from a JSON file.
+        Loads a Chat instance from a JSON file in a .cli-agent folder in the current working directory.
         
         :param file_name: The name of the file to load from.
         :return: The loaded Chat instance.
         """
-        file_path = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, file_name)
+        # Define the storage path in the current working directory
+        storage_path = os.path.join(os.getcwd(), ".cli-agent")
+        file_path = os.path.join(storage_path, file_name)
+
         with open(file_path, "r") as file:
             data_dict = json.load(file)
         return cls.from_dict(data_dict)
@@ -605,7 +619,7 @@ class Chat:
         - Each turn begins with <start_of_turn> followed by the role (user or model)
         - Each turn ends with <end_of_turn>
         - The entire conversation begins with <bos>
-        - Images are embedded with <start_of_image> tags
+        - Images are embedded with <img> tags
         
         :return: The chat messages in Gemma format.
         """
@@ -637,7 +651,7 @@ class Chat:
             processed_content = content
             if role == Role.USER and self.base64_images and gemma_role == "user":
                 # If there are base64_images and this is a user message,
-                # we need to embed them using <start_of_image> tags
+                # we need to embed them using <img> tags
                 for i, image in enumerate(self.base64_images):
                     # Look for image placeholders in the pattern "Image X: "
                     image_placeholder = f"Image {chr(65+i)}: "
@@ -645,7 +659,7 @@ class Chat:
                         # Replace the placeholder with the image tag
                         processed_content = processed_content.replace(
                             image_placeholder, 
-                            f"Image {chr(65+i)}: <start_of_image>\n"
+                            f"Image {chr(65+i)}: <img>\n"
                         )
             
             # Add the processed content and end the turn

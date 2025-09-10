@@ -1,8 +1,27 @@
 # Project File Index
 
-## 🏗️ Modern Architecture (Post-Migration)
+## 🏗️ Modern Architecture (Post-Migration & Refactoring)
 
 - `agent/` - Modern agent architecture with organized components:
+  
+  **NEW: Refactored Core Architecture (2025)**
+  - `core/app_context.py` - Application context replacing global state singleton with dependency injection pattern, providing centralized configuration, lazy-loaded components, and proper typing
+  - `core/initialization.py` - Clean application initialization logic extracted from monolithic main.py with environment setup, logging configuration, and context creation
+  - `core/agent_loop.py` - Main conversation loop extracted from main.py with proper error handling, command processing, and AI interaction management
+  - `core/lazy_imports.py` - Startup time optimization through lazy loading of heavy dependencies, demonstrating ~1.5s potential startup time savings
+  
+  **NEW: Command System Architecture (2025)**
+  - `commands/base_command.py` - Abstract base class and protocols for all CLI commands with proper typing, consistent interfaces, and command registration system
+  - `commands/command_handler.py` - Central command dispatcher replacing massive switch-case logic from get_user_input_with_bindings with clean, modular command routing
+  - `commands/screenshot_command.py` - Screenshot command implementation demonstrating the new command pattern with proper error handling and response types
+  - `commands/help_command.py` - Help command showing integration with command handler for dynamic help generation
+  - `commands/regenerate_command.py` - Regenerate command with chat history management and proper state handling
+  - `commands/simple_commands.py` - Collection of simple command implementations (multiline, exit, clear, toggle commands) with consistent interfaces
+  
+  **NEW: Monte Carlo Engine (2025)**
+  - `monte_carlo/task_group_engine.py` - Enhanced Monte Carlo Action Engine using asyncio.TaskGroup for robust concurrent LLM branch generation, replacing asyncio.gather with proper error handling and cancellation support
+  
+  **Legacy Components (Pre-Refactor)**
   - `notebook/computational_notebook.py` - Jupyter-style code execution and cell management (migrated from py_classes)
   - `playbook/playbook_manager.py` - Strategic multi-step workflow templates and procedural guidance (migrated from py_classes)  
   - `utils_manager/utils_manager.py` - Orchestration and management of utility tools (migrated from py_classes)
@@ -48,7 +67,9 @@
 
 - `ARCHITECTURE.md` - Comprehensive analysis of the monorepo structure and detailed strategy for decomposing it into 3 separate projects corresponding to tools/* directories, including dependency mapping, migration complexity assessment, and recommended decomposition approaches.
 
-- `main.py` - The primary entrypoint and orchestration script for the agentic coding assistant. This file initializes the agent's core "Monte Carlo Action Engine," which uses a council of LLMs for specialized tasks: proposing multiple action paths (Branch Generators), voting on the best path (Branch Evaluators), and vetoing unsafe code (Execution Guards). It manages the main execution loop, handles user input, and enriches the agent's context by retrieving tool usage hints and strategic "playbooks" from a vector database. Now includes enhanced path-aware permission system for tool execution, integrated automatic log retention with rotating file handlers, and graceful shutdown with comprehensive cleanup.
+- `main.py` - **LEGACY**: The original monolithic 3,297-line entrypoint and orchestration script for the agentic coding assistant. This file contains the complete "Monte Carlo Action Engine," main execution loop, and user input handling in a single massive file. While functional, this represents the pre-refactor architecture with global state dependencies and complex nested logic. Preserved for compatibility and gradual migration.
+
+- `main_refactored.py` - **NEW (2025)**: Clean, modular main entrypoint demonstrating the refactored architecture. At only ~100 lines, this replaces the monolithic main.py by using the new agent/core components. Shows dramatic simplification through dependency injection, modular components, and proper separation of concerns while maintaining full functionality. This is the recommended entry point for new development.
 
 - `enhanced_permissions.py` - Enhanced permission system providing interactive prompts with persistent "always allow" functionality. Supports path-specific permissions, directory-based rules, and intelligent permission scoping with options like exact file, directory pattern, project-wide, or tool-wide permissions. Permission prompts now display tool arguments in addition to file paths and actions.
 

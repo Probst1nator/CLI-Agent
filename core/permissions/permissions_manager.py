@@ -5,7 +5,7 @@ Handles tool-specific and path-specific permission storage and retrieval.
 """
 import json
 import os
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Any
 
 class PermissionsManager:
     def __init__(self, config_path: Optional[str] = None):
@@ -17,7 +17,7 @@ class PermissionsManager:
         self.config_path = config_path
         self.permissions = self._load_permissions()
     
-    def _load_permissions(self) -> Dict:
+    def _load_permissions(self) -> Dict[str, Any]:
         """Load permissions from config file."""
         if os.path.exists(self.config_path):
             try:
@@ -35,7 +35,7 @@ class PermissionsManager:
             "always_allow_groups": {},  # group_name -> set of paths/patterns
             "always_deny_groups": {},   # group_name -> set of paths/patterns
             "always_allow_dev_tools": {
-                "search": ["search"]  # Global permission for search tools like grep
+                "grepsearch": ["grepsearch"]  # Global permission for search tools like grep
             },  # dev_tool_category -> set of paths/patterns
             "global_always_allow": False
         }

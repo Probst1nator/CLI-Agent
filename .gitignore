@@ -72,7 +72,7 @@ venv.bak/
 Thumbs.db
 
 # CLI-Agent specific
-.cliagent/
+.cli-agent/
 *.log
 temp/
 tmp/

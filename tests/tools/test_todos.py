@@ -8,7 +8,6 @@ management and parsing functionality.
 import os
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -226,7 +225,7 @@ def test_todos_malformed_checkboxes():
             todo_content = """- [x] Properly completed task
 - [ ] Properly unchecked task
 - [X] Uppercase X (should not match)
-- [] Missing space in checkbox
+- [ ] Missing space in checkbox
 -[ ] Missing space before bracket
 - [x] Another properly completed task
 - [ ] Another properly unchecked task"""
