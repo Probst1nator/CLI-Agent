@@ -33,14 +33,15 @@ def test_find_cli_agent_root():
 
 def test_get_tool_paths():
     """Test getting tool-specific paths"""
-    tools = ["file_copier", "podcast_generator", "main_cli_agent"]
+    # Test that we can resolve tool paths correctly
+    root = PathResolver.find_cli_agent_root()
+    tools_dir = root / "tools"
+    assert tools_dir.exists(), f"Tools directory missing: {tools_dir}"
     
-    for tool in tools:
-        tool_path = PathResolver.get_tool_path(tool)
-        # Path should be under tools directory
-        assert "tools" in str(tool_path), f"Tool path not under tools/: {tool_path}"
-        # Directory should exist (we created it in setup)
-        assert tool_path.exists(), f"Tool directory missing: {tool_path}"
+    # Test primitives subdirectory exists (this is a real subdirectory)
+    primitives_path = PathResolver.get_tool_path("primitives")
+    assert primitives_path.exists(), f"Primitives directory missing: {primitives_path}"
+    assert "primitives" in str(primitives_path), f"Primitives path incorrect: {primitives_path}"
     
     return True
 

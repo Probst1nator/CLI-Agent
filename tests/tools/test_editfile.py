@@ -8,7 +8,6 @@ and line-specific editing capabilities.
 import os
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 
 # Setup test imports

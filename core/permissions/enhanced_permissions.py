@@ -50,7 +50,7 @@ async def enhanced_permission_prompt(
     # Check if always denied
     if permissions_manager.is_always_denied(tool_name, file_path):
         def create_denied_operation_box(tool_name: str, action_description: str, file_path: str = None):
-            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "search": "🔍"}
+            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
             
@@ -59,20 +59,20 @@ async def enhanced_permission_prompt(
             bottom_border = f"└{'─' * INNER_WIDTH}┘"
             
             print()
-            print(colored(top_border, "red"))
-            print(colored("│", "red") + f" ❌ {tool_emoji} {tool_name} operation blocked by saved preferences".ljust(INNER_WIDTH) + colored("│", "red"))
+            print(colored(top_border, "light_red"))
+            print(colored("│", "light_red") + f" ❌ {tool_emoji} {tool_name} operation blocked by saved preferences".ljust(INNER_WIDTH) + colored("│", "light_red"))
             if file_path:
                 display_path = ("..." + file_path[-(INNER_WIDTH - 9 - 3):]) if len(file_path) > INNER_WIDTH - 9 else file_path
-                print(colored("│", "red") + f"    File: {display_path}".ljust(INNER_WIDTH) + colored("│", "red"))
+                print(colored("│", "light_red") + f"    File: {display_path}".ljust(INNER_WIDTH) + colored("│", "light_red"))
             if args_display:
                 args_short = (args_display[:(INNER_WIDTH - 9 - 3)] + "...") if len(args_display) > INNER_WIDTH - 9 else args_display
-                print(colored("│", "red") + f"    Args: {args_short}".ljust(INNER_WIDTH) + colored("│", "red"))
+                print(colored("│", "light_red") + f"    Args: {args_short}".ljust(INNER_WIDTH) + colored("│", "light_red"))
             if action_description:
                 action_display = (action_description[:(INNER_WIDTH - 11 - 3)] + "...") if len(action_description) > INNER_WIDTH - 11 else action_description
-                print(colored("│", "red") + f"    Action: {action_display}".ljust(INNER_WIDTH) + colored("│", "red"))
-            print(colored("│", "red") + "".ljust(INNER_WIDTH) + colored("│", "red"))
-            print(colored("│", "red") + " 💡 To manage permissions: /permissions list".ljust(INNER_WIDTH) + colored("│", "red"))
-            print(colored(bottom_border, "red"))
+                print(colored("│", "light_red") + f"    Action: {action_display}".ljust(INNER_WIDTH) + colored("│", "light_red"))
+            print(colored("│", "light_red") + "".ljust(INNER_WIDTH) + colored("│", "light_red"))
+            print(colored("│", "light_red") + " 💡 To manage permissions: /permissions list".ljust(INNER_WIDTH) + colored("│", "light_red"))
+            print(colored(bottom_border, "light_red"))
             print()
         
         create_denied_operation_box(tool_name, action_description, file_path)
@@ -81,7 +81,7 @@ async def enhanced_permission_prompt(
     # Check if always allowed
     if permissions_manager.is_always_allowed(tool_name, file_path, command_hash, xml_content):
         def create_granted_operation_box(tool_name: str, action_description: str, file_path: str = None):
-            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "search": "🔍"}
+            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
             
@@ -90,20 +90,19 @@ async def enhanced_permission_prompt(
             bottom_border = f"└{'─' * INNER_WIDTH}┘"
 
             print()
-            print(colored(top_border, "green"))
-            print(colored("│", "green") + f" ✅ {tool_emoji} {tool_name} operation permitted by saved preferences".ljust(INNER_WIDTH) + colored("│", "green"))
+            print(colored(top_border, "light_green"))
+            print(colored("│", "light_green") + f" ✅ {tool_emoji} {tool_name} operation permitted 💡 To manage permissions: /permissions list".ljust(INNER_WIDTH) + colored("│", "light_green"))
             if file_path:
                 display_path = ("..." + file_path[-(INNER_WIDTH - 9 - 3):]) if len(file_path) > INNER_WIDTH - 9 else file_path
-                print(colored("│", "green") + f"    File: {display_path}".ljust(INNER_WIDTH) + colored("│", "green"))
+                print(colored("│", "light_green") + f"    File: {display_path}".ljust(INNER_WIDTH) + colored("│", "light_green"))
             if args_display:
                 args_short = (args_display[:(INNER_WIDTH - 9 - 3)] + "...") if len(args_display) > INNER_WIDTH - 9 else args_display
-                print(colored("│", "green") + f"    Args: {args_short}".ljust(INNER_WIDTH) + colored("│", "green"))
+                print(colored("│", "light_green") + f"    Args: {args_short}".ljust(INNER_WIDTH) + colored("│", "light_green"))
             if action_description:
                 action_display = (action_description[:(INNER_WIDTH - 11 - 3)] + "...") if len(action_description) > INNER_WIDTH - 11 else action_description
-                print(colored("│", "green") + f"    Action: {action_display}".ljust(INNER_WIDTH) + colored("│", "green"))
-            print(colored("│", "green") + "".ljust(INNER_WIDTH) + colored("│", "green"))
-            print(colored("│", "green") + " 💡 To manage permissions: /permissions list".ljust(INNER_WIDTH) + colored("│", "green"))
-            print(colored(bottom_border, "green"))
+                print(colored("│", "light_green") + f"    Action: {action_display}".ljust(INNER_WIDTH) + colored("│", "light_green"))
+            print(colored("│", "light_green") + "".ljust(INNER_WIDTH) + colored("│", "light_green"))
+            print(colored(bottom_border, "light_green"))
             print()
         
         create_granted_operation_box(tool_name, action_description, file_path)
@@ -118,7 +117,7 @@ async def enhanced_permission_prompt(
         top_left, top_right, btm_left, btm_right = "╭", "╮", "╰", "╯"
         horizontal, vertical = "─", "│"
         
-        tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "search": "🔍"}
+        tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
         tool_emoji = tool_emojis.get(tool_name, "⚙️")
         
         display_path, action_display, args_display = "", "", "(no arguments)"
@@ -136,23 +135,23 @@ async def enhanced_permission_prompt(
         def format_line(line_content):
             return f"{vertical}{line_content.ljust(INNER_WIDTH)}{vertical}"
 
-        print(colored(f"{top_left}{horizontal * INNER_WIDTH}{top_right}", "yellow"))
+        print(colored(f"{top_left}{horizontal * INNER_WIDTH}{top_right}", "light_yellow"))
         title_text = f" {tool_emoji} TOOL OPERATION PERMISSION"
-        print(colored(format_line(colored(title_text, "yellow", attrs=['bold'])), "yellow"))
-        print(colored(f"{vertical}{horizontal * INNER_WIDTH}{vertical}", "yellow"))
+        print(colored(format_line(colored(title_text, "light_yellow")), "light_yellow"))
+        print(colored(f"{vertical}{horizontal * INNER_WIDTH}{vertical}", "light_yellow"))
 
         def format_content_line(label, content, color='white'):
-            line = f" {label}: {colored(content, color, attrs=['bold'])}"
+            line = f" {label}: {colored(content, color)}"
             visual_len = len(re.sub(r'\x1b\[[0-9;]*m', '', line))
             padding = " " * max(0, INNER_WIDTH - visual_len)
-            return colored(f"{vertical}{line}{padding}{vertical}", "yellow")
+            return colored(f"{vertical}{line}{padding}{vertical}", "light_yellow")
 
-        print(format_content_line("Tool", tool_name, 'cyan'))
+        print(format_content_line("Tool", tool_name, 'light_blue'))
         if file_path:
             print(format_content_line("File", display_path, 'white'))
-        print(format_content_line("Args", args_display, 'magenta'))
-        print(format_content_line("Action", action_display, 'light_blue'))
-        print(colored(f"{btm_left}{horizontal * INNER_WIDTH}{btm_right}", "yellow"))
+        print(format_content_line("Args", args_display, 'light_magenta'))
+        print(format_content_line("Action", action_display, 'blue'))
+        print(colored(f"{btm_left}{horizontal * INNER_WIDTH}{btm_right}", "light_yellow"))
     
     create_tool_operation_box(tool_name, action_description, file_path, format_xml_args(xml_content))
     
@@ -171,64 +170,69 @@ async def enhanced_permission_prompt(
     top_border = f"┌{options_title}{'─' * (INNER_WIDTH - len(options_title))}┐"
     bottom_border = f"└{'─' * INNER_WIDTH}┘"
     
-    print(colored(top_border, "cyan"))
+    print(colored(top_border, "blue"))
     
     suggestions = permissions_manager.get_permission_suggestions(tool_name, file_path, command_pattern, has_paths)
     
     options = []
     if hasattr(args, 'voice') and args.voice:
-        options.append(f" {colored('Enter', 'light_green', attrs=['bold'])} or {colored('y', 'light_green', attrs=['bold'])} (say '{colored('yes', 'light_green')}') → Confirm this operation")
-        options.append(f" {colored('n', 'red', attrs=['bold'])} (say '{colored('no', 'red')}') → Abort this operation")
+        options.append(f" {colored('Enter', 'green')} or {colored('y', 'green')} (say '{colored('yes', 'green')}') → Confirm this operation")
+        options.append(f" {colored('n', 'light_red')} (say '{colored('no', 'light_red')}') → Abort this operation")
         if smart_action:
-            options.append(f" {colored(smart_action['quick_key'], 'light_blue', attrs=['bold'])} (say '{colored(smart_action['category'], 'light_blue')}') → Always allow {smart_action['display_name']} for {smart_action['scope_description']}")
+            options.append(f" {colored(smart_action['quick_key'], 'light_blue')} (say '{colored(smart_action['category'], 'light_blue')}') → Always allow {smart_action['display_name']} for {smart_action['scope_description']}")
         
         option_keys = ['a', 's', 'p', 't']
         for i, suggestion in enumerate(suggestions[:4]):
             processed_suggestion = prepare_suggestion_for_display(suggestion, INNER_WIDTH - 24)
-            options.append(f" {colored(option_keys[i], 'blue', attrs=['bold'])} (say '{colored(f'always{i+1}', 'blue')}') → {processed_suggestion}")
+            options.append(f" {colored(option_keys[i], 'blue')} (say '{colored(f'always{i+1}', 'blue')}') → {processed_suggestion}")
         
-        options.append(f" {colored('d', 'magenta', attrs=['bold'])} (say '{colored('deny', 'magenta')}') → Always deny this file")
-        options.append(f" {colored('D', 'magenta', attrs=['bold'])} (say '{colored('denyall', 'magenta')}') → Always deny all {tool_name} operations")
-        options.append(f" {colored('m', 'yellow', attrs=['bold'])} (say '{colored('manage', 'yellow')}') → Manage all saved permissions")
-        options.append(f" {colored('?', 'yellow', attrs=['bold'])} (say '{colored('help', 'yellow')}') → Show detailed help")
+        options.append(f" {colored('d', 'light_magenta')} (say '{colored('deny', 'light_magenta')}') → Always deny this file")
+        options.append(f" {colored('D', 'light_magenta')} (say '{colored('denyall', 'light_magenta')}') → Always deny all {tool_name} operations")
+        options.append(f" {colored('m', 'light_yellow')} (say '{colored('manage', 'light_yellow')}') → Manage all saved permissions")
+        options.append(f" {colored('?', 'light_yellow')} (say '{colored('help', 'light_yellow')}') → Show detailed help")
     else:
-        options.append(f" {colored('Enter', 'light_green', attrs=['bold'])} or {colored('y', 'light_green', attrs=['bold'])} → Confirm this operation")
-        options.append(f" {colored('n', 'red', attrs=['bold'])} → Abort this operation")
+        options.append(f" {colored('Enter', 'green')} or {colored('y', 'green')} → Confirm this operation")
+        options.append(f" {colored('n', 'light_red')} → Abort this operation")
         if smart_action:
-            options.append(f" {colored(smart_action['quick_key'], 'light_blue', attrs=['bold'])} → Always allow {smart_action['display_name']} for {smart_action['scope_description']}")
+            options.append(f" {colored(smart_action['quick_key'], 'light_blue')} → Always allow {smart_action['display_name']} for {smart_action['scope_description']}")
         
         option_keys = ['a', 's', 'p', 't']
         for i, suggestion in enumerate(suggestions[:4]):
             processed_suggestion = prepare_suggestion_for_display(suggestion, INNER_WIDTH - 7)
-            options.append(f" {colored(option_keys[i], 'blue', attrs=['bold'])} → {processed_suggestion}")
+            options.append(f" {colored(option_keys[i], 'blue')} → {processed_suggestion}")
 
-        options.append(f" {colored('d', 'magenta', attrs=['bold'])} → Always deny this file")
-        options.append(f" {colored('D', 'magenta', attrs=['bold'])} → Always deny all {tool_name} operations")
-        options.append(f" {colored('m', 'yellow', attrs=['bold'])} → Manage all saved permissions")
-        options.append(f" {colored('?', 'yellow', attrs=['bold'])} → Show detailed help")
+        options.append(f" {colored('d', 'light_magenta')} → Always deny this file")
+        options.append(f" {colored('D', 'light_magenta')} → Always deny all {tool_name} operations")
+        options.append(f" {colored('m', 'light_yellow')} → Manage all saved permissions")
+        options.append(f" {colored('?', 'light_yellow')} → Show detailed help")
     
     for line in options:
-        print(colored("│", "cyan") + format_option_line(line) + colored("│", "cyan"))
+        print(colored("│", "blue") + format_option_line(line) + colored("│", "blue"))
     
-    print(colored(bottom_border, "cyan"))
+    print(colored(bottom_border, "blue"))
     
     while True:
-        if get_user_input_func:
-            user_input, _ = await get_user_input_func(
-                args, None, colored("> ", "cyan"),
-                input_event=input_event, 
-                input_lock=input_lock, 
-                shared_input=shared_input
-            )
-        else:
-            user_input = input(colored("> ", "cyan"))
-        
-        user_input = user_input.strip().lower()
+        try:
+            if get_user_input_func:
+                user_input, _ = await get_user_input_func(
+                    args, None, colored("Choose an option: ", "blue"),
+                    input_event=input_event, 
+                    input_lock=input_lock, 
+                    shared_input=shared_input
+                )
+            else:
+                user_input = input(colored(f"Choose an option {colored('y', 'green')}: ", "blue"))
+            
+            user_input = user_input.strip().lower()
+        except KeyboardInterrupt:
+            # User pressed Ctrl+C during permission prompt - treat as denial
+            print(colored("\n❌ Operation cancelled by user (Ctrl+C).", "yellow"))
+            return False
         
         if user_input in ('', 'y', 'yes'):
             return True
         elif user_input in ('n', 'no'):
-            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "search": "🔍"}
+            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
             
@@ -303,7 +307,7 @@ async def handle_direct_always_allow(suggestion: str, tool_name: str, file_path:
     
     print(colored(f"✅ Permission rule added: {suggestion}", "green"))
 
-async def handle_smart_quick_action(smart_action: Dict, tool_name: str, file_path: str, permissions_manager, command_pattern: str):
+async def handle_smart_quick_action(smart_action: Dict[str, Any], tool_name: str, file_path: str, permissions_manager, command_pattern: str):
     category = smart_action['category']
     scope_path = smart_action['scope_path']
     scope_description = smart_action['scope_description']
@@ -336,15 +340,20 @@ async def handle_permission_management(get_user_input_func, args, input_event, i
     print()
     
     while True:
-        if get_user_input_func:
-            user_input, _ = await get_user_input_func(
-                args, None, colored("Permission Manager> ", "cyan"),
-                input_event=input_event, input_lock=input_lock, shared_input=shared_input
-            )
-        else:
-            user_input = input(colored("Permission Manager> ", "cyan"))
-        
-        user_input = user_input.strip().lower()
+        try:
+            if get_user_input_func:
+                user_input, _ = await get_user_input_func(
+                    args, None, colored("Permission Manager> ", "cyan"),
+                    input_event=input_event, input_lock=input_lock, shared_input=shared_input
+                )
+            else:
+                user_input = input(colored("Permission Manager> ", "cyan"))
+            
+            user_input = user_input.strip().lower()
+        except KeyboardInterrupt:
+            # User pressed Ctrl+C in permission manager - return to prompt
+            print(colored("\n↩️  Returning to permission prompt (Ctrl+C)...", "yellow"))
+            break
         
         if user_input in ('back', 'exit'):
             print(colored("↩️  Returning to permission prompt...", "green"))

@@ -8,7 +8,6 @@ overwriting, and error handling capabilities.
 import os
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 
 # Setup test imports

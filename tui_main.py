@@ -9,9 +9,60 @@ from typing import Optional, Dict, Any
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, RichLog, Input
 from textual.worker import Worker, WorkerState
+from textual.suggester import Suggester
 
 # --- Project Imports ---
-from tools.main_cli_agent.main import main as run_agent_logic, parse_cli_args, setup_logging
+from main import main as run_agent_logic, parse_cli_args, setup_logging
+from main import get_command_definitions, get_command_descriptions
+
+class CommandSuggester(Suggester):
+    """A command suggester for Textual Input based on CLI-Agent's nested command dictionary."""
+
+    def __init__(self, command_dict: Dict[str, Any]):
+        super().__init__(use_cache=True)  # Enable caching for better performance
+        self.command_dict = command_dict
+        self.descriptions = get_command_descriptions()
+
+    async def get_suggestion(self, value: str) -> str:
+        """
+        Given the current input value, return the best matching suggestion.
+        Note: Textual doesn't support tooltips, so we can only return the command itself.
+        
+        Args:
+            value: Current input text
+            
+        Returns:
+            Best matching command or empty string if no match
+        """
+        if not value or not value.startswith("/"):
+            return ""
+
+        # Handle exact matches first
+        if value in self.command_dict:
+            return value
+
+        # Find the best partial match
+        current_dict = self.command_dict
+        parts = value.split()
+        
+        if len(parts) == 1:
+            # Single command - find best match
+            partial = parts[0]
+            matches = [cmd for cmd in current_dict.keys() if cmd.startswith(partial)]
+            if matches:
+                # Return the shortest match (most likely intended command)
+                best_match = sorted(matches, key=len)[0]
+                return best_match
+        
+        elif len(parts) == 2:
+            # Command with subcommand - check if main command exists and has subcommands
+            main_cmd, sub_partial = parts[0], parts[1]
+            if main_cmd in current_dict and isinstance(current_dict[main_cmd], dict):
+                sub_matches = [sub for sub in current_dict[main_cmd].keys() if sub.startswith(sub_partial)]
+                if sub_matches:
+                    return f"{main_cmd} {sorted(sub_matches, key=len)[0]}"
+        
+        return ""
 
 class StdoutRedirector:
     """A thread-safe object that redirects stdout to the TUI via the event loop."""
@@ -89,6 +140,10 @@ class AgentTUI(App):
         # which would cause them to be printed in the RichLog.
         self.logger.propagate = False
         
+        # Initialize command suggester for auto-completion
+        self.command_suggester = CommandSuggester(get_command_definitions())
+        self.logger.info("Command suggester initialized")
+        
         self.logger.info("=== TUI Application Starting ===")
 
     def compose(self) -> ComposeResult:
@@ -114,6 +169,11 @@ class AgentTUI(App):
         # so the agent's output goes to the TUI from the very beginning
         sys.stdout = StdoutRedirector(log_widget, main_loop, self)
         sys.stderr = StdoutRedirector(log_widget, main_loop, self)
+        
+        # Attach command suggester to the input widget
+        input_widget = self.query_one(Input)
+        input_widget.suggester = self.command_suggester
+        self.logger.info("Command suggester attached to input widget")
         self.logger.info("Stdout/stderr redirected to TUI")
 
         # Start the main agent logic in a background thread

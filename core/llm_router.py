@@ -340,12 +340,14 @@ class LlmRouter:
             provider_info = ""
             provider_emoji = ""
             
-            if model.provider.__class__.__name__ == 'OllamaClient' and hasattr(model.provider.__class__, 'current_host') and model.provider.__class__.current_host:
-                provider_info = f" on <{model.provider.__class__.current_host}>"
+            if model.provider.__class__.__name__ == 'OllamaClient':
+                # Get host info - use localhost if current_host is None
+                host = getattr(model.provider.__class__, 'current_host', None) or "localhost:11434"
+                provider_info = f" on <{host}>"
                 provider_emoji = "🏠 "  # Local/home emoji
                 if colored_output:
                     from termcolor import colored
-                    provider_info = provider_info.replace(f"<{model.provider.__class__.current_host}>", colored(f"<{model.provider.__class__.current_host}>", "light_green", attrs=["bold"]))
+                    provider_info = provider_info.replace(f"<{host}>", colored(f"<{host}>", "light_green", attrs=["bold"]))
             elif model.provider.__class__.__name__ != 'OllamaClient':
                 # For non-Ollama providers, show the provider name with cloud emoji
                 provider_name = model.provider.__class__.__name__.replace('API', '').replace('Client', '')
@@ -648,7 +650,7 @@ class LlmRouter:
         hidden_reason: str,
         debug_title:str,
         callback: Optional[Callable] = None,
-        branch_context: Optional[Dict] = None
+        branch_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Process a cached response.
@@ -876,7 +878,7 @@ class LlmRouter:
         generation_stream_callback: Optional[Callable] = None,
         follows_condition_callback: Optional[Callable] = None,
         decision_patterns: Optional[Dict[str, str]] = None,
-        branch_context: Optional[Dict] = None,
+        branch_context: Optional[Dict[str, Any]] = None,
         assistant_prefix: Optional[str] = ""
     ) -> str:
         """
@@ -1283,9 +1285,7 @@ class LlmRouter:
                     return exclude_reasoning(full_response)
 
                 except KeyboardInterrupt:
-                    # Explicitly catch Ctrl+C during model generation
-                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    g.debug_log("User interrupted model generation (Ctrl+C).", "yellow", is_error=True, force_print=True, prefix=prefix)
+                    # Explicitly catch Ctrl+C during model generation and convert to clean exception
                     raise UserInterruptedException("Model generation interrupted by user (Ctrl+C).")
                 
             except (UserInterruptedException, StreamInterruptedException):
@@ -1442,7 +1442,7 @@ class LlmRouter:
             print(colored(f"Failed to save chat completion pair: {e}", "red"))
     
     @classmethod
-    def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str, elapsed_time: float = None, branch_context: Dict = None) -> bool:
+    def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str, elapsed_time: float = None, branch_context: Dict[str, Any] = None) -> bool:
         """Extract and log decisions from model responses. Returns True if decision found."""
         import re
         

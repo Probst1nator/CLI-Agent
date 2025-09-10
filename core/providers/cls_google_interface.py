@@ -203,10 +203,10 @@ class GoogleAPI(AIProviderInterface):
         # Print status message with timeout info
         if silent_reason:
             temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", force_print=True, prefix=prefix)
+            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", force_print=g.VERBOSE_DEBUG, prefix=prefix)
         else:
             temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", "green", force_print=True, prefix=prefix)
+            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", "green", force_print=g.VERBOSE_DEBUG, prefix=prefix)
         
         # Generate streaming response with timeout - let errors bubble up to the router
         # except for rate limit errors, which we'll handle here

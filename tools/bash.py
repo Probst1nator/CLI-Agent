@@ -2,13 +2,14 @@
 """
 This file implements the 'bash' tool. It allows the agent to execute
 shell commands within a persistent pseudo-terminal, with live
-streaming of output to the console.
+streaming of output to the console and robust timeout handling.
 """
 import pexpect
 import io
 import uuid
 import logging
 import re
+import asyncio
 from typing import Callable, Optional
 from termcolor import colored
 
@@ -17,8 +18,8 @@ from core.globals import g
 
 class BashSession:
     """
-    Manages a persistent bash session in a pseudo-terminal, allowing for
-    command execution with real-time, streaming output.
+    Manages a persistent bash session in a pseudo-terminal with async execution
+    and robust, global timeout enforcement.
     """
     def __init__(self,
                  stdout_callback: Optional[Callable[[str], None]] = None,
@@ -27,40 +28,24 @@ class BashSession:
         self.stdout_callback = stdout_callback or (lambda text: print(text, end=''))
         self.stderr_callback = stderr_callback or (lambda text: print(colored(f"STDERR: {text}", "red"), end=''))
 
-        # A unique, hard-to-guess string to use as the shell prompt. This is the
-        # primary mechanism for reliably detecting when a command has finished executing.
         self.bash_prompt_regex = f"__PROMPT_{uuid.uuid4().hex}__"
         self.child = None
 
         logging.info(colored("  - Starting bash session...", "cyan"))
         
         try:
-            # Spawn a new bash process. --noprofile and --norc ensure a clean, predictable environment.
             self.child = pexpect.spawn('bash --noprofile --norc', encoding='utf-8', timeout=60, dimensions=(24, 120))
-            
-            # Set the unique prompt to reliably detect command completion.
             self.child.sendline(f'export PS1="{self.bash_prompt_regex}"')
             self.child.expect_exact(self.bash_prompt_regex, timeout=10)
-
-            # Configure the shell for automation:
-            # stty -echo: Prevents the terminal from echoing back the commands we send.
-            # set +H: Disables history expansion (e.g., '!!' or '!$').
-            self.child.sendline('stty -echo')
+            self.child.sendline('stty -echo; set +H')
             self.child.expect_exact(self.bash_prompt_regex, timeout=10)
-            self.child.sendline('set +H')
-            self.child.expect_exact(self.bash_prompt_regex, timeout=10)
-
-            # CRITICAL: Execute a dummy command with a unique boundary to flush all startup messages
-            # and leave the session in a pristine, ready state for the first real command.
+            
             dummy_boundary = f"__INIT_BOUNDARY_{uuid.uuid4().hex}__"
             self.child.sendline(f'echo "{dummy_boundary}"')
             self.child.expect_exact(dummy_boundary, timeout=10)
             self.child.expect_exact(self.bash_prompt_regex, timeout=10)
             
-            # Clear all buffers to ensure a clean state.
-            self.child.before = ""
-            self.child.after = ""
-            
+            self.child.before = self.child.after = ""
             logging.info(colored("  - Bash session ready.", "cyan"))
 
         except pexpect.exceptions.ExceptionPexpect as e:
@@ -69,93 +54,80 @@ class BashSession:
             raise
 
     def _stream_output(self, line: str):
-        """Processes and streams a single, complete line of output."""
         self.stdout_callback(f"⚙️  {line}\n")
 
-    def execute(self, command: str, timeout: int) -> str:
+    async def execute(self, command: str, timeout: int) -> str:
         """
-        Executes a command using an active reading loop to provide true
-        live output streaming and capture the full result.
-        
-        Args:
-            command: The shell command to execute.
-            timeout: The maximum time in seconds to wait for the command to complete.
+        Executes a command asynchronously with a global timeout.
         """
         if not self.child or not self.child.isalive():
             raise ConnectionError("Bash session is not active.")
 
-        try:
-            clean_command = command.strip()
-            if not clean_command:
-                return "The bash call was passed without a command."
+        clean_command = command.strip()
+        if not clean_command:
+            return "The bash call was passed without a command."
 
-            # Use another unique boundary to signal the end of the command's output.
-            boundary = f"__BOUNDARY_{uuid.uuid4().hex}__"
-            full_command_with_boundary = f'{clean_command}; echo "{boundary}"'
-            
+        boundary = f"__BOUNDARY_{uuid.uuid4().hex}__"
+        full_command_with_boundary = f'{clean_command}; echo "{boundary}"'
+
+        async def _read_loop():
+            output_capture = io.StringIO()
             self.child.sendline(full_command_with_boundary)
             
-            output_capture = io.StringIO()
-            
             while True:
-                # Expect either the boundary or a newline. This allows for line-by-line streaming.
+                # Run the blocking pexpect call in a thread to not block asyncio loop
+                loop = asyncio.get_running_loop()
                 patterns = self.child.compile_pattern_list([boundary, r'\r\n'])
-                index = self.child.expect_list(patterns, timeout=timeout)
-
-                # The output since the last match is in `child.before`.
-                output_fragment = self.child.before
+                index = await loop.run_in_executor(
+                    None, lambda: self.child.expect_list(patterns, timeout=timeout + 5) # Inner timeout slightly longer
+                )
                 
-                # Filter out the echoed command itself from the output.
-                if full_command_with_boundary in output_fragment:
-                    output_fragment = output_fragment.replace(full_command_with_boundary, "").lstrip('\r\n')
+                output_fragment = self.child.before.replace(full_command_with_boundary, "").lstrip('\r\n')
 
                 if output_fragment:
-                    # Stream and capture the clean fragment.
                     clean_line = output_fragment.strip()
                     if clean_line:
                         self._stream_output(clean_line)
                         output_capture.write(clean_line + '\n')
                 
-                if index == 0:  # Boundary found, command is finished.
+                if index == 0:  # Boundary found
                     break
-                # if index == 1, it was just a newline, so we loop again for more output.
-
-            # Consume the final shell prompt to leave the session clean for the next command.
-            self.child.expect_exact(self.bash_prompt_regex, timeout=10)
-
+            
+            await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, 10)
             return output_capture.getvalue().strip()
 
-        except (pexpect.exceptions.TIMEOUT, pexpect.exceptions.EOF) as e:
-            error_type = type(e).__name__
-            error_string = f"\n[Error: {error_type} while executing command. The session may have timed out or closed.]\n"
+        try:
+            return await asyncio.wait_for(_read_loop(), timeout=timeout)
+        except asyncio.TimeoutError:
+            error_string = f"\n[Error: TIMEOUT while executing command after {timeout} seconds. The process was terminated.]\n"
             if self.child and self.child.before:
                  error_string += f"Partial output: {self.child.before.strip()}"
             self.stderr_callback(error_string)
             self._try_recover_session()
-            if isinstance(e, pexpect.exceptions.EOF):
-                self.child = None # Mark session as dead
+            return error_string
+        except pexpect.exceptions.EOF:
+            error_string = "\n[Error: EOF while executing command. The session closed unexpectedly.]\n"
+            self.stderr_callback(error_string)
+            self.child = None # Mark session as dead
             return error_string
 
     def _try_recover_session(self):
-        """Attempts to recover a stalled session by sending Ctrl+C (SIGINT)."""
         if not self.child or not self.child.isalive(): return
         try:
-            self.child.sendintr() # Send SIGINT
-            self.child.expect_exact(self.bash_prompt_regex, timeout=5)
-            self.child.before, self.child.after = "", "" # Clean up buffers after recovery
-            self.stdout_callback("[Session recovered by sending SIGINT (Ctrl+C)]\n")
+            self.child.sendintr() # Send SIGINT (Ctrl+C)
+            self.child.expect_exact(self.bash_prompt_regex, timeout=2)
+            self.child.before = self.child.after = ""
+            self.stdout_callback("\n[Session recovered by sending SIGINT (Ctrl+C)]\n")
         except (pexpect.exceptions.TIMEOUT, pexpect.exceptions.EOF):
-            self.stderr_callback("[Failed to recover session. It may be unstable or dead.]\n")
+            self.stderr_callback("\n[Failed to recover session. Terminating process.]\n")
             if self.child: self.child.close(force=True)
             self.child = None
 
     def close(self):
-        """Closes the bash session."""
         if self.child and self.child.isalive():
             self.child.close(force=True)
         logging.info(colored("  - Bash session closed.", "cyan"))
         self.child = None
-
 
 class bash:
     _session: Optional[BashSession] = None
@@ -174,10 +146,6 @@ class bash:
 
     @staticmethod
     def _get_session() -> BashSession:
-        """
-        Initializes and returns the singleton BashSession instance.
-        If the session has died, it is automatically restarted.
-        """
         session_dead = (bash._session is None or 
                         bash._session.child is None or 
                         not bash._session.child.isalive())
@@ -185,8 +153,6 @@ class bash:
         if session_dead:
             if bash._session:
                 logging.warning(colored("  - Bash session was found dead. Restarting.", "yellow"))
-            # This assumes that the stdout/stderr callbacks are available via `g`
-            # which is set up in the main application entry point.
             bash._session = BashSession(
                 stdout_callback=getattr(g, 'stdout_callback', None),
                 stderr_callback=getattr(g, 'stderr_callback', None)
@@ -194,38 +160,32 @@ class bash:
         return bash._session
 
     @staticmethod
-    def run(content: str) -> str:
+    async def run(content: str) -> str:
         """
-        Parses XML-like input to extract a command and a timeout, then executes
-        the shell command. Live output is streamed to the console, and the full,
-        clean output is returned as a string upon completion.
+        Parses XML-like input, extracts a command and timeout, and executes it
+        asynchronously with a global timeout.
         """
         try:
-            # Parse the timeout and command from the content
             timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
             
-            if not timeout_match:
-                return "Error: The <bash> tool requires a <timeout> tag with an integer value (e.g., <timeout>60</timeout>)."
-
-            # if timeout wasnt passed fallback to default = 10
-            timeout = int(timeout_match.group(1))
-            if timeout <= 0:
+            if timeout_match:
+                timeout = int(timeout_match.group(1))
+                if timeout <= 0: timeout = 10
+                command_content = content.replace(timeout_match.group(0), '').strip()
+            else:
+                # Use default timeout of 10 seconds when no timeout is provided
                 timeout = 10
-
-            # Extract the command by removing the timeout tag from the content
-            command_content = content.replace(timeout_match.group(0), '').strip()
+                command_content = content.strip()
 
             if not command_content:
                 return "Error: No command provided to execute in the <bash> tool."
 
             session = bash._get_session()
-            # Pass the parsed values to the modified execute method
-            bash_return = session.execute(command_content, timeout=timeout)
+            bash_return = await session.execute(command_content, timeout=timeout)
             
-            if (not bash_return.strip()):
-                bash_return = "The bash tool exited successfully."
+            if not bash_return.strip():
+                bash_return = "The bash tool exited successfully with no output."
             return bash_return
         except Exception as e:
-            # This catch is mainly for fatal errors during session creation.
             logging.error(f"Fatal error executing bash command: {e}", exc_info=True)
             return f"Fatal error executing bash command: {e}"
