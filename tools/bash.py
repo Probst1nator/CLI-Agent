@@ -55,36 +55,42 @@ class BashSession:
         logging.info(colored("  - Starting bash session...", "cyan"))
         
         try:
-            # --- DEFINITIVE FIX: Use pexpect's echo=False instead of sending 'stty -echo' ---
+            # --- DEFINITIVE FIX: Use pexpect's echo=False and remove the 'stty' command ---
             self.child = pexpect.spawn('bash --noprofile --norc', 
                                        encoding='utf-8', 
                                        timeout=60, 
                                        dimensions=(24, 120), 
-                                       echo=False)
+                                       echo=False) # This is the correct, low-level way to disable echo.
             
             # Set the custom prompt and wait for it to appear
             self.child.sendline(f'export PS1="{self.bash_prompt_regex}"')
-            self.child.expect_exact(self.bash_prompt_regex, timeout=5)
+            self.child.expect_exact(self.bash_prompt_regex, timeout=10)
             
-            # The problematic 'stty' command is now removed.
+            # The problematic 'stty' and 'set +H' commands are now removed.
             
             # Send a final command to flush any startup messages and confirm the session is ready
             dummy_boundary = f"__INIT_BOUNDARY_{uuid.uuid4().hex}__"
             self.child.sendline(f'echo "{dummy_boundary}"')
-            self.child.expect_exact(dummy_boundary, timeout=5) # Expect the echo'd boundary
-            self.child.expect_exact(self.bash_prompt_regex, timeout=5) # Expect the prompt that follows
+            self.child.expect_exact(dummy_boundary, timeout=10) # Expect the echo'd boundary
+            self.child.expect_exact(self.bash_prompt_regex, timeout=10) # Expect the prompt that follows
             
             # Clear buffers to start clean
             self.child.before = self.child.after = ""
             logging.info(colored("  - Bash session ready.", "cyan"))
 
         except pexpect.exceptions.ExceptionPexpect as e:
+            # --- Enhanced Error Logging ---
             logging.error(colored(f"  - Failed to spawn bash: {e}", "red"))
+            if self.child:
+                logging.error(f"    Pexpect 'before' buffer: {self.child.before}")
+                logging.error(f"    Pexpect 'after' buffer: {self.child.after}")
             self.child = None
             raise
 
     def _stream_output(self, line: str):
-        self.stdout_callback(f"⚙️  {line}\n")
+        # Filter out the internal prompt from the streamed output
+        if self.bash_prompt_regex not in line:
+            self.stdout_callback(f"⚙️  {line}\n")
 
     async def execute(self, command: str, timeout: int) -> str:
         """
@@ -108,7 +114,7 @@ class BashSession:
             
             while True:
                 loop = asyncio.get_running_loop()
-                patterns = self.child.compile_pattern_list([boundary, r'\r\n'])
+                patterns = self.child.compile_pattern_list([boundary, self.bash_prompt_regex, r'\r\n'])
                 index = await loop.run_in_executor(
                     None, lambda: self.child.expect_list(patterns, timeout=timeout + 5)
                 )
@@ -117,12 +123,14 @@ class BashSession:
 
                 if output_fragment:
                     clean_line = output_fragment.strip()
-                    if clean_line:
+                    if clean_line and self.bash_prompt_regex not in clean_line:
                         self._stream_output(clean_line)
                         output_capture.write(clean_line + '\n')
                 
                 if index == 0:  # Boundary found
                     break
+                if index == 1: # Intermediate prompt found, ignore it
+                    continue
             
             await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, 5)
             return output_capture.getvalue().strip()
