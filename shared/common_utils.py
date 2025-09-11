@@ -1,7 +1,5 @@
 from collections import defaultdict
-import hashlib
 import os
-import pickle
 import re
 import subprocess
 import tempfile
@@ -18,7 +16,6 @@ logger = logging.getLogger(__name__)
 from core.providers.cls_groq_interface import GroqAPI
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 from speech_recognition import Microphone, Recognizer, WaitTimeoutError
-from io import StringIO
 # Moved pdfminer imports to lazy loading in functions that need them
 
 from core.providers.cls_ollama_interface import OllamaClient
@@ -208,76 +205,8 @@ def clean_pdf_text(text: str):
 import os
 from typing import List, Union
 
-def get_cache_file_path(file_path: str, cache_key: str) -> str:
-    cache_dir = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, "pdf_cache")
-    os.makedirs(cache_dir, exist_ok=True)
-    last_modified = os.path.getmtime(file_path)
-    full_cache_key = hashlib.md5(f"{file_path}_{last_modified}".encode()).hexdigest()
-    return os.path.join(cache_dir, f"{cache_key}_{full_cache_key}.pickle")
-
-def load_from_cache(cache_file: str) -> Union[str, List[str], None]:
-    if os.path.exists(cache_file):
-        with open(cache_file, 'rb') as f:
-            return pickle.load(f)
-    return None
-
-def save_to_cache(cache_file: str, content: Union[str, List[str]]) -> None:
-    with open(cache_file, 'wb') as f:
-        pickle.dump(content, f)
-
-def extract_text_from_pdf(pdf_path: str) -> List[str]:
-    # Lazy import pdfminer modules
-    from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
-    from pdfminer.converter import TextConverter
-    from pdfminer.layout import LAParams
-    from pdfminer.pdfpage import PDFPage
-    
-    resource_manager = PDFResourceManager()
-    page_contents = []
-    
-    with open(pdf_path, 'rb') as fh:
-        pages = list(PDFPage.get_pages(fh, caching=True, check_extractable=True))
-        for i, page in enumerate(pages):
-            fake_file_handle = StringIO()
-            converter = TextConverter(resource_manager, fake_file_handle, laparams=LAParams(all_texts=True))
-            page_interpreter = PDFPageInterpreter(resource_manager, converter)
-            
-            page_interpreter.process_page(page)
-            
-            text = fake_file_handle.getvalue()
-            page_contents.append(clean_pdf_text(text))
-            
-            converter.close()
-            fake_file_handle.close()
-            
-            print(colored(f"{i+1}/{len(pages)}. Extracted page from '{pdf_path}'", "green"))
-    
-    return page_contents
-
-def extract_pdf_content_page_wise(file_path: str) -> List[str]:
-    cache_file = get_cache_file_path(file_path, "page_wise_text")
-    cached_content = load_from_cache(cache_file)
-    
-    if cached_content is not None:
-        return cached_content
-    
-    page_contents = extract_text_from_pdf(file_path)
-    
-    save_to_cache(cache_file, page_contents)
-    return page_contents
-
-def extract_pdf_content(file_path: str) -> str:
-    cache_file = get_cache_file_path(file_path, "full_text")
-    cached_content = load_from_cache(cache_file)
-    
-    if cached_content is not None:
-        return cached_content
-    
-    page_contents = extract_text_from_pdf(file_path)
-    full_content = "\n".join(page_contents)
-    
-    save_to_cache(cache_file, full_content)
-    return full_content
+# PDF processing functions moved to shared.utils.pdf_utils
+# Import PDF utilities from the centralized module
 
 def get_atuin_history(limit: int = 10) -> List[str]:
     """
@@ -370,7 +299,7 @@ def update_cmd_collection():
     if all_commands:
         for command in all_commands:
             if not collection.get(command)['documents']:
-                cmd_embedding = OllamaClient.generate_embedding(command, "bge-m3")
+                cmd_embedding = OllamaClient.generate_embedding(command)
                 if not cmd_embedding:
                     break
                 collection.add(
@@ -400,26 +329,6 @@ def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
 
     return prompt
 
-def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
-    all_contents = []
-
-    if os.path.isfile(pdf_or_folder_path):
-        if pdf_or_folder_path.lower().endswith('.pdf'):
-            text_content = extract_pdf_content(pdf_or_folder_path)
-            # if ("steffen" in text_content.lower()):
-            all_contents.append(clean_pdf_text(text_content))
-    elif os.path.isdir(pdf_or_folder_path):
-        for root, _, files in os.walk(pdf_or_folder_path):
-            for file in files:
-                if file.lower().endswith('.pdf'):
-                    file_path = os.path.join(root, file)
-                    text_content = extract_pdf_content(file_path)
-                    # if ("steffen" in text_content.lower()):
-                    all_contents.append(clean_pdf_text(text_content))
-    else:
-        raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
-
-    return "\n\n".join(all_contents)
 
 import time
 from typing import List

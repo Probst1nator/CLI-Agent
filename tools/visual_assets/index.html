@@ -1,0 +1,339 @@
+<!-- tools/visual_assets/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Visual Response</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --surface-color: #1e1e1e;
+            --text-color: #e0e0e0;
+            --border-color: #333;
+            --primary-color: #007acc;
+            --status-connecting: #ffc107;
+            --status-connected: #28a745;
+            --status-disconnected: #dc3545;
+            --button-bg: #333;
+            --button-hover-bg: #444;
+            --mermaid-bg: #ffffff; /* Mermaid diagrams need a light background for default theme */
+        }
+        html[data-theme='light'] {
+            --bg-color: #f5f5f5;
+            --surface-color: #ffffff;
+            --text-color: #212121;
+            --border-color: #e0e0e0;
+            --button-bg: #e0e0e0;
+            --button-hover-bg: #d0d0d0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6; margin: 0; padding: 20px; background-color: var(--bg-color); color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+            padding-bottom: 80px; /* Add padding to prevent content being hidden by input */
+        }
+        .container { max-width: 90%; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary-color); padding-bottom: 10px; }
+        #status { font-weight: bold; transition: color 0.3s; }
+        #theme-switcher button {
+            background-color: var(--button-bg); color: var(--text-color); border: 1px solid var(--border-color);
+            padding: 8px 12px; margin-left: 5px; border-radius: 6px; cursor: pointer; transition: background-color 0.2s;
+        }
+        #theme-switcher button:hover { background-color: var(--button-hover-bg); }
+        #content-wrapper { background-color: var(--surface-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 25px; min-height: 70vh; margin-top: 20px; overflow: auto; }
+        .mermaid { text-align: center; background-color: var(--mermaid-bg); border-radius: 8px; padding: 15px; margin-top: 10px; cursor: move; }
+        pre { background-color: #2a2a2a; padding: 15px; border-radius: 4px; font-family: "SF Mono", "Fira Code", "Courier New", monospace; white-space: pre-wrap; word-wrap: break-word; }
+        code:not(pre > code) { background-color: #2a2a2a; padding: 2px 5px; border-radius: 4px; font-family: "SF Mono", "Fira Code", "Courier New", monospace; }
+        /* Other wrappers */
+        #plotly-wrapper, #molecule-wrapper { display: none; margin-top: 20px; border-radius: 8px; height: 70vh; width: 100%; position: relative; }
+
+        /* --- Chat Input Field Styles --- */
+        .chat-input-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            background-color: var(--surface-color);
+            border-top: 1px solid var(--border-color);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+        }
+        #chat-form {
+            width: 100%;
+            max-width: 90%; /* Match container width */
+            display: flex;
+        }
+        #chat-input {
+            flex-grow: 1;
+            padding: 10px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-size: 1rem;
+            margin-right: 10px;
+        }
+        #chat-form button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            background-color: var(--primary-color);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        #chat-form button:hover {
+            opacity: 0.9;
+        }
+    </style>
+    <!-- Local JavaScript Libraries -->
+    <script src="/libs/jquery.min.js"></script>
+    <script src="/libs/marked.min.js"></script>
+    <script src="/libs/mermaid.min.js"></script>
+    <script src="/libs/plotly.min.js" charset="utf-8"></script>
+    <script src="/libs/3Dmol-min.js"></script>
+    <script src="/libs/svg-pan-zoom.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div><h1>Agent's Live Visual Response</h1><div id="status" style="color: var(--status-connecting);">Connecting to agent...</div></div>
+            <div id="theme-switcher"><button id="light-theme-btn">Light</button><button id="dark-theme-btn">Dark</button></div>
+        </div>
+        <div id="content-wrapper"><p>Waiting for visual content from the agent...</p></div>
+        <div id="plotly-wrapper"></div>
+        <div id="molecule-wrapper"></div>
+    </div>
+
+    <div class="chat-input-container">
+        <form id="chat-form">
+            <input type="text" id="chat-input" placeholder="Send a message to the agent..." autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+    </div>
+
+    <script>
+        // Check if all libraries are loaded
+        console.log('Library status check:');
+        console.log('- jQuery:', typeof $ !== 'undefined' ? 'loaded' : 'MISSING');
+        console.log('- Marked:', typeof marked !== 'undefined' ? 'loaded' : 'MISSING');
+        console.log('- Mermaid:', typeof mermaid !== 'undefined' ? 'loaded' : 'MISSING');
+        console.log('- Plotly:', typeof Plotly !== 'undefined' ? 'loaded' : 'MISSING');
+        console.log('- 3Dmol:', typeof $3Dmol !== 'undefined' ? 'loaded' : 'MISSING');
+        console.log('- svgPanZoom:', typeof svgPanZoom !== 'undefined' ? 'loaded' : 'MISSING');
+
+        // Initialize Mermaid with proper configuration
+        if (typeof mermaid !== 'undefined') {
+            mermaid.initialize({ 
+                startOnLoad: false, 
+                theme: 'default',
+                securityLevel: 'loose',
+                htmlLabels: true 
+            });
+            console.log('Mermaid initialized successfully');
+        } else {
+            console.error('Mermaid library not loaded!');
+        }
+
+        // --- NEW: Custom Marked.js Renderer ---
+        const renderer = new marked.Renderer();
+        const originalCodeRenderer = renderer.code;
+        renderer.code = (code, language, escaped) => {
+            // Handle case where code might be an object with a 'text' property
+            let codeStr;
+            if (typeof code === 'object' && code !== null) {
+                codeStr = code.text || code.raw || String(code);
+            } else {
+                codeStr = String(code || '');
+            }
+            
+            console.log(`Marked renderer called with code: "${codeStr.substring(0, 50)}...", language: "${language}", escaped: ${escaped}`);
+            console.log('Full code object:', code);
+            
+            // Handle both 'mermaid' and undefined/null language cases by checking code content
+            const isMermaidCode = language === 'mermaid' || 
+                                 ((!language || language === 'undefined') && 
+                                  (codeStr.trim().startsWith('graph ') || 
+                                   codeStr.trim().startsWith('flowchart ') || 
+                                   codeStr.trim().startsWith('sequenceDiagram') ||
+                                   codeStr.trim().startsWith('classDiagram') ||
+                                   codeStr.trim().startsWith('erDiagram')));
+                                  
+            if (isMermaidCode) {
+                console.log('Mermaid code block detected!');
+                console.log('Full code content:', codeStr);
+                // Use a unique ID for each render to avoid conflicts
+                const uniqueId = `mermaid-embedded-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const placeholder = `<div class="mermaid-placeholder" data-mermaid-id="${uniqueId}" style="text-align:center;"><div id="${uniqueId}">${codeStr}</div></div>`;
+                console.log('Generated placeholder:', placeholder);
+                return placeholder;
+            }
+            // Fallback to the default code renderer for other languages
+            return originalCodeRenderer.call(renderer, code, language, escaped);
+        };
+        marked.use({ renderer });
+        console.log('Marked renderer configured');
+
+
+        const contentWrapper = document.getElementById('content-wrapper');
+        const plotlyWrapper = document.getElementById('plotly-wrapper');
+        const moleculeWrapper = document.getElementById('molecule-wrapper');
+        const statusDiv = document.getElementById('status');
+        let panZoomInstances = {}; // Use an object to store multiple pan/zoom instances
+        let ws;
+
+        // Theme Switching logic (unchanged)
+        const lightThemeBtn = document.getElementById('light-theme-btn');
+        const darkThemeBtn = document.getElementById('dark-theme-btn');
+        const setTheme = (theme) => {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('agent-theme', theme);
+        };
+        lightThemeBtn.addEventListener('click', () => setTheme('light'));
+        darkThemeBtn.addEventListener('click', () => setTheme('dark'));
+        setTheme(localStorage.getItem('agent-theme') || 'dark');
+
+        function connect() {
+            // ... (connect function is unchanged) ...
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsPort = window.location.port || (wsProtocol === 'wss:' ? 443 : 80);
+            const wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}/ws`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                statusDiv.textContent = '🟢 Connected to Agent';
+                statusDiv.style.color = 'var(--status-connected)';
+            };
+
+            ws.onmessage = async (event) => {
+                const data = JSON.parse(event.data);
+                
+                // Cleanup old pan-zoom instances
+                Object.values(panZoomInstances).forEach(inst => inst.destroy());
+                panZoomInstances = {};
+                
+                contentWrapper.style.display = 'none';
+                plotlyWrapper.style.display = 'none';
+                moleculeWrapper.style.display = 'none';
+                contentWrapper.innerHTML = '';
+                plotlyWrapper.innerHTML = '';
+                moleculeWrapper.innerHTML = '';
+
+                switch (data.type) {
+                    case 'markdown':
+                        console.log('Processing markdown content:', data.content);
+                        // First pass: convert markdown to HTML, including our placeholders
+                        const htmlContent = marked.parse(data.content);
+                        console.log('Generated HTML:', htmlContent);
+                        contentWrapper.innerHTML = htmlContent;
+                        contentWrapper.style.display = 'block';
+
+                        // Second pass: find and render all mermaid placeholders
+                        const placeholders = contentWrapper.querySelectorAll('.mermaid-placeholder');
+                        console.log(`Found ${placeholders.length} mermaid placeholders`);
+                        for (const placeholder of placeholders) {
+                            const id = placeholder.dataset.mermaidId;
+                            const definition = document.getElementById(id).textContent.trim();
+                            console.log(`Rendering Mermaid diagram with ID: ${id}`);
+                            console.log(`Definition: ${definition}`);
+                            
+                            try {
+                                console.log('Using direct DOM rendering approach');
+                                // Create a mermaid div directly and let mermaid process it
+                                placeholder.innerHTML = `<div class="mermaid" id="${id}">${definition}</div>`;
+                                const mermaidDiv = document.getElementById(id);
+                                
+                                // Use mermaid.init to render the diagram
+                                await mermaid.init(undefined, mermaidDiv);
+                                console.log(`Successfully rendered Mermaid diagram: ${id}`);
+                                
+                                // Add pan/zoom if there's an SVG
+                                const svgElement = mermaidDiv.querySelector('svg');
+                                if (svgElement) {
+                                    panZoomInstances[id] = svgPanZoom(svgElement, {
+                                        zoomEnabled: true, 
+                                        controlIconsEnabled: true,
+                                        fit: true, 
+                                        center: true, 
+                                        minZoom: 0.1
+                                    });
+                                    console.log('Pan/zoom enabled for diagram');
+                                }
+                            } catch (e) {
+                                console.error(`Mermaid render error for ${id}:`, e);
+                                placeholder.innerHTML = `<pre>Mermaid Render Error: ${e.message}\n\nDefinition:\n${definition}</pre>`;
+                            }
+                        }
+                        break;
+                    // ... (other cases remain the same) ...
+                    case 'html':
+                        contentWrapper.innerHTML = data.content;
+                        contentWrapper.style.display = 'block';
+                        break;
+
+                    case 'molecule':
+                        moleculeWrapper.style.display = 'block';
+                        const molData = data.content;
+                        setTimeout(() => {
+                            let viewer = $3Dmol.createViewer($('#molecule-wrapper'));
+                            viewer.addModel(molData.data, molData.format || 'pdb');
+                            viewer.setStyle({}, molData.style || {stick: {}});
+                            viewer.zoomTo();
+                            viewer.render();
+                        }, 100);
+                        break;
+                    case 'plotly':
+                        plotlyWrapper.style.display = 'block';
+                        const plotData = data.content;
+                        const currentTheme = document.documentElement.getAttribute('data-theme');
+                        if (currentTheme === 'dark') {
+                            plotData.layout.template = 'plotly_dark';
+                        }
+                        Plotly.newPlot('plotly-wrapper', plotData.data, plotData.layout, {responsive: true});
+                        break;
+                    default:
+                        contentWrapper.innerHTML = `<pre><strong>Unknown Type: ${data.type}</strong>\n${JSON.stringify(data.content, null, 2)}</pre>`;
+                        contentWrapper.style.display = 'block';
+                }
+            };
+
+            ws.onclose = () => {
+                statusDiv.textContent = '🔴 Disconnected. Retrying...';
+                statusDiv.style.color = 'var(--status-disconnected)';
+                setTimeout(connect, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+                ws.close();
+            };
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            connect();
+
+            // --- Chat Input Logic ---
+            const chatForm = document.getElementById('chat-form');
+            const chatInput = document.getElementById('chat-input');
+
+            chatForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const message = chatInput.value.trim();
+
+                if (message && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(message);
+                    chatInput.value = '';
+                } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    console.warn('Cannot send message, WebSocket is not connected.');
+                    // You could add a visual cue here, like shaking the input box
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import importlib
 import inspect
+import asyncio
 from typing import List, Type, Optional, Dict, Any
 from pathlib import Path
 from termcolor import colored
@@ -20,12 +21,21 @@ class UtilsManager:
         logging.info(colored("  - Loading utility modules...", "cyan"))
         self._load_utils()
         
+        # Test GUI connection
+        gui_status = self._test_gui_connection()
+        
         # Initialize vector database for smart tool retrieval
         logging.info(colored("  - Initializing tool search engine...", "cyan"))
         self.vector_db = None
         self._init_vector_db()
         
-        logging.info(colored(f"  - Utils manager ready ({len(self.utils)} tools).", "cyan"))
+        # Show tool count and names
+        tool_names = [UtilBase.get_name(util_cls) for util_cls in self.utils] if self.utils else []
+        if tool_names:
+            tools_display = ", ".join(sorted(tool_names))
+            logging.info(colored(f"  - Utils manager ready ({len(self.utils)} tools: {tools_display}){gui_status}.", "cyan"))
+        else:
+            logging.info(colored(f"  - Utils manager ready ({len(self.utils)} tools){gui_status}.", "cyan"))
 
     def _load_utils(self) -> None:
         """Dynamically load all utility modules from the utils directory"""
@@ -340,6 +350,64 @@ from {util_cls.__module__} import {util_cls.__name__}
             return ""
 
         return prompt
+
+    def _test_gui_connection(self) -> str:
+        """Test connection to file_retrieval_gui server"""
+        try:
+            # Import getuserfiles from tools directory
+            tools_path = self.cli_agent_root / "tools"
+            if not (tools_path / "getuserfiles.py").exists():
+                return " (GUI: not found)"
+            
+            # Add tools to path for import
+            import sys
+            tools_str = str(tools_path)
+            if tools_str not in sys.path:
+                sys.path.insert(0, tools_str)
+            
+            # Import and test connection quickly
+            from getuserfiles import getuserfiles
+            
+            # Quick connection test using discovery
+            discovery = getuserfiles._discovery
+            
+            # Check if we have a cached URI from a recent connection
+            if discovery._is_cache_valid():
+                return " (GUI: connected)"
+            
+            # Try a very quick discovery without full testing
+            try:
+                # Import websockets - if not available, return not connected
+                try:
+                    import websockets
+                except ImportError:
+                    return " (GUI: not available)"
+                
+                # Create a new event loop for the test
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Quick port scan test
+                uri = "ws://localhost:8765"  # Most common port
+                
+                async def quick_test():
+                    try:
+                        async with websockets.connect(uri, open_timeout=0.5) as websocket:
+                            # Just try to connect, don't wait for data
+                            return True
+                    except:
+                        return False
+                
+                connected = loop.run_until_complete(quick_test())
+                loop.close()
+                
+                return " (GUI: connected)" if connected else " (GUI: not connected)"
+                
+            except Exception:
+                return " (GUI: not connected)"
+                
+        except Exception:
+            return " (GUI: not available)"
 
     def reload_utils(self) -> None:
         """Reload all utilities from the utils directory"""

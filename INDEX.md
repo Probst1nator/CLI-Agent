@@ -9,6 +9,9 @@
   - `core/initialization.py` - Clean application initialization logic extracted from monolithic main.py with environment setup, logging configuration, and context creation
   - `core/agent_loop.py` - Main conversation loop extracted from main.py with proper error handling, command processing, and AI interaction management
   - `core/lazy_imports.py` - Startup time optimization through lazy loading of heavy dependencies, demonstrating ~1.5s potential startup time savings
+  - `core/cli_args.py` - CLI argument parsing extracted from main.py with exact same logic, enabling reuse across different entry points (main.py, main_refactored.py)
+  - `core/config_utils.py` - LLM and Monte Carlo configuration functions extracted from main.py, consolidating apply_default_llm_config() and apply_monte_carlo_config() with preserved logic
+  - `core/command_system.py` - **NEW (2025)**: Unified command definition system and command completion extracted from main.py. Provides centralized command management with aliases, descriptions, and prompt toolkit integration
   
   **NEW: Command System Architecture (2025)**
   - `commands/base_command.py` - Abstract base class and protocols for all CLI commands with proper typing, consistent interfaces, and command registration system
@@ -41,6 +44,10 @@
   - `python/python_utils.py` - Code execution and Python environment manipulation (migrated from py_classes/utils)
   - `youtube/youtube_utils.py` - Video processing and metadata extraction (migrated from py_classes/utils)
   - `log_manager.py` - Centralized log retention and cleanup management system with automatic rotation, retention policies, background cleanup scheduling, and comprehensive statistics for all CLI-Agent logging operations
+  - `pdf_utils.py` - **NEW (2025)**: Consolidated PDF processing utilities extracted from duplicated functions in shared/common_utils.py and shared/audio/audio_utils.py. Provides clean_pdf_text(), extract_pdf_content(), get_cache_file_path(), and related functions with caching support
+  - `shutdown_utils.py` - **NEW (2025)**: Graceful shutdown utilities extracted from main.py and main_refactored.py, supporting both legacy and modern architecture patterns with proper log cleanup and context management
+  - `display_utils.py` - **NEW (2025)**: UI and display utilities extracted from main.py including colorize_model_name(), print_startup_summary(), and show_unified_bindings_display() for consistent formatting across the application
+  - `logging_utils.py` - **NEW (2025)**: Logging formatters and configuration extracted from main.py. Provides ConsoleFormatter, SimpleFormatter, FileFormatter classes and setup_logging() function with retention management
 
 - `shared/audio/audio_utils.py` - Audio processing, TTS, and speech recognition (migrated from py_methods/utils)
 
@@ -67,9 +74,9 @@
 
 - `ARCHITECTURE.md` - Comprehensive analysis of the monorepo structure and detailed strategy for decomposing it into 3 separate projects corresponding to tools/* directories, including dependency mapping, migration complexity assessment, and recommended decomposition approaches.
 
-- `main.py` - **LEGACY**: The original monolithic 3,297-line entrypoint and orchestration script for the agentic coding assistant. This file contains the complete "Monte Carlo Action Engine," main execution loop, and user input handling in a single massive file. While functional, this represents the pre-refactor architecture with global state dependencies and complex nested logic. Preserved for compatibility and gradual migration.
+- `main.py` - **CURRENT/ACTIVE**: The main 3,273-line entrypoint and orchestration script for the CLI-Agent. Contains the complete "Monte Carlo Action Engine," main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. This is the **stable, production entry point** that should be used for all current development and deployment.
 
-- `main_refactored.py` - **NEW (2025)**: Clean, modular main entrypoint demonstrating the refactored architecture. At only ~100 lines, this replaces the monolithic main.py by using the new agent/core components. Shows dramatic simplification through dependency injection, modular components, and proper separation of concerns while maintaining full functionality. This is the recommended entry point for new development.
+- `main_refactored.py` - **⚠️ EXPERIMENTAL (2025)**: Clean, modular main entrypoint demonstrating the future refactored architecture. At only ~188 lines, this showcases the new agent/core components with dependency injection and proper separation of concerns. **Status: Work in progress** - still depends on main.py imports and lacks recent bug fixes. For stable operation, use main.py instead.
 
 - `enhanced_permissions.py` - Enhanced permission system providing interactive prompts with persistent "always allow" functionality. Supports path-specific permissions, directory-based rules, and intelligent permission scoping with options like exact file, directory pattern, project-wide, or tool-wide permissions. Permission prompts now display tool arguments in addition to file paths and actions.
 
@@ -232,6 +239,8 @@
 - `tools/file_copier/ai_path_finder.py` - AI-powered path finding utility using language models to intelligently resolve file paths and suggest optimal file locations based on context.
 
 - `tools/file_copier/gui.py` - Graphical user interface for the file copier tool, providing user-friendly interaction for file management operations with visual feedback.
+
+- `tools/taskmanager.py` - Background process management tool for managing processes started with <bash><background>true</background>, providing listing, killing, and output monitoring capabilities for long-running background tasks.
 
 - `tools/todos.py` - Todo management functionality for the CLI agent, providing task tracking, reminder systems, and workflow organization capabilities.
 

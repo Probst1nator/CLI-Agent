@@ -49,12 +49,12 @@ Vector-based semantic search for tool discovery and contextual guidance storage.
 ### Key Features
 
 #### Embedding Models
-- **Primary**: Ollama BGE-M3 (1024 dimensions)
-- **Fallback**: SentenceTransformers all-MiniLM-L6-v2 (384 dimensions)
+- **Primary**: Ollama embeddinggemma:latest
+- **Fallback**: SentenceTransformers all-MiniLM-L6-v2
 - **Caching**: Persistent embedding cache for performance
 
 ```python
-def __init__(self, model_name: str = "bge-m3", use_ollama: bool = True):
+def __init__(self, model_name: str = "embeddinggemma:latest", use_ollama: bool = True):
     # Auto-detects Ollama availability, falls back to sentence-transformers
     if use_ollama:
         test_embedding = OllamaClient.generate_embedding("test", model=model_name)

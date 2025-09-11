@@ -1,36 +1,111 @@
 # main.py
 """
-This script serves as the main entry point for the CLI-Agent. It orchestrates
-the primary execution loop, handling user interaction, multi-LLM reasoning via a
-Monte Carlo Action Engine, and tool invocation within a computational notebook.
+CLI-Agent Main Entry Point - CURRENT/ACTIVE VERSION
+
+This is the stable, production entry point for CLI-Agent (3,273 lines).
+Contains all recent bug fixes and active development, including:
+- Complete Monte Carlo Action Engine implementation
+- Fixed ComputationalNotebook architecture (now uses direct tool calls)
+- Full user interaction loop and tool invocation system
+- All production features and stability improvements
+
+For development and deployment, use this file.
+Note: main_refactored.py is experimental and not ready for production use.
 """
+
+# CRITICAL: Suppress warnings BEFORE any imports that might trigger them
+import sys
+import os
+import warnings
+import contextlib
+
+# --- COMPREHENSIVE WARNING SUPPRESSION ---
+# Must be set BEFORE importing ANY libraries that might generate warnings
+# These environment variables affect the entire Python process lifecycle
+if '--debug' not in sys.argv:
+    # Suppress gRPC/protobuf/abseil warnings (affects runtime, not just imports)
+    os.environ['GRPC_VERBOSITY'] = 'ERROR'
+    os.environ['GRPC_TRACE'] = ''
+    os.environ['GRPC_PYTHON_LOG_LEVEL'] = 'ERROR'
+    
+    # Suppress TensorFlow/ML library warnings
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    os.environ['ABSL_MIN_LOG_LEVEL'] = '3' 
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+    
+    # Suppress Python warnings system-wide
+    os.environ['PYTHONWARNINGS'] = 'ignore'
+    warnings.filterwarnings('ignore')
+    
+    # Additional library-specific suppression
+    os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Hugging Face warnings
+    os.environ['TRANSFORMERS_VERBOSITY'] = 'error'  # Transformers library
+    
+    # Create comprehensive stderr suppression context
+    @contextlib.contextmanager 
+    def suppress_stderr_completely():
+        """Completely suppress stderr output during context"""
+        with open(os.devnull, "w") as devnull:
+            old_stderr = sys.stderr
+            sys.stderr = devnull
+            try:
+                yield
+            finally:
+                sys.stderr = old_stderr
+                
+    @contextlib.contextmanager
+    def suppress_warnings_runtime():
+        """Suppress warnings during runtime operations"""
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            old_stderr = sys.stderr
+            # Redirect stderr for known noisy operations
+            if not ('--debug' in sys.argv):
+                stderr_buffer = open(os.devnull, 'w')
+                sys.stderr = stderr_buffer
+            try:
+                yield
+            finally:
+                if not ('--debug' in sys.argv):
+                    stderr_buffer.close()
+                sys.stderr = old_stderr
+else:
+    # Debug mode: show ALL warnings and verbose output
+    warnings.filterwarnings('default')
+    os.environ['GRPC_VERBOSITY'] = 'DEBUG'
+    
+    # Dummy context managers for debug mode
+    @contextlib.contextmanager
+    def suppress_stderr_completely():
+        yield
+        
+    @contextlib.contextmanager 
+    def suppress_warnings_runtime():
+        yield
+
+# NOW safe to import other modules
 import time
-
-from tools.viewpermissions import viewpermissions
-start_time = time.time() # Global timer for startup and operations
-
 import logging
 import re
-from termcolor import colored
-from typing import Dict, List, Optional, Tuple, Callable, Any
-import sys
-import argparse
-import os
-import math
 import asyncio
-import threading
-from collections import Counter
-import importlib
+import threading  
 import json
+import argparse
 from pathlib import Path
+from termcolor import colored
+from typing import Dict, List, Optional, Callable, Any
 from pyfiglet import figlet_format
 
+# Import with suppression in non-debug mode
+if '--debug' not in sys.argv:
+    with suppress_stderr_completely():
+        from tools.viewpermissions import viewpermissions
+else:
+    from tools.viewpermissions import viewpermissions
+
+start_time = time.time() # Global timer for startup and operations
+
 # --- Prompt Toolkit for Command Completion ---
-from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.formatted_text import HTML
 
 # --- Project Path Setup ---
 # Ensure all project modules can be imported correctly.
@@ -59,149 +134,30 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers.modeling_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
 
-# --- UNIFIED COMMAND DEFINITION SYSTEM ---
+# Import command system from extracted module
 
-# The single source of truth for all CLI commands.
-# Each entry defines:
-#   - canonical: The unique, internal name for the command.
-#   - aliases: A list of all user-facing strings that trigger the command (e.g., ['/r', '/regenerate']).
-#   - description: The help text for the command.
-#   - sub_commands: (Optional) A dictionary for commands with sub-actions.
-_COMMAND_DEFINITIONS = [
-    # Basic commands
-    {'canonical': 'screenshot', 'aliases': ['/img', '/screenshot'], 'description': 'Take a screenshot for visual analysis'},
-    {'canonical': 'multiline', 'aliases': ['/m', '/message'], 'description': 'Enter multiline input mode'},
-    {'canonical': 'regenerate', 'aliases': ['/r', '/regenerate'], 'description': 'Regenerate the last AI response'},
-    {'canonical': 'local', 'aliases': ['/l', '/local'], 'description': 'Toggle local-only LLM mode'},
-    {'canonical': 'llm', 'aliases': ['/llm'], 'description': 'Open LLM selection interface'},
-    {'canonical': 'unsay', 'aliases': ['/unsay'], 'description': 'Remove last user message and AI response'},
-    {'canonical': 'auto_execute', 'aliases': ['/a', '/auto'], 'description': 'Toggle automatic code execution mode'},
-    {'canonical': 'fast_mode', 'aliases': ['/f', '/fast'], 'description': 'Toggle fast mode (deprecated)'},
-    {'canonical': 'voice_mode', 'aliases': ['/v', '/voice'], 'description': 'Toggle voice input/output mode'},
-    {'canonical': 'full_output', 'aliases': ['/fo', '/full_output'], 'description': 'Show full model output instead of summary'},
-    {'canonical': 'print', 'aliases': ['/p', '/print'], 'description': 'Print complete chat history'},
+# Import display utilities from extracted module
+from shared.utils.display_utils import colorize_model_list, print_startup_summary, show_unified_bindings_display
 
-    # Navigation & session commands
-    {'canonical': 'online', 'aliases': ['/o', '/online'], 'description': 'Toggle online mode for web-enabled features'},
-    {'canonical': 'exit', 'aliases': ['/e', '/exit'], 'description': 'Exit CLI-Agent'},
-    {'canonical': 'help', 'aliases': ['/h', '/help'], 'description': 'Show help and available commands'},
-    {'canonical': 'save', 'aliases': ['/s', '/save'], 'description': 'Save current LLM selection as default'},
-    {'canonical': 'clear', 'aliases': ['/clear'], 'description': 'Clear chat history and start fresh'},
-    {'canonical': 'compact', 'aliases': ['/compact'], 'description': 'Compact conversation (create summary)'},
+# Import logging utilities from extracted module  
+from shared.utils.logging_utils import setup_logging, swap_to_simple_logging, ConsoleFormatter, SimpleFormatter, FileFormatter
 
-    # Permission management commands
-    {
-        'canonical': 'permissions',
-        'aliases': ['/perms', '/permissions'],
-        'description': 'Manage tool execution permissions',
-        'sub_commands': {
-            'list': 'List all saved permissions',
-            'remove': 'Remove specific permission by ID',
-            'clear': 'Clear all saved permissions',
-            'interactive': 'Open interactive permission manager',
-            'manage': 'Open interactive permission manager',
-        }
-    }
-]
+# Import tool discovery from extracted module
+from agent.core.tool_discovery import _generate_tool_documentation
 
-def get_command_definitions() -> Dict[str, Any]:
-    """Dynamically generates command definitions for the completer."""
-    defs = {}
-    for cmd_info in _COMMAND_DEFINITIONS:
-        for alias in cmd_info['aliases']:
-            if 'sub_commands' in cmd_info:
-                # Create a simple structure for the completer
-                defs[alias] = {sub: None for sub in cmd_info['sub_commands']}
-            else:
-                defs[alias] = None
-    return defs
+# Import input handlers from extracted module
+from agent.core.input_handlers import (
+    handle_multiline_input, get_user_input_with_bindings, handle_screenshot_capture
+)
 
-def get_command_descriptions() -> Dict[str, str]:
-    """Dynamically generates command descriptions for the completer tooltips."""
-    descs = {}
-    for cmd_info in _COMMAND_DEFINITIONS:
-        for alias in cmd_info['aliases']:
-            descs[alias] = cmd_info['description']
-        if 'sub_commands' in cmd_info:
-            for sub_cmd, sub_desc in cmd_info['sub_commands'].items():
-                # Provide descriptions for sub-commands as well
-                for alias in cmd_info['aliases']:
-                    descs[f"{alias} {sub_cmd}"] = sub_desc
-    return descs
+# Import Monte Carlo engine from extracted module
+from agent.monte_carlo.monte_carlo_engine import (
+    confirm_code_execution, select_best_branch, generate_branch
+)
 
-def _build_command_map() -> Dict[str, str]:
-    """
-    Builds a map from every alias to its canonical command name for the dispatcher.
-    Example: {'/r': 'regenerate', '/regenerate': 'regenerate'}
-    """
-    command_map = {}
-    for cmd_info in _COMMAND_DEFINITIONS:
-        canonical_name = cmd_info['canonical']
-        for alias in cmd_info['aliases']:
-            command_map[alias] = canonical_name
-    return command_map
+# Command system functions moved to agent.core.command_system
 
-# This class remains the same, but it will now be powered by the dynamic functions above.
-class CommandCompleterWithDescriptions(Completer):
-    """Custom completer that shows command descriptions in completion tooltips."""
-    
-    def __init__(self):
-        self.commands = get_command_definitions()
-        self.descriptions = get_command_descriptions()
-    
-    def get_completions(self, document, complete_event):
-        """Generate completions with descriptions for the current input."""
-        text = document.text_before_cursor
-        
-        if not text.startswith('/'):
-            return
-            
-        words = text.split()
-        
-        if len(words) <= 1:
-            prefix = words[0] if words else ''
-            for command in self.commands.keys():
-                if command.startswith(prefix):
-                    description = self.descriptions.get(command, 'No description available')
-                    yield Completion(
-                        command,
-                        start_position=-len(prefix),
-                        display_meta=description
-                    )
-        
-        elif len(words) == 2:
-            main_command = words[0]
-            subcommand_prefix = words[1]
-            
-            if main_command in self.commands and isinstance(self.commands[main_command], dict):
-                for subcommand in self.commands[main_command].keys():
-                    if subcommand.startswith(subcommand_prefix):
-                        full_command = f"{main_command} {subcommand}"
-                        description = self.descriptions.get(full_command, 'No description available')
-                        yield Completion(
-                            subcommand,
-                            start_position=-len(subcommand_prefix),
-                            display_meta=description
-                        )
-
-# --- Global Prompt Session for Command Completion ---
-# Initialize this once to maintain command history and completion across calls
-_prompt_session = None
-
-def get_prompt_session() -> PromptSession:
-    """Get the global prompt session for command completion and history."""
-    global _prompt_session
-    if _prompt_session is None:
-        command_completer = CommandCompleterWithDescriptions()
-        history = FileHistory(os.path.expanduser('~/.cli_agent_history'))
-        
-        _prompt_session = PromptSession(
-            completer=command_completer,
-            history=history,
-            auto_suggest=AutoSuggestFromHistory(),
-            complete_while_typing=True
-        )
-    return _prompt_session
+# Command completion and prompt session moved to agent.core.command_system
 
 # --- Global Fallback Iterator for Cognitive Diversity ---
 class FallbackModelIterator:
@@ -502,210 +458,12 @@ def swap_to_simple_logging():
 # --- End Custom Logging Setup ---
 
 
-def colorize_model_name(model_name: str, tui_mode: bool = False) -> str:
-    """Applies color to a model name based on its provider."""
-    # Define colors using Textual's markup format
-    tui_colors = {
-        'local': 'green',
-        'google': 'blue',
-        'anthropic': 'yellow',
-        'openai': 'magenta',
-        'groq': 'red',
-        'default': 'cyan'
-    }
-    
-    # Original termcolor colors
-    cli_colors = {
-        'local': 'green',
-        'google': 'blue',
-        'anthropic': 'yellow',
-        'openai': 'magenta',
-        'groq': 'red',
-        'default': 'cyan'
-    }
-
-    if ':' in model_name:
-        color_key = 'local'
-    else:
-        provider = model_name.split('-')[0].lower()
-        if 'gemini' in model_name or 'google' in provider: color_key = 'google'
-        elif 'claude' in provider or 'anthropic' in provider: color_key = 'anthropic'
-        elif 'openai' in provider or 'gpt' in model_name: color_key = 'openai'
-        elif 'groq' in provider: color_key = 'groq'
-        else: color_key = 'default'
-
-    if tui_mode:
-        color = tui_colors[color_key]
-        return f"[{color}]{model_name}[/{color}]"
-    else:
-        color = cli_colors[color_key]
-        return colored(model_name, color)
-
-def colorize_model_list(model_list: List[str], tui_mode: bool = False) -> str:
-    """Colorizes a list of model names and joins them into a string."""
-    return ', '.join(colorize_model_name(m, tui_mode) for m in model_list)
+# Display utility functions moved to shared.utils.display_utils
 
 
 
 
-def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False):
-    """Prints a comprehensive summary of the current agent configuration using the logger."""
-    
-    # --- Start Helper Function for Coloring ---
-    def get_count_color(count: int) -> str:
-        """Returns a color string based on the model count for at-a-glance status."""
-        if count == 1: return 'red'
-        if count == 2: return 'yellow'
-        if count == 3: return 'green'
-        if count > 3: return 'light_green'
-        return 'white' # Default fallback
-    # --- End Helper Function ---
-
-    # Helper for status strings
-    def get_status_str(state, on_text='ON', off_text='OFF'):
-        if tui_mode:
-            return f"[bold green]{on_text}[/bold green]" if state else f"[bold red]{off_text}[/bold red]"
-        else:
-            return colored(on_text, 'green', attrs=['bold']) if state else colored(off_text, 'red')
-
-    # Column widths for alignment
-    CMD_WIDTH = 24
-    DESC_WIDTH = 28
-    
-    # Use logger.info to ensure timed prefix is applied
-    from core.globals import g # Lazy import to avoid circular dependency at top level
-    
-    header = "[yellow]--- Agent Configuration ---[/yellow]" if tui_mode else colored("--- Agent Configuration ---", "yellow")
-    logging.info(header)
-    
-    # Get detailed LLM configuration
-    llm_config = g.get_llm_config()
-    # Use g.SELECTED_LLMS to preserve user selection order instead of iterating through config
-    selected_models = g.SELECTED_LLMS if g.SELECTED_LLMS else [key for key, data in llm_config.items() if data.get('selected')]
-    
-    # Categorize models by their roles, preserving selection order
-    branch_models = [key for key in selected_models if llm_config.get(key, {}).get('beams', 0) > 0]
-    eval_models = [key for key in selected_models if llm_config.get(key, {}).get('eval', 0) > 0]
-    guard_models = [key for key in selected_models if llm_config.get(key, {}).get('guard', 0) > 0]
-    
-    # Calculate fallback models (selected but not specialized)
-    specialized_models = set(branch_models + eval_models + guard_models)
-    fallback_models = [model for model in selected_models if model not in specialized_models]
-    
-    # Count totals for quick reference
-    guard_count = len(guard_models)
-    
-    # Auto Execution status
-    if args.auto:
-        if guard_count > 0:
-            auto_status = f'ON ({guard_count} guards)'
-        else:
-            auto_status = 'ON (manual confirmation)'
-    else:
-        auto_status = 'OFF'
-    
-    # LLM Selection status - show local vs cloud breakdown when available
-    if selected_models:
-        unique_models = list(set(selected_models))
-        local_count = len([m for m in unique_models if ':' in m])
-        cloud_count = len(unique_models) - local_count
-        
-        status_parts = []
-        if cloud_count > 0:
-            if tui_mode:
-                status_parts.append(f"[blue]{cloud_count} cloud[/blue]")
-            else:
-                status_parts.append(f"{colored(str(cloud_count), 'blue')} {colored('cloud', 'blue')}")
-        if local_count > 0:
-            if tui_mode:
-                status_parts.append(f"[bright_green]{local_count} local[/bright_green]")
-            else:
-                status_parts.append(f"{colored(str(local_count), 'light_green')} {colored('local', 'light_green')}")
-            
-        if status_parts:
-            llm_status = ", ".join(status_parts)
-            if len(unique_models) > (local_count + cloud_count): # Failsafe for logic errors
-                 llm_status += f" ({len(unique_models)} total)"
-        else:
-            if tui_mode:
-                llm_status = "[red]No models selected[/red]"
-            else:
-                llm_status = colored('No models selected', 'red')
-    else:
-        if tui_mode:
-            llm_status = "[yellow]Default[/yellow]"
-        else:
-            llm_status = colored('Default', 'yellow')
-    
-    # Main configuration display
-    if tui_mode:
-        config_lines = [
-            f"  [white]{'Local Mode (-l)'.ljust(CMD_WIDTH)}[/white] [bright_black]{'Use only local LLMs'.ljust(DESC_WIDTH)}[/bright_black] (Status: {get_status_str(args.local)})",
-            f"  [white]{'Auto Execution (-a)'.ljust(CMD_WIDTH)}[/white] [bright_black]{'Automatic code execution'.ljust(DESC_WIDTH)}[/bright_black] (Status: {get_status_str(args.auto, on_text=auto_status, off_text='OFF')})",
-            f"  [white]{'LLM Selection (--llm)'.ljust(CMD_WIDTH)}[/white] [bright_black]{'Specific LLM(s) to use'.ljust(DESC_WIDTH)}[/bright_black] (Status: {llm_status})",
-            f"  [white]{'Voice Mode (-v)'.ljust(CMD_WIDTH)}[/white] [bright_black]{'Voice input/output'.ljust(DESC_WIDTH)}[/bright_black] (Status: {get_status_str(args.voice)})"
-        ]
-    else:
-        config_lines = [
-            f"  {colored('Local Mode (-l)'.ljust(CMD_WIDTH), 'white')} {colored('Use only local LLMs'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.local)})",
-            f"  {colored('Auto Execution (-a)'.ljust(CMD_WIDTH), 'white')} {colored('Automatic code execution'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.auto, on_text=auto_status, off_text='OFF')})",
-            f"  {colored('LLM Selection (--llm)'.ljust(CMD_WIDTH), 'white')} {colored('Specific LLM(s) to use'.ljust(DESC_WIDTH), 'light_grey')} (Status: {llm_status})",
-            f"  {colored('Voice Mode (-v)'.ljust(CMD_WIDTH), 'white')} {colored('Voice input/output'.ljust(DESC_WIDTH), 'light_grey')} (Status: {get_status_str(args.voice)})"
-        ]
-    
-    for line in config_lines:
-        logging.info(line)
-    
-    # --- MODEL CONFIGURATION DISPLAY ---
-    if selected_models:
-        mcae_header = "[yellow]--- Monte Carlo Action Engine ---[/yellow]" if tui_mode else colored("--- Monte Carlo Action Engine ---", "yellow")
-        logging.info(mcae_header)
-
-        if branch_models:
-            count = 0
-            # Correctly count branches based on 'beams'
-            for key in branch_models:
-                count += llm_config.get(key, {}).get('beams', 1)
-            color = get_count_color(count)
-            model_list_str = colorize_model_list(branch_models, tui_mode)
-            if tui_mode:
-                line = f"  🌿 [{color}]{count} Branch Generators:[/{color}] {model_list_str}"
-            else:
-                line = colored(f"  🌿 {count} Branch Generators:".ljust(27), color) + " " + model_list_str
-            logging.info(line)
-        
-        if eval_models:
-            count = len(eval_models)
-            color = get_count_color(count)
-            model_list_str = colorize_model_list(eval_models, tui_mode)
-            if tui_mode:
-                line = f"  ⚖️  [{color}]{count} Branch Evaluators:[/{color}] {model_list_str}"
-            else:
-                line = colored(f"  ⚖️  {count} Branch Evaluators:".ljust(28), color) + " " + model_list_str
-            logging.info(line)
-        
-        if guard_models:
-            count = len(guard_models)
-            color = get_count_color(count)
-            model_list_str = colorize_model_list(guard_models, tui_mode)
-            if tui_mode:
-                line = f"  🛡️  [{color}]{count} Execution Guards:[/{color}] {model_list_str}"
-            else:
-                line = colored(f"  🛡️  {count} Execution Guards:".ljust(28), color) + " " + model_list_str
-            logging.info(line)
-        
-        # Show fallback models in Monte Carlo mode
-        count = len(fallback_models)
-        color = "light_green" if count > 0 else "red"
-        model_list_str = colorize_model_list(fallback_models, tui_mode)
-        if tui_mode:
-            line = f"  🔄 [{color}]{count} Fallback Models:[/{color}] {model_list_str}"
-        else:
-            line = colored(f"  🔄 {count} Fallback Models:".ljust(27), color) + " " + model_list_str
-        logging.info(line)
-    
-    command_hint = "[grey37]Type '-h' for a full list of commands.[/grey37]" if tui_mode else colored("Type '-h' for a full list of commands.", "dark_grey")
-    logging.info(command_hint)
+# print_startup_summary function moved to shared.utils.display_utils
 
 # --- Eager setup of args ---
 # This is done before heavy imports to allow --help to work quickly.
@@ -719,14 +477,10 @@ from pathlib import Path
 # --- Main Application Imports (Lazy/Normal) ---
 # Imports are moved below arg parsing and logging setup to allow for faster startup
 # and to ensure logging is configured before any modules start logging.
-import datetime
 import traceback
 from dotenv import load_dotenv
-import pyperclip
 import socket
 import warnings
-import base64
-import tempfile
 import subprocess
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -736,7 +490,7 @@ warnings.filterwarnings("ignore", message="words count mismatch on*", module="ph
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
 warnings.filterwarnings("ignore", message="Unrecognized FinishReason enum value*", module="proto.marshal.rules.enums", category=UserWarning)
 
-from agent.notebook import ComputationalNotebook
+# Removed ComputationalNotebook import - using direct tool calls instead
 from core.ai_strengths import AIStrengths
 from shared.utils.web import WebServer
 from core.permissions.path_detector import PathDetector
@@ -862,7 +616,7 @@ def apply_monte_carlo_config():
             available_models.extend(provider_models.keys())
     except:
         # Fallback to hardcoded reliable models
-        available_models = ['gemini-2.5-flash', 'gpt-4o-mini', 'llama3.2:3b']
+        available_models = ['gemini-2.5-flash', 'gemini-2.5-flash-preview-05-20', 'gemma3:12b']
     
     # Take first 3 unique models
     selected_models = list(set(available_models))[:3]
@@ -1289,437 +1043,6 @@ def is_response_complete(response: str) -> bool:
 # The full definition of other functions like get_extract_blocks, g, LlmRouter, etc.
 # are assumed to exist elsewhere in the project.
 
-async def confirm_code_execution(
-    args: argparse.Namespace, 
-    code_to_execute: str, 
-    utils_manager: 'UtilsManager', 
-    input_event: Optional[asyncio.Event] = None,
-    input_lock: Optional[threading.Lock] = None,
-    shared_input: Optional[Dict[str, Any]] = None
-) -> bool:
-    """
-    Handles code execution confirmation with a resilient, multi-stage Guard council.
-    It attempts to gather a minimum of 3 votes. If initial models fail, it dynamically
-    fetches diverse fallback models to ensure a decision can be made.
-    """
-    # Fast-path for simple, non-destructive shell commands
-    if not get_extract_blocks()(code_to_execute, "python"):
-        always_permitted_bash = ["ls ", "pwd ", "cd ", "echo ", "print ", "cat ", "head ", "tail ", "grep ", "sed ", "awk ", "sort "]
-        bash_code = "\n".join(get_extract_blocks()(code_to_execute, ["bash", "shell"]))
-        bash_code_lines = [line for line in bash_code.split("\n") if line.strip() and not line.strip().startswith("#")]
-        if bash_code_lines and all(any(line.strip().startswith(cmd) for cmd in always_permitted_bash) for line in bash_code_lines):
-            logging.info(colored("✅ Code execution permitted automatically (safe command list)", "green"))
-            return True
-
-    # --- Handle Default Mode (single LLM with manual confirmation) ---
-    if not args.monte_carlo:
-        return await enhanced_permission_prompt(
-            args, 
-            tool_name="code_execution",
-            action_description="Execute code block",
-            xml_content=code_to_execute,
-            input_event=input_event,
-            input_lock=input_lock,
-            shared_input=shared_input,
-            get_user_input_func=get_user_input_with_bindings
-        )
-
-    # --- Guard-based Logic ---
-    llm_config = g.get_llm_config()
-    guard_council = [key for key, data in llm_config.items() if data.get('selected') and data.get('guard', 0) > 0 for _ in range(data['guard'])]
-
-    # 1. If no guards are configured, fall back to manual confirmation.
-    if not guard_council:
-        if args.auto:
-            logging.info(colored("✅ Code execution permitted automatically (--auto flag, no guards configured).", "green"))
-            return True
-        logging.warning(colored("🛡️", "red", attrs=["bold"]) + colored(" No Guard models configured. Manual confirmation required.", "yellow"))
-        return await enhanced_permission_prompt(
-            args, 
-            tool_name="code_execution",
-            action_description="Execute code block (no guards configured)",
-            xml_content=code_to_execute,
-            input_event=input_event,
-            input_lock=input_lock,
-            shared_input=shared_input,
-            get_user_input_func=get_user_input_with_bindings
-        )
-
-    # Display the initial guard council.
-    guard_display = [f"☁️ {colored(m, 'green')}" if ':' not in m else f"🏠 {colored(m, 'green')}" for m in guard_council]
-    logging.info(colored("🛡️", "red", attrs=["bold"]) + f"  {len(guard_council)} Guards verifying code: {', '.join(guard_display)}")
-
-    async def get_verdict(model_key: str):
-        """Gets a single verdict from a model. Returns (verdict, analysis, model_key) on success, or None on failure."""
-        execution_guard_chat = Chat(
-            instruction_message=f"""You are a Code Execution Guardian. Your primary goal is to prevent unsafe or incomplete code execution. Analyze the code for safety and completeness.
-- SAFE operations: Reading files (ls, cat), simple data retrieval (curl to public APIs), basic system info (ps, uname), file modifications with clear comments.
-- UNSAFE operations: File deletions (rm -rf), system modifications (sudo), unrestricted network access, running unknown executables.
-- INCOMPLETE code: Placeholders like `YOUR_API_KEY`, `TODO`, or unimplemented functions.
-
-**Process:**
-1. **Brief Analysis:** Follow the final guidance below
-2. **Single Word Verdict:** End your response with exactly one word: `yes`, `no`, or `unfinished`.
-
-**Although these following classes are custom and generally considered trusted. You MUST verify each line for intentional and careful usage.**
-{utils_manager.get_util_names()} 
-
-**Final guidance**
-1. Observe if the goal of the code is clarified and reasonable while any persistenly modifying operations like deletions have been backed up sensibly first. 
-2. Express your grasp on the system mindfully before responding with a final word verdict.
-""",
-            debug_title=f"🛡️  Guard Vote ({model_key})"
-        )
-        analysis_prompt = f"Analyze this code for safe execution and completeness:\n{code_to_execute}"
-        execution_guard_chat.add_message(Role.USER, analysis_prompt)
-        
-        try:
-            guard_context = {'log_prefix': '🛡️  '}
-            response = await LlmRouter.generate_completion(
-                execution_guard_chat,
-                [model_key],
-                force_preferred_model=True,
-                decision_patterns={"guard": r'\b(yes|no|unfinished)\b'},
-                branch_context=guard_context
-            )
-            verdict_matches = list(re.finditer(r'\b(yes|no|unfinished)\b', response.lower(), re.DOTALL | re.MULTILINE))
-            verdict = verdict_matches[-1].group(1) if verdict_matches else "no"
-            analysis = response.strip()
-            return verdict, analysis, model_key
-        except Exception as e:
-            logging.warning(colored(f"⚠️ Guard {model_key} failed: {str(e)}", "yellow"))
-            return None
-
-    # --- Resilient, Multi-stage Guard Verification ---
-    MIN_VOTES = len(guard_council)
-    successful_results = []
-    models_attempted = set()
-    
-    # Stage 1: Attempt with the primary guard council.
-    tasks = [get_verdict(model) for model in guard_council]
-    models_attempted.update(guard_council)
-    batch_results = await asyncio.gather(*tasks)
-    successful_results.extend([res for res in batch_results if res is not None])
-    
-    # Track which guard models failed
-    failed_guards = []
-    for i, model in enumerate(guard_council):
-        if batch_results[i] is None:
-            failed_guards.append(model)
-
-    # Stage 2: If needed, fetch iterative fallbacks until minimum votes are met.
-    if len(successful_results) < MIN_VOTES:
-        guard_fallback_iterator.update_fallback_models(llm_config)
-    
-    while len(successful_results) < MIN_VOTES:
-        # Fetch one fallback model at a time to replace failed models
-        fallback_model = guard_fallback_iterator.get_next_fallback(exclude=list(models_attempted))
-        fallback_models = [fallback_model] if fallback_model else []
-
-        if not fallback_models:
-            logging.warning(colored(f"🛡️  Could not gather {MIN_VOTES} guard responses. All available guard and fallback models exhausted.", "yellow"))
-            break # Exit the loop if no more models are available.
-
-        # Enhanced logging showing failed model → replacement
-        if failed_guards:
-            failed_model = failed_guards.pop(0) if failed_guards else "unknown guard"
-            replacement = fallback_models[0] if fallback_models else "none"
-            usage_stats = guard_fallback_iterator.get_usage_stats()
-            usage_count = usage_stats.get(replacement, 0)
-            
-            # Record the failure
-            guard_fallback_iterator.record_failure(failed_model, "execution timeout/error", replacement)
-            
-            logging.info(colored("🔄 Guard replacement: ", "cyan") + 
-                        colorize_model_name(failed_model) + 
-                        colored(" → ", "cyan") + 
-                        colorize_model_name(replacement) + 
-                        colored(f" ({usage_count})", "cyan"))
-        
-        tasks = [get_verdict(model) for model in fallback_models]
-        models_attempted.update(fallback_models)
-        batch_results = await asyncio.gather(*tasks)
-        successful_results.extend([res for res in batch_results if res is not None])
-
-    # --- Final Verdict Processing ---
-    if len(successful_results) < MIN_VOTES:
-        logging.error(colored(f"❌ Could not get minimum {MIN_VOTES} guard responses (got {len(successful_results)}).", "red"))
-        user_input, _ = await get_user_input_with_bindings(
-            args, None, colored("Execute code anyway? (y/n): ", "cyan"),
-            input_event=input_event, input_lock=input_lock, shared_input=shared_input
-        )
-        return user_input.lower() == 'y'
-
-    # Analyze guard responses and determine the final outcome.
-    response_counts = Counter(res[0] for res in successful_results)
-    total_responses = len(successful_results)
-    
-    verdict_details = []
-    for verdict in ['yes', 'no', 'unfinished']:
-        count = response_counts.get(verdict, 0)
-        if count > 0:
-            models_with_verdict = [colorize_model_name(model) for v, _, model in successful_results if v == verdict]
-            verdict_details.append(f"{verdict.capitalize()} ({count}/{total_responses} guards: {', '.join(models_with_verdict)})")
-    logging.info(colored("🛡️", "red", attrs=["bold"]) + colored(f"  Guard Consensus Summary: {'; '.join(verdict_details)}", "light_blue"))
-    
-    if response_counts.get('no', 0) > 0:
-        final_verdict = 'no'
-    elif response_counts.get('unfinished', 0) > 0:
-        final_verdict = 'unfinished'
-    else:
-        final_verdict = 'yes'
-
-    def get_analysis_for_verdict(verdict_type):
-        return "\n".join([f"- {analysis}" for v, analysis, _ in successful_results if v == verdict_type])
-
-    if final_verdict == 'yes':
-        logging.info(colored(f"✅ Code execution cleared by ({response_counts.get('yes', 0)}/{total_responses}) guards.", "green"))
-        return True
-    elif final_verdict == 'unfinished':
-        analysis = get_analysis_for_verdict('unfinished')
-        logging.warning(colored(f"⚠️ Code revision requested by ({response_counts.get('unfinished', 0)}/{total_responses}) guards. Reasoning:\n", "yellow") + colored(analysis, "light_magenta"))
-        args.message.insert(0, f"The code was deemed safe but unfinished. Please add comments and complete the implementation. Code review:\n{analysis}")
-        logging.info(colored("💬 Auto-prompting with refinement instructions...", "blue"))
-        return False
-    else: # 'no'
-        analysis = get_analysis_for_verdict('no')
-        logging.error(colored(f"❌ Code execution blocked by ({response_counts.get('no', 0)}/{total_responses}) guards. Reasoning:\n", "red") + colored(analysis, "magenta"))
-        user_response, _ = await get_user_input_with_bindings(
-            args, None, colored("Execute code anyway? (y=execute, n=abort, c=refine): ", "cyan"),
-            input_event=input_event, input_lock=input_lock, shared_input=shared_input
-        )
-        
-        if user_response.lower() in ['y', 'yes', 'execute']:
-            logging.warning(colored("✅ Code execution permitted by user override", "yellow"))
-            return True
-        elif user_response.lower() in ['c', 'refine']:
-            args.message.insert(0, f"The code was rejected by security guards. Please refine the implementation. Code review:\n{analysis}")
-            logging.info(colored("💬 Auto-prompting with refinement instructions...", "blue"))
-            return False
-        else:  # 'n', 'no', 'abort', or any other input
-            logging.error(colored("✖️ Execution cancelled.", "red"))
-            return False
-
-async def select_best_branch(
-    context_chat: Chat,
-    assistant_responses: List[str],
-    branch_model_map: Optional[Dict[int, str]] = None,
-) -> Tuple[int, str]:
-    """
-    Uses a council of LLM judges to select the best response via a sophisticated tournament system.
-
-    1.  **Win Condition:** A branch wins if it gains a 2+ vote lead.
-    2.  **Reversed Temperature:** Starts at 0.6 and increases by 0.05 each round to break deadlocks.
-    3.  **Conditional Knockout:** If no winner and >2 candidates remain, a single, unambiguous
-        loser (not tied for last) is eliminated.
-    4.  **Head-to-Head:** If only 2 candidates remain, they vote until a winner emerges.
-    5.  **Performance Logging:** Each vote is timed.
-
-    Returns:
-        Tuple[int, str]: (selected_index, final_vote_summary_string)
-    """
-    # --- 1. Setup: Identify Evaluators and Candidates ---
-    llm_config = g.get_llm_config()
-    evaluator_council = [key for key, data in llm_config.items() if data.get('selected') and data.get('eval', 0) > 0 for _ in range(data['eval'])]
-
-    if not evaluator_council:
-        # Fallback logic for when no evaluators are configured
-        evaluation_fallback_iterator.update_fallback_models(llm_config)
-        fallback_evaluator = evaluation_fallback_iterator.get_next_fallback()
-        if fallback_evaluator:
-            evaluator_council.append(fallback_evaluator)
-            logging.info(colored("No specific evaluator set. Using fallback: ", "cyan") + colorize_model_name(fallback_evaluator))
-        elif g.SELECTED_LLMS:
-            evaluator_council.append(g.SELECTED_LLMS[0])
-            logging.info(colored("No fallback models available. Using primary LLM to judge: ", "yellow") + colorize_model_name(g.SELECTED_LLMS[0]))
-        else:
-            logging.error(colored("⚠️ No evaluators available to judge branches. Defaulting to first branch.", "red"))
-            return 0, "No evaluator available."
-
-    num_alternatives = len(assistant_responses)
-    if num_alternatives <= 1:
-        return 0, "Only one branch generated."
-
-
-    async def get_vote(model_key: str, prompt_to_use: str, temperature: float, index_map: Dict[int, int]):
-        """Asks a single model to vote, times it, and returns the original branch index."""
-        judge_chat = Chat(instruction_message="You are an impartial judge...", debug_title=f"⚖️  Branch Judge ({model_key})")
-        judge_chat.add_message(Role.USER, prompt_to_use)
-        
-        start_time = time.time()
-        try:
-            vote_context = {'start_time': start_time, 'log_printed': False, 'store_message': False, 'log_prefix': '⚖️  ', 'index_map': index_map}
-            response = await LlmRouter.generate_completion(
-                judge_chat, [model_key], force_preferred_model=True, temperature=temperature,
-                decision_patterns={"eval": r'Selected index:\s*(\d+)'}, branch_context=vote_context
-            )
-            match = re.search(r'Selected index:\s*(\d+)', response)
-            elapsed_time = time.time() - start_time
-
-            if match:
-                selected_index = int(match.group(1))
-                if selected_index in index_map:
-                    original_index = index_map[selected_index]
-                    # LlmRouter's decision pattern already logs the result, so we just return
-                    return original_index, model_key, None
-
-            logging.warning(colored(f"⚖️  ⚠️  Could not parse vote from {colorize_model_name(model_key)}: '...{response[-20:]}' ({elapsed_time:.1f}s)", "yellow"))
-            return None, model_key, "invalid response format"
-        except Exception as e:
-            elapsed_time = time.time() - start_time
-            logging.error(colored(f"⚖️  ❌ Evaluator {colorize_model_name(model_key)} failed ({elapsed_time:.1f}s): {e}", "red"))
-            return None, model_key, str(e)
-
-    # --- 2. Main Voting Loop ---
-    current_round = 1
-    current_temperature = 0.6  # Start with a more deterministic temperature
-    vote_counts = Counter()
-    candidate_indices = list(range(num_alternatives))
-
-    while True:
-        if len(candidate_indices) == 1:
-            winner_index = candidate_indices[0]
-            logging.info(colored(f"🏆 Winner by elimination: Branch {winner_index} is the last one standing.", "green"))
-            return winner_index, ""
-
-        # A. Prepare prompt for the current round's active candidates
-        index_map = {i: original_idx for i, original_idx in enumerate(candidate_indices)}
-        prompt = f"VOTING ROUND {current_round}: Please choose from these {len(candidate_indices)} options.\n"
-        for i, original_idx in enumerate(candidate_indices):
-            prompt += f"\n--- INDEX {i} (Original Branch {original_idx}) ---\n{assistant_responses[original_idx]}"
-        prompt += "\n\n**Your task:** ... end your response with `Selected index: [number]` from the list above."
-        
-        logging.info(colored(f"⚖️  Round {current_round} voting on {len(candidate_indices)} candidates (Temp: {current_temperature:.2f}): ", "blue", attrs=["bold"]) + colorize_model_list(evaluator_council))
-        
-        # B. Gather and accumulate votes
-        tasks = [get_vote(model, prompt, current_temperature, index_map) for model in evaluator_council]
-        results = await asyncio.gather(*tasks)
-        valid_votes = [res for res in results if res[0] is not None]
-        vote_counts.update(Counter(vote[0] for vote in valid_votes))
-
-        # C. Log cumulative scores for all original branches
-        if vote_counts:
-            vote_details = []
-            # Create list of (index, count) tuples and sort by count descending
-            sorted_branches = sorted(
-                [(index, vote_counts.get(index, 0)) for index in range(num_alternatives)], 
-                key=lambda x: x[1], 
-                reverse=True
-            )
-            for index, count in sorted_branches:
-                model_name = colorize_model_name(branch_model_map.get(index, 'Unknown'))
-                status = "" if index in candidate_indices else colored(" (eliminated)", "dark_grey")
-                entry_text = f"Branch {index} ({model_name}): {count} vote(s){status}"
-                vote_details.append(entry_text)
-            logging.info(f"⚖️  🗳️  Cumulative Score (Round {current_round}): {' | '.join(vote_details)}")
-
-        # D. Check for a decisive winner among *current* candidates
-        filtered_counts = Counter({i: vote_counts[i] for i in candidate_indices})
-        most_common_current = filtered_counts.most_common()
-        
-        if most_common_current:
-            winner_index, winner_count = most_common_current[0]
-            if len(most_common_current) == 1 or winner_count >= most_common_current[1][1] + 2:
-                margin = winner_count - (most_common_current[1][1] if len(most_common_current) > 1 else 0)
-                
-                logging.info(colored(f"🏆 Decisive winner found: Branch {winner_index} (", "light_green") + colorize_model_name(branch_model_map.get(winner_index, 'Unknown')) + colored(f") won with a margin of {margin}. Next: ⚖️  ➡️  🛡️", "light_green"))
-                return winner_index, ""
-
-        # E. If no winner, apply conditional knockout rule
-        # This block only runs if there are more than 2 candidates left.
-        if len(candidate_indices) > 2:
-            min_score = min(filtered_counts.values())
-            # Find all candidates tied for the lowest score
-            losers = [idx for idx, score in filtered_counts.items() if score == min_score]
-            
-            # ONLY eliminate if there is a single, unambiguous loser.
-            if len(losers) == 1:
-                eliminated_branch_index = losers[0]
-                candidate_indices.remove(eliminated_branch_index)
-                eliminated_model_name = colorize_model_name(branch_model_map.get(eliminated_branch_index, 'Unknown'))
-                logging.info(colored(f"⚖️  Knockout: Branch {eliminated_branch_index} (", "yellow") + eliminated_model_name + colored(f") eliminated ({min_score} votes).", "yellow"))
-            else:
-                logging.info(colored(f"⚖️  Deadlock for last place ({min_score} votes). No candidate will be eliminated this round.", "cyan"))
-
-        # F. Prepare for the next round
-        current_round += 1
-        current_temperature = round(current_temperature + 0.05, 2)
-
-
-def _check_getuserfiles_available() -> bool:
-    """
-    Check if getuserfiles GUI is available and has content by testing WebSocket connection.
-    """
-    try:
-        import asyncio
-        import websockets
-        
-        async def test_connection():
-            try:
-                async with websockets.connect("ws://localhost:8765", open_timeout=1) as websocket:
-                    content = await asyncio.wait_for(websocket.recv(), timeout=2)
-                    return content and not content.startswith("Error:")
-            except:
-                return False
-        
-        return asyncio.run(test_connection())
-    except:
-        return False
-
-
-def _generate_tool_documentation() -> str:
-    """
-    Dynamically discovers all tools from the tools directory and formats
-    their documentation for the system prompt.
-    """
-    docs_string = "3.  **ACT**: Decide on a tool and execute it to pass your current step. You can make use of the following tools:\n\n"
-    
-    # Import and discover tools from the tools directory
-    tools_dir = Path(__file__).parent / "tools"
-    tool_classes = {}
-    
-    if tools_dir.exists():
-        for file in tools_dir.glob("*.py"):
-            if file.name.startswith("_") or file.stem == "__init__":
-                continue
-            
-            try:
-                # Import the tool module
-                module_name = f"tools.{file.stem}"
-                module = importlib.import_module(module_name)
-                
-                # Find the tool class (should match the filename)
-                tool_class_name = file.stem
-                if hasattr(module, tool_class_name):
-                    tool_class = getattr(module, tool_class_name)
-                    if hasattr(tool_class, 'get_delim') and hasattr(tool_class, 'get_tool_info'):
-                        # Skip getuserfiles if GUI is not available or has no content
-                        if tool_class_name == 'getuserfiles' and not _check_getuserfiles_available():
-                            continue
-                        tool_classes[tool_class.get_delim()] = tool_class
-            except Exception as e:
-                logging.warning(f"Could not load tool from {file}: {e}")
-    
-    # Sort tools to ensure a consistent order in the prompt
-    sorted_tool_names = sorted(tool_classes.keys())
-
-    for tool_name in sorted_tool_names:
-        tool_class = tool_classes[tool_name]
-        try:
-            info = tool_class.get_tool_info()
-            # Use four spaces for indentation in the final prompt
-            docs_string += (
-                f"    - **`{info['name']}`**: {info['description']}\n"
-                f"      *Example*: `{info['example']}`\n\n"
-            )
-        except Exception as e:
-            logging.warning(f"Could not generate documentation for tool '{tool_name}': {e}")
-    
-    # Store tool_classes globally for later use. This is a critical side-effect
-    # that makes the tools available to the rest of the application.
-    g.tool_classes = tool_classes
-    return docs_string
-
 
 async def construct_engineered_prompt(voice_agent: str) -> Chat:
     """
@@ -1773,762 +1096,6 @@ async def save_current_llm_config_as_default():
     
     logging.info(colored(f"✅ Default configuration updated with {len(currently_selected_models)} selected models.", "green"))
 
-
-def handle_multiline_input() -> str:
-    """Handles multiline input from the user."""
-    print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
-    lines = []
-    while True:
-        try:
-            line = input()
-            if line == "--f":
-                break
-            lines.append(line)
-        except EOFError:
-            break
-    return "\n".join(lines)
-
-async def get_user_input_with_bindings(
-    args: argparse.Namespace,
-    context_chat: Optional[Chat],
-    prompt: str = colored(" Enter your request: ", 'blue', attrs=["bold"]),
-    input_override: str = None,
-    force_input: bool = False,
-    input_event: Optional[asyncio.Event] = None,
-    input_lock: Optional[threading.Lock] = None,
-    shared_input: Optional[Dict[str, Any]] = None
-) -> Tuple[str, List[str]]:
-    """
-    Interactively captures user input, including voice for confirmation prompts.
-
-    This function serves as the primary Read-Eval-Print Loop (REPL). It
-    returns the user's text prompt. If voice mode is active and this is a
-    confirmation prompt, it will use TTS and STT.
-    """
-    COMMAND_MAP = _build_command_map() # <-- ADD THIS LINE
-    
-    # --- First Call Logic ---
-    if get_user_input_with_bindings.is_first_call:
-        get_user_input_with_bindings.is_first_call = False
-
-    # --- VOICE-ENABLED CONFIRMATION PROMPTS ---
-    # Check if this is an internal confirmation prompt, not the main REPL prompt.
-    is_internal_prompt = "Enter your request" not in prompt
-
-    if args.voice and is_internal_prompt:
-        listen_microphone = get_listen_microphone()
-        
-        # --- FIX: Improved clean_prompt logic ---
-        clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt).strip()
-        
-        if clean_prompt == ">":
-            clean_prompt = "Please state your choice."
-        elif clean_prompt.endswith(":"):
-            clean_prompt = clean_prompt[:-1]
-        
-        if '(y/n)' in clean_prompt:
-            clean_prompt = clean_prompt.replace('(y/n)', 'Please say yes or no.')
-        elif '(y=execute, n=abort, c=refine)' in clean_prompt:
-            clean_prompt = clean_prompt.replace('(y=execute, n=abort, c=refine)', 'Please say execute, abort, or refine.')
-        elif 'Permissions>' in clean_prompt:
-            clean_prompt = "Permissions manager. What would you like to do?"
-
-        logging.info(f"🎤 Asking: \"{clean_prompt}\"")
-        text_to_speech(text=clean_prompt, speed=0.8, volume=0.7, use_piper=True)
-        
-        transcription, _, _ = listen_microphone(
-            private_remote_wake_detection=args.private_remote_wake_detection, 
-            remote_voice_enabled=args.online_voice
-        )
-        
-        logging.info(f"🎤 User replied: \"{transcription}\"")
-
-        # --- NEW: Keyword mapping for voice commands ---
-        keyword_map = {
-            'y': ['yes', 'yeah', 'yep', 'confirm', 'konfirm', 'allow', 'okay', 'ok', 'go', 'execute', 'proceed'],
-            'n': ['no', 'nope', 'stop', 'abort', 'cancel', 'deny'],
-            'a': ['always', 'always allow', 'always permit'],
-            'd': ['always deny'],
-            'm': ['manage', 'manager', 'manage permissions'],
-            '?': ['help', 'options', 'what are the options'],
-            'c': ['refine', 'change', 'correct', 'custom', 'custom pattern'],
-            # Numeric options with voice-friendly keywords
-            '1': ['exact', 'exact command', 'one'],
-            '2': ['code', 'code execution', 'two'],
-            '3': ['files', 'file management', 'three'],
-            '4': ['shell', 'bash', 'shell operations', 'four'],
-            '5': ['pattern', 'five'],
-            # General option keywords
-            'list': ['list', 'show'],
-            'remove': ['remove', 'delete'],
-            'clear': ['clear', 'reset'],
-            'exit': ['exit', 'quit', 'back'],
-            'x': ['cancel', 'exit', 'back']
-        }
-
-        user_reply = transcription.lower().strip()
-        for command, keywords in keyword_map.items():
-            for keyword in keywords:
-                if keyword in user_reply:
-                    logging.info(colored(f"🎤 Interpreted \"{transcription}\" as command: '{command}'", "cyan"))
-                    return command, [] # Return the mapped single-letter command
-
-        # If no keyword is found, return the raw transcription for invalid option handling
-        return transcription, []
-
-    # --- STANDARD TEXT-BASED INPUT LOOP ---
-    while True:
-        if prompt == "":
-            user_input = ""
-        elif input_override:
-            user_input = input_override
-        elif force_input:
-            if input_event and input_lock and shared_input is not None:
-                await input_event.wait()
-                input_event.clear()
-                with input_lock:
-                    user_input = shared_input["value"]
-            else:
-                user_input = input(prompt)
-        else:
-            try:
-                # --- FIX: Use the thread-safe event/lock mechanism ---
-                if input_event and input_lock and shared_input is not None:
-                    # In TUI mode, wait for the event that signals input is ready
-                    agent_logger = logging.getLogger("agent_main")
-                    agent_logger.info("Agent waiting for input event...")
-                    await input_event.wait()
-                    agent_logger.info("Input event received! Processing...")
-                    input_event.clear() # Reset the event for the next input
-                    with input_lock:
-                        user_input = shared_input["value"]
-                        agent_logger.info(f"Retrieved user input: '{user_input}'")
-                else:
-                    # Enhanced CLI behavior with command completion
-                    try:
-                        session = get_prompt_session()
-                        # Convert to prompt_toolkit's HTML format for proper styling
-                        # Strip ANSI codes from prompt and use the actual prompt parameter
-                        import re
-                        clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt)
-                        
-                        if context_chat:
-                            token_info = f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] "
-                            # Use very subtle coloring - just a gentle emphasis
-                            html_prompt = HTML(token_info + f'<dim>{clean_prompt}</dim>')
-                            user_input = await session.prompt_async(html_prompt)
-                        else:
-                            # Use very subtle coloring - just a gentle emphasis
-                            html_prompt = HTML(f'<dim>{clean_prompt}</dim>')
-                            user_input = await session.prompt_async(html_prompt)
-                    except (ImportError, Exception):
-                        # Fallback to regular input if prompt_toolkit fails
-                        if context_chat:
-                            user_input = input(f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] " + prompt)
-                        else:
-                            user_input = input(prompt)
-            except KeyboardInterrupt:
-                logging.warning(colored("\n# cli-agent: Exiting due to Ctrl+C...", "yellow"))
-                exit()
-        
-        # --- Command Handling ---
-        if user_input.startswith('/'):
-            parts = user_input.split()
-            command_alias = parts[0]
-            canonical_command = COMMAND_MAP.get(command_alias)
-
-            if not canonical_command:
-                logging.error(colored(f"# cli-agent: Unknown command '{command_alias}'. Type '/help' for a list of commands.", "red"))
-                continue
-
-            # --- Command Dispatcher ---
-            if canonical_command == 'screenshot':
-                logging.info(colored("# cli-agent: Taking screenshot.", "green"))
-                base64_images = await handle_screenshot_capture()
-                return "", base64_images
-
-            elif canonical_command == 'multiline':
-                return handle_multiline_input(), []
-
-            elif canonical_command == 'regenerate':
-                if not context_chat or len(context_chat.messages) < 2:
-                    logging.error(colored("# cli-agent: No chat history found, cannot regenerate.", "red"))
-                    continue
-                logging.info(colored("# cli-agent: Regenerating last response.", "green"))
-                context_chat.messages.pop()
-                return "", [] # Return empty to trigger regeneration
-
-            elif canonical_command == 'local':
-                args.local = not args.local
-                g.FORCE_LOCAL = args.local
-                logging.info(colored(f"# cli-agent: Local mode toggled {'on' if args.local else 'off'}.", "green"))
-                continue
-
-            elif canonical_command == 'llm':
-                logging.info(colored("# cli-agent: Opening LLM selection.", "green"))
-                await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
-                continue
-            
-            elif canonical_command == 'unsay':
-                if context_chat and len(context_chat.messages) >= 2:
-                    context_chat.messages.pop() # Assistant
-                    context_chat.messages.pop() # User
-                    logging.info(colored("# cli-agent: Removed last user message and AI response.", "green"))
-                elif context_chat and len(context_chat.messages) == 1:
-                    context_chat.messages.pop() # User
-                    logging.info(colored("# cli-agent: Removed last user message.", "green"))
-                else:
-                    logging.warning(colored("# cli-agent: No messages to remove.", "yellow"))
-                continue
-
-            elif canonical_command == 'auto_execute':
-                args.auto = not args.auto
-                # (Your existing logic for displaying guard status can remain here)
-                logging.info(colored(f"# cli-agent: Automatic execution toggled {'on' if args.auto else 'off'}.", "green"))
-                continue
-
-            elif canonical_command == 'fast_mode':
-                args.fast = not args.fast
-                logging.info(colored(f"# cli-agent: Fast mode toggled {'on' if args.fast else 'off'} (deprecated).", "green"))
-                continue
-
-            elif canonical_command == 'voice_mode':
-                args.voice = not args.voice
-                logging.info(colored(f"# cli-agent: Voice mode toggled {'on' if args.voice else 'off'}.", "green"))
-                continue
-
-            elif canonical_command == 'full_output':
-                args.full_output_mode = not args.full_output_mode
-                g.SUMMARY_MODE = not args.full_output_mode
-                logging.info(colored(f"# cli-agent: Full output mode toggled {'on' if args.full_output_mode else 'off'}.", "green"))
-                continue
-            
-            elif canonical_command == 'print':
-                logging.info(colored("# cli-agent: Printing chat history.", "green"))
-                os.system('clear')
-                print(colored("Chat history:", "green"))
-                if context_chat:
-                    context_chat.print_chat()
-                else:
-                    print(colored("No chat history available.", "yellow"))
-                continue
-
-            elif canonical_command == 'online':
-                args.online = not args.online
-                logging.info(colored(f"# cli-agent: Online mode toggled {'on' if args.online else 'off'}.", "green"))
-                continue
-
-            elif canonical_command == 'exit':
-                logging.info(colored("# cli-agent: Exiting...", "green"))
-                exit(0)
-
-            elif canonical_command == 'help':
-                print_startup_summary(args)
-                print(colored("\n--- Available Commands ---", "yellow"))
-                CMD_WIDTH = 28
-                for cmd_info in _COMMAND_DEFINITIONS:
-                    aliases = ', '.join(cmd_info['aliases'])
-                    line = f"  {colored(aliases.ljust(CMD_WIDTH), 'white')}{cmd_info['description']}"
-                    print(line)
-                continue
-            
-            elif canonical_command == 'save':
-                await save_current_llm_config_as_default()
-                continue
-
-            elif canonical_command == 'clear':
-                if context_chat:
-                    context_chat.messages.clear()
-                context_chat = await construct_engineered_prompt(args.voice)
-                logging.info(colored("# cli-agent: Chat cleared.", "green"))
-                continue
-            
-            elif canonical_command == 'compact':
-                if context_chat and context_chat.messages:
-                    logging.info(colored("# cli-agent: Compacting conversation...", "green"))
-                    g.AGENT_IS_COMPACTING = True
-                    automated_message = "Let's pause. Please summarize our conversation and progress into a markdown file at: {}/MEMORY/summary_{}.md".format(g.CLIAGENT_PERSISTENT_STORAGE_PATH, time.strftime("%Y%m%d_%H%M%S"))
-                    return automated_message, []
-                else:
-                    logging.warning(colored("# cli-agent: No conversation to compact.", "yellow"))
-                continue
-            
-            elif canonical_command == 'permissions':
-                # The dispatcher calls the handler, passing the full user input
-                await handle_permission_flags(user_input, get_user_input_with_bindings, args, input_event, input_lock, shared_input)
-                continue
-
-        # If it's not a command, it's a normal text prompt.
-        return user_input, []
-
-# Initialize the stateful flag for the first call.
-get_user_input_with_bindings.is_first_call = True
-
-async def handle_screenshot_capture() -> List[str]:
-    """
-    Handles the screenshot capture process.
-
-    Returns:
-        List[str]: The base64 encoded image data or an empty list if failed.
-    """
-    base64_images: List[str] = []
-    screenshots_paths: List[str] = []
-    max_attempts = 3
-    for attempt in range(1, max_attempts + 1):
-        base64_images = []
-        try:
-            logging.info(colored("Attempting screenshot with Spectacle (region selection)...", "green"))
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
-                temp_filename = temp_file.name
-            subprocess.run(['spectacle', '-rbno', temp_filename], check=True)
-            if os.path.exists(temp_filename) and os.path.getsize(temp_filename) > 0:
-                with open(temp_filename, 'rb') as image_file:
-                    png_data = image_file.read()
-                base64_img = base64.b64encode(png_data).decode('utf-8')
-                base64_images = [base64_img]
-                pyperclip.copy(base64_img)
-                logging.info(colored("Screenshot captured successfully. (+Copied to clipboard)", "green"))
-            else:
-                logging.warning(colored(f"No screenshot was captured (attempt {attempt}).", "yellow"))
-            if os.path.exists(temp_filename):
-                os.unlink(temp_filename)
-        except subprocess.CalledProcessError:
-            logging.error(colored(f"Spectacle command failed on attempt {attempt}. Is it installed?", "red"))
-        except Exception as e:
-            logging.exception(f"Unexpected error during screenshot capture attempt {attempt}: {e}")
-        if base64_images:
-            break
-        if attempt < max_attempts and not base64_images:
-            logging.warning(colored("Retrying screenshot capture...", "yellow"))
-            await asyncio.sleep(2)
-    if base64_images:
-        images_dir = os.path.join(g.AGENTS_SANDBOX_DIR, "screenshots")
-        os.makedirs(images_dir, exist_ok=True)
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        for i, base64_img in enumerate(base64_images):
-            try:
-                img_data = base64.b64decode(base64_img)
-                img_path = os.path.join(images_dir, f"screenshot_{timestamp}_{i+1}.png")
-                screenshots_paths.append(img_path)
-                with open(img_path, "wb") as img_file:
-                    img_file.write(img_data)
-                logging.info(colored(f"Screenshot saved to {img_path}", "green"))
-            except Exception as e:
-                logging.error(colored(f"Error saving screenshot {i+1}: {e}", "red"))
-    else:
-        logging.error(colored("No images were captured.", "red"))
-    if not base64_images:
-        logging.warning(colored("# cli-agent: No screenshot was captured after multiple attempts.", "yellow"))
-        return []
-    
-    return base64_images
-
-async def handle_permission_flags(user_input: str, get_user_input_func, args, input_event, input_lock, shared_input):
-    """Handle permission management flags like /permissions, -p, --p."""
-    from tools.permissions import permissions
-    from termcolor import colored
-    
-    # Parse the command
-    parts = user_input.split()
-    command = parts[0]  # /permissions, -p, or --p
-    
-    try:
-        if len(parts) == 1:
-            # Just show the list
-            print(colored("\n🔧 CLI-AGENT PERMISSION MANAGER", "yellow", attrs=['bold']))
-            print(colored("Using flag-based interface for easy permission management", "white"))
-            print(colored("─" * 60, "yellow"))
-            result = permissions._list_permissions()
-            print(result)
-            return
-        
-        action = parts[1].lower()
-        
-        if action == "list":
-            result = permissions._list_permissions()
-            print(result)
-            
-        elif action == "remove" and len(parts) >= 3:
-            perm_id = parts[2]
-            result = permissions._remove_permission(perm_id)
-            print(result)
-            
-        elif action == "clear":
-            # Ask for confirmation
-            print(colored("\n⚠️  WARNING: This will clear ALL saved permissions!", "red", attrs=['bold']))
-            print(colored("Type 'yes' to confirm or anything else to cancel:", "yellow"))
-            
-            try:
-                if get_user_input_func:
-                    confirmation, _ = await get_user_input_func(
-                        args, None, colored("> ", "cyan"),
-                        input_event=input_event,
-                        input_lock=input_lock,
-                        shared_input=shared_input
-                    )
-                else:
-                    confirmation = input(colored("> ", "cyan"))
-            except KeyboardInterrupt:
-                # User pressed Ctrl+C during clear confirmation - treat as cancel
-                print(colored("\n❌ Clear operation cancelled (Ctrl+C).", "yellow"))
-                return
-            
-            if confirmation.strip().lower() == 'yes':
-                result = permissions._clear_all_permissions()
-                print(result)
-            else:
-                print(colored("❌ Clear operation cancelled.", "green"))
-                
-        elif action == "interactive" or action == "manage":
-            # Open interactive manager
-            await interactive_permission_manager(get_user_input_func, args, input_event, input_lock, shared_input)
-            
-        else:
-            print(colored(f"❓ Unknown permission action: {action}", "red"))
-            print(colored("Usage:", "cyan"))
-            print(colored("  /permissions list                 # List all permissions", "white"))
-            print(colored("  /permissions remove <id>          # Remove permission by ID", "white"))
-            print(colored("  /permissions clear                # Clear all permissions", "white"))
-            print(colored("  /permissions interactive          # Open interactive manager", "white"))
-            print()
-            print(colored("Shortcuts:", "cyan"))
-            print(colored("  /p list, etc.                    # Same as /permissions", "white"))
-            
-    except Exception as e:
-        print(colored(f"❌ Error handling permission command: {str(e)}", "red"))
-
-async def interactive_permission_manager(get_user_input_func, args, input_event, input_lock, shared_input):
-    """Interactive permission management interface."""
-    from tools.permissions import permissions
-    from termcolor import colored
-    
-    print()
-    print(colored("🔧 INTERACTIVE PERMISSION MANAGER", "yellow", attrs=['bold']))
-    print(colored("═" * 50, "yellow"))
-    
-    while True:
-        # Show current permissions
-        result = permissions._list_permissions()
-        print(result)
-        
-        print()
-        print(colored("Commands:", "cyan"))
-        print(colored("  list                    # Refresh permission list", "white"))
-        print(colored("  remove <id>             # Remove permission by ID", "white"))
-        print(colored("  clear                   # Clear all permissions", "white"))
-        print(colored("  exit, quit, back        # Return to main CLI", "white"))
-        print()
-        
-        try:
-            if get_user_input_func:
-                user_cmd, _ = await get_user_input_func(
-                    args, None, colored("Permissions> ", "cyan"),
-                    input_event=input_event,
-                    input_lock=input_lock,
-                    shared_input=shared_input
-                )
-            else:
-                user_cmd = input(colored("Permissions> ", "cyan"))
-            
-            user_cmd = user_cmd.strip().lower()
-        except KeyboardInterrupt:
-            # User pressed Ctrl+C in interactive permission manager - exit gracefully
-            print(colored("\n↩️  Returning to main CLI (Ctrl+C)...", "yellow"))
-            break
-        
-        if user_cmd in ['exit', 'quit', 'back', '']:
-            print(colored("↩️  Returning to main CLI...", "green"))
-            break
-            
-        elif user_cmd == 'list':
-            continue  # Will refresh at top of loop
-            
-        elif user_cmd.startswith('remove ') and len(user_cmd.split()) >= 2:
-            perm_id = user_cmd.split()[1]
-            result = permissions._remove_permission(perm_id)
-            print(result)
-            
-        elif user_cmd == 'clear':
-            print(colored("\n⚠️  WARNING: This will clear ALL saved permissions!", "red", attrs=['bold']))
-            print(colored("Type 'yes' to confirm or anything else to cancel:", "yellow"))
-            
-            try:
-                if get_user_input_func:
-                    confirmation, _ = await get_user_input_func(
-                        args, None, colored("> ", "cyan"),
-                        input_event=input_event,
-                        input_lock=input_lock,
-                        shared_input=shared_input
-                    )
-                else:
-                    confirmation = input(colored("> ", "cyan"))
-            except KeyboardInterrupt:
-                # User pressed Ctrl+C during clear confirmation - treat as cancel
-                print(colored("\n❌ Clear operation cancelled (Ctrl+C).", "yellow"))
-                continue
-            
-            if confirmation.strip().lower() == 'yes':
-                result = permissions._clear_all_permissions()
-                print(result)
-                break  # Exit after clearing
-            else:
-                print(colored("❌ Clear operation cancelled.", "green"))
-                
-        else:
-            print(colored("❓ Unknown command. Use: list, remove <id>, clear, or exit", "yellow"))
-
-def show_unified_bindings_display():
-    """Display all available bindings and commands at startup for user reference."""
-    BOX_WIDTH = 80
-    INNER_WIDTH = BOX_WIDTH - 2
-
-    # Helper function to format lines correctly with padding, handling color codes
-    def format_line(content: str, color: str = "cyan") -> str:
-        # Strip ANSI color codes to measure the real visual length
-        visual_content = re.sub(r'\x1b\[[0-9;]*m', '', content)
-        padding = " " * (INNER_WIDTH - len(visual_content))
-        return colored("│", color) + content + padding + colored("│", color)
-
-    # --- Build and Print the Menu ---
-    print()
-    
-    # Top Border with Title
-    title = "─ CLI-AGENT COMMAND REFERENCE "
-    print(colored(f"┌{title}{'─' * (INNER_WIDTH - len(title))}┐", "cyan"))
-
-    # Interactive Bindings Section
-    print(format_line(colored(" 🎮 Interactive Bindings", "yellow", attrs=['bold'])))
-    print(colored(f"├{'─' * INNER_WIDTH}┤", "cyan"))
-
-    CMD_WIDTH = 28
-    bindings = [
-        (["/h" , "/help"], "Show detailed help and configuration"),
-        (["/r" , "/regenerate"], "Regenerate last AI response"),
-        (["/i" , "/img"], "Take screenshot for visual analysis"),
-        (["/p" , "/print"], "Print full chat history"),
-        (["/m" , "/multiline"], "Enter multiline input mode"),
-        (["/e" , "/exit"], "Exit CLI-Agent"),
-        (["/s" , "/save"], "Save current LLM selection as default"),
-        (["/f" , "/full_output"], "Show complete model output"),
-    ]
-    
-    for cmd, desc in bindings:
-        cmd_str = ", ".join(cmd) if isinstance(cmd, list) else cmd
-        line_content = f"  {colored(cmd_str.ljust(CMD_WIDTH), 'white')} {desc}"
-        print(format_line(line_content))
-
-    # Permission Management Section
-    print(colored(f"├{'─' * INNER_WIDTH}┤", "cyan"))
-    print(format_line(colored(" 🔐 Permission Management", "yellow", attrs=['bold'])))
-    print(colored(f"├{'─' * INNER_WIDTH}┤", "cyan"))
-
-    perm_bindings = [
-        ("/permissions list", "List all saved permissions"),
-        ("/permissions remove <id>", "Remove specific permission by ID"),
-        ("/permissions clear", "Clear all saved permissions"),
-        ("/permissions interactive", "Open interactive permission manager"),
-        ("/p list", "Short alias for /permissions list"),
-    ]
-
-    for cmd, desc in perm_bindings:
-        line_content = f"  {colored(cmd.ljust(CMD_WIDTH), 'light_blue')} {desc}"
-        print(format_line(line_content))
-
-    # Bottom Border
-    print(colored(f"└{'─' * INNER_WIDTH}┘", "cyan"))
-
-def get_recent_files_output():
-    # This function simulates the output of the bash command for the bootstrap message.
-    directory = os.getcwd()
-    output_lines = [f"Working Directory: {directory}\n"]
-    try:
-        # Find only files, not directories
-        all_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
-        # Sort by modification time, newest first
-        all_files.sort(key=lambda f: os.path.getmtime(os.path.join(directory, f)), reverse=True)
-        output_lines.append("5 last modified files:")
-        if not all_files:
-            output_lines.append("-> No files found in this directory.")
-        else:
-            # Get the top 5
-            for filename in all_files[:5]:
-                output_lines.append(f"- {filename}")
-    except FileNotFoundError:
-        output_lines.append(f"Error: The directory '{directory}' does not exist.")
-    return "\n".join(output_lines)
-
-def preprocess_consecutive_sudo_commands(code: str) -> str:
-    """Combine consecutive shell commands with sudo to reduce password prompts."""
-    lines = code.strip().split('\n')
-    processed_lines = []
-    shell_commands = []
-    for line in lines:
-        line = line.strip()
-        if line.startswith('!'):
-            shell_commands.append(line[1:])
-        else:
-            if shell_commands:
-                combined = ' && '.join(shell_commands)
-                processed_lines.append(f'!{combined}')
-                shell_commands = []
-            processed_lines.append(line)
-    if shell_commands:
-        combined = ' && '.join(shell_commands)
-        processed_lines.append(f'!{combined}')
-    return '\n'.join(processed_lines)
-
-def extract_paths(user_input: str) -> Tuple[List[str], List[str]]:
-    """
-    Extracts local file paths, folder paths, and online URLs from a string.
-    """
-    token_pattern = re.compile(r'(["\'])(.+?)\1|(\S+)')
-    trailing_chars_to_strip = '.,;:"\'!?)>]}'
-    local_paths = set()
-    online_paths = set()
-    for match in token_pattern.finditer(user_input):
-        candidate = match.group(2) or match.group(3)
-        if not candidate:
-            continue
-        cleaned_candidate = candidate.rstrip(trailing_chars_to_strip)
-        if cleaned_candidate.startswith(('http://', 'https://')):
-            online_paths.add(cleaned_candidate)
-        elif cleaned_candidate.startswith(('/', './', '~/', 'file://')) or re.match(r'^[a-zA-Z]:[\\/]', cleaned_candidate):
-            local_paths.add(cleaned_candidate)
-    return list(local_paths), list(online_paths)
-
-# The main() function is now the primary entry point for all logic
-def initialize_notebook_lazy():
-    """
-    Lazy initialization of the ComputationalNotebook.
-    This is called on the first use of bash or python tools.
-    """
-    import logging
-    from termcolor import colored
-    
-    if hasattr(g, 'notebook') and g.notebook is not None:
-        return g.notebook  # Already initialized
-    
-    tui_callback = getattr(g, 'tui_callback', None)
-    stdout_callback = getattr(g, 'stdout_callback', None)
-    stderr_callback = getattr(g, 'stderr_callback', None)
-    
-    if not stdout_callback or not stderr_callback:
-        raise RuntimeError("Notebook callbacks not available - main initialization may have failed")
-    
-    if tui_callback: 
-        tui_callback("  - Initializing computational notebook...", "system")
-    else: 
-        logging.info(colored("  - Initializing computational notebook (tmux + python)...", "blue"))
-    
-    notebook = ComputationalNotebook(stdout_callback=stdout_callback, stderr_callback=stderr_callback)
-    g.notebook = notebook
-    
-    if tui_callback: 
-        tui_callback("✔ Notebook ready.", "system_ok")
-    else: 
-        logging.info(colored("✔ Computational notebook ready.", "green"))
-    
-    return notebook
-
-async def generate_branch(model_key: str, branch_index: int, lock: asyncio.Lock, context_chat: Chat, painter: TextStreamPainter, temperature: float, base64_images: list, llm_config: dict, branch_model_map: dict, num_branches: int):
-    """Generates a single response branch, handling model fallbacks."""
-    try:
-        async with lock:
-            logging.debug(f"🚀 Branch {branch_index+1} starting with primary model: {colorize_model_name(model_key)}")
-        
-        branch_model_map[branch_index] = model_key
-        response_buffer_list = [""]
-        branch_update_callback = create_interruption_callback(
-            response_buffer=response_buffer_list,
-            painter=painter,
-            lock=lock
-        )
-        
-        branch_fallback_iterator.update_fallback_models(llm_config)
-        
-        exclude_list = [model_key]
-        # Get all available fallback models instead of limiting to 2
-        iterative_fallbacks = branch_fallback_iterator.get_multiple_fallbacks(
-            count=10,  # Generous limit to get all available fallbacks
-            exclude=exclude_list
-        )
-        
-        if not iterative_fallbacks:
-            other_branch_models = [
-                key for key, data in llm_config.items()
-                if (data.get('selected') and 
-                    key not in LlmRouter().failed_models and
-                    key != model_key and
-                    data.get('beams', 0) > 0)
-            ]
-            iterative_fallbacks = other_branch_models  # Use all available models
-            
-        async with lock:
-            if iterative_fallbacks:
-                usage_stats = branch_fallback_iterator.get_usage_stats()
-                usage_info = ", ".join([f"{m}({usage_stats.get(m, 0)})" for m in iterative_fallbacks])
-                logging.debug(f"🔄 Branch {branch_index+1} branch fallbacks: {usage_info}")
-        
-        models_to_try = [model_key] + iterative_fallbacks
-        
-        # Pass all models to LLM router at once for proper fallback handling
-        try:
-            context_chat.debug_title = f"MCT Branch {branch_index+1}/{num_branches}"
-            
-            async with lock:
-                logging.debug(f"🎯 Branch {branch_index+1} primary model: {colorize_model_name(model_key)} with {len(iterative_fallbacks)} fallbacks")
-            
-            branch_start_time = time.time()
-            current_branch_context = {
-                'branch_number': branch_index,
-                'store_message': True,
-                'log_printed': False,
-                'start_time': branch_start_time
-            }
-            async with lock:
-                print("🌿 ", end="", flush=True)
-
-            await LlmRouter.generate_completion(
-                chat=context_chat,
-                preferred_models=models_to_try,  # Pass ALL models for proper fallback
-                force_preferred_model=True,
-                temperature=temperature,
-                base64_images=base64_images,
-                    generation_stream_callback=branch_update_callback,
-                    strengths=g.LLM_STRENGTHS,
-                    thinking_budget=None,
-                    exclude_reasoning_tokens=True,
-                    branch_context=current_branch_context
-                )
-            async with lock:
-                elapsed_time = time.time() - current_branch_context.get('start_time', time.time())
-                timing_str = f" ({elapsed_time:.1f}s)"
-                if current_branch_context.get('log_printed', False):
-                    print(colored(f"{timing_str}", "green"))
-                else:
-                    print(colored(f"🔄 Branch {branch_index+1} completed{timing_str} ✅", "green"))
-            branch_model_map[branch_index] = model_key  # Record the primary model attempted
-            return response_buffer_list[0]
-        except StreamInterruptedException as e:
-            async with lock:
-                elapsed_time = time.time() - current_branch_context.get('start_time', time.time())
-                timing_str = f" ({elapsed_time:.1f}s)"
-                if current_branch_context.get('log_printed', False):
-                    print(colored(timing_str, "green"))
-                else:
-                    print(colored(f"🔄 Branch {branch_index+1} interrupted{timing_str} ✅", "green"))
-            branch_model_map[branch_index] = model_key
-            return e.response
-        except Exception as e:
-            async with lock:
-                all_tried = colorize_model_list(models_to_try)
-                logging.error(colored(f"❌ Branch {branch_index+1} failed after trying all models (", "red") + all_tried + colored(f"): {str(e)[:100]}", "red"))
-            return None
-    
-    except Exception as unexpected_error:
-        async with lock:
-            logging.error(colored(f"❌ Branch {branch_index+1} (", "red") + colorize_model_name(model_key) + colored(f") unexpected failure: {str(unexpected_error)[:200]}", "red"))
-        return None
 
 async def main(
     input_event: Optional[asyncio.Event] = None, 
@@ -2594,7 +1161,12 @@ async def main(
             apply_default_llm_config()
 
         # Create the UtilsManager first, as it's needed for prompt generation
-        utils_manager = UtilsManager()
+        # Suppress noisy gRPC/SSL warnings from web search tools unless in debug mode
+        if '--debug' not in sys.argv:
+            with suppress_stderr_completely():
+                utils_manager = UtilsManager()
+        else:
+            utils_manager = UtilsManager()
 
         # Configure TTS engine priority based on --remote-tts flag
         if getattr(args, 'online_voice', False):
@@ -2747,7 +1319,7 @@ These are the 5 most recently modified filess. Would you like me to inspect any 
             context_chat.add_message(Role.ASSISTANT, initial_bootstrap_message)
 
             permissions_str = viewpermissions.run()
-            if (permissions_str):
+            if ("No automatic permissions set" not in permissions_str):
                 context_chat.add_message(Role.USER, "view your permissions")
                 context_chat.add_message(Role.ASSISTANT, f"""<todos>
 - [ ] View permissions.
@@ -2788,8 +1360,8 @@ I have successfully viewed my permissions. Is there anything else I can assist y
             g.SUMMARY_MODE = not args.full_output_mode
             
             # Auto compact chat length limit in chars
-            if (len(str(context_chat)) > 50000):
-                print("# cli-agent: 50.000 char threshold reached: Auto compacting conversation...")
+            if (len(str(context_chat)) > 100000):
+                print("# cli-agent: 100.000 char threshold reached: Auto compacting conversation...")
                 g.AGENT_IS_COMPACTING = True
 
             if args.regenerate:
@@ -2811,6 +1383,75 @@ I have successfully viewed my permissions. Is there anything else I can assist y
             elif args.message:
                 user_input = args.message.pop(0)
                 print(colored(f"💬 Processing message: {user_input}" + (f" (⏳ {len(args.message)} more queued)" if args.message else ""), 'blue', attrs=['bold']), flush=True)
+                
+                # CRITICAL SECURITY: Process commands BEFORE sending to AI
+                # Commands like /help, /exit, etc. should NEVER reach the AI
+                # This prevents users from accidentally exposing system commands to AI processing
+                if user_input.startswith('/'):
+                    from agent.core.command_system import COMMAND_MAP, _COMMAND_DEFINITIONS
+                    
+                    # Extract command and arguments
+                    parts = user_input.split()
+                    command_alias = parts[0]
+                    canonical_command = COMMAND_MAP.get(command_alias)
+                    
+                    if not canonical_command:
+                        logging.error(colored(f"# cli-agent: Unknown command '{command_alias}'. Type '/help' for a list of commands.", "red"))
+                        continue  # Skip this message and process next one
+                    
+                    # Handle each command type - these should NEVER go to the AI
+                    if canonical_command == 'help':
+                        # Show startup summary and command list
+                        print_startup_summary(args)
+                        print(colored("\n--- Available Commands ---", "yellow"))
+                        CMD_WIDTH = 28
+                        for cmd_info in _COMMAND_DEFINITIONS:
+                            aliases = ', '.join(cmd_info['aliases'])
+                            line = f"  {colored(aliases.ljust(CMD_WIDTH), 'white')}{cmd_info['description']}"
+                            print(line)
+                        continue  # Skip AI processing
+                        
+                    elif canonical_command == 'exit':
+                        logging.info(colored("# cli-agent: Exiting...", "green"))
+                        exit(0)
+                        
+                    elif canonical_command == 'clear':
+                        if context_chat:
+                            context_chat.messages.clear()
+                        context_chat = await construct_engineered_prompt(args.voice)
+                        logging.info(colored("# cli-agent: Chat cleared.", "green"))
+                        continue  # Skip AI processing
+                        
+                    elif canonical_command == 'save':
+                        await save_current_llm_config_as_default()
+                        continue  # Skip AI processing
+                        
+                    elif canonical_command == 'local':
+                        args.local = not args.local
+                        g.FORCE_LOCAL = args.local
+                        logging.info(colored(f"# cli-agent: Local mode toggled {'on' if args.local else 'off'}.", "green"))
+                        continue  # Skip AI processing
+                        
+                    elif canonical_command == 'voice_mode':
+                        args.voice = not args.voice
+                        logging.info(colored(f"# cli-agent: Voice mode toggled {'on' if args.voice else 'off'}.", "green"))
+                        continue  # Skip AI processing
+                        
+                    elif canonical_command == 'auto_execute':
+                        args.auto = not args.auto
+                        logging.info(colored(f"# cli-agent: Auto-execution toggled {'on' if args.auto else 'off'}.", "green"))
+                        continue  # Skip AI processing
+                        
+                    elif canonical_command == 'online':
+                        args.online = not args.online
+                        logging.info(colored(f"# cli-agent: Online mode toggled {'on' if args.online else 'off'}.", "green"))
+                        continue  # Skip AI processing
+                        
+                    else:
+                        # Handle other commands that might need more complex processing
+                        # For now, log and continue to prevent AI access
+                        logging.warning(colored(f"# cli-agent: Command '{canonical_command}' not fully implemented in message mode.", "yellow"))
+                        continue  # Skip AI processing
             elif g.AGENT_IS_COMPACTING:
                 g.AGENT_IS_COMPACTING = False
                 context_chat = await construct_engineered_prompt(args.voice)
@@ -3159,11 +1800,22 @@ latest summary LIMIT 1
                                         logging.warning(colored(f"⚠️  Duplicate '{tool_name}' blocks detected. Only the first was executed.", "yellow"))
                                     
                                     # All tools now share the same simple run signature.
-                                    tool_result = tool_class.run(first_block)
+                                    # Suppress runtime warnings from tools (gRPC/SSL/TF) unless debug mode
+                                    with suppress_warnings_runtime():
+                                        tool_result = tool_class.run(first_block)
 
-                                    # Handle both sync and async tools
+                                    # Handle both sync and async tools with proper error handling
+                                    try:
+                                        if asyncio.iscoroutine(tool_result):
+                                            tool_result = await tool_result
+                                    except Exception as e:
+                                        logging.error(colored(f"Error awaiting tool {tool_name}: {e}", "red"))
+                                        tool_result = f"Error executing {tool_name}: {str(e)}"
+
+                                    # Ensure tool_result is always a string, never a coroutine
                                     if asyncio.iscoroutine(tool_result):
-                                        tool_result = await tool_result
+                                        logging.error(colored(f"Tool {tool_name} still returned coroutine after await - converting to error", "red"))
+                                        tool_result = f"Error: Tool {tool_name} returned unresolved coroutine"
 
                                     # Wrap tools returned values as tool_ouput
                                     if tool_name not in ["todos"] and tool_result:
@@ -3202,55 +1854,6 @@ latest summary LIMIT 1
                             assistant_response = ""
                             break # Ask for user input
                     
-                    # --- FIX: Re-introduce special handling for bash and python ---
-                    elif code_blocks := get_extract_blocks()(assistant_response, ["bash", "python"]):
-                        
-                        # Combine all code blocks into one for execution
-                        full_code_to_execute = "\n".join(code_blocks)
-
-                        # Get permission before executing
-                        permission_granted = await confirm_code_execution(
-                            args, 
-                            full_code_to_execute, 
-                            utils_manager,
-                            input_event=input_event,
-                            input_lock=input_lock,
-                            shared_input=shared_input
-                        )
-
-                        if permission_granted:
-                            notebook = initialize_notebook_lazy()
-                            
-                            # Determine if it's bash or python and execute
-                            if get_extract_blocks()(assistant_response, "bash"):
-                                await notebook.execute_bash(full_code_to_execute)
-                            else:
-                                await notebook.execute_python(full_code_to_execute)
-                            
-                            # Get output and format it for context
-                            output = notebook.get_stdout()
-                            error = notebook.get_stderr()
-                            
-                            returned_context = ""
-                            if output.strip():
-                                returned_context += f"STDOUT:\n{output.strip()}\n"
-                            if error.strip():
-                                returned_context += f"STDERR:\n{error.strip()}\n"
-                            
-                            if not returned_context.strip():
-                                returned_context = "Code executed with no output."
-
-                            # Add the result as a context message for the agent
-                            context_chat.add_message(Role.ASSISTANT, f"<context>\n{returned_context.strip()}\n</context>")
-                            assistant_response = ""
-                            continue # Loop back to let the agent process the result
-                        else:
-                            # Permission was denied
-                            cancellation_notice = "<context>\nCode execution cancelled by user or guard.\n</context>"
-                            context_chat.add_message(Role.ASSISTANT, cancellation_notice)
-                            assistant_response = ""
-                            break # Ask for new user input
-
                     else:
                         # No tools or code found, this is a conversational response.
                         break # Ask for user input
@@ -3267,6 +1870,32 @@ latest summary LIMIT 1
                 print("# cli-agent: No conversation to compact.")
 
             if args.exit and not args.message:
+                # Check if there are active visual response servers before exiting
+                try:
+                    from tools.visualresponse import visualresponse
+                    if (hasattr(visualresponse, '_session') and 
+                        visualresponse._session and 
+                        visualresponse._session.process and 
+                        visualresponse._session.process.is_alive()):
+                        
+                        # Visual server is active - wait for user to close it
+                        server_url = f"http://127.0.0.1:{visualresponse._session.port}"
+                        print(colored(f"\n🌐 Visual response server is running at {server_url}", "cyan"))
+                        print(colored("Press Ctrl+C to exit when you're done viewing the content.", "yellow"))
+                        
+                        try:
+                            # Keep the process alive until user interrupts
+                            while (visualresponse._session.process and 
+                                   visualresponse._session.process.is_alive()):
+                                import time
+                                time.sleep(1)
+                        except KeyboardInterrupt:
+                            print(colored("\n🛑 Shutting down visual server...", "yellow"))
+                            visualresponse.close_session()
+                            
+                except ImportError:
+                    pass  # Visual response tool not available
+                    
                 exit(0)
 
     except (asyncio.CancelledError, KeyboardInterrupt):

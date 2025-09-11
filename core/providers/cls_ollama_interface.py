@@ -321,6 +321,8 @@ class OllamaClient(AIProviderInterface):
                         from datetime import datetime, timedelta
                         
                         def bytes_to_mb(bytes_value):
+                            if bytes_value is None:
+                                return 0
                             return bytes_value / (1024 * 1024)
 
                         # Download speed tracking
@@ -422,6 +424,8 @@ class OllamaClient(AIProviderInterface):
                 from datetime import datetime, timedelta
                 
                 def bytes_to_mb(bytes_value):
+                    if bytes_value is None:
+                        return 0
                     return bytes_value / (1024 * 1024)
 
                 # Download speed tracking
@@ -1060,7 +1064,7 @@ class OllamaClient(AIProviderInterface):
                             'llama3.3', 'llama3.2', 'llama3.1', 'llama3', 'llama2',
                             'mistral', 'mixtral', 'qwen2.5', 'qwen2', 'qwen3', 'phi3.5', 'phi3',
                             'codellama', 'deepseek-coder', 'gemma2', 'gemma', 'gpt-oss',
-                            'nomic-embed-text', 'mxbai-embed-large', 'bge-m3'
+                            'nomic-embed-text', 'mxbai-embed-large', 'embeddinggemma:latest'
                         ]
                     }
                 
@@ -1104,7 +1108,7 @@ class OllamaClient(AIProviderInterface):
         return model_status
 
     @staticmethod
-    def generate_embedding(text: str, model: str = "bge-m3", **kwargs) -> Optional[List[float]]:
+    def generate_embedding(text: str, model: str = "embeddinggemma:latest", **kwargs) -> Optional[List[float]]:
         """
         Generate embeddings for text using Ollama embedding models.
         
@@ -1163,7 +1167,7 @@ def test_ollama_functionality():
     # Test 2: List available models
     print(colored("\n2. Testing model listing...", "yellow"))
     try:
-        test_models = ["qwen3-coder:latest", "bge-m3", "phi3.5:3.8b"]
+        test_models = ["qwen3-coder:latest", "embeddinggemma:latest", "phi3.5:3.8b"]
         for model in test_models:
             client, found_model, _ = OllamaClient.get_valid_client(model, None, False)
             if client and found_model:
@@ -1177,14 +1181,14 @@ def test_ollama_functionality():
     print(colored("\n3. Testing embedding generation...", "yellow"))
     test_text = "Hello world, this is a test"
     try:
-        embedding = OllamaClient.generate_embedding(test_text, "bge-m3")
+        embedding = OllamaClient.generate_embedding(test_text, "embeddinggemma:latest")
         if embedding:
-            print(f"   bge-m3: {colored('✓ Generated embedding of length ' + str(len(embedding)), 'green')}")
+            print(f"   embeddinggemma:latest: {colored('✓ Generated embedding of length ' + str(len(embedding)), 'green')}")
             print(f"   Sample values: {embedding[:5]}...")
         else:
-            print(f"   bge-m3: {colored('✗ Failed to generate embedding', 'red')}")
+            print(f"   embeddinggemma:latest: {colored('✗ Failed to generate embedding', 'red')}")
     except Exception as e:
-        print(f"   bge-m3: {colored('✗ Error: ' + str(e), 'red')}")
+        print(f"   embeddinggemma:latest: {colored('✗ Error: ' + str(e), 'red')}")
     
     # Test 4: Test response generation
     print(colored("\n4. Testing response generation...", "yellow"))

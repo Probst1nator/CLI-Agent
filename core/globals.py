@@ -7,6 +7,7 @@ share the same state instance, which is crucial for managing settings like
 LLM selection, force flags, and other runtime configurations.
 """
 import os
+import atexit
 import shutil
 import json
 import logging
@@ -179,6 +180,10 @@ class Globals:
         self.load_llm_config() # Load LLM config at startup
         self.load_tts_config_from_user_settings() # Load TTS config at startup
         self._configure_ollama_hosts()
+
+        # --- Cleanup callbacks ---
+        self._cleanup_callbacks: List[Callable] = []
+        atexit.register(self._run_cleanup)
 
     def _initialize_directories(self):
         """Create necessary directories and clean up temporary ones."""
@@ -600,5 +605,34 @@ class Globals:
             defaults['quality'] = quality
         
         self.set_config_value('tts_defaults', defaults)
+
+    # --- Cleanup registration and execution ---
+    def register_cleanup(self, callback: Callable) -> None:
+        """
+        Register a function to be called on application exit.
+        Tools with persistent background processes should use this to ensure
+        graceful shutdown.
+        """
+        try:
+            if callback not in self._cleanup_callbacks:
+                self._cleanup_callbacks.append(callback)
+                cb_name = getattr(callback, '__qualname__', repr(callback))
+                logging.info(f"Registered cleanup callback: {cb_name}")
+        except Exception as e:
+            logging.debug(f"Failed to register cleanup callback: {e}")
+
+    def _run_cleanup(self) -> None:
+        """Run all registered cleanup callbacks (invoked automatically at exit)."""
+        if not self._cleanup_callbacks:
+            return
+        logging.info("Running application cleanup...")
+        # Run in reverse order of registration to respect dependency teardown
+        for callback in reversed(self._cleanup_callbacks):
+            try:
+                callback()
+            except Exception as e:
+                cb_name = getattr(callback, '__qualname__', repr(callback))
+                logging.error(f"Exception during cleanup of {cb_name}: {e}")
+        logging.info("Cleanup complete.")
 
 g = Globals()

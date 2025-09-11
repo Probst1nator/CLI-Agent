@@ -37,6 +37,7 @@ class PermissionsManager:
             "always_allow_dev_tools": {
                 "grepsearch": ["grepsearch"]  # Global permission for search tools like grep
             },  # dev_tool_category -> set of paths/patterns
+            "pattern_permissions": {},  # pattern -> scope_path (e.g. "bash:ls*" -> "/current/path/*")
             "global_always_allow": False
         }
         return default_permissions
@@ -133,7 +134,13 @@ class PermissionsManager:
         # Check development tool category permissions based on command content
         if xml_content and tool_name == 'bash':
             command_pattern = PathDetector.get_command_pattern(tool_name, xml_content)
-            if self._is_dev_tool_allowed(command_pattern):
+            if self._is_dev_tool_allowed(command_pattern, file_path):
+                return True
+        
+        # Check pattern-based permissions (e.g., "bash:ls*")
+        if xml_content:
+            command_pattern = PathDetector.get_command_pattern(tool_name, xml_content)
+            if self._is_pattern_allowed(tool_name, command_pattern, file_path):
                 return True
         
         # Combine tool and group permissions
@@ -185,9 +192,23 @@ class PermissionsManager:
         
         return False
     
-    def add_always_allow(self, tool_name: str, file_path: str = None, pattern: str = None, command_hash: str = None, group_name: str = None, dev_tool_category: str = None):
-        """Add an always-allow permission for a tool/path/command/group/dev_tool combination."""
-        if command_hash:
+    def add_always_allow(self, tool_name: str, file_path: str = None, pattern: str = None, command_hash: str = None, group_name: str = None, dev_tool_category: str = None, command_pattern: str = None, scope_path: str = None):
+        """Add an always-allow permission for a tool/path/command/group/dev_tool/pattern combination."""
+        if command_pattern:
+            # Add pattern-based permission (e.g., "bash:ls*" with scope "/current/path/*")
+            if "pattern_permissions" not in self.permissions:
+                self.permissions["pattern_permissions"] = {}
+            
+            # Create the pattern key (tool:command_pattern)
+            pattern_key = f"{tool_name}:{command_pattern}"
+            
+            # Use provided scope_path or default to global
+            permission_scope = scope_path if scope_path else "*"  # "*" means global
+            
+            self.permissions["pattern_permissions"][pattern_key] = permission_scope
+            self._save_permissions()
+            
+        elif command_hash:
             # Add command-specific permission
             if "always_allow_commands" not in self.permissions:
                 self.permissions["always_allow_commands"] = {}
@@ -299,7 +320,18 @@ class PermissionsManager:
             suggestions.append(f"All {tool_name} operations")
         else:
             # Command-pattern based suggestions for tools without paths
-            if command_pattern:
+            if command_pattern and tool_name == 'bash':
+                # Add pattern-based suggestions for bash commands
+                base_command = command_pattern.split()[0] if command_pattern.split() else ""
+                if base_command:
+                    # Pattern suggestions for current directory tree
+                    current_dir = os.getcwd()
+                    suggestions.append(f"All \"{base_command}*\" commands in current directory tree")
+                    suggestions.append(f"All \"{base_command}*\" commands globally") 
+                    suggestions.append(f"Exact command: {command_pattern}")
+                else:
+                    suggestions.append(f"Exact command: {command_pattern}")
+            elif command_pattern:
                 suggestions.append(f"Exact command: {command_pattern}")
             
             # Group-based suggestions for non-path commands
@@ -314,12 +346,59 @@ class PermissionsManager:
         
         return suggestions
     
-    def _is_dev_tool_allowed(self, command_pattern: str) -> bool:
+    def is_smart_action_already_permitted(self, smart_action: dict, tool_name: str, file_path: str = None) -> bool:
+        """
+        Check if a smart action category is already covered by existing permissions.
+        
+        Args:
+            smart_action: Smart action dictionary with category, scope_path, etc.
+            tool_name: Name of the tool being executed
+            file_path: Optional file path being operated on
+            
+        Returns:
+            True if the smart action is already covered by existing permissions
+        """
+        if not smart_action:
+            return False
+            
+        category = smart_action.get('category')
+        if not category:
+            return False
+        
+        # Check if this dev tool category is already allowed
+        dev_tool_permissions = self.permissions.get("always_allow_dev_tools", {})
+        if category in dev_tool_permissions:
+            category_perms = dev_tool_permissions[category]
+            
+            # Use file path context if provided, otherwise fall back to CWD
+            context_path = file_path if file_path else os.getcwd()
+            
+            # For file paths, use the directory containing the file
+            if file_path and os.path.isfile(context_path):
+                context_path = os.path.dirname(context_path)
+            
+            for perm_pattern in category_perms:
+                if perm_pattern.endswith("/*"):
+                    # Directory pattern - check if current context is covered
+                    dir_pattern = perm_pattern[:-2]
+                    if context_path.startswith(dir_pattern):
+                        return True
+                elif perm_pattern == category:
+                    # Global category permission
+                    return True
+                elif os.path.abspath(perm_pattern) == context_path:
+                    # Exact directory match
+                    return True
+        
+        return False
+    
+    def _is_dev_tool_allowed(self, command_pattern: str, file_path: str = None) -> bool:
         """
         Check if a development tool command pattern is allowed based on category permissions.
         
         Args:
             command_pattern: The command pattern to check
+            file_path: Optional file path being operated on (for context-aware checking)
             
         Returns:
             True if the command pattern is allowed by category permissions
@@ -338,22 +417,104 @@ class PermissionsManager:
         if category in dev_tool_permissions:
             category_perms = dev_tool_permissions[category]
             
-            # Check if permission applies to current working directory
-            cwd = os.getcwd()
+            # Use file path context if provided, otherwise fall back to CWD
+            context_path = file_path if file_path else os.getcwd()
+            
+            # For file paths, use the directory containing the file
+            if file_path and os.path.isfile(context_path):
+                context_path = os.path.dirname(context_path)
+            
             for perm_pattern in category_perms:
                 if perm_pattern.endswith("/*"):
                     # Directory pattern
                     dir_pattern = perm_pattern[:-2]
-                    if cwd.startswith(dir_pattern):
+                    if context_path.startswith(dir_pattern):
                         return True
                 elif perm_pattern == category:
                     # Global category permission
                     return True
-                elif os.path.abspath(perm_pattern) == cwd:
+                elif os.path.abspath(perm_pattern) == context_path:
                     # Exact directory match
                     return True
         
         return False
+    
+    def _is_pattern_allowed(self, tool_name: str, command_pattern: str, file_path: str = None) -> bool:
+        """
+        Check if a command pattern is allowed based on stored pattern permissions.
+        
+        Args:
+            tool_name: Name of the tool (e.g., 'bash')
+            command_pattern: The actual command being executed (e.g., 'bash: ls -l')
+            file_path: Optional file path being operated on (for context-aware checking)
+            
+        Returns:
+            True if the command pattern is allowed
+        """
+        pattern_permissions = self.permissions.get("pattern_permissions", {})
+        
+        # Extract the actual command from the pattern (remove "tool: " prefix)
+        actual_command = command_pattern
+        if ":" in command_pattern:
+            actual_command = command_pattern.split(":", 1)[1].strip()
+        
+        # Extract the base command (first word) from the actual command
+        base_command = actual_command.split()[0] if actual_command.split() else ""
+        
+        if not base_command:
+            return False
+            
+        # Check for exact pattern match (e.g., "bash:ls -l")
+        exact_pattern_key = f"{tool_name}:{actual_command}"
+        if exact_pattern_key in pattern_permissions:
+            return self._check_pattern_scope(pattern_permissions[exact_pattern_key], file_path)
+        
+        # Check for wildcard pattern matches (e.g., "bash:ls*")
+        for pattern_key, scope in pattern_permissions.items():
+            if not pattern_key.startswith(f"{tool_name}:"):
+                continue
+                
+            stored_pattern = pattern_key.split(":", 1)[1]  # Get the command part
+            
+            # Handle wildcard patterns
+            if stored_pattern.endswith("*"):
+                pattern_prefix = stored_pattern[:-1]  # Remove the *
+                if base_command.startswith(pattern_prefix):
+                    return self._check_pattern_scope(scope, file_path)
+            elif stored_pattern == base_command:
+                return self._check_pattern_scope(scope, file_path)
+                
+        return False
+    
+    def _check_pattern_scope(self, scope: str, file_path: str = None) -> bool:
+        """
+        Check if the current context matches the pattern scope.
+        
+        Args:
+            scope: The scope string (e.g., "/path/*", "*" for global)
+            file_path: Optional file path being operated on (for context-aware checking)
+            
+        Returns:
+            True if the current context matches the scope
+        """
+        if scope == "*":
+            # Global permission
+            return True
+            
+        # Use file path context if provided, otherwise fall back to CWD
+        context_path = file_path if file_path else os.getcwd()
+        
+        # For file paths, use the directory containing the file
+        if file_path and os.path.isfile(context_path):
+            context_path = os.path.dirname(context_path)
+            
+        if scope.endswith("/*"):
+            # Directory scope permission
+            allowed_dir = scope[:-2]
+            return context_path.startswith(allowed_dir)
+        else:
+            # Exact directory match
+            return context_path == scope
     
     def clear_all_permissions(self):
         """Clear all stored permissions."""

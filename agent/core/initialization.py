@@ -65,7 +65,7 @@ def apply_default_configurations(context: AppContext) -> None:
     """Apply default LLM and Monte Carlo configurations."""
     try:
         # Import here to avoid startup overhead
-        from main import apply_default_llm_config, apply_monte_carlo_config
+        from agent.core.config_utils import apply_default_llm_config, apply_monte_carlo_config
         
         apply_default_llm_config()
         apply_monte_carlo_config()
@@ -141,7 +141,7 @@ def initialize_app(
         display_startup_header(tui_mode=True)
     else:
         if args is None:
-            from main import parse_cli_args
+            from agent.core.cli_args import parse_cli_args
             args = parse_cli_args()
         setup_logging(args.debug, args.log_file, tui_mode=False)
         context.settings.debug_mode = args.debug

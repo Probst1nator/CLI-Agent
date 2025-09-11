@@ -1,8 +1,21 @@
 """
 Refactored main.py for CLI-Agent.
 
-This is the new, clean entry point that uses the modular architecture
-components to replace the monolithic main.py structure.
+⚠️  EXPERIMENTAL / WORK IN PROGRESS ⚠️
+
+This is an experimental entry point demonstrating the new modular architecture.
+It's NOT ready for production use and still depends on the original main.py
+for critical functionality like argument parsing.
+
+For stable operation, use main.py instead.
+
+This refactored version showcases the future architecture with:
+- Clean dependency injection via AppContext
+- Modular components in agent/core/
+- Separation of concerns
+- Proper error handling
+
+Status: Incomplete - missing recent bug fixes and full feature parity.
 """
 
 import asyncio
@@ -47,7 +60,7 @@ async def main(
         
         # Parse CLI args if not in TUI mode
         if not tui_mode:
-            from main import parse_cli_args  # Use original arg parser for now
+            from agent.core.cli_args import parse_cli_args
             args = parse_cli_args()
             
             # Handle immediate CLI operations
@@ -99,7 +112,7 @@ async def main(
                 
         else:
             # TUI mode - create default args
-            from agent.core.initialization import create_tui_args
+            from agent.core.cli_args import create_tui_args
             args = create_tui_args()
             
         # Run the main agent loop
@@ -125,44 +138,11 @@ async def main(
     finally:
         # Cleanup
         if context:
-            _perform_graceful_shutdown(context)
+            from shared.utils.shutdown_utils import perform_graceful_shutdown_modern
+            perform_graceful_shutdown_modern(context)
 
 
-def _perform_graceful_shutdown(context: AppContext) -> None:
-    """
-    Perform graceful shutdown with cleanup.
-    
-    This is much cleaner than the original shutdown logic as it uses
-    the context object instead of global state.
-    """
-    try:
-        # Cleanup temporary files
-        context.cleanup_temp_files()
-        
-        # Use original log cleanup for now
-        try:
-            from shared.utils.log_manager import get_log_manager
-            log_manager = get_log_manager()
-            shutdown_stats = log_manager.shutdown()
-            
-            if shutdown_stats.get('log_cleanup', {}).get('files_removed', 0) > 0:
-                total_files = (shutdown_stats['log_cleanup']['files_removed'] + 
-                             shutdown_stats.get('audio_cleanup', {}).get('files_removed', 0))
-                total_bytes = (shutdown_stats['log_cleanup']['bytes_freed'] + 
-                             shutdown_stats.get('audio_cleanup', {}).get('bytes_freed', 0))
-                
-                context.logger.info(
-                    colored(f"🧹 Final cleanup: {total_files} files removed, "
-                           f"{total_bytes / 1024:.1f} KB freed", "cyan")
-                )
-                
-        except ImportError:
-            pass  # Log manager not available
-        except Exception as e:
-            context.logger.debug(f"Error during log cleanup: {e}")
-            
-    except Exception as e:
-        print(colored(f"Error during graceful shutdown: {e}", "red"))
+# Graceful shutdown moved to shared.utils.shutdown_utils
 
 
 if __name__ == "__main__":

@@ -343,7 +343,7 @@ class LlmRouter:
             if model.provider.__class__.__name__ == 'OllamaClient':
                 # Get host info - use localhost if current_host is None
                 host = getattr(model.provider.__class__, 'current_host', None) or "localhost:11434"
-                provider_info = f" on <{host}>"
+                provider_info = f" via <{host}>"
                 provider_emoji = "🏠 "  # Local/home emoji
                 if colored_output:
                     from termcolor import colored
