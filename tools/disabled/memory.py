@@ -46,11 +46,10 @@ class memory:
 
             try:
                 embedding_function = embedding_functions.OllamaEmbeddingFunction(
-                    url=f"{g.DEFAULT_OLLAMA_HOSTS[0]}/api/embeddings",
-                    model_name="bge-m3"
+                    url=f"{g.DEFAULT_OLLAMA_HOSTS[0]}/api/embeddings"
                 )
                 embedding_function(["test"])
-                logging.info(colored("  - Memory: Using Ollama embedding function (bge-m3).", "cyan"))
+                logging.info(colored("  - Memory: Using Ollama embedding function.", "cyan"))
             except Exception:
                 logging.warning(colored("  - Memory: Ollama not available. Falling back to default sentence-transformer.", "yellow"))
                 embedding_function = embedding_functions.DefaultEmbeddingFunction()

@@ -168,7 +168,7 @@ def select_and_execute_commands(commands: List[str], auto_execute: bool = False,
         summary.append(f"Command '{cmd}' {status} (Exit code: {result['exit_code']})")
         
         if not collection.get(cmd):
-            cmd_embedding = OllamaClient.generate_embedding(cmd, "bge-m3")
+            cmd_embedding = OllamaClient.generate_embedding(cmd)
             if cmd_embedding:
                 collection.add(
                     ids=[cmd],

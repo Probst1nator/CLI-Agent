@@ -17,7 +17,7 @@ class ComputationalNotebook:
         
         logging.info(colored("  - Computational Notebook coordinator ready.", "cyan"))
 
-    def execute(self, command: str, is_python_code: bool = False, persist_python_state: bool = True):
+    async def execute(self, command: str, is_python_code: bool = False, persist_python_state: bool = True):
         """
         DEPRECATED: Execute method is deprecated. 
         Use the individual bash and python tools instead for lazy loading.
@@ -25,13 +25,15 @@ class ComputationalNotebook:
         """
         try:
             if is_python_code:
-                # Import and use the python tool
-                from tools.python import python
-                return python.run(command)
+                # Python tool is disabled
+                self.stdout_callback("[Python execution disabled - tool moved to disabled/]\n")
+                return "Python execution disabled - tool moved to disabled/"
             else:
                 # Import and use the bash tool  
                 from tools.bash import bash
-                return bash.run(command)
+                # Properly await the async bash.run() call
+                result = await bash.run(f"<timeout>30</timeout>\n{command}")
+                return result
         except Exception as e:
             self.stdout_callback(f"\n[Error delegating to tool: {str(e)}]\n")
             return f"Error: {e}"

@@ -33,7 +33,7 @@ class readfile:
     """
     # Define a character limit to prevent excessively large outputs.
     # This helps manage the LLM's context window and reduces token usage.
-    CHUNK_LIMIT = 50000
+    CHUNK_LIMIT = 20000
     
     # State file to track truncated reads
     STATE_FILE = os.path.expanduser("~/.readfile_state.json")

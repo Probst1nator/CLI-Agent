@@ -134,6 +134,7 @@ class TestRunner:
             # Core tests (Level 2) - LLM and model discovery tests
             test_functions.extend(self._scan_module_for_tests("tests.core.test_model_discovery", TestLevel.CORE))
             test_functions.extend(self._scan_module_for_tests("tests.core.test_llm_router_local_mode", TestLevel.CORE))
+            test_functions.extend(self._scan_module_for_tests("tests.core.test_permissions_system", TestLevel.CORE))
             test_functions.extend(self._scan_module_for_tests("tests.test_cross_tool", TestLevel.CORE))
         
         if self.max_level.value <= TestLevel.SHARED.value:

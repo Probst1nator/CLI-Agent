@@ -48,6 +48,19 @@ class PathDetector:
             'display_name': 'git commands',
             'permission_scope': 'project'
         },
+        'safe_commands': {
+            'patterns': [
+                'ls', 'ls -l', 'ls -la', 'ls -al', 'ls -lh', 'ls -R', 'ls -lr', 'ls -ltr',
+                'pwd', 'whoami', 'date', 'uptime', 'hostname', 'uname', 'uname -a',
+                'df -h', 'du -h', 'free -h', 'ps aux', 'top -n1', 'which',
+                'cat /etc/os-release', 'lsb_release -a', 'env', 'printenv',
+                'wc -l', 'head', 'tail', 'grep', 'find . -name', 'find . -type f',
+                'tree', 'file', 'stat', 'id', 'groups'
+            ],
+            'quick_key': 'r',
+            'display_name': 'read-only/safe commands (ls, pwd, etc.)',
+            'permission_scope': 'project'
+        },
         'search': {
             'patterns': ['grep', 'rg', 'ripgrep', 'find', 'ack', 'ag'],
             'quick_key': 's',
@@ -98,14 +111,69 @@ class PathDetector:
         Returns:
             Tuple of (category_name, category_config) or (None, None) if no match
         """
-        command_lower = command_pattern.lower()
+        command_lower = command_pattern.lower().strip()
         
         for category, config in PathDetector.COMMON_DEV_TOOLS.items():
-            for pattern in config['patterns']:
-                if pattern.lower() in command_lower:
+            # Special handling for safe commands with flexible pattern matching
+            if category == 'safe_commands':
+                if PathDetector._is_safe_command(command_lower):
                     return category, config
+            else:
+                # Regular substring matching for other categories
+                for pattern in config['patterns']:
+                    if pattern.lower() in command_lower:
+                        return category, config
         
         return None, None
+    
+    @staticmethod
+    def _is_safe_command(command_lower: str) -> bool:
+        """
+        Check if a command is a safe read-only command using flexible pattern matching.
+        
+        Args:
+            command_lower: Command string in lowercase
+            
+        Returns:
+            True if the command is considered safe
+        """
+        # Define safe command patterns with regex
+        safe_patterns = [
+            r'^ls(\s+(-[lartRhAFSG1]*\s*)*(\S+\s*)*)?$',  # ls with any common flags and optional paths
+            r'^pwd\s*$',                                   # pwd
+            r'^whoami\s*$',                               # whoami  
+            r'^date(\s+.*)?$',                            # date with optional args
+            r'^uptime\s*$',                               # uptime
+            r'^hostname\s*$',                             # hostname
+            r'^uname(\s+-[a-zA-Z]*)?$',                   # uname with flags
+            r'^df\s+-h(\s+.*)?$',                         # df -h
+            r'^du\s+-h(\s+.*)?$',                         # du -h  
+            r'^free\s+-h\s*$',                            # free -h
+            r'^ps(\s+aux)?\s*$',                          # ps or ps aux
+            r'^top\s+-n1\s*$',                            # top -n1
+            r'^which\s+\S+\s*$',                          # which command
+            r'^cat\s+/etc/os-release\s*$',                # cat /etc/os-release
+            r'^lsb_release\s+-a\s*$',                     # lsb_release -a
+            r'^env\s*$',                                  # env
+            r'^printenv(\s+\S+)?\s*$',                    # printenv
+            r'^wc\s+-l(\s+.*)?$',                         # wc -l
+            r'^head(\s+-\d+)?(\s+.*)?$',                  # head
+            r'^tail(\s+-\d+)?(\s+.*)?$',                  # tail
+            r'^grep(\s+.*)?$',                            # grep (read-only when not redirected)
+            r'^find\s+\.(\s+.*)?$',                       # find . with any safe options
+            r'^tree(\s+.*)?$',                            # tree
+            r'^file\s+.*$',                               # file
+            r'^stat\s+.*$',                               # stat
+            r'^id\s*$',                                   # id
+            r'^groups\s*$',                               # groups
+        ]
+        
+        # Check if command matches any safe pattern
+        for pattern in safe_patterns:
+            if re.match(pattern, command_lower):
+                return True
+        
+        return False
     
     @staticmethod
     def get_smart_quick_action(tool_name: str, command_pattern: str, file_path: str = None) -> Optional[Dict[str, Any]]:
@@ -248,6 +316,92 @@ class PathDetector:
         return paths
     
     @staticmethod
+    def _is_relevant_path(file_path: str) -> bool:
+        """
+        Determine if a file path is relevant to show to users.
+        Filters out system cache files, bytecode, and other irrelevant paths.
+        
+        Args:
+            file_path: The file path to evaluate
+            
+        Returns:
+            True if the path is user-relevant
+        """
+        if not file_path:
+            return False
+            
+        # Normalize path for checking
+        path_lower = file_path.lower()
+        
+        # Filter out Python bytecode cache files
+        irrelevant_patterns = [
+            '.pyc',           # Compiled Python bytecode
+            '.pyo',           # Optimized Python bytecode  
+            '__pycache__',    # Python cache directory
+            '.git/',          # Git internal files
+            '.venv/',         # Virtual environment
+            'venv/',          # Virtual environment
+            '.env/',          # Environment directory
+            'node_modules/',  # Node.js modules
+            '.cache/',        # General cache directories
+            'site-packages/', # Python site packages
+            'lib/python',     # Python library paths
+            '/tmp/',          # Temporary files
+            '/var/tmp/',      # Temporary files
+            '.DS_Store',      # macOS metadata
+            'Thumbs.db',      # Windows metadata
+        ]
+        
+        # Check if path contains any irrelevant patterns
+        for pattern in irrelevant_patterns:
+            if pattern in path_lower:
+                return False
+        
+        # Filter out very long paths that are likely system-generated
+        if len(file_path) > 200:
+            return False
+            
+        return True
+    
+    @staticmethod
+    def _get_path_relevance_score(file_path: str) -> int:
+        """
+        Get a relevance score for a file path. Higher scores are more relevant.
+        
+        Args:
+            file_path: The file path to score
+            
+        Returns:
+            Integer relevance score (higher = more relevant)
+        """
+        if not file_path:
+            return 0
+            
+        score = 0
+        path_lower = file_path.lower()
+        
+        # Prefer user source code files
+        source_extensions = ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.go', '.rs', '.rb', '.php', '.sh']
+        if any(path_lower.endswith(ext) for ext in source_extensions):
+            score += 10
+            
+        # Prefer files in current working directory or subdirectories
+        cwd = os.getcwd().lower()
+        if path_lower.startswith(cwd):
+            score += 5
+            
+        # Prefer shorter, simpler paths (more likely to be user files)
+        if len(file_path) < 100:
+            score += 3
+            
+        # Prefer files with common user-relevant names
+        relevant_patterns = ['main', 'index', 'app', 'src/', 'lib/', 'utils/', 'tools/', 'scripts/']
+        if any(pattern in path_lower for pattern in relevant_patterns):
+            score += 2
+            
+        return score
+    
+    @staticmethod
     def _extract_paths_from_command_content(xml_content: str, tool_name: str) -> List[Tuple[str, str]]:
         """
         Extract file paths from bash/python command content.
@@ -265,22 +419,46 @@ class PathDetector:
         command_content = re.sub(r'<[^>]*>', '', xml_content).strip()
         
         if tool_name == "bash":
-            paths.extend(PathDetector._extract_bash_paths(command_content))
+            all_paths = PathDetector._extract_bash_paths(command_content)
         elif tool_name == "python":
-            paths.extend(PathDetector._extract_python_paths(command_content))
+            all_paths = PathDetector._extract_python_paths(command_content)
+        else:
+            all_paths = []
             
+        # Filter paths to only include relevant ones
+        for tag_name, file_path in all_paths:
+            if PathDetector._is_relevant_path(file_path):
+                paths.append((tag_name, file_path))
+                
         return paths
     
     @staticmethod
     def _extract_bash_paths(command_content: str) -> List[Tuple[str, str]]:
-        """Extract file paths from bash command content - simple approach."""
+        """Extract file paths from bash command content - improved approach."""
         paths = []
         args = command_content.split()
         
         for arg in args:
             arg = arg.strip('\'"')  # Remove quotes
-            # Simple rule: if it contains / or starts with ./ ~/ then it's a path
-            if ('/' in arg or arg.startswith('./') or arg.startswith('~/')) and not arg.startswith('-'):
+            
+            # Skip if it's a flag/option
+            if arg.startswith('-'):
+                continue
+                
+            # Skip common glob patterns that aren't specific file paths
+            if arg in ['*/', '*', '**', '*.txt', '*.py', '*.js', '**/*']:
+                continue
+                
+            # Skip if it's just a glob pattern
+            if arg.endswith('/*') or arg.endswith('*'):
+                continue
+            
+            # Only consider it a path if:
+            # 1. It contains / and doesn't look like a glob pattern
+            # 2. It starts with ./ or ~/
+            # 3. It's an absolute path
+            if (('/' in arg and not any(glob_char in arg for glob_char in ['*', '?', '[', ']'])) or 
+                arg.startswith('./') or arg.startswith('~/') or arg.startswith('/')):
                 abs_path = os.path.abspath(arg)
                 paths.append(("bash_path", abs_path))
         
@@ -470,6 +648,7 @@ class PathDetector:
     def get_primary_path(paths: List[Tuple[str, str]]) -> Optional[str]:
         """
         Get the primary file path from a list of detected paths.
+        Prioritizes user-relevant files over system/cache files.
         
         Args:
             paths: List of (tag_name, file_path) tuples
@@ -479,17 +658,32 @@ class PathDetector:
         """
         if not paths:
             return None
-            
-        # Prefer certain tag names that are more likely to be the main target
+        
+        # First filter to only relevant paths
+        relevant_paths = [(tag, path) for tag, path in paths if PathDetector._is_relevant_path(path)]
+        
+        if not relevant_paths:
+            # If no relevant paths found, fall back to original logic but still filter basic irrelevant ones
+            relevant_paths = [(tag, path) for tag, path in paths if not path.lower().endswith('.pyc')]
+            if not relevant_paths:
+                relevant_paths = paths
+        
+        # Score paths by relevance and tag priority
+        scored_paths = []
         priority_tags = ['filepath', 'path', 'file', 'filename']
         
-        for priority_tag in priority_tags:
-            for tag_name, file_path in paths:
-                if priority_tag in tag_name.lower():
-                    return file_path
+        for tag_name, file_path in relevant_paths:
+            score = PathDetector._get_path_relevance_score(file_path)
+            
+            # Boost score for priority tags
+            if any(priority_tag in tag_name.lower() for priority_tag in priority_tags):
+                score += 15
+                
+            scored_paths.append((score, file_path, tag_name))
         
-        # If no priority tag found, return the first path
-        return paths[0][1]
+        # Sort by score (highest first) and return the best path
+        scored_paths.sort(key=lambda x: x[0], reverse=True)
+        return scored_paths[0][1]
     
     @staticmethod
     def get_command_hash(xml_content: str) -> str:
