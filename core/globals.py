@@ -13,7 +13,7 @@ import json
 import logging
 import datetime
 from pathlib import Path
-from typing import List, Optional, Any, Callable, Dict
+from typing import List, Optional, Any, Callable, Dict, Set
 from termcolor import colored
 
 # --- Helper Function for Path Management ---
@@ -183,6 +183,7 @@ class Globals:
 
         # --- Cleanup callbacks ---
         self._cleanup_callbacks: List[Callable] = []
+        self._persistent_services: Set[Callable] = set()  # Services that should persist
         atexit.register(self._run_cleanup)
 
     def _initialize_directories(self):
@@ -621,18 +622,71 @@ class Globals:
         except Exception as e:
             logging.debug(f"Failed to register cleanup callback: {e}")
 
-    def _run_cleanup(self) -> None:
-        """Run all registered cleanup callbacks (invoked automatically at exit)."""
+    def register_persistent_service(self, callback: Callable) -> None:
+        """
+        Register a service that should persist across normal cleanup cycles.
+        Persistent services are only cleaned up on explicit shutdown.
+        Used for services like visual response servers that should remain active.
+        """
+        try:
+            self._persistent_services.add(callback)
+            cb_name = getattr(callback, '__qualname__', repr(callback))
+            logging.debug(f"Registered persistent service: {cb_name}")
+        except Exception as e:
+            logging.debug(f"Failed to register persistent service: {e}")
+
+    def unregister_persistent_service(self, callback: Callable) -> None:
+        """
+        Remove a service from the persistent services set, allowing it to be cleaned up normally.
+        """
+        try:
+            self._persistent_services.discard(callback)
+            cb_name = getattr(callback, '__qualname__', repr(callback))
+            logging.debug(f"Unregistered persistent service: {cb_name}")
+        except Exception as e:
+            logging.debug(f"Failed to unregister persistent service: {e}")
+
+    def _run_cleanup(self, force_all: bool = False) -> None:
+        """
+        Run registered cleanup callbacks (invoked automatically at exit).
+        
+        Args:
+            force_all: If True, cleanup all services including persistent ones.
+                      If False, skip persistent services during normal cleanup.
+        """
         if not self._cleanup_callbacks:
             return
+            
         logging.info("Running application cleanup...")
+        cleaned_count = 0
+        skipped_count = 0
+        
         # Run in reverse order of registration to respect dependency teardown
         for callback in reversed(self._cleanup_callbacks):
             try:
+                # Skip persistent services unless forced
+                if not force_all and callback in self._persistent_services:
+                    cb_name = getattr(callback, '__qualname__', repr(callback))
+                    logging.debug(f"Skipping persistent service cleanup: {cb_name}")
+                    skipped_count += 1
+                    continue
+                
+                # Execute cleanup
                 callback()
+                cleaned_count += 1
+                
             except Exception as e:
                 cb_name = getattr(callback, '__qualname__', repr(callback))
                 logging.error(f"Exception during cleanup of {cb_name}: {e}")
-        logging.info("Cleanup complete.")
+        
+        if skipped_count > 0:
+            logging.info(f"Cleanup complete: {cleaned_count} services cleaned, {skipped_count} persistent services preserved")
+        else:
+            logging.info(f"Cleanup complete: {cleaned_count} services cleaned")
+
+    def force_cleanup_all(self) -> None:
+        """Force cleanup of all services, including persistent ones."""
+        logging.warning("Forcing cleanup of all services including persistent ones...")
+        self._run_cleanup(force_all=True)
 
 g = Globals()

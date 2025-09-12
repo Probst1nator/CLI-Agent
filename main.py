@@ -60,13 +60,13 @@ if '--debug' not in sys.argv:
             warnings.simplefilter('ignore')
             old_stderr = sys.stderr
             # Redirect stderr for known noisy operations
-            if not ('--debug' in sys.argv):
+            if '--debug' not in sys.argv:
                 stderr_buffer = open(os.devnull, 'w')
                 sys.stderr = stderr_buffer
             try:
                 yield
             finally:
-                if not ('--debug' in sys.argv):
+                if '--debug' not in sys.argv:
                     stderr_buffer.close()
                 sys.stderr = old_stderr
 else:
@@ -116,6 +116,7 @@ if str(project_root) not in sys.path:
 # --- Tool and Core Imports ---
 from tools.primitives.todos import todos
 from tools.readfile import readfile
+from tools.searchtext import searchtext
 from tools.bash import bash
 from shared.utils_audio import text_to_speech
 from core.globals import g
@@ -152,7 +153,7 @@ from agent.core.input_handlers import (
 
 # Import Monte Carlo engine from extracted module
 from agent.monte_carlo.monte_carlo_engine import (
-    confirm_code_execution, select_best_branch, generate_branch
+    select_best_branch, generate_branch
 )
 
 # Command system functions moved to agent.core.command_system
@@ -1282,10 +1283,43 @@ async def main(
         playbook_manager = PlaybookManager(vector_db=utils_manager.vector_db)
         
         if tui_callback: tui_callback("✔ Initialization complete.", "system_ok")
-        else: logging.info(colored("Agent ready (notebook will initialize on first use).", "blue"))
+        else: 
+            # Display tool loading information
+            if hasattr(g, 'loaded_tool_info') and g.loaded_tool_info:
+                tool_info = g.loaded_tool_info
+                core_tools_list = ", ".join(tool_info['loaded_tools'])
+                logging.info(colored("--- Tool Configuration ---", "blue"))
+                logging.info(colored(f"  🔧 {tool_info['tool_count']} Core Tools: {core_tools_list}", "cyan"))
+                
+                # Display failed/skipped tools with warnings
+                if tool_info['failed_tools']:
+                    failed_list = ", ".join(tool_info['failed_tools'][:3])  # Show first 3
+                    if len(tool_info['failed_tools']) > 3:
+                        failed_list += f" (and {len(tool_info['failed_tools']) - 3} more)"
+                    logging.info(colored(f"  ⚠️  Failed to load: {failed_list}", "yellow"))
+                
+                if tool_info['skipped_tools']:
+                    skipped_list = ", ".join(tool_info['skipped_tools'])
+                    logging.info(colored(f"  ⏭️  Skipped: {skipped_list}", "yellow"))
+                
+                # Display GUI tools if any
+                if tool_info['gui_tools']:
+                    gui_status = ", ".join(tool_info['gui_tools'])
+                    logging.info(colored(f"  📁 GUI Tools: {gui_status}", "cyan"))
+                
+                logging.info(colored("--- Ready for User Input ---", "blue"))
+            
+            logging.info(colored("Agent ready (notebook will initialize on first use).", "blue"))
 
         if context_chat is None:
             context_chat: Chat = await construct_engineered_prompt(args.voice)
+            
+        # Install visual input bridge for browser integration
+        try:
+            from visual_input_bridge import install_visual_input_bridge
+            install_visual_input_bridge()
+        except (ImportError, Exception) as e:
+            logging.debug(f"Visual input bridge not available - browser integration disabled: {e}")
 
         if '-m' in sys.argv or '--message' in sys.argv:
             if not args.message:
@@ -1300,23 +1334,53 @@ async def main(
 
         user_interrupt = False
         if not (args.c or args.regenerate):
-            context_chat.add_message(Role.USER, "Please list the 5 most recently modified files in this cwd")
+            # Create a large demonstration file for the resource workflow bootstrap
+            os.system("for i in $(seq 1 200); do echo \"Line $i with some content to make it longer and demonstrate the resource workflow properly\"; done > large_demo_file.txt")
+            
+            context_chat.add_message(Role.USER, "I've created a large file called 'large_demo_file.txt'. Please find the line containing 'Line 100'.")
+            
+            # Create bootstrap that demonstrates the resource workflow
+            readfile_result = readfile.run("large_demo_file.txt")
+            
+            # Extract resource_id from readfile_result if it contains one
+            import re
+            resource_id_match = re.search(r'Resource ID: (\w+)', readfile_result)
+            resource_id = resource_id_match.group(1) if resource_id_match else "file_demo"
+            
+            # Run the searchtext tool to demonstrate the complete workflow
+            search_result = searchtext.run(f'<resource_id>{resource_id}</resource_id><pattern>Line 100</pattern>')
+            
             initial_bootstrap_message = f"""<think>
-I can list the 5 most recently modified by constructing a bash command. Some commands i should consider are: ls, grep, head, awk and echo.
+The user wants me to find a specific line in 'large_demo_file.txt'. 
+First, I need to read the file. Since the user implied it's large, I expect to get a resource handle instead of the content.
+Then, I will use the searchtext tool with the resource_id provided to find the specific line.
 </think><todos>
-- [ ] List 5 most recently modified files.
-</todos><bash>
-ls -tp | grep -v /$ | head -5 | sed 's/^/- /'
-</bash><context>
-{bash.run("ls -tp | grep -v /$ | head -5 | sed 's/^/- /'")}
+- [ ] Read large_demo_file.txt
+- [ ] Search for the line containing "Line 100"
+</todos><readfile>large_demo_file.txt</readfile><context>
+{readfile_result}
+</context><think>
+Great, I have the resource ID as expected. Now I will use searchtext to find the exact line the user requested.
+</think><todos>
+- [x] Read large_demo_file.txt
+- [ ] Search for the line containing "Line 100"
+</todos><searchtext>
+<resource_id>{resource_id}</resource_id>
+<pattern>Line 100</pattern>
+</searchtext><context>
+{search_result}
 </context><todos>
-- [x] List 5 most recently modified files.
+- [x] Read large_demo_file.txt
+- [x] Search for the line containing "Line 100"
 </todos><response>
-These are the 5 most recently modified filess. Would you like me to inspect any of them?
+I found the line containing "Line 100" in the large file. This demonstrates the resource workflow where large files return resource IDs instead of content directly.
 </response>"""
             
-            
             context_chat.add_message(Role.ASSISTANT, initial_bootstrap_message)
+            
+            # Cleanup the demo file
+            if os.path.exists("large_demo_file.txt"):
+                os.remove("large_demo_file.txt")
 
             permissions_str = viewpermissions.run()
             if ("No automatic permissions set" not in permissions_str):
@@ -1705,7 +1769,7 @@ latest summary LIMIT 1
                     last_action_signature = assistant_response
 
                     if stall_counter >= MAX_STALLS:
-                        print(colored("The agent is spamming its last response instead of progressing. Aborting...", "red"))
+                        print(colored("The agent is spamming its last tool use. Aborting...", "red"))
                         stall_counter, last_action_signature = 0, None
                         break
 
@@ -1730,7 +1794,7 @@ latest summary LIMIT 1
                         # --- Enhanced Path-Aware Permission Checking ---
                         # Check permissions using path detection for tools with file operations
                         should_execute = False
-                        if len(tool_tags_found) == 1 and any(k in tool_tags_found[0].__module__ for k in ["todos", "think", "searchweb", "grepsearch"]):
+                        if len(tool_tags_found) == 1 and any(k in (tool_tags_found[0].__module__ or "") for k in ["todos", "think", "searchweb", "grepsearch"]):
                             should_execute = True
                         elif len(tool_tags_found) > 0:
                             # Analyze each tool for path-based permissions
@@ -1818,7 +1882,7 @@ latest summary LIMIT 1
                                         tool_result = f"Error: Tool {tool_name} returned unresolved coroutine"
 
                                     # Wrap tools returned values as tool_ouput
-                                    if tool_name not in ["todos"] and tool_result:
+                                    if tool_name and tool_name not in ["todos"] and tool_result:
                                         tool_results.append(tool_result)
                                 
                                 returned_context = ""
@@ -1862,7 +1926,55 @@ latest summary LIMIT 1
                     break # Ask for user input
                 except Exception as e:
                     if "ctrl+c" not in str(e).lower():
-                        logging.critical(colored(f"An unexpected error occurred in the agent loop: {e}", "red"), exc_info=args.debug)
+                        import traceback
+                        import linecache
+                        
+                        # Get detailed traceback information
+                        tb = traceback.extract_tb(e.__traceback__)
+                        
+                        # Enhanced error message with context
+                        error_msg = f"An unexpected error occurred in the agent loop: {e}"
+                        
+                        # Add specific information for NoneType iteration errors
+                        if "argument of type 'NoneType' is not iterable" in str(e):
+                            error_msg += "\n🔍 NoneType Iteration Error Details:"
+                            
+                            # Find the exact line that caused the error
+                            for frame in tb:
+                                filename = frame.filename
+                                line_number = frame.lineno
+                                function_name = frame.name
+                                line_text = frame.line or linecache.getline(filename, line_number).strip()
+                                
+                                if any(op in line_text for op in [' in ', '.startswith(', '.endswith(', ' not in ']):
+                                    error_msg += f"\n  📁 File: {filename}"
+                                    error_msg += f"\n  📍 Line {line_number} in function '{function_name}'"
+                                    error_msg += f"\n  💥 Code: {line_text}"
+                                    
+                                    # Try to identify which variable is None
+                                    if ' in ' in line_text:
+                                        parts = line_text.split(' in ')
+                                        if len(parts) >= 2:
+                                            suspect_var = parts[1].split()[0].strip('()[]{}')
+                                            error_msg += f"\n  🎯 Suspected None variable: {suspect_var}"
+                                    elif '.startswith(' in line_text or '.endswith(' in line_text:
+                                        var_name = line_text.split('.')[0].strip()
+                                        error_msg += f"\n  🎯 Suspected None variable: {var_name}"
+                                    break
+                        
+                        # Always show the full stack trace in debug mode or for critical errors
+                        if args.debug or "NoneType" in str(e):
+                            error_msg += "\n\n📋 Full Stack Trace:"
+                            for i, frame in enumerate(tb):
+                                error_msg += f"\n  {i+1}. {frame.filename}:{frame.lineno} in {frame.name}()"
+                                if frame.line:
+                                    error_msg += f"\n     → {frame.line.strip()}"
+                        
+                        logging.critical(colored(error_msg, "red"))
+                        
+                        # Also log with exc_info for complete traceback in debug mode
+                        if args.debug:
+                            logging.critical("Complete exception details:", exc_info=True)
                     user_interrupt = True
                     break # Ask for user input
             

@@ -33,7 +33,7 @@
             transition: background-color 0.3s, color 0.3s;
             padding-bottom: 80px; /* Add padding to prevent content being hidden by input */
         }
-        .container { max-width: 100%; margin: 0 auto; }
+        .container { max-width: 1600px; margin: 0 auto; }
         .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary-color); padding-bottom: 2px; }
         #status { font-weight: bold; transition: color 0.3s; }
         #header-text { font-weight: bold; font-family: "Fira Code", monospace; }
@@ -327,11 +327,34 @@
                 const message = chatInput.value.trim();
 
                 if (message && ws && ws.readyState === WebSocket.OPEN) {
+                    // Visual feedback: show message was sent
+                    const originalPlaceholder = chatInput.placeholder;
+                    chatInput.placeholder = '✅ Message sent to agent...';
+                    chatInput.disabled = true;
+                    
+                    // Send the message
                     ws.send(message);
                     chatInput.value = '';
+                    
+                    // Reset the input after short delay
+                    setTimeout(() => {
+                        chatInput.placeholder = originalPlaceholder;
+                        chatInput.disabled = false;
+                        chatInput.focus();
+                    }, 1500);
+                    
+                    console.log(`🌐 Sent message to agent: "${message}"`);
                 } else if (!ws || ws.readyState !== WebSocket.OPEN) {
                     console.warn('Cannot send message, WebSocket is not connected.');
-                    // You could add a visual cue here, like shaking the input box
+                    // Visual feedback for connection error
+                    const originalPlaceholder = chatInput.placeholder;
+                    chatInput.placeholder = '❌ Not connected to agent';
+                    chatInput.style.borderColor = '#dc3545';
+                    
+                    setTimeout(() => {
+                        chatInput.placeholder = originalPlaceholder;
+                        chatInput.style.borderColor = '';
+                    }, 2000);
                 }
             });
         });

@@ -22,20 +22,23 @@ class UtilsManager:
         self._load_utils()
         
         # Test GUI connection
-        gui_status = self._test_gui_connection()
+        # Temporarily disabled to fix startup hang
+        # gui_status = self._test_gui_connection()
+        gui_status = ""
         
         # Initialize vector database for smart tool retrieval
-        logging.info(colored("  - Initializing tool search engine...", "cyan"))
+        # Temporarily disabled to fix startup hang
+        # logging.info(colored("  - Initializing tool search engine...", "cyan"))
         self.vector_db = None
-        self._init_vector_db()
+        # self._init_vector_db()
         
         # Show tool count and names
         tool_names = [UtilBase.get_name(util_cls) for util_cls in self.utils] if self.utils else []
         if tool_names:
             tools_display = ", ".join(sorted(tool_names))
-            logging.info(colored(f"  - Utils manager ready ({len(self.utils)} tools: {tools_display}){gui_status}.", "cyan"))
+            logging.info(colored(f"  - Utils manager ready ({len(self.utils)} utils: {tools_display}){gui_status}.", "cyan"))
         else:
-            logging.info(colored(f"  - Utils manager ready ({len(self.utils)} tools){gui_status}.", "cyan"))
+            logging.info(colored(f"  - Utils manager ready ({len(self.utils)} utils){gui_status}.", "cyan"))
 
     def _load_utils(self) -> None:
         """Dynamically load all utility modules from the utils directory"""
@@ -48,11 +51,14 @@ class UtilsManager:
         for file in self.utils_path.glob("*.py"):
             if file.name.startswith("_") or file.name == ".gitignore":
                 continue
+            # Skip profiling.py as it's a development tool that exits on import
+            if file.name == "profiling.py":
+                continue
 
             try:
                 # Convert file path to a Python module path 
-                # e.g., /path/to/utils/updatefile.py -> tools.main_cli_agent.utils.updatefile
-                module_name = f"tools.main_cli_agent.utils.{file.stem}"
+                # e.g., /path/to/utils/updatefile.py -> utils.updatefile
+                module_name = f"utils.{file.stem}"
                 module = importlib.import_module(module_name)
 
                 # Find all classes in the module that inherit from UtilBase

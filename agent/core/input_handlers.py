@@ -223,7 +223,7 @@ async def get_user_input_with_bindings(
                 exit()
         
         # --- Command Handling ---
-        if user_input.startswith('/'):
+        if user_input and user_input.startswith('/'):
             parts = user_input.split()
             command_alias = parts[0]
             canonical_command = COMMAND_MAP.get(command_alias)

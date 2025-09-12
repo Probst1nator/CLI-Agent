@@ -3,7 +3,8 @@ import json
 from typing import Dict, Any
 
 from agent.utils_manager.util_base import UtilBase
-from .deprecated.todos import TodosUtil
+# from .deprecated.todos import TodosUtil  # Temporarily disabled
+TodosUtil = None  # Placeholder
 
 class ArchitectNewUtil(UtilBase):
     """

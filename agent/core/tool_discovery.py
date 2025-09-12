@@ -46,12 +46,15 @@ def _generate_tool_documentation() -> str:
         
     Side Effects:
         Sets g.tool_classes with discovered tool classes
+        Sets g.loaded_tool_info for startup display
     """
     docs_string = "3.  **ACT**: Decide on a tool and execute it to pass your current step. You can make use of the following tools:\n\n"
     
     # Import and discover tools from the tools directory
     tools_dir = Path(__file__).parent.parent.parent / "tools"
     tool_classes = {}
+    failed_tools = []
+    skipped_tools = []
     
     if tools_dir.exists():
         for file in tools_dir.glob("*.py"):
@@ -70,10 +73,16 @@ def _generate_tool_documentation() -> str:
                     if hasattr(tool_class, 'get_delim') and hasattr(tool_class, 'get_tool_info'):
                         # Skip getuserfiles if GUI is not available or has no content
                         if tool_class_name == 'getuserfiles' and not _check_getuserfiles_available():
+                            skipped_tools.append(f"{tool_class_name} (GUI not connected)")
                             continue
                         tool_classes[tool_class.get_delim()] = tool_class
+                    else:
+                        failed_tools.append(f"{tool_class_name} (missing required methods)")
+                else:
+                    failed_tools.append(f"{file.stem} (class not found)")
             except Exception as e:
-                logging.warning(f"Could not load tool from {file}: {e}")
+                failed_tools.append(f"{file.stem} ({str(e)})")
+                logging.debug(f"Could not load tool from {file}: {e}")
     
     # Sort tools to ensure a consistent order in the prompt
     sorted_tool_names = sorted(tool_classes.keys())
@@ -93,6 +102,26 @@ def _generate_tool_documentation() -> str:
     # Store tool_classes globally for later use. This is a critical side-effect
     # that makes the tools available to the rest of the application.
     g.tool_classes = tool_classes
+    
+    # Store tool info for startup display
+    tool_info = {
+        'loaded_tools': sorted_tool_names,
+        'failed_tools': failed_tools,
+        'skipped_tools': skipped_tools,
+        'tool_count': len(tool_classes),
+        'gui_tools': []
+    }
+    
+    # Check for GUI tools that are loaded
+    for tool_name in sorted_tool_names:
+        if tool_name in ['taskmanager']:
+            tool_info['gui_tools'].append(tool_name)
+    
+    # Add skipped GUI tools
+    if skipped_tools:
+        tool_info['gui_tools'].extend([tool for tool in skipped_tools if 'GUI' in tool])
+    
+    g.loaded_tool_info = tool_info
     return docs_string
 
 
