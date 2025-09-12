@@ -5,12 +5,9 @@ Core tests for the CLI-Agent permission system, focusing on bug fixes
 and general functionality validation.
 """
 
-import json
-import os
 import sys
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Setup test imports
 test_root = Path(__file__).parent.parent.parent
@@ -20,7 +17,6 @@ from shared.path_resolver import setup_cli_agent_imports
 setup_cli_agent_imports()
 
 from core.permissions.permissions_manager import PermissionsManager
-from core.permissions.path_detector import PathDetector
 
 
 class MockPermissionsManager(PermissionsManager):

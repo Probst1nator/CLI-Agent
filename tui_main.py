@@ -4,16 +4,18 @@ import sys
 import traceback
 import threading
 import logging
+import queue
+import time
 from typing import Optional, Dict, Any
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, RichLog, Input
+from textual.widgets import RichLog, Input, Static
 from textual.worker import Worker, WorkerState
 from textual.suggester import Suggester
 
 # --- Project Imports ---
 from main import main as run_agent_logic, parse_cli_args, setup_logging
-from main import get_command_definitions, get_command_descriptions
+from agent.core.command_system import _build_command_definitions, _build_command_descriptions
 
 class CommandSuggester(Suggester):
     """A command suggester for Textual Input based on CLI-Agent's nested command dictionary."""
@@ -21,7 +23,7 @@ class CommandSuggester(Suggester):
     def __init__(self, command_dict: Dict[str, Any]):
         super().__init__(use_cache=True)  # Enable caching for better performance
         self.command_dict = command_dict
-        self.descriptions = get_command_descriptions()
+        self.descriptions = _build_command_descriptions()
 
     async def get_suggestion(self, value: str) -> str:
         """
@@ -71,7 +73,6 @@ class StdoutRedirector:
         self.loop = loop
         self.tui_app = tui_app
         self.last_write_time = None
-        import time
         self.time = time
 
     def write(self, s: str):
@@ -124,6 +125,7 @@ class AgentTUI(App):
         self.auto_scroll = True
         self.log_content = []  # Store all log content for copying
         self.reset_placeholder_timer = None  # For tracking when to reset input placeholder
+        self.visual_queue_worker: Optional[Worker] = None  # For monitoring visual input queue
         
         # Setup separate debug logging for TUI internal operations
         self.logger = logging.getLogger("AgentTUI")
@@ -141,16 +143,15 @@ class AgentTUI(App):
         self.logger.propagate = False
         
         # Initialize command suggester for auto-completion
-        self.command_suggester = CommandSuggester(get_command_definitions())
+        self.command_suggester = CommandSuggester(_build_command_definitions())
         self.logger.info("Command suggester initialized")
         
         self.logger.info("=== TUI Application Starting ===")
 
     def compose(self) -> ComposeResult:
         """Create and arrange widgets."""
-        yield Header(name="CLI-Agent TUI")
-        yield RichLog(id="output_log", highlight=True, markup=True, auto_scroll=False)
-        yield Footer()
+        yield Static("┌─── CLI-Agent TUI ─────────────────────────────────────────────┐", id="title_bar")
+        yield RichLog(id="output_log", highlight=True, markup=True, auto_scroll=True)
         yield Input(placeholder="Agent is initializing...", id="command_input", disabled=True)
 
     def on_mount(self) -> None:
@@ -158,35 +159,76 @@ class AgentTUI(App):
         self.logger.info("TUI on_mount started")
         
         log_widget = self.query_one(RichLog)
+        input_widget = self.query_one(Input)
         main_loop = asyncio.get_running_loop()
+
+        # Show welcome messages FIRST, before any redirects
+        log_widget.write("[bold cyan]🎉 CLI-Agent TUI Started[/bold cyan]")
+        log_widget.write("[green]✅ Interface initialized successfully[/green]")
+        log_widget.write("[dim]Agent is starting up... Please wait...[/dim]")
+        log_widget.write("")
+        
+        # Test that the display is working
+        log_widget.write("[yellow]📱 TUI Display Test:[/yellow]")
+        log_widget.write("   - Title bar: ✅")
+        log_widget.write("   - Output area: ✅") 
+        log_widget.write("   - Input field: ✅")
+        log_widget.write("")
 
         self.logger.info(f"Main loop: {main_loop}")
         self.logger.info(f"Input event: {self.input_event}")
         self.logger.info(f"Input lock: {self.input_lock}")
         self.logger.info(f"Shared input: {self.shared_input}")
 
-        # IMPORTANT: Redirect stdout/stderr BEFORE starting agent worker
-        # so the agent's output goes to the TUI from the very beginning
-        sys.stdout = StdoutRedirector(log_widget, main_loop, self)
-        sys.stderr = StdoutRedirector(log_widget, main_loop, self)
-        
         # Attach command suggester to the input widget
-        input_widget = self.query_one(Input)
         input_widget.suggester = self.command_suggester
         self.logger.info("Command suggester attached to input widget")
+        
+        # Show visual integration status
+        from core.globals import g
+        if hasattr(g, 'visual_input_queue'):
+            log_widget.write("[dim green]🌐 Visual input integration: Ready[/dim green]")
+        else:
+            log_widget.write("[dim yellow]🌐 Visual input integration: Not active[/dim yellow]")
+        
+        log_widget.write("[dim]Redirecting agent output to TUI...[/dim]")
+
+        # IMPORTANT: Redirect stdout/stderr AFTER showing initial messages
+        sys.stdout = StdoutRedirector(log_widget, main_loop, self)
+        sys.stderr = StdoutRedirector(log_widget, main_loop, self)
         self.logger.info("Stdout/stderr redirected to TUI")
 
         # Start the main agent logic in a background thread
         self.logger.info("Starting agent worker thread...")
         self.agent_worker = self.run_worker(
-            run_agent_logic(input_event=self.input_event, input_lock=self.input_lock, shared_input=self.shared_input),
+            run_agent_logic(input_event=self.input_event, input_lock=self.input_lock, shared_input=self.shared_input, tui_callback=self.tui_message),
             thread=True,
             name="agent_logic"
         )
         self.logger.info("Agent worker thread started")
         
-        # Enable input after a reasonable initialization time
-        self.set_timer(10.0, self.enable_input_after_delay)
+        # Start visual queue monitoring
+        self.logger.info("Starting visual queue monitor...")
+        self.visual_queue_worker = self.run_worker(
+            self.monitor_visual_queue(),
+            thread=True,
+            name="visual_queue_monitor"
+        )
+        
+        # Enable input after initialization
+        self.set_timer(3.0, self.enable_input_after_delay)
+        
+    def tui_message(self, message: str, msg_type: str = "info") -> None:
+        """Callback for agent to send messages to TUI."""
+        log_widget = self.query_one(RichLog)
+        if msg_type == "system":
+            log_widget.write(f"[dim blue]🤖 {message}[/dim blue]")
+        elif msg_type == "system_ok":
+            log_widget.write(f"[green]✅ {message}[/green]")
+        elif msg_type == "error":
+            log_widget.write(f"[red]❌ {message}[/red]")
+        else:
+            log_widget.write(f"[dim]{message}[/dim]")
         
     def enable_input_after_delay(self) -> None:
         """Enable input field after agent initialization delay."""
@@ -204,20 +246,8 @@ class AgentTUI(App):
         command = message.value
         self.logger.info(f"Input submitted: '{command}'") # This now goes to the debug file
         
-        input_widget = self.query_one(Input)
-        log_widget = self.query_one(RichLog)
-        
-        # 1. Echo the user's command into the log for clarity
-        log_widget.write(f"\n[bold bright_blue]>[/bold bright_blue] {command}")
-        
-        # 2. Visually confirm the agent is working
-        input_widget.clear()
-        input_widget.placeholder = "Agent is thinking..."
-        
-        # 3. Send the command to the agent logic (this part is now silent in the UI)
-        with self.input_lock:
-            self.shared_input["value"] = command
-        self.input_event.set()
+        # Use unified input handler for CLI input
+        await self.handle_input(command, source="cli")
 
     def reset_input_placeholder(self) -> None:
         """Reset the input placeholder when the agent finishes responding."""
@@ -228,6 +258,55 @@ class AgentTUI(App):
                 self.logger.info("Reset input placeholder after agent response")
         except Exception as e:
             self.logger.error(f"Error resetting placeholder: {e}")
+            
+    async def monitor_visual_queue(self) -> None:
+        """Monitor g.visual_input_queue for browser inputs and forward them to the TUI."""
+        from core.globals import g
+        
+        while True:
+            try:
+                # Check if visual input queue exists and has messages
+                if hasattr(g, 'visual_input_queue') and not g.visual_input_queue.empty():
+                    try:
+                        visual_message = g.visual_input_queue.get_nowait()
+                        self.logger.info(f"Received visual input: '{visual_message}'")
+                        
+                        # Process visual input same as CLI input
+                        await self.handle_input(visual_message, source="web")
+                        
+                    except queue.Empty:
+                        pass  # Queue became empty between check and get
+                    except Exception as e:
+                        self.logger.error(f"Error processing visual input: {e}")
+                
+                # Small delay to prevent busy waiting
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                self.logger.error(f"Error in visual queue monitor: {e}")
+                await asyncio.sleep(1)  # Longer delay on error
+    
+    async def handle_input(self, message: str, source: str = "cli") -> None:
+        """Handle input from any source (CLI or visual)."""
+        log_widget = self.query_one(RichLog)
+        input_widget = self.query_one(Input)
+        
+        # Show input with source indicator
+        if source == "web":
+            log_widget.write(f"\n[bold bright_green]🌐 Visual Input:[/bold bright_green] {message}")
+            # Update input placeholder to show web connection
+            input_widget.placeholder = "Enter your request... (Web UI connected)"
+        else:
+            log_widget.write(f"\n[bold bright_blue]>[/bold bright_blue] {message}")
+        
+        # Update visual state
+        input_widget.clear()
+        input_widget.placeholder = "Agent is thinking..."
+        
+        # Send to agent logic
+        with self.input_lock:
+            self.shared_input["value"] = message
+        self.input_event.set()
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Handle worker completion to update the UI."""

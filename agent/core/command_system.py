@@ -30,7 +30,6 @@ _COMMAND_DEFINITIONS: List[Dict[str, Any]] = [
     {'canonical': 'llm', 'aliases': ['/llm'], 'description': 'Open LLM selection interface'},
     {'canonical': 'unsay', 'aliases': ['/unsay'], 'description': 'Remove last user message and AI response'},
     {'canonical': 'auto_execute', 'aliases': ['/a', '/auto'], 'description': 'Toggle automatic code execution mode'},
-    {'canonical': 'fast_mode', 'aliases': ['/f', '/fast'], 'description': 'Toggle fast mode (deprecated)'},
     {'canonical': 'voice_mode', 'aliases': ['/v', '/voice'], 'description': 'Toggle voice input/output mode'},
     {'canonical': 'full_output', 'aliases': ['/fo', '/full_output'], 'description': 'Show full model output instead of summary'},
     {'canonical': 'print', 'aliases': ['/p', '/print'], 'description': 'Print complete chat history'},
@@ -182,3 +181,38 @@ def get_prompt_session() -> PromptSession:
 
 # Expose the command map for use by the main dispatcher
 COMMAND_MAP = _build_command_map()
+
+# Expose functions needed by TUI
+def _build_command_definitions() -> Dict[str, Any]:
+    """
+    Build command definitions for TUI auto-completion.
+    
+    Returns:
+        Dictionary mapping command aliases to their sub-commands (if any)
+    """
+    defs = {}
+    for cmd_info in _COMMAND_DEFINITIONS:
+        for alias in cmd_info['aliases']:
+            if 'sub_commands' in cmd_info:
+                # Create a simple structure for the completer
+                defs[alias] = {sub: None for sub in cmd_info['sub_commands']}
+            else:
+                defs[alias] = None
+    return defs
+
+def _build_command_descriptions() -> Dict[str, str]:
+    """
+    Build command descriptions for TUI display.
+    
+    Returns:
+        Dictionary mapping command aliases to their descriptions
+    """
+    descs = {}
+    for cmd_info in _COMMAND_DEFINITIONS:
+        for alias in cmd_info['aliases']:
+            descs[alias] = cmd_info['description']
+        if 'sub_commands' in cmd_info:
+            for sub_cmd, sub_desc in cmd_info['sub_commands'].items():
+                # Provide descriptions for sub-commands as well
+                descs[f"{cmd_info['aliases'][0]} {sub_cmd}"] = sub_desc
+    return descs

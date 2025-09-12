@@ -84,7 +84,6 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
         tui_mode: Whether to use TUI markup format
     """
     # --- FIX: Moved import locally to break circular dependency ---
-    from main import get_provider_emoji_and_name
     
     # --- Start Helper Function for Coloring ---
     def get_count_color(count: int) -> str:

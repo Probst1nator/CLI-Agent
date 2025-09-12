@@ -1,0 +1,42 @@
+/* CLI-Agent TUI Styles */
+
+/* Title bar styling */
+#title_bar {
+    dock: top;
+    height: 1;
+    background: blue;
+    color: white;
+    content-align: left middle;
+    text-style: bold;
+}
+
+/* Main output log takes most space */
+#output_log {
+    height: 1fr;
+    background: black;
+    color: white;
+    border: solid blue;
+    scrollbar-background: blue;
+    scrollbar-color: white;
+}
+
+/* Input field at bottom */
+#command_input {
+    dock: bottom;
+    height: 1;
+    background: black;
+    color: white;
+    border: solid blue;
+    margin: 0 0;
+    padding: 0 1;
+}
+
+#command_input:focus {
+    border: solid cyan;
+    background: blue 20%;
+}
+
+/* App background */
+App {
+    background: black;
+}

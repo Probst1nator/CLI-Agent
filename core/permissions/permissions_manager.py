@@ -454,12 +454,12 @@ class PermissionsManager:
         pattern_permissions = self.permissions.get("pattern_permissions", {})
         
         # Extract the actual command from the pattern (remove "tool: " prefix)
-        actual_command = command_pattern
-        if ":" in command_pattern:
+        actual_command = command_pattern or ""
+        if command_pattern and ":" in command_pattern:
             actual_command = command_pattern.split(":", 1)[1].strip()
         
         # Extract the base command (first word) from the actual command
-        base_command = actual_command.split()[0] if actual_command.split() else ""
+        base_command = actual_command.split()[0] if actual_command and actual_command.split() else ""
         
         if not base_command:
             return False
