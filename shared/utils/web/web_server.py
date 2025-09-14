@@ -6,8 +6,6 @@ import queue
 import requests
 import time
 from core.chat import Chat, Role
-import subprocess
-import os
 from multiprocessing import Process
 
 class WebServer:
@@ -128,6 +126,26 @@ class WebServer:
         def health_check():
             """Endpoint to verify server is running"""
             return jsonify({'status': 'ok'})
+        
+        @self.app.route('/send_input', methods=['POST'])
+        def send_input():
+            """Endpoint for sending user input to CLI-Agent"""
+            data = request.get_json()
+            if not data or 'input' not in data:
+                return jsonify({'error': 'Invalid input format'}), 400
+            
+            user_input = data['input'].strip()
+            if not user_input:
+                return jsonify({'error': 'Empty input'}), 400
+            
+            # Add to visual input queue
+            from core.globals import g
+            if not hasattr(g, 'visual_input_queue'):
+                import queue
+                g.visual_input_queue = queue.Queue()
+            
+            g.visual_input_queue.put(user_input)
+            return jsonify({'status': 'ok', 'message': 'Input received'})
     
     def add_message_to_chat(self, role: Role, content: str):
         """Add a message to the chat and notify the web interface"""
@@ -197,10 +215,47 @@ class WebServer:
         .log-hidden .system {
             display: none;
         }
+        #input-container {
+            position: fixed;
+            bottom: 70px;
+            left: 20px;
+            right: 20px;
+            background: white;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        #user-input {
+            width: calc(100% - 80px);
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        #send-button {
+            width: 70px;
+            padding: 8px;
+            background: #4682b4;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-left: 5px;
+        }
+        #send-button:hover {
+            background: #365f8a;
+        }
+        body {
+            padding-bottom: 100px;
+        }
     </style>
 </head>
 <body>
     <div id="chat-container"></div>
+    <div id="input-container">
+        <input type="text" id="user-input" placeholder="Type your message here..." onkeypress="handleKeyPress(event)">
+        <button id="send-button" onclick="sendMessage()">Send</button>
+    </div>
     <button id="toggle-logs">Toggle Logs</button>
     <script>
         let showLogs = true;
@@ -274,6 +329,38 @@ class WebServer:
                 });
         }
 
+        function sendMessage() {
+            var input = document.getElementById('user-input');
+            var message = input.value.trim();
+            if (!message) return;
+            
+            // Clear input immediately
+            input.value = '';
+            
+            // Send message to server
+            fetch('/send_input', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({input: message})
+            })
+            .then(function(response) {
+                if (!response.ok) {
+                    console.error('Failed to send message');
+                }
+            })
+            .catch(function(error) {
+                console.error('Error sending message:', error);
+            });
+        }
+        
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
         loadMessages();
         setInterval(loadMessages, 1000);
     </script>
@@ -323,17 +410,15 @@ print("Web server initialized successfully - all print() outputs will now appear
         if self.chat:
             self.chat.save_to_json()
         
-        # Start gunicorn in a separate process
-        self.server_process = subprocess.Popen([
-            'gunicorn',
-            '--bind', f'127.0.0.1:{self.port}',
-            '--workers', '1',
-            '--threads', '4',
-            '--timeout', '120',
-            'app:app'
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Start Flask development server in a background thread
+        def run_server():
+            self.app.run(host="127.0.0.1", port=self.port, debug=False, use_reloader=False, threaded=True)
         
-        # Wait for server to be ready before opening browser
+        self.server_thread = threading.Thread(target=run_server, daemon=True)
+        self.server_thread.start()
+        
+        # Wait for server to be ready before opening browser  
+        time.sleep(1)  # Give server a moment to start
         if self.wait_for_server(timeout=5):
             self.server_ready.set()
             print(f"Web UI is ready at http://localhost:{self.port} - all print() outputs will also appear in the web UI")
@@ -344,10 +429,6 @@ print("Web server initialized successfully - all print() outputs will now appear
             ).start()
         else:
             print(f"Warning: Web server failed to start on port {self.port}")
-            # Print server output for debugging
-            if self.server_process and self.server_process.stderr:
-                print("Server error output:")
-                print(self.server_process.stderr.read().decode())
     
     def stop(self):
         """Stop the web server and notification thread"""
@@ -358,17 +439,7 @@ print("Web server initialized successfully - all print() outputs will now appear
         if hasattr(self, 'print_thread'):
             self.print_queue.put(None)  # Send sentinel value to stop the thread
             self.print_thread.join(timeout=1)
-        if self.server_process:
-            self.server_process.terminate()
-            try:
-                self.server_process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                self.server_process.kill()
-            self.server_process = None
-        try:
-            os.remove('app.py')
-        except:
-            pass
+        # Note: Flask dev server running in daemon thread will stop when main process exits
     
     def wait_for_server(self, timeout: int = 10) -> bool:
         """Wait for server to be ready, returns True if server is ready, False if timeout"""

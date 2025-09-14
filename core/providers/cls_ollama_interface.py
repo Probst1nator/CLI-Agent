@@ -13,6 +13,9 @@ from core.globals import g
 import logging
 import time
 import re
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +142,12 @@ class OllamaClient(AIProviderInterface):
     _host_cache: Dict[str, Dict[str, float]] = {"reachable": {}, "unreachable": {}}
     _cache_ttl: float = 30.0  # Cache for 30 seconds
     
+    # Stream cancellation support
+    _current_task: Optional[asyncio.Task] = None
+    _current_stream = None
+    _cancellation_event: Optional[threading.Event] = None
+    _executor: Optional[ThreadPoolExecutor] = None
+    
     @classmethod
     def reset_host_cache(cls):
         """Reset the host reachability cache to allow retrying all hosts."""
@@ -147,6 +156,74 @@ class OllamaClient(AIProviderInterface):
         cls._host_cache["reachable"].clear()
         cls._host_cache["unreachable"].clear()
         # Note: unreachable_hosts now also contains host:model combinations
+    
+    @classmethod
+    def cancel_current_generation(cls):
+        """
+        Cancel any currently running Ollama generation by stopping the stream.
+        This implements the proper HTTP request cancellation pattern.
+        """
+        try:
+            # Signal cancellation to any running stream
+            if cls._cancellation_event:
+                cls._cancellation_event.set()
+                logger.debug("Ollama stream cancellation event set")
+            
+            # Cancel the async task if it exists
+            if cls._current_task and not cls._current_task.done():
+                cls._current_task.cancel()
+                logger.debug("Ollama async task cancelled")
+            
+            # The actual stream interruption happens in the iterator
+            # by checking the cancellation_event
+            
+        except Exception as e:
+            logger.warning(f"Error cancelling Ollama generation: {e}")
+    
+    @classmethod
+    def _get_executor(cls):
+        """Get or create the thread pool executor for async operations."""
+        if cls._executor is None:
+            cls._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ollama-stream")
+        return cls._executor
+    
+    @classmethod
+    def _create_cancellable_stream(cls, raw_stream, model_key: str):
+        """
+        Create a cancellable stream wrapper that monitors the cancellation event.
+        This implements proper HTTP request cancellation for Ollama streams.
+        """
+        class CancellableOllamaStream:
+            def __init__(self, stream, cancellation_event, model_key):
+                self.stream = stream
+                self.cancellation_event = cancellation_event
+                self.model_key = model_key
+                self._cancelled = False
+            
+            def __iter__(self):
+                return self
+            
+            def __next__(self):
+                # Check for cancellation before each iteration
+                if self.cancellation_event and self.cancellation_event.is_set():
+                    if not self._cancelled:
+                        self._cancelled = True
+                        logger.debug(f"Ollama stream for {self.model_key} cancelled via interruption")
+                        # This will cause the stream processing to stop immediately
+                        raise StopIteration("Stream cancelled due to tool call completion")
+                
+                try:
+                    # Get the next chunk from the raw stream
+                    return next(self.stream)
+                except StopIteration:
+                    # Natural end of stream
+                    raise
+                except Exception as e:
+                    # Handle any other stream errors
+                    logger.warning(f"Ollama stream error for {self.model_key}: {e}")
+                    raise
+        
+        return CancellableOllamaStream(raw_stream, cls._cancellation_event, model_key)
 
     @classmethod
     def check_host_reachability(cls, host: str, chat: Optional[Chat] = None) -> bool:
@@ -567,9 +644,11 @@ class OllamaClient(AIProviderInterface):
                 messages.append({"role": "assistant", "content": content})
         
         try:
+            # Create cancellation event for this stream
+            OllamaClient._cancellation_event = threading.Event()
             
             # Make the streaming API call
-            stream = client.chat(
+            raw_stream = client.chat(
                 model=model_key,
                 messages=messages,
                 stream=True,
@@ -579,13 +658,17 @@ class OllamaClient(AIProviderInterface):
             )
             
             # Verify stream is valid before returning
-            if stream is None:
+            if raw_stream is None:
                 host = "unknown host"
                 if hasattr(client, '_client') and hasattr(client._client, 'base_url'):
                     host = client._client.base_url.host
                 raise Exception(f"Ollama API at {host} returned None stream for model {model_key}")
+            
+            # Store the raw stream for potential cancellation
+            OllamaClient._current_stream = raw_stream
                 
-            return stream
+            # Return a cancellable stream wrapper
+            return OllamaClient._create_cancellable_stream(raw_stream, model_key)
         except ollama.ResponseError as e:
             # This handles specific API errors from Ollama, like model not found.
             # We create a more descriptive error message to be handled by the router.

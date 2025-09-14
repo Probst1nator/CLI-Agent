@@ -27,10 +27,9 @@ class UtilsManager:
         gui_status = ""
         
         # Initialize vector database for smart tool retrieval
-        # Temporarily disabled to fix startup hang
-        # logging.info(colored("  - Initializing tool search engine...", "cyan"))
+        logging.info(colored("  - Initializing tool search engine...", "cyan"))
         self.vector_db = None
-        # self._init_vector_db()
+        self._init_vector_db()
         
         # Show tool count and names
         tool_names = [UtilBase.get_name(util_cls) for util_cls in self.utils] if self.utils else []

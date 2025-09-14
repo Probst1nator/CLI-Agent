@@ -212,7 +212,7 @@ class GoogleAPI(AIProviderInterface):
         # except for rate limit errors, which we'll handle here
         try:
             import threading
-            
+
             # Debug the actual request being sent
             if g.VERBOSE_DEBUG:
                 message_count = len(gemini_messages)
@@ -220,25 +220,36 @@ class GoogleAPI(AIProviderInterface):
                 image_parts = sum(len([p for p in msg.get('parts', []) if isinstance(p, dict) and 'inline_data' in p]) for msg in gemini_messages)
                 print(f"🔍 REQUEST SUMMARY: {message_count} messages, {total_parts} parts, {image_parts} images")
                 print(f"🔍 GENERATION CONFIG: temp={generation_config.temperature}, max_tokens={generation_config.max_output_tokens}")
-            
+
+            # Track API call state for better progress reporting
+            import time
+            api_state = {'stage': 'initializing', 'stage_start_time': time.time()}
+
             # Use threading for synchronous genai call with timeout
             def _generate_with_timeout():
                 try:
                     if g.VERBOSE_DEBUG:
                         print("🔍 CALLING model.generate_content() with stream=True")
                         print(f"🔍 Model info: {model}")
-                    
+
+                    api_state['stage'] = 'sending_request'
+                    api_state['stage_start_time'] = time.time()
+
                     result = model.generate_content(
                         gemini_messages,
                         generation_config=generation_config,
                         stream=True
                     )
-                    
+
+                    api_state['stage'] = 'awaiting_response'
+                    api_state['stage_start_time'] = time.time()
+
                     if g.VERBOSE_DEBUG:
                         print(f"🔍 API CALL SUCCESSFUL: Got result {type(result).__name__}")
-                    
+
                     return result
                 except Exception as inner_e:
+                    api_state['stage'] = 'error'
                     if g.VERBOSE_DEBUG:
                         print(f"🔍 INNER API ERROR: {str(inner_e)}")
                         print(f"🔍 INNER API ERROR TYPE: {type(inner_e).__name__}")
@@ -247,46 +258,67 @@ class GoogleAPI(AIProviderInterface):
                         print("🔍 INNER API TRACEBACK:")
                         traceback.print_exc()
                     raise
-            
+
             # Create a result container
             result_container = {'result': None, 'exception': None}
-            
+
             def _run_generation():
                 try:
                     result_container['result'] = _generate_with_timeout()
                 except Exception as e:
                     result_container['exception'] = e
-            
+
             # Run with extended timeout (120 seconds for image analysis tasks)
             thread = threading.Thread(target=_run_generation)
             thread.daemon = True
             thread.start()
-            
+
             # Provide progress feedback during long operations
             timeout_seconds = float(g.GOOGLE_API_TIMEOUT_SECONDS)
             check_interval = 5.0  # Check every 5 seconds
             elapsed = 0.0
-            
+            start_time = time.time()
+
             while thread.is_alive() and elapsed < timeout_seconds:
                 thread.join(timeout=check_interval)
                 elapsed += check_interval
                 if thread.is_alive() and not silent_reason:
-                    # Show progress indicator every 15 seconds
+                    # Show progress indicator every 15 seconds with specific operation details
                     if int(elapsed) % 15 == 0:
-                        g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} still processing... ({int(elapsed)}s elapsed)", "yellow", force_print=True, prefix=prefix)
-            
+                        stage = api_state['stage']
+                        current_time = time.time()
+                        stage_elapsed = current_time - api_state.get('stage_start_time', start_time)
+
+                        if stage == 'initializing':
+                            status_msg = f"initializing request ({int(elapsed)}s elapsed)"
+                        elif stage == 'sending_request':
+                            status_msg = f"sending API request ({int(stage_elapsed)}s in this stage, {int(elapsed)}s total)"
+                        elif stage == 'awaiting_response':
+                            status_msg = f"awaiting API response ({int(stage_elapsed)}s waiting, {int(elapsed)}s total)"
+                        else:
+                            status_msg = f"processing... ({int(elapsed)}s elapsed)"
+
+                        g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} {status_msg}", "yellow", force_print=True, prefix=prefix)
+
             if thread.is_alive():
-                # Thread is still running, timeout occurred
-                raise Exception(f"Request timed out after {timeout_seconds} seconds for model {model_key}")
-            
+                # Thread is still running, timeout occurred - provide specific timeout context
+                stage = api_state['stage']
+                if stage == 'sending_request':
+                    timeout_msg = f"Request timed out after {timeout_seconds} seconds while sending request to {model_key}"
+                elif stage == 'awaiting_response':
+                    timeout_msg = f"Request timed out after {timeout_seconds} seconds while waiting for response from {model_key}"
+                else:
+                    timeout_msg = f"Request timed out after {timeout_seconds} seconds for model {model_key}"
+                raise Exception(timeout_msg)
+
             if result_container['exception']:
                 raise result_container['exception']
-            
+
             response = result_container['result']
-            
+
             # Record successful request
             enhanced_rate_limit_tracker.record_request(model_key, token_cost=token_cost, image_count=image_count)
-            
+
             return response
         except Exception as e:
             # Use enhanced parser for better rate limit handling

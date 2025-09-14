@@ -172,7 +172,7 @@ class BashSession:
 
     async def execute(self, command: str, timeout: int) -> str:
         """
-        Executes a command asynchronously with a global timeout.
+        Executes a command asynchronously with a global timeout, streaming output.
         """
         if not self.child or not self.child.isalive():
             raise ConnectionError("Bash session is not active.")
@@ -197,88 +197,54 @@ class BashSession:
             hostname = socket.gethostname()
             current_dir = os.getcwd()
             
-            # Display command execution header with colors
-            from termcolor import colored
-            
-            # Create colorized header components
             user_colored = colored(current_user, 'green', attrs=['bold'])
             host_colored = colored(hostname, 'blue', attrs=['bold'])
             dir_colored = colored(current_dir, 'yellow')
             prompt_colored = colored('$', 'white', attrs=['bold'])
             command_colored = colored(clean_command, 'white', attrs=['bold'])
             
-            # Assemble the colorized header
             header = f"[{user_colored}@{host_colored}:{dir_colored}]{prompt_colored} {command_colored}"
-            self.stdout_callback(f"💻 {header}")
+            self.stdout_callback(f"💻 {header}\n") # MODIFIED: Added newline for better formatting
             
             self.child.sendline(full_command_with_boundary)
             
             loop = asyncio.get_running_loop()
             
-            # STREAMING FIX: Reset state tracking for this command
             self.displayed_lines.clear()
             self.last_buffer_position = 0
             
-            # Skip the initial command echo
             try:
                 await loop.run_in_executor(None, self.child.expect, pexpect.TIMEOUT, 0.1)
-                # STREAMING FIX: Don't skip actual output, only filter out command echo later
-                # Reset position to 0 so we capture all output including the first line
                 self.last_buffer_position = 0
             except:
                 pass
             
             while True:
-                
                 try:
-                    # Use shorter timeout for more responsive streaming
                     index = await loop.run_in_executor(
                         None, lambda: self.child.expect([boundary, self.bash_prompt_regex, pexpect.TIMEOUT], timeout=0.5)
                     )
                     
-                    # STREAMING FIX: Read only NEW content since last position
                     current_buffer = self.child.before or ""
                     new_content = current_buffer[self.last_buffer_position:]
                     self.last_buffer_position = len(current_buffer)
                     
-                    # Process only the new content to prevent duplication
                     if new_content:
-                        # STREAMING FIX: More precise command echo filtering
-                        # Remove command echo if it appears at the start, but preserve actual output
-                        lines_to_filter = [
-                            full_command_with_boundary.strip(),
-                            clean_command.strip()
-                        ]
-                        
-                        filtered_lines = []
-                        for line in new_content.split('\n'):
-                            # Skip lines that are exactly the command echo
-                            if line.strip() not in lines_to_filter:
-                                filtered_lines.append(line)
-                        
+                        lines_to_filter = [full_command_with_boundary.strip(), clean_command.strip()]
+                        filtered_lines = [line for line in new_content.split('\n') if line.strip() not in lines_to_filter]
                         new_content = '\n'.join(filtered_lines)
                         
-                        # STREAMING FIX: Process only new lines with duplicate detection
-                        new_lines = new_content.split('\n')
-                        for line in new_lines:
+                        for line in new_content.split('\n'):
                             clean_line = line.strip()
-                            if (clean_line and 
-                                self.bash_prompt_regex not in clean_line and 
-                                clean_line != boundary and
-                                clean_line not in self.displayed_lines):  # Duplicate check
-                                
-                                self.displayed_lines.add(clean_line)  # Track this line
+                            if (clean_line and self.bash_prompt_regex not in clean_line and 
+                                clean_line != boundary and clean_line not in self.displayed_lines):
+                                self.displayed_lines.add(clean_line)
                                 self._stream_output(clean_line)
                                 output_capture.write(clean_line + '\n')
                     
-                    if index == 0:  # Boundary found - command completed
+                    if index in [0, 1]:  # Boundary or prompt found
                         break
-                    elif index == 1:  # Prompt found - command completed
-                        break
-                    # index == 2 is TIMEOUT - continue reading for more output
-                    
                 except Exception:
-                    # If we get an exception, try to read what's available
                     if hasattr(self.child, 'before') and self.child.before:
                         remaining = self.child.before.strip()
                         if remaining and self.bash_prompt_regex not in remaining:
@@ -298,6 +264,77 @@ class BashSession:
             self.stderr_callback(error_string)
             self.child = None
             return error_string
+
+    # NEW METHOD: `execute_silent` for running commands without printing to console
+    async def execute_silent(self, command: str, timeout: int) -> str:
+        """
+        Executes a command asynchronously, capturing output without streaming to console.
+        """
+        if not self.child or not self.child.isalive():
+            raise ConnectionError("Bash session is not active.")
+
+        command_lines = [line.strip() for line in command.strip().split('\n') if line.strip()]
+        clean_command = '; '.join(command_lines)
+
+        if not clean_command:
+            return ""
+
+        boundary = f"__BOUNDARY_{uuid.uuid4().hex}__"
+        full_command_with_boundary = f'{clean_command}; echo "{boundary}"'
+
+        async def _read_loop_silent():
+            output_capture = io.StringIO()
+            self.child.sendline(full_command_with_boundary)
+            loop = asyncio.get_running_loop()
+
+            # Skip the initial command echo
+            try:
+                await loop.run_in_executor(None, self.child.expect_exact, clean_command, 0.2)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                pass
+            
+            while True:
+                try:
+                    index = await loop.run_in_executor(
+                        None, lambda: self.child.expect([boundary, self.bash_prompt_regex], timeout=timeout)
+                    )
+                    
+                    output = (self.child.before or "").strip()
+                    # Filter out command echo
+                    if output.startswith(clean_command):
+                        output = output[len(clean_command):].lstrip()
+
+                    output_capture.write(output)
+
+                    if index in [0, 1]: # Boundary or prompt found
+                        break
+                except pexpect.TIMEOUT:
+                    # On timeout, we still capture what we have
+                    output = (self.child.before or "").strip()
+                    if output.startswith(clean_command):
+                        output = output[len(clean_command):].lstrip()
+                    output_capture.write(output)
+                    raise asyncio.TimeoutError
+                except pexpect.EOF:
+                    output_capture.write((self.child.before or "").strip())
+                    raise
+            
+            # Final prompt clear
+            await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, 5)
+            return output_capture.getvalue().strip()
+
+        try:
+            return await asyncio.wait_for(_read_loop_silent(), timeout=timeout)
+        except asyncio.TimeoutError:
+            # Silent mode doesn't convert to background, it just returns partial output on timeout
+            partial_output = (self.child.before or "").strip()
+            self._try_recover_session()
+            return f"[Error: TIMEOUT after {timeout} seconds]\nPartial output:\n{partial_output}"
+        except pexpect.exceptions.EOF:
+            error_string = "[Error: EOF while executing command. The session closed unexpectedly.]"
+            self.child = None
+            return error_string
+
 
     def _convert_to_background_process(self, command: str, timeout: int) -> str:
         """
@@ -368,7 +405,13 @@ class bash:
     def get_tool_info() -> dict:
         return {
             "name": "bash",
-            "description": "Executes shell commands in a persistent terminal session, streaming output live. Requires a <timeout> tag specifying the maximum execution time in seconds. Essential for file system operations, running scripts, and system interaction.",
+            "description": (
+                "Executes shell commands in a persistent terminal session. "
+                "The `run` method streams output live to the console. "
+                "The `run_silent` method executes the command without printing to the console and returns the full output as a string. "
+                "Both methods require a <timeout> tag specifying the maximum execution time in seconds. "
+                "Essential for file system operations, running scripts, and system interaction."
+            ),
             "example": "<bash><timeout>30</timeout>\nls -l /app/src\n</bash>"
         }
 
@@ -382,7 +425,6 @@ class bash:
             if bash._session:
                 logging.warning(colored("  - Bash session was found dead. Restarting.", "yellow"))
             
-            # SILENT SESSION CREATION: Try multiple approaches with minimal output
             max_attempts = 3
             session_created = False
             
@@ -395,14 +437,11 @@ class bash:
                         )
                     session_created = True
                     break
-                    
                 except (pexpect.EOF, pexpect.TIMEOUT, RuntimeError):
                     if attempt < max_attempts - 1:
-                        # Silent retry with exponential backoff
                         import time
                         time.sleep(0.5 * (2 ** attempt))
-                    
-            # If standard attempts failed, try fallback silently
+            
             if not session_created:
                 try:
                     with suppress_bash_warnings():
@@ -415,7 +454,6 @@ class bash:
                 except Exception:
                     pass
             
-            # Only show error if everything failed
             if not session_created:
                 logging.error(colored("  - Bash session creation failed completely", "red"))
                 raise RuntimeError("Unable to create bash session")
@@ -424,9 +462,6 @@ class bash:
     
     @staticmethod
     def _create_background_process(command: str, child_process: pexpect.spawn) -> str:
-        """
-        Create a background process entry for tracking by taskmanager.
-        """
         process_id = f"bg_{uuid.uuid4().hex[:8]}"
         output_buffer = io.StringIO()
         
@@ -456,9 +491,7 @@ class bash:
                     remaining = child_process.read()
                     if remaining:
                         output_buffer.write(remaining)
-                        output_buffer.flush()
-                except:
-                    pass
+                except: pass
                 
                 bash._background_processes[process_id]['status'] = 'finished'
             except Exception as e:
@@ -474,7 +507,7 @@ class bash:
     @staticmethod
     async def run(content: str) -> str:
         """
-        Parses XML-like input, extracts a command and timeout, and executes it.
+        Parses XML-like input, extracts a command and timeout, and executes it with live output.
         """
         try:
             timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
@@ -499,3 +532,31 @@ class bash:
         except Exception as e:
             logging.error(f"Fatal error executing bash command: {e}", exc_info=True)
             return f"Fatal error executing bash command: {e}"
+
+    # NEW METHOD: `run_silent`
+    @staticmethod
+    async def run_silent(content: str) -> str:
+        """
+        Parses input and executes the command silently, only returning the final stdout.
+        """
+        try:
+            timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
+            
+            if timeout_match:
+                timeout = int(timeout_match.group(1))
+                if timeout <= 0: timeout = 5
+                command_content = content.replace(timeout_match.group(0), '').strip()
+            else:
+                timeout = 5
+                command_content = content.strip()
+
+            if not command_content:
+                return "" # Return empty string for empty command in silent mode
+
+            session = bash._get_session()
+            bash_return = await session.execute_silent(command_content, timeout=timeout)
+            return bash_return
+        except Exception as e:
+            # In silent mode, log the error but return a concise error string
+            logging.error(f"Fatal error during silent bash execution: {e}", exc_info=True)
+            return f"[Silent Bash Error: {e}]"

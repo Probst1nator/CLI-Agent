@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Visual Response</title>
+
+    <!-- Main Styles -->
+    <link rel="stylesheet" href="/css/main.css">
+
+    <!-- Local JavaScript Libraries -->
+    <script src="/libs/jquery.min.js"></script>
+    <script src="/libs/marked.min.js"></script>
+    <script src="/libs/mermaid.min.js"></script>
+    <script src="/libs/plotly.min.js" charset="utf-8"></script>
+    <script src="/libs/3Dmol-min.js"></script>
+    <script src="/libs/svg-pan-zoom.min.js"></script>
+
+    <!-- Modern Framework Libraries (CDN) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div id="header-text">🎨 Agent Visual Response Interface</div>
+            <div>
+                <span id="status">🟡 Connecting...</span>
+                <div id="theme-switcher">
+                    <button id="light-theme-btn">☀️ Light</button>
+                    <button id="dark-theme-btn">🌙 Dark</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="content-wrapper">
+            <!-- Dynamic content will be inserted here -->
+        </div>
+
+        <!-- Hidden wrappers for legacy compatibility -->
+        <div id="plotly-wrapper"></div>
+        <div id="molecule-wrapper"></div>
+    </div>
+
+    <div class="chat-input-container">
+        <form id="chat-form">
+            <input type="text" id="chat-input" placeholder="Send a message to the agent..." autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+    </div>
+
+    <!-- Application Modules -->
+    <script src="/js/renderers.js"></script>
+    <script src="/js/websocket.js"></script>
+    <script src="/js/main.js"></script>
+</body>
+</html>
