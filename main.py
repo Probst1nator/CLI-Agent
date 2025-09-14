@@ -91,6 +91,7 @@ import asyncio
 import threading  
 import json
 import argparse
+import signal
 from pathlib import Path
 from termcolor import colored
 from typing import Dict, List, Optional, Callable, Any
@@ -105,6 +106,10 @@ else:
 
 start_time = time.time() # Global timer for startup and operations
 
+# --- Global Interrupt Flag ---
+# Used for signal-based interruption instead of KeyboardInterrupt exceptions
+_interrupt_flag = threading.Event()
+
 # --- Prompt Toolkit for Command Completion ---
 
 # --- Project Path Setup ---
@@ -116,7 +121,6 @@ if str(project_root) not in sys.path:
 # --- Tool and Core Imports ---
 from tools.primitives.todos import todos
 from tools.readfile import readfile
-from tools.searchtext import searchtext
 from tools.bash import bash
 from shared.utils_audio import text_to_speech
 from core.globals import g
@@ -127,6 +131,8 @@ from agent.utils_manager.utils_manager import UtilsManager
 from utils.tool_context import tool_context
 from core.permissions.enhanced_permissions import enhanced_permission_prompt
 from shared.common_utils import extract_blocks
+import traceback
+import linecache
 
 # --- Suppress Noisy Library Warnings ---
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -262,6 +268,23 @@ class FallbackModelIterator:
 branch_fallback_iterator = FallbackModelIterator()
 guard_fallback_iterator = FallbackModelIterator() 
 evaluation_fallback_iterator = FallbackModelIterator()
+
+# --- Signal Handling for Graceful Interruption ---
+def setup_signal_handlers():
+    """Setup signal handlers for graceful interruption during AI generation."""
+    def signal_handler(signum, frame):
+        """Handle SIGINT (Ctrl+C) by setting interrupt flag instead of raising exception."""
+        _interrupt_flag.set()
+        print(colored("\n⚠️  AI generation interrupted (Ctrl+C) - returning to user input...", "yellow", attrs=['bold']))
+    
+    signal.signal(signal.SIGINT, signal_handler)
+
+def check_interrupt():
+    """Check if interrupt was requested and clear the flag."""
+    if _interrupt_flag.is_set():
+        _interrupt_flag.clear()
+        return True
+    return False
 
 # --- Custom Logging Setup ---
 def parse_cli_args() -> argparse.Namespace:
@@ -478,7 +501,6 @@ from pathlib import Path
 # --- Main Application Imports (Lazy/Normal) ---
 # Imports are moved below arg parsing and logging setup to allow for faster startup
 # and to ensure logging is configured before any modules start logging.
-import traceback
 from dotenv import load_dotenv
 import socket
 import warnings
@@ -493,7 +515,6 @@ warnings.filterwarnings("ignore", message="Unrecognized FinishReason enum value*
 
 # Removed ComputationalNotebook import - using direct tool calls instead
 from core.ai_strengths import AIStrengths
-from shared.utils.web import WebServer
 from core.permissions.path_detector import PathDetector
 from agent.text_painter import TextStreamPainter
 
@@ -912,6 +933,10 @@ def create_interruption_callback(
 
     # Get all tool delimiters and add the final <response> tag.
     all_delimiters = list(getattr(g, 'tool_classes', {}).keys()) + ['response']
+    
+    # In GUI mode, also exclude 'response' from interrupting since we want visualresponse only
+    if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+        non_interrupting_tags = non_interrupting_tags.union({'response'})
 
     # Filter this list to get only the tags that SHOULD cause an interruption.
     interrupting_delimiters = [d for d in all_delimiters if d not in non_interrupting_tags]
@@ -934,6 +959,12 @@ def create_interruption_callback(
             # 2. Append the character to the shared buffer
             response_buffer[0] += char
             current_buffer = response_buffer[0]
+
+            # 2.5. Check for user interrupt (Ctrl+C) 
+            if check_interrupt():
+                if not g.SUMMARY_MODE:
+                    print("\n")
+                raise StreamInterruptedException(current_buffer)
 
             # 3. Check for interruption conditions only when necessary
             should_check = char in '`><'
@@ -1045,7 +1076,36 @@ def is_response_complete(response: str) -> bool:
 # are assumed to exist elsewhere in the project.
 
 
-async def construct_engineered_prompt(voice_agent: str) -> Chat:
+async def get_gui_input() -> str:
+    """
+    Get input from browser interface instead of terminal.
+    Monitors the visual_input_queue from the web server.
+    """
+    import queue
+    
+    if not hasattr(g, 'visual_input_queue'):
+        raise Exception("Visual input queue not available for GUI input")
+    
+    logging.info(colored("🌐 Waiting for browser input...", "blue"))
+    
+    # Wait for input from the browser
+    while True:
+        try:
+            # Check if we have input from the browser
+            if not g.visual_input_queue.empty():
+                user_input = g.visual_input_queue.get_nowait()
+                logging.info(colored(f"🌐 Received browser input: {user_input[:50]}...", "green"))
+                return user_input
+        except queue.Empty:
+            pass
+        except Exception as e:
+            logging.error(f"Error checking visual input queue: {e}")
+            
+        # Small delay to prevent busy waiting
+        await asyncio.sleep(0.1)
+
+
+async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False) -> Chat:
     """
     Constructs the initial Chat object with a dynamically generated system prompt.
     This prompt includes the agent's core principles and a list of available tools.
@@ -1062,6 +1122,15 @@ The following loop is a suggestion of how to behave effectively, you may freely 
     # Dynamically generate the documentation for all available tools
     # This also populates g.tool_classes as a side effect.
     tool_docs = _generate_tool_documentation()
+    
+    # In GUI mode, modify the tool documentation and response behavior
+    if gui_mode:
+        # Filter out non-visual tools or modify descriptions for GUI use
+        tool_docs = tool_docs.replace("**`response`**", "**`visualresponse`**") if "**`response`**" in tool_docs else tool_docs
+        
+        # Add GUI-specific instructions
+        gui_instructions = "\n\n### GUI Mode Active\nYou are running in GUI mode. Use `<visualresponse>` instead of `<response>` to display your final answers in the web interface. All your responses will be displayed in a rich web format."
+        tool_docs += gui_instructions
     
     step_4 = "4.  **ITERATE**: After executing a tool, return to Step 1 **OBSERVE & DECOMPOSE** to reflect on your observations and plan your next move."
 
@@ -1135,6 +1204,9 @@ async def main(
             # Setup logging properly for TUI mode (output goes through print/stdout)
             setup_logging(args.debug, args.log_file, tui_mode=True)
             
+            # Setup signal handlers for graceful interruption
+            setup_signal_handlers()
+            
             # Display header in TUI mode (stdout is redirected before agent starts)
             header_dashes = colored("# # # # # # # # # # # # # # # # # # # # # # # # # #", "blue") 
             header = figlet_format("CLI-Agent", font="slant")
@@ -1147,6 +1219,10 @@ async def main(
         elif not tui_callback:
             setup_logging(args.debug, args.log_file)
             g.DEBUG_MODE = args.debug
+            
+            # Setup signal handlers for graceful interruption
+            setup_signal_handlers()
+            
             header_dashes = colored("# # # # # # # # # # # # # # # # # # # # # # # # # #", "blue")
             header = figlet_format("CLI-Agent", font="slant")
             print(header_dashes)
@@ -1188,9 +1264,20 @@ async def main(
             
         web_server = None
         if args.gui:
-            web_server = WebServer()
-            g.web_server = web_server
-            web_server.start()
+            # Set GUI mode flag for behavior modifications
+            g.GUI_MODE = True
+            
+            # Auto-start visualresponse server for GUI mode (this opens the main interface)
+            try:
+                from tools.visualresponse import visualresponse
+                logging.info(colored("🌐 Starting GUI mode - opening visualresponse interface...", "blue"))
+                # Get a session which will start the server and open the browser
+                session = visualresponse._get_session()
+                logging.info(colored(f"✅ GUI mode active - interface available at http://127.0.0.1:{session.port}", "green"))
+            except ImportError as e:
+                logging.error(colored(f"❌ Could not start visualresponse server: {e}", "red"))
+            except Exception as e:
+                logging.error(colored(f"❌ Error starting visualresponse: {e}", "red"))
         
         context_chat: Optional[Chat] = None
         if args.c or args.regenerate:
@@ -1309,10 +1396,10 @@ async def main(
                 
                 logging.info(colored("--- Ready for User Input ---", "blue"))
             
-            logging.info(colored("Agent ready (notebook will initialize on first use).", "blue"))
+            logging.info(colored("Tools ready.", "blue"))
 
         if context_chat is None:
-            context_chat: Chat = await construct_engineered_prompt(args.voice)
+            context_chat: Chat = await construct_engineered_prompt(args.voice, args.gui)
             
         # Install visual input bridge for browser integration
         try:
@@ -1328,60 +1415,58 @@ async def main(
                     args.message.append(multiline_input)
 
         if not tui_callback:
-            logging.info(colored("Ready.", "magenta"))
+            logging.info(colored("Agent Ready.", "magenta"))
             show_unified_bindings_display()
             swap_to_simple_logging()
 
         user_interrupt = False
         if not (args.c or args.regenerate):
-            # Create a large demonstration file for the resource workflow bootstrap
-            os.system("for i in $(seq 1 200); do echo \"Line $i with some content to make it longer and demonstrate the resource workflow properly\"; done > large_demo_file.txt")
-            
-            context_chat.add_message(Role.USER, "I've created a large file called 'large_demo_file.txt'. Please find the line containing 'Line 100'.")
-            
-            # Create bootstrap that demonstrates the resource workflow
-            readfile_result = readfile.run("large_demo_file.txt")
-            
-            # Extract resource_id from readfile_result if it contains one
-            import re
-            resource_id_match = re.search(r'Resource ID: (\w+)', readfile_result)
-            resource_id = resource_id_match.group(1) if resource_id_match else "file_demo"
-            
-            # Run the searchtext tool to demonstrate the complete workflow
-            search_result = searchtext.run(f'<resource_id>{resource_id}</resource_id><pattern>Line 100</pattern>')
-            
-            initial_bootstrap_message = f"""<think>
-The user wants me to find a specific line in 'large_demo_file.txt'. 
-First, I need to read the file. Since the user implied it's large, I expect to get a resource handle instead of the content.
-Then, I will use the searchtext tool with the resource_id provided to find the specific line.
+            context_chat.add_message(Role.USER, "Please list the 5 most recently modified files of the cwd")
+            if (not args.gui):
+                initial_bootstrap_message = f"""<think>
+To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
 </think><todos>
-- [ ] Read large_demo_file.txt
-- [ ] Search for the line containing "Line 100"
-</todos><readfile>large_demo_file.txt</readfile><context>
-{readfile_result}
-</context><think>
-Great, I have the resource ID as expected. Now I will use searchtext to find the exact line the user requested.
-</think><todos>
-- [x] Read large_demo_file.txt
-- [ ] Search for the line containing "Line 100"
-</todos><searchtext>
-<resource_id>{resource_id}</resource_id>
-<pattern>Line 100</pattern>
-</searchtext><context>
-{search_result}
+- [ ] List 5 most recently modified files.
+</todos><bash>
+ls -tp | grep -v /$ | head -5
+</bash><context>
+{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
 </context><todos>
-- [x] Read large_demo_file.txt
-- [x] Search for the line containing "Line 100"
+- [x] List 5 most recently modified files.
 </todos><response>
-I found the line containing "Line 100" in the large file. This demonstrates the resource workflow where large files return resource IDs instead of content directly.
+The 5 most recently modified files have been listed. Would you like me to inspect any of them?
 </response>"""
+                assistant_permssions_prompt_p2 = """<response>
+I have successfully viewed my permissions. Is there anything else I can assist you with?
+</response>"""
+            else:
+                initial_bootstrap_message = f"""<think>
+To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
+</think><todos>
+- [ ] List 5 most recently modified files.
+</todos><bash>
+ls -tp | grep -v /$ | head -5
+</bash><context>
+{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
+</context><todos>
+- [x] List 5 most recently modified files.
+</todos><visualresponse>
+  <action>create</action>
+  <type>markdown</type>
+  <content>
+### Most Recently Modified Files:
+{await bash.run_silent("ls -tp | grep -v /$ | head -5 | sed 's/^/- /'")}
+  </content>
+</visualresponse>"""
+                assistant_permssions_prompt_p2 = """<visualresponse>
+  <action>create</action>
+  <type>markdown</type>
+  <content>
+I have successfully viewed my permissions. Is there anything else I can assist you with?
+  </content>
+</visualresponse>"""
             
             context_chat.add_message(Role.ASSISTANT, initial_bootstrap_message)
-            
-            # Cleanup the demo file
-            if os.path.exists("large_demo_file.txt"):
-                os.remove("large_demo_file.txt")
-
             permissions_str = viewpermissions.run()
             if ("No automatic permissions set" not in permissions_str):
                 context_chat.add_message(Role.USER, "view your permissions")
@@ -1390,13 +1475,9 @@ I found the line containing "Line 100" in the large file. This demonstrates the 
 </todos><viewpermissions>
 </viewpermissions><context>
 {permissions_str}
-</context><think>
-The viewed permissions show the actions i can take without asking. This implies a free range of autonomy which I can use to service the user.
-</think><todos>
+</context><todos>
 - [x] View permissions.
-</todos><response>
-I have successfully viewed my permissions. Is there anything else I can assist you with?
-</response>""")
+</todos>""" + assistant_permssions_prompt_p2)
         
         assistant_response = ""
         while True:
@@ -1423,10 +1504,10 @@ I have successfully viewed my permissions. Is there anything else I can assist y
             g.LLM = args.llm
             g.SUMMARY_MODE = not args.full_output_mode
             
-            # Auto compact chat length limit in chars
-            if (len(str(context_chat)) > 100000):
-                print("# cli-agent: 100.000 char threshold reached: Auto compacting conversation...")
-                g.AGENT_IS_COMPACTING = True
+            # # Auto compact chat length limit in chars
+            # if (len(str(context_chat)) > 100000):
+            #     print("# cli-agent: 100.000 char threshold reached: Auto compacting conversation...")
+            #     g.AGENT_IS_COMPACTING = True
 
             if args.regenerate:
                 user_input = ""
@@ -1482,7 +1563,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                     elif canonical_command == 'clear':
                         if context_chat:
                             context_chat.messages.clear()
-                        context_chat = await construct_engineered_prompt(args.voice)
+                        context_chat = await construct_engineered_prompt(args.voice, args.gui)
                         logging.info(colored("# cli-agent: Chat cleared.", "green"))
                         continue  # Skip AI processing
                         
@@ -1518,7 +1599,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         continue  # Skip AI processing
             elif g.AGENT_IS_COMPACTING:
                 g.AGENT_IS_COMPACTING = False
-                context_chat = await construct_engineered_prompt(args.voice)
+                context_chat = await construct_engineered_prompt(args.voice, args.gui)
                 context_chat.add_message(Role.USER, "Hi can you please check your memory for the latest summary?")
                 context_chat.add_message(Role.ASSISTANT, """<think>
 The user wants me to search my memory for a the latest summary.
@@ -1679,10 +1760,10 @@ latest summary LIMIT 1
                                 models_for_tasks = [available_models[0]]  # Single model for default mode
                             else:
                                 # Initialize default fallback models when none are selected
-                                default_fallbacks = ['gemini-2.5-flash', 'gemini-2.5-flash-lite-preview-06-17', 'gemini-2.5-flash-preview-05-20', 'gemma3n:e2b']
+                                default_fallbacks = ['gemini-2.5-flash', 'gemini-2.5-flash-preview-05-20', 'gemma3n:e2b']
                                 g.DEFAULT_FALLBACK_MODELS = default_fallbacks
                                 models_for_tasks = [default_fallbacks[0]]
-                                logging.info(colored("🔧 No models configured - using default fallbacks: " + ", ".join(default_fallbacks), "yellow"))
+                                logging.debug(colored("🔧 No models configured - using default fallbacks: " + ", ".join(default_fallbacks), "yellow"))
                         else:
                             # Use g.SELECTED_LLMS to preserve chronological selection order for monte_carlo mode too
                             models_for_tasks = [
@@ -1713,7 +1794,8 @@ latest summary LIMIT 1
                             response_buffer_list = [""]
                             interruption_callback = create_interruption_callback(response_buffer_list, text_stream_painter)
                             current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
-                            for assistant_prefix in ["", "<", current_todo, "<think", "<thinking>"]:
+                            # for assistant_prefix in ["<", current_todo, "<think", "<thinking>"]:
+                            for assistant_prefix in ["<", "<t", "<think", "<todos>", "<think>"]:
                                 if (assistant_prefix):
                                     print(colored(f"Model did not generate text, attempting generation with prefix: {assistant_prefix}", "yellow"))
                                 if ("" == assistant_prefix and context_chat.messages[-1][1].endswith("</context>")):
@@ -1740,9 +1822,6 @@ latest summary LIMIT 1
                         
                         base64_images = []
 
-                    except KeyboardInterrupt as e:
-                        print(colored(f"A KeyboardInterrupt was raised, e: {e}", "red"))
-                        break
                     except UserInterruptedException:
                         # User interrupted model generation with Ctrl+C - handle gracefully
                         print(colored("\n⚠️  Model generation interrupted by user (Ctrl+C)", "yellow", attrs=['bold']))
@@ -1902,7 +1981,10 @@ latest summary LIMIT 1
                                         tool_context.clear_images()  # Clear images after adding them
                                     
                                     assistant_response = ""
-                                    continue # Continue the agent loop for the next action
+                                    if ("response" in tool_name):
+                                        break
+                                    else:
+                                        continue
                                 else:
                                     # No meaningful context was added (only invisible tools like todos/think were executed)
                                     # Break and wait for user input instead of continuing the loop
@@ -1926,9 +2008,6 @@ latest summary LIMIT 1
                     break # Ask for user input
                 except Exception as e:
                     if "ctrl+c" not in str(e).lower():
-                        import traceback
-                        import linecache
-                        
                         # Get detailed traceback information
                         tb = traceback.extract_tb(e.__traceback__)
                         

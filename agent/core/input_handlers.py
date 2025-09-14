@@ -24,16 +24,7 @@ import pyperclip
 from termcolor import colored
 from prompt_toolkit import HTML
 
-# Import dependencies from main.py context
-try:
-    from main import (
-        get_listen_microphone, text_to_speech, llm_selection, 
-        construct_engineered_prompt, save_current_llm_config_as_default,
-        print_startup_summary, handle_screenshot_capture as original_handle_screenshot_capture
-    )
-except ImportError:
-    # Fallback imports for standalone usage
-    pass
+# Functions will be imported dynamically to avoid circular imports
 
 # Import command system from refactored module
 from agent.core.command_system import COMMAND_MAP, get_prompt_session, _COMMAND_DEFINITIONS
@@ -84,7 +75,13 @@ async def get_user_input_with_bindings(
     is_internal_prompt = "Enter your request" not in prompt
 
     if args.voice and is_internal_prompt:
-        listen_microphone = get_listen_microphone()
+        try:
+            from main import get_listen_microphone, text_to_speech
+            listen_microphone = get_listen_microphone()
+        except ImportError as e:
+            logging.error(colored(f"# cli-agent: Voice functions not available. Import failed: {e}", "red"))
+            # Fallback to text input
+            return input(prompt), []
         
         # --- FIX: Improved clean_prompt logic ---
         clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt).strip()
@@ -146,7 +143,12 @@ async def get_user_input_with_bindings(
 
     # --- STANDARD TEXT-BASED INPUT LOOP ---
     while True:
-        if prompt == "":
+        # --- Check for GUI mode first ---
+        if hasattr(g, 'GUI_MODE') and g.GUI_MODE and not input_override:
+            # Use GUI input from browser interface
+            from main import get_gui_input
+            user_input = await get_gui_input()
+        elif prompt == "":
             user_input = ""
         elif input_override:
             user_input = input_override
@@ -257,7 +259,11 @@ async def get_user_input_with_bindings(
 
             elif canonical_command == 'llm':
                 logging.info(colored("# cli-agent: Opening LLM selection.", "green"))
-                await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
+                try:
+                    from main import llm_selection
+                    await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
+                except ImportError as e:
+                    logging.error(colored(f"# cli-agent: LLM selection function not available. Import failed: {e}", "red"))
                 continue
             
             elif canonical_command == 'unsay':
@@ -314,7 +320,11 @@ async def get_user_input_with_bindings(
                 exit(0)
 
             elif canonical_command == 'help':
-                print_startup_summary(args)
+                try:
+                    from main import print_startup_summary
+                    print_startup_summary(args)
+                except ImportError:
+                    pass  # Skip startup summary if not available
                 print(colored("\n--- Available Commands ---", "yellow"))
                 CMD_WIDTH = 28
                 for cmd_info in _COMMAND_DEFINITIONS:
@@ -324,13 +334,21 @@ async def get_user_input_with_bindings(
                 continue
             
             elif canonical_command == 'save':
-                await save_current_llm_config_as_default()
+                try:
+                    from main import save_current_llm_config_as_default
+                    await save_current_llm_config_as_default()
+                except ImportError as e:
+                    logging.error(colored(f"# cli-agent: Save function not available. Import failed: {e}", "red"))
                 continue
 
             elif canonical_command == 'clear':
                 if context_chat:
                     context_chat.messages.clear()
-                context_chat = await construct_engineered_prompt(args.voice)
+                try:
+                    from main import construct_engineered_prompt
+                    context_chat = await construct_engineered_prompt(args.voice)
+                except ImportError as e:
+                    logging.error(colored(f"# cli-agent: Clear function not available. Import failed: {e}", "red"))
                 logging.info(colored("# cli-agent: Chat cleared.", "green"))
                 continue
             

@@ -21,6 +21,11 @@
   - `commands/regenerate_command.py` - Regenerate command with chat history management and proper state handling
   - `commands/simple_commands.py` - Collection of simple command implementations (multiline, exit, clear, toggle commands) with consistent interfaces
   
+  **NEW: GUI Components (2025)**
+  - `gui/layouts.py` - Layout definitions and management for prompt_toolkit-based GUI including main layout, debug layout, minimal layout, and compact layout options
+  - `gui/widgets.py` - Custom GUI widgets including ChatDisplay for conversation history, StatusPanel for system information, InputArea for user input, and ChatMessage for message formatting
+  - `gui/__init__.py` - GUI package initialization providing clean imports for layout and widget components
+  
   **NEW: Monte Carlo Engine (2025)**
   - `monte_carlo/task_group_engine.py` - Enhanced Monte Carlo Action Engine using asyncio.TaskGroup for robust concurrent LLM branch generation, replacing asyncio.gather with proper error handling and cancellation support
   
@@ -60,6 +65,8 @@
 
 - `test.py` - Unified, user-facing entrypoint for the entire test suite. This script provides a simple command-line interface with modes like `--quick`, `--full`, and `--verbose`, orchestrating the underlying test infrastructure to provide clear, actionable results for developers. This is the primary command to run for validating changes.
 
+- `test_gui_components.py` - **NEW (2025)**: Comprehensive test suite for GUI components validating ChatDisplay, StatusPanel, InputArea widgets, layout systems, command integration, and core CLI-Agent integration without requiring terminal interface. Provides component-level testing for the prompt_toolkit GUI implementation.
+
 - `run_tests.py` - The core test runner infrastructure that powers `test.py`. This module is responsible for the low-level mechanics of test discovery (scanning for `test_*` functions), hierarchical execution based on defined levels (e.g., unit, integration), and aggregating results. Developers typically don't run this script directly.
 
 - `profiling.py` - A diagnostic utility script for profiling Python import times. By running this script, developers can identify which modules or dependencies are contributing most to application startup latency, helping to optimize the initial load time.
@@ -77,6 +84,8 @@
 - `main.py` - **CURRENT/ACTIVE**: The main 3,273-line entrypoint and orchestration script for the CLI-Agent. Contains the complete "Monte Carlo Action Engine," main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. This is the **stable, production entry point** that should be used for all current development and deployment.
 
 - `main_refactored.py` - **⚠️ EXPERIMENTAL (2025)**: Clean, modular main entrypoint demonstrating the future refactored architecture. At only ~188 lines, this showcases the new agent/core components with dependency injection and proper separation of concerns. **Status: Work in progress** - still depends on main.py imports and lacks recent bug fixes. For stable operation, use main.py instead.
+
+- `main_prompt_toolkit_gui.py` - **NEW (2025)**: Enhanced GUI entry point using prompt_toolkit for conversational AI interface. Provides a superior alternative to Textual TUI attempts by building on existing prompt_toolkit infrastructure. Features full-screen chat interface with streaming responses, command processing, browser input monitoring, and integration with the complete CLI-Agent conversation system.
 
 - `enhanced_permissions.py` - Enhanced permission system providing interactive prompts with persistent "always allow" functionality. Supports path-specific permissions, directory-based rules, and intelligent permission scoping with options like exact file, directory pattern, project-wide, or tool-wide permissions. Permission prompts now display tool arguments in addition to file paths and actions.
 

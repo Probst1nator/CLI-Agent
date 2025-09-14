@@ -104,3 +104,4 @@ tui_debug.log
 persistent_storage/
 
 sandbox/
+.claude

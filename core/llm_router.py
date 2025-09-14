@@ -1288,7 +1288,21 @@ class LlmRouter:
                     # Explicitly catch Ctrl+C during model generation and convert to clean exception
                     raise UserInterruptedException("Model generation interrupted by user (Ctrl+C).")
                 
-            except (UserInterruptedException, StreamInterruptedException):
+            except (UserInterruptedException, StreamInterruptedException) as e:
+                # Handle stream interruption by cancelling any active generation
+                if isinstance(e, StreamInterruptedException):
+                    # Cancel the current generation on the provider if it supports cancellation
+                    provider = model.provider if model else None
+                    if provider and hasattr(provider, 'cancel_current_generation'):
+                        try:
+                            provider.cancel_current_generation()
+                            logger.debug(f"Cancelled generation for provider {provider.__class__.__name__}")
+                        except Exception as cancel_error:
+                            logger.warning(f"Failed to cancel generation for provider {provider.__class__.__name__}: {cancel_error}")
+                    elif provider:
+                        # Provider exists but doesn't support cancellation
+                        logger.debug(f"Provider {provider.__class__.__name__} does not support stream cancellation")
+                
                 # Re-raise exceptions that are part of the normal control flow
                 # so they can be handled by the caller in main.py.
                 raise

@@ -1,13 +1,18 @@
 # tools/main_cli_agent/tools/searchweb.py
 """
 This file implements the 'searchweb' tool. It allows the agent to perform
-a web search using the Brave Search API and receive a condensed summary
-of the top results as a single string.
+a web search using the Brave Search API. It supports different search types
+like text, images, and cited results.
 """
 import os
 import sys
 import re
 import html
+from dotenv import load_dotenv
+from core.llm_router import LlmRouter
+
+# Load environment variables
+load_dotenv()
 
 # Ensure proper imports when running as module or script
 if __name__ == '__main__':
@@ -16,10 +21,7 @@ if __name__ == '__main__':
     if PROJECT_ROOT not in sys.path:
         sys.path.insert(0, PROJECT_ROOT)
 
-# This import assumes the script is run from a context where the project root
-# is in the Python path. The main guard below handles this for direct execution.
 from shared.utils.search.brave_search import BraveSearchAPI
-from core.providers.cls_ollama_interface import OllamaClient
 
 try:
     import chromadb
@@ -30,19 +32,15 @@ except ImportError:
 
 class searchweb:
     """
-    A tool to perform a web search and get a concise, clean summary of results.
-    Enhanced version that stores results in a vector database for future retrieval.
+    A tool to perform a web search with different content types.
     """
-    # The number of search result snippets to combine into the summary.
-    MAX_RESULTS = 20
+    MAX_RESULTS = 10
     
-    # Vector database settings
     VECTOR_DB_PATH = os.path.expanduser("~/.cli-agent/searchweb_vectordb")
     COLLECTION_NAME = "web_search_results"
 
     @staticmethod
     def get_delim() -> str:
-        """Provides the delimiter for this tool."""
         return 'searchweb'
 
     @staticmethod
@@ -50,201 +48,174 @@ class searchweb:
         """Provides standardized documentation for this tool."""
         return {
             "name": "searchweb",
-            "description": f"Performs a web search and returns a condensed, single-string summary of the top {searchweb.MAX_RESULTS} search results, with URLs and HTML formatting removed. Results are stored in a vector database for future semantic retrieval.",
-            "example": "<searchweb>latest advancements in large language models</searchweb>"
+            "description": (
+                f"Performs a web search using a specified query and type. "
+                f"Requires <query> and an optional <type> tag. Supported types are 'text' (default), "
+                f"'images', 'files', 'cited text', and 'any'. Returns up to {searchweb.MAX_RESULTS} results."
+            ),
+            "example": (
+                "<searchweb><query>How to use curl</query><type>text</type></searchweb>\n"
+                "<searchweb><query>golden retriever puppy</query><type>images</type></searchweb>"
+            )
         }
 
     @staticmethod
     def _clean_snippet(text: str) -> str:
-        """
-        Cleans a string by decoding HTML entities and removing HTML tags.
-        """
-        # Decode HTML entities (e.g., &#x27; -> ', &amp; -> &)
         decoded_text = html.unescape(text)
-        # Remove HTML tags (e.g., <strong>, <em>)
         clean_text = re.sub(r'<.*?>', '', decoded_text)
         return clean_text.strip()
-    
+
     @staticmethod
-    def _get_vector_collection():
-        """
-        Initialize and return the ChromaDB collection for storing search results.
-        """
-        if not CHROMADB_AVAILABLE:
-            return None
+    def _format_text_summary(results: list) -> str:
+        """ The original functionality: returns a single condensed string. """
+        if not results:
+            return "No web search results found."
         
-        try:
-            # Ensure the vector database directory exists
-            os.makedirs(searchweb.VECTOR_DB_PATH, exist_ok=True)
-            
-            # Initialize ChromaDB client
-            client = chromadb.PersistentClient(
-                path=searchweb.VECTOR_DB_PATH,
-                settings=Settings(anonymized_telemetry=False)
-            )
-            
-            # Get or create collection
-            collection = client.get_or_create_collection(
-                name=searchweb.COLLECTION_NAME,
-                metadata={"description": "Web search results with embeddings"}
-            )
-            
-            return collection
-        except Exception as e:
-            print(f"Warning: Could not initialize vector database: {e}")
-            return None
-    
+        condensed_snippets = []
+        for result in results:
+            snippets = result.get('extra_snippets', [])
+            if not snippets and result.get('description'):
+                snippets = [result.get('description')]
+
+            if snippets:
+                clean_snippet = searchweb._clean_snippet("\n".join(snippets))
+                condensed_snippets.append(clean_snippet)
+        
+        if not condensed_snippets:
+            return "No useful information found."
+
+        summary = " ".join(condensed_snippets)
+        # LlmRouter # TODO: test out using a llm generated summary (how do we get the needed context directive)
+
+        return f"Web search summary: {summary}"
+
     @staticmethod
-    def _store_in_vector_db(collection, results: list, query: str):
-        """
-        Store search results in the vector database with embeddings.
-        """
-        if not collection or not results:
-            return
+    def _format_cited_text(results: list) -> str:
+        """ Returns a numbered list with titles, URLs, and snippets. """
+        if not results:
+            return "No web search results found."
         
-        try:
-            documents = []
-            metadatas = []
-            ids = []
-            embeddings = []
-            
-            for i, result in enumerate(results):
-                title = result.get('title', '')
-                description = result.get('description', '')
-                url = result.get('url', '')
-                extra_snippets = result.get('extra_snippets', [])
-                
-                if not title:  # Skip if no title
-                    continue
-                
-                # Generate embedding for the title
-                try:
-                    title_embedding = OllamaClient.generate_embedding(
-                        title
-                    )
-                    if not title_embedding:
-                        continue
-                except Exception as e:
-                    print(f"Warning: Could not generate embedding for title '{title}': {e}")
-                    continue
-                
-                # Create document content
-                document = f"Title: {title}\nDescription: {description}\nSnippets: {' '.join(extra_snippets)}"
-                
-                # Create metadata
-                import time
-                metadata = {
-                    'title': title,
-                    'url': url,
-                    'search_query': query,
-                    'result_index': i,
-                    'timestamp': str(int(time.time()))
-                }
-                
-                documents.append(document)
-                metadatas.append(metadata)
-                ids.append(f"search_{query[:20]}_{i}_{hash(url)}")
-                embeddings.append(title_embedding)
-            
-            if documents:
-                # Add to collection
-                collection.add(
-                    documents=documents,
-                    metadatas=metadatas,
-                    ids=ids,
-                    embeddings=embeddings
-                )
-                print(f"📚 Stored {len(documents)} results in vector database")
-            
-        except Exception as e:
-            print(f"Warning: Could not store results in vector database: {e}")
+        formatted_results = []
+        for i, result in enumerate(results, 1):
+            title = searchweb._clean_snippet(result.get('title', 'No Title'))
+            url = result.get('url', 'No URL')
+            snippet = searchweb._clean_snippet(result.get('description', 'No snippet available.'))
+            formatted_results.append(f"Result {i}:\n  Title: {title}\n  URL: {url}\n  Snippet: {snippet}")
+        
+        return "\n\n".join(formatted_results)
+
+    @staticmethod
+    def _format_image_results(results: list) -> str:
+        """ Returns a numbered list of images with titles and direct URLs. """
+        if not results:
+            return "No image results found."
+
+        formatted_results = []
+        for i, result in enumerate(results, 1):
+            title = searchweb._clean_snippet(result.get('title', 'No Title'))
+
+            # Get the actual image URL from properties.url (direct image)
+            # The top-level 'url' field contains search page URLs, not image URLs
+            properties = result.get('properties', {})
+            image_url = properties.get('url', 'No direct image URL')
+
+            # Get thumbnail URL as fallback
+            thumbnail = result.get('thumbnail', {})
+            thumbnail_url = thumbnail.get('src', 'No thumbnail')
+
+            # Get source page from meta_url or top-level url
+            meta_url = result.get('meta_url', {})
+            source_page = meta_url.get('netloc', result.get('url', 'No source page'))
+
+            # Format the result with both direct image URL and thumbnail
+            formatted_results.append(
+                f"Image {i}:\n"
+                f"  Title: {title}\n"
+                f"  Direct Image URL: {image_url}\n"
+                f"  Thumbnail URL: {thumbnail_url}\n"
+                f"  Source: {source_page}"
+            )
+
+        return "\n\n".join(formatted_results)
 
     @staticmethod
     def run(content: str) -> str:
         """
-        Executes a web search and returns a single, condensed string of information.
-
-        Args:
-            content: A string containing the search query.
-
-        Returns:
-            A single string summarizing the search results, or an error message.
+        Executes a web search based on the provided query and type.
         """
         try:
-            query = content.strip()
-            if not query:
-                return "Error: No search query provided."
+            query_match = re.search(r'<query>(.*?)</query>', content, re.DOTALL)
+            type_match = re.search(r'<type>(.*?)</type>', content, re.DOTALL)
 
+            if not query_match:
+                # Fallback for old format
+                query = content.strip()
+                search_type = 'text'
+            else:
+                query = query_match.group(1).strip()
+                search_type = type_match.group(1).strip().lower() if type_match else 'any'
+
+            if not query:
+                return "Error: No search query provided in the <query> tag."
+            
             api_key = os.getenv("BRAVE_API_KEY")
             if not api_key:
-                return "Error: BRAVE_API_KEY environment variable is not set. Cannot perform web search."
+                return "Error: BRAVE_API_KEY environment variable is not set."
 
-            print(f"🔎 Condensing web search for: '{query}'...")
+            print(f"🔎 Performing '{search_type}' search for: '{query}'...")
+
+            api_endpoint = "web"
+            original_query = query
+            
+            if search_type == 'images':
+                api_endpoint = "images"
+            elif search_type == 'files':
+                query = f"filetype:pdf OR filetype:doc OR filetype:txt {query}"
 
             params = {"q": query}
-            results_json = BraveSearchAPI.search(api_key, "web", params)
+            results_json = BraveSearchAPI.search(api_key, api_endpoint, params)
 
             if not results_json:
-                return "Error: Web search failed. The API returned no response or an error."
+                return "Error: Web search failed. The API returned no response."
 
-            web_results = results_json.get('web', {}).get('results', [])
+            # Parse results based on endpoint type
+            if api_endpoint == "web":
+                results_list = results_json.get('web', {}).get('results', [])
+            elif api_endpoint == "images":
+                results_list = results_json.get('results', [])
+            else:
+                # For other endpoints, try both locations
+                results_list = results_json.get('results', []) or results_json.get('web', {}).get('results', [])
 
-            if not web_results:
-                return f"No web search results found for '{query}'."
+            if not results_list:
+                return f"No results found for '{original_query}' (type: {search_type})."
 
-            # Store results in vector database first
-            collection = searchweb._get_vector_collection()
-            if collection is not None:
-                searchweb._store_in_vector_db(collection, web_results[:searchweb.MAX_RESULTS], query)
-            
-            # Collect cleaned descriptions from the results
-            condensed_snippets = []
-            for result in web_results[:searchweb.MAX_RESULTS]:
-                title = result.get('title', '')
-                extra_snippets = "\n".join(result.get('extra_snippets', []))
-                # description = result.get('description', '')
-                if extra_snippets:
-                    clean_snippet = searchweb._clean_snippet(extra_snippets)
-                    condensed_snippets.append(clean_snippet)
-            
-            if not condensed_snippets:
-                 return f"No useful information found for '{query}'."
+            # Debug: Log the structure of the first result for images
+            if search_type == 'images' and results_list:
+                print("DEBUG: First image result structure:")
+                first_result = results_list[0]
+                print(f"  Top-level keys: {list(first_result.keys())}")
+                if 'properties' in first_result:
+                    print(f"  Properties keys: {list(first_result['properties'].keys())}")
+                if 'thumbnail' in first_result:
+                    print(f"  Thumbnail keys: {list(first_result['thumbnail'].keys())}")
+                if 'meta_url' in first_result:
+                    print(f"  Meta URL keys: {list(first_result['meta_url'].keys())}")
+                print("  Sample URLs:")
+                print(f"    url: {first_result.get('url', 'None')}")
+                print(f"    properties.url: {first_result.get('properties', {}).get('url', 'None')}")
+                print(f"    thumbnail.src: {first_result.get('thumbnail', {}).get('src', 'None')}")
 
-            # Join the cleaned snippets into a single, space-separated string
-            summary = " ".join(condensed_snippets)
-            
-            vector_status = "(stored in vector DB)" if collection is not None else "(vector DB unavailable)"
-            return f"Web search summary: {summary} {vector_status}"
+            results_list = results_list[:searchweb.MAX_RESULTS]
+
+            if search_type == 'text':
+                return searchweb._format_text_summary(results_list)
+            elif search_type == 'images':
+                return searchweb._format_image_results(results_list)
+            elif search_type in ['files', 'cited text', 'any']:
+                return searchweb._format_cited_text(results_list)
+            else:
+                return f"Error: Unknown search type '{search_type}'. Use 'text', 'images', 'files', 'cited text', or 'any'."
 
         except Exception as e:
             return f"An unexpected error occurred in the searchweb tool: {str(e)}"
-
-# --- Test Guard ---
-if __name__ == '__main__':
-    import sys
-    from dotenv import load_dotenv
-
-    try:
-        PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        sys.path.insert(0, PROJECT_ROOT)
-        ENV_FILE_PATH = os.path.join(PROJECT_ROOT, '.env')
-    except NameError:
-        PROJECT_ROOT = os.getcwd()
-        ENV_FILE_PATH = os.path.join(PROJECT_ROOT, '.env')
-
-    print("--- Testing searchweb Tool (Condensed Output Version) ---")
-
-    if not os.path.exists(ENV_FILE_PATH):
-        print(f"Error: .env file not found at the expected path: {ENV_FILE_PATH}")
-    else:
-        load_dotenv(ENV_FILE_PATH)
-        if not os.getenv("BRAVE_API_KEY"):
-            print("Error: BRAVE_API_KEY not found in the .env file. Aborting test.")
-        else:
-            test_query = "What is the requests library in Python?"
-            print(f"\nTest Query: \"{test_query}\"\n")
-            
-            result = searchweb.run(test_query)
-            
-            print("--- Result ---")
-            print(result)
