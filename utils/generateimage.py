@@ -12,6 +12,8 @@ try:
     import diffusers
     import transformers
     import accelerate
+    # Explicitly import the missing module to resolve the dependency issue
+    from transformers import CLIPImageProcessor 
     from diffusers import FluxPipeline
     from diffusers.utils import logging as diffusers_logging
     diffusers_logging.set_verbosity_error()

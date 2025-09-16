@@ -5,12 +5,135 @@
  * @param {HTMLElement} targetElement - The container element to render into.
  * @param {string} htmlContent - The complete HTML string to render.
  */
-function renderHTML(targetElement, htmlContent) {
+function renderHTML(targetElement, htmlContent, messageId = null) {
+    // Check if JavaScript execution is enabled for this specific message (considering global state)
+    let jsEnabled = true; // Default to enabled
+    if (messageId && window.JavaScriptUtils) {
+        jsEnabled = window.JavaScriptUtils.getEffectiveMessageJSState(messageId);
+    }
+    
+    // Check if the HTML content contains JavaScript
+    const hasJS = window.JavaScriptUtils ? window.JavaScriptUtils.detectJavaScript(htmlContent) : false;
+    
+    // If JS is disabled and content contains JS, show content in height-limited container
+    if (!jsEnabled && hasJS) {
+        // Create height-limited container
+        const container = document.createElement('div');
+        container.className = 'js-disabled-content';
+
+        // Add disabled indicator at the top
+        const indicator = document.createElement('div');
+        indicator.className = 'js-disabled-indicator';
+
+        // Create text content
+        const indicatorText = document.createElement('span');
+        indicatorText.textContent = 'JavaScript Disabled - Content Limited (Scroll to see more)';
+
+        // Create expand button
+        const expandBtn = document.createElement('button');
+        expandBtn.className = 'js-disabled-expand-btn';
+        expandBtn.innerHTML = '🔍 Expand';
+        expandBtn.title = 'Expand to show full content height';
+
+        // Add elements to indicator
+        indicator.appendChild(indicatorText);
+        indicator.appendChild(expandBtn);
+
+        // Create content wrapper
+        const contentWrapper = document.createElement('div');
+        contentWrapper.style.padding = '8px';
+
+        // Create iframe with JS disabled (sandbox without allow-scripts)
+        const iframe = document.createElement('iframe');
+        iframe.style.width = '100%';
+        iframe.style.border = 'none';
+        iframe.style.minHeight = '200px';
+
+        // Remove/neutralize JavaScript from content for safer display
+        let safeContent = htmlContent;
+        // Remove script tags
+        safeContent = safeContent.replace(/<script[\s\S]*?<\/script>/gi, '<!-- Script removed for safety -->');
+        // Remove event handlers
+        safeContent = safeContent.replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '');
+        // Remove javascript: URLs
+        safeContent = safeContent.replace(/javascript:[^"'\s>]*/gi, '#');
+
+        iframe.srcdoc = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    body {
+                        margin: 0;
+                        font-family: inherit;
+                        background: transparent;
+                        color: var(--text-color, #e0e0e0);
+                    }
+                    * { max-width: 100%; }
+                </style>
+            </head>
+            <body>${safeContent}</body>
+            </html>
+        `;
+
+        // Assemble the components
+        contentWrapper.appendChild(iframe);
+        container.appendChild(indicator);
+        container.appendChild(contentWrapper);
+
+        targetElement.innerHTML = '';
+        targetElement.appendChild(container);
+
+        // Store original height for expand/collapse functionality
+        let isExpanded = false;
+        let originalHeight = 0;
+
+        // Adjust iframe height after loading
+        iframe.onload = function() {
+            try {
+                originalHeight = iframe.contentDocument.body.scrollHeight;
+                iframe.style.height = Math.min(originalHeight, 350) + 'px';
+            } catch (e) {
+                // Fallback height if cross-origin issues
+                originalHeight = 350;
+                iframe.style.height = '300px';
+            }
+        };
+
+        // Add expand/collapse functionality
+        expandBtn.addEventListener('click', function() {
+            isExpanded = !isExpanded;
+
+            if (isExpanded) {
+                // Expand to full height
+                container.classList.add('expanded');
+                iframe.style.height = originalHeight + 'px';
+                expandBtn.innerHTML = '🔼 Collapse';
+                expandBtn.title = 'Collapse to limited height';
+                expandBtn.classList.add('expanded');
+                indicatorText.textContent = 'JavaScript Disabled - Content Fully Expanded';
+            } else {
+                // Collapse to limited height
+                container.classList.remove('expanded');
+                iframe.style.height = Math.min(originalHeight, 350) + 'px';
+                expandBtn.innerHTML = '🔍 Expand';
+                expandBtn.title = 'Expand to show full content height';
+                expandBtn.classList.remove('expanded');
+                indicatorText.textContent = 'JavaScript Disabled - Content Limited (Scroll to see more)';
+            }
+        });
+
+        return;
+    }
+
     const iframe = document.createElement('iframe');
 
     // Use srcdoc instead of writing to contentDocument - this is more secure
     // and doesn't require allow-same-origin
-    iframe.sandbox = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
+    iframe.sandbox = jsEnabled ? 
+        'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads' :
+        'allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
     iframe.style.width = '100%';
     iframe.style.height = '400px'; // Initial height
     iframe.style.border = 'none';
@@ -133,14 +256,29 @@ function renderHTML(targetElement, htmlContent) {
         </script>
     `;
 
-    // Inject the height reporting script into the HTML content
+    // Add CSP meta tag to iframe content to allow external scripts
+    const cspMetaTag = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\' \'unsafe-inline\' \'unsafe-eval\' https://unpkg.com https://cdn.plot.ly https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src \'self\' data: blob:; connect-src \'self\' ws: wss:; object-src \'none\'; base-uri \'self\'; form-action \'self\'">';
+
+    // Inject CSP and height reporting script into the HTML content
     let modifiedHtmlContent = htmlContent;
-    if (htmlContent.toLowerCase().includes('</body>')) {
-        modifiedHtmlContent = htmlContent.replace('</body>', heightReportingScript + '</body>');
-    } else if (htmlContent.toLowerCase().includes('</html>')) {
-        modifiedHtmlContent = htmlContent.replace('</html>', heightReportingScript + '</html>');
+
+    // First, inject CSP meta tag in head
+    if (htmlContent.toLowerCase().includes('</head>')) {
+        modifiedHtmlContent = modifiedHtmlContent.replace('</head>', cspMetaTag + '</head>');
+    } else if (htmlContent.toLowerCase().includes('<head>')) {
+        modifiedHtmlContent = modifiedHtmlContent.replace('<head>', '<head>' + cspMetaTag);
     } else {
-        modifiedHtmlContent = htmlContent + heightReportingScript;
+        // If no head tag, add it
+        modifiedHtmlContent = modifiedHtmlContent.replace('<html>', '<html><head>' + cspMetaTag + '</head>');
+    }
+
+    // Then inject height reporting script
+    if (modifiedHtmlContent.toLowerCase().includes('</body>')) {
+        modifiedHtmlContent = modifiedHtmlContent.replace('</body>', heightReportingScript + '</body>');
+    } else if (modifiedHtmlContent.toLowerCase().includes('</html>')) {
+        modifiedHtmlContent = modifiedHtmlContent.replace('</html>', heightReportingScript + '</html>');
+    } else {
+        modifiedHtmlContent = modifiedHtmlContent + heightReportingScript;
     }
 
     // Update iframe with modified content
@@ -262,14 +400,75 @@ const renderers = {
  * It exposes the main rendering function.
  */
 class ContentRenderer {
-    async renderContent(container, data) {
+    async renderContent(container, data, messageId = null, timestampDiv = null) {
         const { type, content } = data;
         const renderer = renderers[type];
 
         if (renderer) {
             window.visualLogger.debug(`Rendering content with '${type}' renderer.`, data);
             try {
-                renderer(container, content);
+                // Add controls to HTML message headers
+                if (type === 'html' && messageId && timestampDiv && window.JavaScriptUtils) {
+                    const hasJS = window.JavaScriptUtils.detectJavaScript(content);
+
+                    // Always add expand button for HTML messages
+                    const expandButton = window.JavaScriptUtils.createExpandButton(messageId);
+                    timestampDiv.appendChild(expandButton);
+
+                    if (hasJS) {
+                        // Add JS toggle to the right side of timestamp header
+                        timestampDiv.classList.add('has-js-toggle');
+
+                        const resetButton = window.JavaScriptUtils.createResetButton(
+                            messageId,
+                            (msgId, enabled) => this.reRenderMessage(container, data, msgId, enabled)
+                        );
+
+                        const toggleButton = window.JavaScriptUtils.createToggleButton(
+                            messageId,
+                            (msgId, enabled) => this.reRenderMessage(container, data, msgId, enabled)
+                        );
+
+                        const copyButton = window.JavaScriptUtils.createCopyButton(
+                            messageId,
+                            content
+                        );
+
+                        const saveButton = window.JavaScriptUtils.createSaveButton(
+                            messageId,
+                            content
+                        );
+
+                        timestampDiv.appendChild(resetButton);
+                        timestampDiv.appendChild(toggleButton);
+                        timestampDiv.appendChild(copyButton);
+                        timestampDiv.appendChild(saveButton);
+                        window.visualLogger.debug(`Added JS controls to header for message ${messageId}`);
+                    } else {
+                        // For HTML messages without JS, add copy and save buttons
+                        const copyButton = window.JavaScriptUtils.createCopyButton(
+                            messageId,
+                            content
+                        );
+
+                        const saveButton = window.JavaScriptUtils.createSaveButton(
+                            messageId,
+                            content
+                        );
+
+                        timestampDiv.appendChild(copyButton);
+                        timestampDiv.appendChild(saveButton);
+                    }
+
+                    window.visualLogger.debug(`Added expand button and controls to header for message ${messageId}`);
+                }
+                
+                // Pass messageId to renderer for JS state checking
+                if (renderer === renderHTML && messageId) {
+                    renderer(container, content, messageId);
+                } else {
+                    renderer(container, content);
+                }
             } catch (e) {
                 window.visualLogger.error(`${type} rendering failed:`, { error: e });
                 container.innerHTML = `<pre class="render-error">Error rendering ${type}: ${e.message}</pre>`;
@@ -277,6 +476,38 @@ class ContentRenderer {
         } else {
             window.visualLogger.warn(`No renderer found for type: ${type}`);
             container.innerHTML = `<pre>Unsupported content type: ${type}</pre>`;
+        }
+    }
+    
+    // Re-render a specific message when JS toggle is clicked
+    reRenderMessage(container, data, messageId, jsEnabled) {
+        window.visualLogger.debug(`Re-rendering message ${messageId} with JS ${jsEnabled ? 'enabled' : 'disabled'}`);
+
+        // Check if message was expanded before re-rendering
+        const messageBlock = document.getElementById(messageId);
+        const wasExpanded = messageBlock && messageBlock.classList.contains('expanded-message');
+
+        // If expanded, collapse it first to clean up properly
+        if (wasExpanded && window.JavaScriptUtils) {
+            const expandButton = messageBlock.querySelector('.msg-expand-button');
+            if (expandButton) {
+                window.JavaScriptUtils.collapseMessage(messageBlock, expandButton);
+            }
+        }
+
+        // Clear container
+        container.innerHTML = '';
+
+        // Re-render with current JS state
+        if (data.type === 'html') {
+            // Use the updated renderHTML function which handles JS disabled state
+            renderHTML(container, data.content, messageId);
+        } else {
+            // For non-HTML content, just re-render normally
+            const renderer = renderers[data.type];
+            if (renderer) {
+                renderer(container, data.content);
+            }
         }
     }
 }

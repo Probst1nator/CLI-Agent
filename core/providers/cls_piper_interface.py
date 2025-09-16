@@ -184,7 +184,7 @@ class PiperInterface(AudioProviderInterface):
               play: bool = True,
               language: str = "auto",
               gender: str = "female",
-              quality: str = "medium") -> Union[List[str], None]:
+              quality: str = "medium") -> bool:
         """
         Convert text to speech using Piper TTS.
         
@@ -204,7 +204,7 @@ class PiperInterface(AudioProviderInterface):
         """
         if not self._available:
             logger.error("Piper TTS not available")
-            return None
+            return False
 
         # Text preprocessing
         text = text.replace("*", "")
@@ -231,7 +231,7 @@ class PiperInterface(AudioProviderInterface):
         piper_voice = self._load_voice(voice_name)
         if not piper_voice:
             logger.error(f"Failed to load voice: {voice_name}")
-            return None
+            return False
         
         try:
             logger.info(f"Generating speech with {voice_name}: '{text[:50]}...'")
@@ -242,7 +242,7 @@ class PiperInterface(AudioProviderInterface):
             # Extract audio data from chunks
             if not audio_chunks:
                 logger.error("No audio chunks generated")
-                return None
+                return False
             
             # Combine all audio chunks
             audio_arrays = []
@@ -314,11 +314,11 @@ class PiperInterface(AudioProviderInterface):
                         except:
                             pass
             print("finished playback")
-            return saved_files if saved_files else None
+            return True
             
         except Exception as e:
             logger.error(f"Piper speech generation failed: {e}")
-            return None
+            return False
     
     def _play_audio_file(self, audio_path: str, volume: float = 1.0) -> None:
         """Play audio file using available system methods."""

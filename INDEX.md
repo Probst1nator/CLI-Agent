@@ -45,9 +45,9 @@
 - `shared/utils/` - Structured shared utilities organized by domain:
   - `web/web_server.py` - HTTP endpoints and web-based interfaces (migrated from py_classes/utils)
   - `search/brave_search.py` - Web search API integration (migrated from py_classes/utils)
-  - `rag/rag_utils.py` - Document processing and semantic search utilities (migrated from py_classes/utils)  
+  - `search/search_vector_db.py` - **NEW (2025)**: SearchResultsVectorDB class for semantic search caching using ChromaDB and embeddinggemma:latest embeddings. Manages two collections (web_search_results + search_summaries) with similarity-based retrieval, automatic result storage, and progressive knowledge building for the SearchWeb tool
+  
   - `python/python_utils.py` - Code execution and Python environment manipulation (migrated from py_classes/utils)
-  - `youtube/youtube_utils.py` - Video processing and metadata extraction (migrated from py_classes/utils)
   - `log_manager.py` - Centralized log retention and cleanup management system with automatic rotation, retention policies, background cleanup scheduling, and comprehensive statistics for all CLI-Agent logging operations
   - `pdf_utils.py` - **NEW (2025)**: Consolidated PDF processing utilities extracted from duplicated functions in shared/common_utils.py and shared/audio/audio_utils.py. Provides clean_pdf_text(), extract_pdf_content(), get_cache_file_path(), and related functions with caching support
   - `shutdown_utils.py` - **NEW (2025)**: Graceful shutdown utilities extracted from main.py and main_refactored.py, supporting both legacy and modern architecture patterns with proper log cleanup and context management
@@ -147,6 +147,8 @@
 
 - `docs/CURRENT_AND_IDEAL_ARCHITECTURE.md` - Architecture analysis documenting duplicate files between py_classes and core directories, with findings on AI provider interfaces and proposed monorepo structure improvements.
 
+- `docs/SEARCHWEB_VECTOR_DB.md` - **NEW (2025)**: Comprehensive documentation for SearchWeb vector database integration using ChromaDB and embeddinggemma:latest. Details semantic search architecture, two-collection system (search results + summaries), query flow, performance benefits, configuration, and troubleshooting for the intelligent caching system that reduces API calls and builds progressive knowledge base.
+
 - `docs/OLLAMA_INFO.md` - Documentation for Ollama integration, covering local model hosting, configuration, and offline LLM capabilities.
 
 - `license` - GNU Affero General Public License v3 (AGPL-3.0) governing the distribution and modification of the CLI-Agent project as open source software.
@@ -215,6 +217,8 @@
 
 - `shell_scripts/setup_dia_environment.sh` - Environment setup script for configuring the development and runtime environment for the CLI agent system.
 
+- `scripts/manage_search_cache.py` - **NEW (2025)**: Cache management utility for the SearchWeb Vector Database providing commands for viewing statistics, pruning old entries, listing recent cache entries, and clearing cache data with comprehensive maintenance capabilities.
+
 - `tests/README.md` - Testing documentation explaining the test structure, running procedures, and testing methodology for the CLI agent project.
 
 - `tests/test_cross_tool.py` - Integration tests for cross-tool communication and coordination between different agent components and utilities.
@@ -269,11 +273,9 @@
 
 - `utils/generateimage.py` - Image generation utility integrating with AI image generation services for creating visual content within agent workflows.
 
-- `utils/_goldenstandardutil.py` - Golden standard utility for benchmarking, validation, and quality assurance in agent operations and output quality.
 
 - `utils/homeassistant.py` - Home Assistant integration utility for smart home automation, device control, and IoT interaction through the CLI agent.
 
-- `utils/process_manager.py` - Process management utility for handling system processes, monitoring resource usage, and managing concurrent operations.
 
 - `utils/removefile.py` - File removal utility with safety checks, backup options, and intelligent deletion policies for secure file management.
 

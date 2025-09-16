@@ -3,7 +3,7 @@ import os
 import re
 import subprocess
 import tempfile
-from typing import Any, List, Optional, Tuple, Union, TypedDict
+from typing import List, Optional, Tuple
 import sqlite3
 import chromadb
 # import pyaudio  # Moved to lazy import in functions that need it
@@ -24,24 +24,6 @@ from core.globals import g
 import os
 import base64
 
-# Define the typed structures for tool calls
-class ToolCallParameters(TypedDict, total=False):
-    """Type for tool call parameters with optional fields"""
-    message: Optional[str]
-    command: Optional[str]
-    file_path: Optional[str]
-    raw_content: Optional[str]
-    content_prompt: Optional[str]
-    queries: Optional[Union[str, List[str]]]
-    # Add other common parameters as needed
-
-
-class ToolCall(TypedDict):
-    """Type for tool calls"""
-    tool: str
-    reasoning: str
-    parameters: ToolCallParameters
-    positional_parameters: Optional[List[Any]]
 
 
 r: Recognizer = None
@@ -203,7 +185,6 @@ def clean_pdf_text(text: str):
     return text.strip()
 
 import os
-from typing import List, Union
 
 # PDF processing functions moved to shared.utils.pdf_utils
 # Import PDF utilities from the centralized module

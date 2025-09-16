@@ -187,13 +187,7 @@ def transcribe_audio():
         logger.error(f"Error in transcription endpoint: {e}")
         return jsonify({"error": str(e)}), 500
 
-def create_app() -> Flask:
-    """Create and configure the Flask application.
-    
-    Returns:
-        Flask: The configured Flask application
-    """
-    return app
+# create_app function removed - was unused
 
 if __name__ == "__main__":
     # Get port from environment or use default

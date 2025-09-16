@@ -53,6 +53,70 @@ DEFAULT_TRANSCRIPTION_PARAMS = {
 
 logger = logging.getLogger(__name__)
 
+# audio.py
+import fasttext
+from pathlib import Path
+import urllib.request
+
+_FASTTEXT_MODEL_PATH = Path.home() / ".cache" / "piper-tts" / "lid.176.bin"
+_FASTTEXT_MODEL_URL = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
+_lang_model = None
+
+
+def _load_lang_model():
+    """
+    Downloads the fastText model if not present and loads it into memory.
+    This is a robust, self-managing function.
+    """
+    global _lang_model
+    if _lang_model:
+        return _lang_model
+
+    try:
+        if not _FASTTEXT_MODEL_PATH.exists():
+            print(f"<{colored('LangDetect', 'cyan')}> First-time setup: Downloading fastText model...")
+            _FASTTEXT_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            urllib.request.urlretrieve(_FASTTEXT_MODEL_URL, _FASTTEXT_MODEL_PATH)
+            print(f"<{colored('LangDetect', 'green')}> Model downloaded to {_FASTTEXT_MODEL_PATH}")
+
+        # Suppress the "Warning : `load_model` does not return WordVectorModel..." message
+        fasttext.FastText.eprint = lambda x: None
+        _lang_model = fasttext.load_model(str(_FASTTEXT_MODEL_PATH))
+        return _lang_model
+    except Exception as e:
+        logger.error(f"Failed to load or download the language detection model: {e}")
+        return None
+
+
+def detect_language(text: str) -> str:
+    """
+    Robustly detects the language of a text using Meta's fastText model.
+
+    Identifies German ('de') and defaults to English ('en') for all other
+    languages or in case of an error, making it a safe replacement.
+
+    Args:
+        text: The input string to analyze.
+
+    Returns:
+        'de' for German, or 'en' for English/other.
+    """
+    model = _load_lang_model()
+    if not model or not text or text.isspace():
+        return 'en'  # Default to English if model fails or text is empty
+
+    cleaned_text = text.replace('\n', ' ').strip()
+    if not cleaned_text:
+        return 'en'
+
+    try:
+        predictions = model.predict(cleaned_text, k=10)
+        lang_code = predictions[0][0].replace('__label__', '')
+        
+        # We are only concerned with German vs. English for Piper/Coqui
+        return 'de' if lang_code == 'de' else 'en'
+    except Exception:
+        return 'en' # Fallback on any error
 
 def get_torch_device(force_reset: bool = False) -> str:
     """Determine the most appropriate device (CUDA or CPU) for PyTorch operations."""
@@ -94,15 +158,6 @@ def get_torch_device(force_reset: bool = False) -> str:
                 print(f"<{colored('System', 'yellow')}> PyTorch not available, using CPU")
     
     return _device
-
-
-def reset_audio_models():
-    """Reset all cached audio models, forcing them to be reloaded on next use."""
-    global _faster_whisper_model, _faster_whisper_model_key, _whisper_model, _whisper_model_key, _vosk_model, _device
-    _faster_whisper_model, _faster_whisper_model_key = None, None
-    _whisper_model, _whisper_model_key = None, None
-    _vosk_model, _device = None, None
-    print(f"<{colored('System', 'cyan')}> Audio models and device cache reset")
 
 
 def initialize_faster_whisper_model(model_size: str = "small", compute_type: str = None, force_reset: bool = False) -> bool:
@@ -571,7 +626,7 @@ def text_to_speech(
     output_path: Optional[str] = None, play: bool = True, use_piper: bool = True, 
     language: str = "auto", gender: str = "female", quality: str = "medium", 
     **generation_kwargs: Any
-) -> Optional[str]:
+) -> bool:
     """
     Convert text to speech using multiple TTS engines.
     
@@ -590,14 +645,19 @@ def text_to_speech(
         quality: Quality level ("low", "medium", "high")
         
     Returns:
-        Path to saved audio file if output_path specified, None otherwise
+        Success: bool
     """
     if ENABLE_EXTENDED_LOGGING:
         print(f"<{colored('TTS', 'cyan')}> Converting text to speech: '{text[:50]}...'")
     
-    # Use parameters directly - no context system needed
+    # Resolve language if set to 'auto' using our robust detector
+    resolved_language = language
+    if language == "auto":
+        resolved_language = detect_language(text)
+        if ENABLE_EXTENDED_LOGGING:
+            print(f"<{colored('LangDetect', 'blue')}> Auto-detected language as: {resolved_language}")
     
-    # Try engines in priority order from globals (Piper first for local-first approach)
+    # Try engines in priority order
     try:
         from core.globals import g
         engine_priority = g.TTS_ENGINE_PRIORITY
@@ -613,43 +673,92 @@ def text_to_speech(
                 if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Piper', 'magenta')}> Using Piper TTS")
                 result = piper.speak(
                     text=text, voice=voice if voice != "default" else "default", speed=speed,
-                    output_path=output_path, play=play, language=language, gender=gender, quality=quality,
+                    output_path=output_path, play=play, language=resolved_language, gender=gender, quality=quality,
                     volume=volume
                 )
-                if result is not None:
+                if result:
                     if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Piper', 'magenta')}> Piper TTS synthesis successful")
-                    return output_path
+                    return True
             elif ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Piper', 'yellow')}> Piper TTS not available, falling back")
         except (ImportError, Exception) as e:
             if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Piper', 'yellow')}> Piper TTS error: {e}, falling back")
     
-    # 4. Try Coqui TTS (XTTS model for natural speech)
-    if _try_coqui_tts(text, voice, speed, output_path, play, language, volume=volume, **generation_kwargs):
+    # 2. Try Coqui TTS (XTTS model for natural speech)
+    # Pass the already resolved language to avoid re-detecting
+    if _try_coqui_tts(text, voice, speed, output_path, play, language=resolved_language, volume=volume, **generation_kwargs):
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'green')}> Coqui TTS synthesis successful")
-        return output_path
+        return True
     
-    # 5. Try improved Hugging Face models (better than old speecht5)
+    # 3. Try improved Hugging Face models
     if _try_modern_hf_tts(text, voice, speed, output_path, play, volume=volume, **generation_kwargs):
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS HF Modern', 'green')}> Modern HF TTS synthesis successful")
-        return output_path
+        return True
     
-    # 6. Try remote APIs only if --remote-tts specified (since local engines are working)
-    # OpenAI TTS API (high quality but remote)
+    # 4. Try remote APIs if allowed
     if _try_openai_tts(text, voice, speed, output_path, play, volume=volume, **generation_kwargs):
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS OpenAI', 'green')}> OpenAI TTS synthesis successful")
-        return output_path
+        return True
     
-    # ElevenLabs (high quality but remote)
     if _try_elevenlabs_tts(text, voice, speed, output_path, play, volume=volume, **generation_kwargs):
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS ElevenLabs', 'green')}> ElevenLabs TTS synthesis successful")
-        return output_path
+        return True
     
-    # 7. Last resort: System TTS
+    # 5. Last resort: System TTS
     if _try_improved_system_tts(text, volume=volume):
-        return None
+        return True
     
     print(f"<{colored('TTS Fallback', 'red')}> All TTS methods failed.")
-    return None
+    return False
+
+def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
+                  output_path: Optional[str] = None, play: bool = True, 
+                  language: str = "auto", volume: float = 1.0, **kwargs) -> bool:
+    """Try Coqui TTS XTTS model for natural multi-lingual speech."""
+    try:
+        from TTS.api import TTS
+        import tempfile
+        
+        if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'magenta')}> Using Coqui XTTS")
+        
+        model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
+        tts = TTS(model_name, progress_bar=False, gpu=get_torch_device() == "cuda")
+        
+        # Resolve language if it's still 'auto' (though it should be pre-resolved)
+        resolved_language = language
+        if language == "auto":
+            resolved_language = detect_language(text)
+        
+        temp_output = None
+        effective_output_path = output_path
+        if not effective_output_path:
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+                effective_output_path = tmp_file.name
+            temp_output = effective_output_path
+        
+        tts.tts_to_file(
+            text=text,
+            file_path=effective_output_path,
+            language=resolved_language,
+            speed=speed
+        )
+        
+        if play:
+            _play_audio_file_simple(effective_output_path, volume)
+        
+        if temp_output:
+            try:
+                os.unlink(temp_output)
+            except:
+                pass
+        
+        return True
+        
+    except ImportError:
+        if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'yellow')}> Coqui TTS library not available")
+        return False
+    except Exception as e:
+        if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'yellow')}> Coqui TTS failed: {e}")
+        return False
 
 
 def _try_openai_tts(text: str, voice: str = "default", speed: float = 1.0, 
@@ -988,9 +1097,6 @@ def _try_improved_system_tts(text: str, volume: float = 1.0) -> bool:
     return False
 
 
-def _try_system_tts(text: str) -> bool:
-    """Attempt to use a system-installed TTS engine like espeak or say."""
-    return _try_improved_system_tts(text)
 
 
 def save_binary_file(file_name: str, data: bytes) -> str:

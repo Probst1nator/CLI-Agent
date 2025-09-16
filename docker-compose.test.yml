@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  cli-agent-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: cli-agent-test
+
+    # Resource limits for consistent testing
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+    # Environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/cli-agent
+      - TERM=xterm-256color
+
+    # Volume mounts
+    volumes:
+      # Output directory for test results
+      - ./test_output:/output
+      # Mount any directory containing TEST_TASK.md as test files
+      - ./test_files:/test_files:ro
+
+    # Working directory
+    working_dir: /workspace
+
+    # Network configuration
+    networks:
+      - test-network
+
+    # Restart policy for CI/CD
+    restart: "no"
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Resource monitoring
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+networks:
+  test-network:
+    driver: bridge
+
+# Optional: For development/debugging
+volumes:
+  test-cache:
+    driver: local

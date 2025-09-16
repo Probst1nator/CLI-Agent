@@ -1,6 +1,7 @@
 import os
 from typing import Optional, List, Dict, Any, Union
 import logging
+import threading
 from termcolor import colored
 import google.generativeai as genai
 from google.generativeai import types
@@ -25,11 +26,34 @@ _gemini_api_configured = False
 class GoogleAPI(AIProviderInterface):
     """
     Implementation of the AIProviderInterface for the Google Gemini API.
-    
-    This class provides methods to interact with Google's Gemini models using 
+
+    This class provides methods to interact with Google's Gemini models using
     the Google Generative AI client library.
     """
-    
+
+    # Class-level cancellation support
+    _cancellation_event = None
+    _current_task = None
+    _cancellation_lock = threading.Lock()
+
+    @classmethod
+    def cancel_current_generation(cls):
+        """
+        Cancel any currently running Google/Gemini generation.
+        This sets a cancellation event that can be checked by streaming operations.
+        """
+        try:
+            with cls._cancellation_lock:
+                if cls._cancellation_event:
+                    cls._cancellation_event.set()
+                    logger.debug("Google stream cancellation event set")
+
+                # Note: Google SDK doesn't support direct HTTP request cancellation
+                # The cancellation will be handled at the stream iteration level
+
+        except Exception as e:
+            logger.warning(f"Error cancelling Google generation: {e}")
+
     @staticmethod
     def _configure_api() -> None:
         """
@@ -319,7 +343,11 @@ class GoogleAPI(AIProviderInterface):
             # Record successful request
             enhanced_rate_limit_tracker.record_request(model_key, token_cost=token_cost, image_count=image_count)
 
-            return response
+            # Set up cancellation event for this generation
+            GoogleAPI._cancellation_event = threading.Event()
+
+            # Return a cancellable stream wrapper
+            return GoogleAPI._create_cancellable_stream(response, model_key)
         except Exception as e:
             # Use enhanced parser for better rate limit handling
             error_str = str(e)
@@ -620,3 +648,33 @@ class GoogleAPI(AIProviderInterface):
             setattr(e, 'already_logged', True)
             # Re-raise the original exception
             raise
+
+    @classmethod
+    def _create_cancellable_stream(cls, raw_stream, model_key: str):
+        """
+        Create a cancellable stream wrapper that monitors the cancellation event.
+        This allows for immediate interruption of Google/Gemini streaming responses.
+        """
+        class CancellableGoogleStream:
+            def __init__(self, stream, cancellation_event, model_key):
+                self.stream = stream
+                self.cancellation_event = cancellation_event
+                self.model_key = model_key
+
+            def __iter__(self):
+                try:
+                    for chunk in self.stream:
+                        # Check for cancellation before yielding each chunk
+                        if self.cancellation_event and self.cancellation_event.is_set():
+                            logger.debug(f"Google stream for {self.model_key} cancelled via interruption")
+                            break
+                        yield chunk
+                finally:
+                    # Cleanup: close the stream if possible
+                    try:
+                        if hasattr(self.stream, 'close'):
+                            self.stream.close()
+                    except Exception as e:
+                        logger.debug(f"Error closing Google stream: {e}")
+
+        return CancellableGoogleStream(raw_stream, cls._cancellation_event, model_key)

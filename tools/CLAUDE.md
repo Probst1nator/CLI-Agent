@@ -113,6 +113,38 @@ class k8s:
 ```
 The agent loop continues to call the same three synchronous methods. All complexity of managing credentials, network connections, and API client lifecycles is hidden within the tool.
 
+### d. Async Tools Pattern (2025)
+
+Starting in 2025, tools can be fully asynchronous to prevent blocking operations. The calling system must handle async tools appropriately.
+
+`tools/searchweb.py` (simplified example)
+```python
+import asyncio
+from core.llm_router import LlmRouter
+
+class searchweb:
+    @staticmethod
+    def get_delim(): return "searchweb"
+    @staticmethod
+    def get_tool_info():
+        return {"name": "searchweb", "description": "Async web search with AI summaries", "example": "<searchweb><query>python</query></searchweb>"}
+
+    # --- ASYNC PATTERN ---
+    @staticmethod
+    async def run(content: str) -> str:
+        query = extract_query(content)
+
+        # Non-blocking API call
+        results = await asyncio.to_thread(api_search, query)
+
+        # Non-blocking LLM generation
+        summary = await LlmRouter.generate_completion(build_chat(results))
+
+        return summary
+```
+
+**Important**: Async tools require the calling system to use `await tool.run(content)` instead of `tool.run(content)`.
+
 ## 3. Testing New Tools
 
 Tools should be unit-tested to ensure reliability. The stateless nature of the `run` method makes this straightforward.

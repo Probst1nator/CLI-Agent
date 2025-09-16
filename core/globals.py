@@ -72,6 +72,11 @@ class Globals:
         self.DEBUG_MODE: bool = False
         self.SUMMARY_MODE: bool = False
         self.VERBOSE_DEBUG: bool = False  # Set to True to enable verbose API debugging
+        self.GUI_MODE: bool = False  # Set to True when running in GUI mode
+
+        # --- Agent Control Flags ---
+        self.CONTINUE_CONVERSATION: bool = False  # Set by CLI args for continuous conversation
+        self.AGENT_RESET_REQUESTED: bool = False  # Set when agent reset is requested
         
         # --- Utility and Tool Management ---
         self.SELECTED_UTILS: List[str] = []
@@ -90,6 +95,13 @@ class Globals:
         self.debug_log: Callable[..., None] = self._default_debug_log
         self._user_config: Dict[str, Any] = {}
         self._llm_config: Dict[str, Any] = {}
+
+        # --- Tool and Agent State ---
+        self.last_executed_tools_info: Optional[Any] = None  # Stores information about last executed tools
+
+        # --- GUI Communication ---
+        import queue
+        self.visual_input_queue: queue.Queue = queue.Queue()  # Queue for visual input from web interface
         
         # --- TTS Configuration ---
         # Default: Local models first, then remote APIs (prioritize privacy and offline capability)
@@ -127,9 +139,9 @@ class Globals:
             "piper": {
                 "default": "en_GB-alba-medium",
                 "german_male": "de_DE-thorsten-high",
-                "german_female": "de_DE-mls-medium", 
-                "english_female": "en_GB-alba-medium",
-                "english_male": "en_GB-alan-medium"
+                "german_female": "de_DE-kerstin-medium", 
+                "english_male": "en_GB-alan-medium",
+                "english_female": "en_GB-alba-medium"
             }
         }
         
@@ -252,9 +264,21 @@ class Globals:
         else:
             self._llm_config = {}
 
-    def get_llm_config(self) -> Dict[str, Any]:
+    def get_llm_config(self, force_reread: bool = False) -> Dict[str, Any]:
         """Get the loaded LLM configuration."""
+        if force_reread:
+            self.load_llm_config()
         return self._llm_config
+
+    def save_llm_config(self, config: Dict[str, Any]) -> None:
+        """Save LLM configuration to file."""
+        self._llm_config = config
+        try:
+            os.makedirs(os.path.dirname(self.LLM_CONFIG_PATH), exist_ok=True)
+            with open(self.LLM_CONFIG_PATH, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            logging.warning(f"Failed to save LLM config: {e}")
 
     def cleanup_temp_py_files(self):
         """Remove temporary Python files from previous runs using enhanced file manager."""

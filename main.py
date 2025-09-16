@@ -59,6 +59,7 @@ if '--debug' not in sys.argv:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             old_stderr = sys.stderr
+            stderr_buffer = None
             # Redirect stderr for known noisy operations
             if '--debug' not in sys.argv:
                 stderr_buffer = open(os.devnull, 'w')
@@ -66,7 +67,7 @@ if '--debug' not in sys.argv:
             try:
                 yield
             finally:
-                if '--debug' not in sys.argv:
+                if '--debug' not in sys.argv and stderr_buffer is not None:
                     stderr_buffer.close()
                 sys.stderr = old_stderr
 else:
@@ -147,7 +148,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
 from shared.utils.display_utils import colorize_model_list, print_startup_summary, show_unified_bindings_display
 
 # Import logging utilities from extracted module  
-from shared.utils.logging_utils import setup_logging, swap_to_simple_logging, ConsoleFormatter, SimpleFormatter, FileFormatter
+from shared.utils.logging_utils import setup_logging, swap_to_simple_logging
 
 # Import tool discovery from extracted module
 from agent.core.tool_discovery import _generate_tool_documentation
@@ -273,10 +274,28 @@ evaluation_fallback_iterator = FallbackModelIterator()
 def setup_signal_handlers():
     """Setup signal handlers for graceful interruption during AI generation."""
     def signal_handler(signum, frame):
-        """Handle SIGINT (Ctrl+C) by setting interrupt flag instead of raising exception."""
+        """Handle SIGINT (Ctrl+C) by setting interrupt flag and attempting immediate cancellation."""
         _interrupt_flag.set()
-        print(colored("\n⚠️  AI generation interrupted (Ctrl+C) - returning to user input...", "yellow", attrs=['bold']))
-    
+        print(colored("\n🛑 INTERRUPT SIGNAL RECEIVED - Cancelling AI generation...", "red", attrs=['bold']))
+
+        # Attempt immediate provider cancellation if available
+        try:
+            from core.llm_router import LlmRouter
+            router = LlmRouter()
+            if hasattr(router, 'last_used_model') and router.last_used_model:
+                # Get the current model's provider
+                current_model = router.get_model([router.last_used_model])
+                if current_model:
+                    cancel_func = getattr(current_model.provider, 'cancel_current_generation', None)
+                    if callable(cancel_func):
+                        cancel_func()
+                        print(colored("  → Provider cancellation initiated", "yellow"))
+        except Exception:
+            # Don't let provider cancellation errors break the signal handler
+            pass
+
+        print(colored("  → Returning to user input...", "yellow"))
+
     signal.signal(signal.SIGINT, signal_handler)
 
 def check_interrupt():
@@ -285,6 +304,65 @@ def check_interrupt():
         _interrupt_flag.clear()
         return True
     return False
+
+def offer_intelligent_recovery_options(context_chat):
+    """
+    Analyze interrupt metadata and offer context-appropriate recovery options.
+    Returns user choice for how to proceed after interrupt.
+    """
+    if not hasattr(context_chat, 'metadata') or 'last_interrupt' not in context_chat.metadata:
+        return 'continue'
+
+    interrupt_info = context_chat.metadata['last_interrupt']
+    print(colored("\n🔄 Recovery Options:", "cyan", attrs=['bold']))
+
+    # Analyze the interrupt context and offer relevant options
+    options = []
+
+    if interrupt_info.get('had_partial_response', False):
+        options.append(("partial", "Continue with partial response (if meaningful content was generated)"))
+
+    if interrupt_info.get('monte_carlo_mode', False):
+        options.append(("single", "Switch to single-model mode (faster, no branching)"))
+
+    if interrupt_info.get('models_attempted', []):
+        failed_models = interrupt_info['models_attempted']
+        options.append(("retry_diff", f"Retry with different model (avoid {', '.join(failed_models[:2])}...)"))
+
+    options.extend([
+        ("retry_same", "Retry with same settings"),
+        ("continue", "Continue normally"),
+        ("exit", "Exit to user input")
+    ])
+
+    # Display options
+    for i, (key, description) in enumerate(options, 1):
+        print(f"  {i}. {description}")
+
+    # Get user choice with timeout
+    print(colored("\nChoose option (1-{}) or press Enter for default [continue]: ".format(len(options)), "cyan"), end="", flush=True)
+
+    try:
+        import select
+
+        # Non-blocking input with 5-second timeout
+        ready, _, _ = select.select([sys.stdin], [], [], 5.0)
+        if ready:
+            choice = input().strip()
+            if choice.isdigit():
+                idx = int(choice) - 1
+                if 0 <= idx < len(options):
+                    selected_key = options[idx][0]
+                    print(colored(f"  → Selected: {options[idx][1]}", "green"))
+                    return selected_key
+
+        # Default choice after timeout
+        print(colored("  → Using default: Continue normally", "yellow"))
+        return 'continue'
+
+    except Exception:
+        # Fallback for systems without select support
+        return 'continue'
 
 # --- Custom Logging Setup ---
 def parse_cli_args() -> argparse.Namespace:
@@ -356,128 +434,15 @@ def parse_cli_args() -> argparse.Namespace:
     
     return args
 
-class ConsoleFormatter(logging.Formatter):
-    """A logging formatter that adds a colored elapsed time prefix for the console."""
-    def __init__(self, fmt, **kwargs):
-        super().__init__(fmt, **kwargs)
-    
-    def format(self, record):
-        elapsed = time.time() - start_time
-        # Create a prefix with the elapsed time
-        prefix = colored(f"[{elapsed:6.2f}s] ", 'dark_grey')
-        
-        # The original message might already be colored
-        formatted_message = super().format(record)
-        
-        # For debug messages, color the whole line for visibility
-        if record.levelno == logging.DEBUG:
-            return prefix + colored(formatted_message, 'light_blue')
-        
-        return prefix + formatted_message
+# ConsoleFormatter moved to shared.utils.logging_utils
 
-class SimpleFormatter(logging.Formatter):
-    """A simple formatter that just returns the message, used after startup or in TUI mode."""
-    def format(self, record):
-        return super().format(record)
+# SimpleFormatter moved to shared.utils.logging_utils
 
-class FileFormatter(logging.Formatter):
-    """A logging formatter for files, including elapsed time and stripping ANSI color codes."""
-    def __init__(self, fmt, **kwargs):
-        super().__init__(fmt, **kwargs)
+# FileFormatter moved to shared.utils.logging_utils
 
-    def format(self, record):
-        elapsed = time.time() - start_time
-        record.elapsed = f"[{elapsed:6.2f}s]"
-        
-        # The original message might contain color codes, strip them for the file log.
-        if isinstance(record.msg, str):
-            record.msg = re.sub(r'\x1b\[[0-9;]*m', '', record.msg)
-            
-        return super().format(record)
+# setup_logging function moved to shared.utils.logging_utils
 
-def setup_logging(debug_mode: bool, log_file: Optional[str] = None, tui_mode: bool = False):
-    """Configure the root logger for console and optional file output with automatic retention."""
-    logger = logging.getLogger() # Get root logger
-    logger.setLevel(logging.DEBUG) # Capture all messages at the root
-
-    # Clear any existing handlers
-    if logger.hasHandlers():
-        logger.handlers.clear()
-
-    # --- Console Handler ---
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_log_level = logging.DEBUG if debug_mode else logging.INFO
-    console_handler.setLevel(console_log_level)
-    
-    # Use a simple formatter in TUI mode to avoid cluttering the UI with timestamps
-    if tui_mode:
-        console_formatter = SimpleFormatter("%(message)s")
-    else:
-        console_formatter = ConsoleFormatter("%(message)s")
-
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-
-    # --- File Handler with Automatic Retention ---
-    if log_file:
-        try:
-            # Import log manager for retention features
-            from shared.utils.log_manager import get_log_manager
-            
-            log_manager = get_log_manager()
-            
-            # Determine policy based on file name and debug mode
-            if 'debug' in log_file.lower() or debug_mode:
-                policy_name = 'debug'
-            elif 'tui' in log_file.lower() or tui_mode:
-                policy_name = 'tui'
-            else:
-                policy_name = 'application'
-            
-            # Create rotating file handler with retention
-            file_handler = log_manager.create_rotating_handler(log_file, policy_name)
-            file_handler.setLevel(logging.DEBUG) # Always log everything to the file
-            file_formatter = FileFormatter("%(elapsed)s [%(levelname)-8s] %(message)s")
-            file_handler.setFormatter(file_formatter)
-            logger.addHandler(file_handler)
-            
-            # Start periodic cleanup in background
-            log_manager.start_periodic_cleanup()
-            
-            # Perform immediate cleanup of old files on startup
-            cleanup_stats = log_manager.cleanup_old_logs()
-            if cleanup_stats['files_removed'] > 0:
-                logging.info(colored(f"🧹 Cleaned up {cleanup_stats['files_removed']} old log files ({cleanup_stats['bytes_freed'] / 1024:.1f} KB freed)", "cyan"))
-            
-            logging.info(colored(f"📝 Logging to file with retention: {log_file} (policy: {policy_name})", "magenta"))
-            
-        except ImportError:
-            # Fallback to basic file handler if log manager is not available
-            file_handler = logging.FileHandler(log_file, mode='w')
-            file_handler.setLevel(logging.DEBUG)
-            file_formatter = FileFormatter("%(elapsed)s [%(levelname)-8s] %(message)s")
-            file_handler.setFormatter(file_formatter)
-            logger.addHandler(file_handler)
-            logging.info(colored(f"Logging to file: {log_file}", "magenta"))
-
-    # --- FIX: Silence Noisy Loggers (Always, even in debug mode) ---
-    # These libraries produce networking/infrastructure logs we don't need
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("py_classes.ai_providers.cls_ollama_interface").setLevel(logging.WARNING)
-    logging.getLogger("numexpr").setLevel(logging.WARNING)
-    logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
-    logging.getLogger("transformers").setLevel(logging.WARNING)
-
-def swap_to_simple_logging():
-    """Swaps the console handler's formatter to a simpler one without the timer."""
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers:
-        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
-            # We found the console handler, now swap its formatter
-            simple_formatter = SimpleFormatter("%(message)s")
-            handler.setFormatter(simple_formatter)
-            break
+# swap_to_simple_logging function moved to shared.utils.logging_utils
 
 # --- End Custom Logging Setup ---
 
@@ -493,6 +458,8 @@ def swap_to_simple_logging():
 # This is done before heavy imports to allow --help to work quickly.
 args = parse_cli_args()
 
+# Store continue flag in global state for access by tools
+g.CONTINUE_CONVERSATION = args.c
 
 # Import figlet for later use
 from pathlib import Path
@@ -502,7 +469,6 @@ from pathlib import Path
 # Imports are moved below arg parsing and logging setup to allow for faster startup
 # and to ensure logging is configured before any modules start logging.
 from dotenv import load_dotenv
-import socket
 import warnings
 import subprocess
 
@@ -530,7 +496,7 @@ def get_listen_microphone():
     return listen_microphone
 
 try:
-    from utils.tts import TtsUtil
+    from shared.utils_tts import TtsUtil
 except ImportError:
     class TtsUtil:
         @staticmethod
@@ -545,16 +511,95 @@ def get_extract_blocks():
     """
     return extract_blocks
 
-def get_local_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
-        return local_ip
-    except Exception as e:
-        logging.warning(f"Could not determine local IP: {e}")
-        return None
+
+def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
+    """
+    Detects malformed XML blocks where opening and closing tags don't match.
+
+    This function specifically looks for tag mismatches that would cause
+    extract_blocks() to fail, such as <type>content</action>.
+
+    Args:
+        text (str): The text to analyze for malformed XML
+
+    Returns:
+        List[Dict[str, str]]: List of detected malformed XML issues
+    """
+    errors = []
+
+    # Simple approach: Look for patterns like <tag1>content</tag2> where tag1 != tag2
+    # This regex finds opening tag, content, and closing tag as separate groups
+    mismatch_pattern = r'<([a-zA-Z0-9_]+)([^>]*?)>(.*?)</([a-zA-Z0-9_]+)>'
+
+    for match in re.finditer(mismatch_pattern, text, re.DOTALL):
+        opening_tag = match.group(1).strip()
+        _ = match.group(2).strip()
+        content = match.group(3).strip()
+        closing_tag = match.group(4).strip()
+        full_block = match.group(0)
+
+        # Check if opening and closing tags match
+        if opening_tag != closing_tag:
+            # Make sure this isn't a nested structure by checking if content contains complete XML
+            # If content has complete XML blocks, this might be a valid outer structure
+            inner_complete_blocks = len(re.findall(r'<([a-zA-Z0-9_]+)[^>]*>.*?</\1>', content, re.DOTALL))
+            content_tags = len(re.findall(r'<[a-zA-Z0-9_]+[^>]*>', content))
+
+            # If content has tags but no complete blocks, this is likely a real mismatch
+            if content_tags > 0 and inner_complete_blocks == 0:
+                continue  # Skip, this is probably a complex nested case
+            elif content_tags == 0:  # Simple content with no nested tags - likely a real error
+                errors.append({
+                    'type': 'tag_mismatch',
+                    'opening_tag': opening_tag,
+                    'closing_tag': closing_tag,
+                    'error_description': f"Opening tag '<{opening_tag}>' does not match closing tag '</{closing_tag}>'",
+                    'suggested_fix': f"Change '</{closing_tag}>' to '</{opening_tag}>'",
+                    'block_content': full_block,
+                    'line_context': content[:100] + "..." if len(content) > 100 else content
+                })
+
+    return errors
+
+
+def generate_xml_error_context(errors: List[Dict[str, str]]) -> str:
+    """
+    Generate a context block with XML error information for the model.
+
+    Args:
+        errors: List of XML errors from detect_malformed_xml()
+
+    Returns:
+        str: Formatted context block with error details and suggestions
+    """
+    if not errors:
+        return ""
+
+    context_lines = ["XML Syntax Error Detected:"]
+    context_lines.append("")
+
+    for i, error in enumerate(errors, 1):
+        if error['type'] == 'tag_mismatch':
+            context_lines.append(f"Error {i}: {error['error_description']}")
+            context_lines.append(f"  Found: <{error['opening_tag']}>...</{error['closing_tag']}>")
+            context_lines.append(f"  Fix: {error['suggested_fix']}")
+            context_lines.append("")
+
+            # Show the problematic content with highlighting
+            context_lines.append("Malformed XML:")
+            context_lines.append(f"  {error['block_content']}")
+            context_lines.append("")
+
+        elif error['type'] == 'incomplete_block':
+            context_lines.append(f"Error {i}: {error['error_description']}")
+            context_lines.append(f"  Fix: {error['suggested_fix']}")
+            context_lines.append("")
+
+    context_lines.append("Due to these XML syntax errors, the affected tool blocks were ignored.")
+    context_lines.append("Please correct the XML syntax and try again.")
+
+    return f"<context>\n{chr(10).join(context_lines)}\n</context>"
+
 
 def apply_default_llm_config():
     """
@@ -633,9 +678,9 @@ def apply_monte_carlo_config():
     # Discover available models
     available_models = []
     try:
-        # Get all discovered models
-        for provider_models in router.discovered_models.values():
-            available_models.extend(provider_models.keys())
+        # Get all available models
+        all_models = router.get_models()
+        available_models.extend([model.model_key for model in all_models])
     except:
         # Fallback to hardcoded reliable models
         available_models = ['gemini-2.5-flash', 'gemini-2.5-flash-preview-05-20', 'gemma3:12b']
@@ -807,100 +852,7 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
 
     return selected_llms
 
-def validate_xml_completeness(text: str, tool_delimiters: List[str]) -> Optional[str]:
-    """
-    Validates that XML blocks are complete and well-formed before tool routing.
-    
-    This function ensures that tool XML blocks have properly matched opening
-    and closing tags, preventing malformed XML from causing incorrect tool routing.
-    
-    Args:
-        text: The text content to validate
-        tool_delimiters: List of valid tool tag names
-        
-    Returns:
-        The complete, valid XML block if found, None otherwise
-    """
-    if not tool_delimiters:
-        return None
-        
-    # Build regex pattern for any tool delimiter
-    tool_tag_pattern = "|".join(re.escape(d) for d in tool_delimiters)
-    
-    # Find all potential tool opening tags
-    opening_pattern = f"<({tool_tag_pattern})(?:[^>]*)>"
-    opening_matches = list(re.finditer(opening_pattern, text, re.DOTALL))
-    
-    if not opening_matches:
-        return None
-    
-    # Collect all valid blocks and return the longest (most complete) one
-    valid_blocks = []
-    
-    # For each opening tag, check if there's a complete, well-formed block
-    for match in opening_matches:
-        tag_name = match.group(1)
-        start_pos = match.start()
-        
-        # Look for the corresponding closing tag
-        closing_pattern = f"</{re.escape(tag_name)}>"
-        closing_match = re.search(closing_pattern, text[match.end():], re.DOTALL)
-        
-        if closing_match:
-            # Found a potential complete block
-            end_pos = match.end() + closing_match.end()
-            potential_block = text[start_pos:end_pos]
-            
-            # Validate that the XML is well-formed by checking for unclosed tags
-            if _is_xml_well_formed(potential_block, tag_name):
-                valid_blocks.append((potential_block, len(potential_block), start_pos))
-    
-    if not valid_blocks:
-        return None
-    
-    # Return the longest valid block (most complete)
-    # In case of equal length, prefer the one that starts first
-    valid_blocks.sort(key=lambda x: (-x[1], x[2]))
-    return valid_blocks[0][0]
 
-def _is_xml_well_formed(xml_block: str, root_tag: str) -> bool:
-    """
-    Check if an XML block is well-formed by validating tag matching.
-    
-    Args:
-        xml_block: The XML block to validate
-        root_tag: The expected root tag name
-        
-    Returns:
-        True if the XML is well-formed, False otherwise
-    """
-    try:
-        # Use a simple tag stack to validate proper nesting
-        tag_stack = []
-        
-        # Find all opening and closing tags
-        tag_pattern = r'<(/?)([a-zA-Z0-9_]+)(?:[^>]*)>'
-        matches = re.finditer(tag_pattern, xml_block)
-        
-        for match in matches:
-            is_closing = bool(match.group(1))  # '/' present for closing tags
-            tag_name = match.group(2)
-            
-            if is_closing:
-                # Closing tag - should match the most recent opening tag
-                if not tag_stack or tag_stack[-1] != tag_name:
-                    return False  # Mismatched closing tag
-                tag_stack.pop()
-            else:
-                # Opening tag - add to stack
-                tag_stack.append(tag_name)
-        
-        # All tags should be properly closed (empty stack) and root tag should match
-        return len(tag_stack) == 0
-        
-    except Exception:
-        # If any parsing error occurs, consider it malformed
-        return False
 
 def create_interruption_callback(
     response_buffer: List[str],
@@ -946,46 +898,68 @@ def create_interruption_callback(
     XML_TOOL_BLOCK_REGEX = re.compile(f"<({tool_tag_pattern})[^>]*>.*?</\\1>", re.DOTALL) if tool_tag_pattern else None
     
     async def _callback(chunk: str):
-        # Process the chunk character by character to ensure proper interruption
-        for char in chunk:
-            # 1. Print the incoming character
-            if not g.SUMMARY_MODE or g.DEBUG_MODE:
-                if lock:
-                    async with lock:
-                        print(painter.apply_color(char), end="", flush=True)
-                else:
-                    print(painter.apply_color(char), end="", flush=True)
+        # Check for user interrupt immediately at start of callback for faster response
+        if check_interrupt():
+            if not g.SUMMARY_MODE:
+                print("\n")
+            raise StreamInterruptedException(response_buffer[0])
 
-            # 2. Append the character to the shared buffer
-            response_buffer[0] += char
-            current_buffer = response_buffer[0]
+        # Batch processing for better performance while maintaining interrupt responsiveness
+        char_batch = []
+        batch_size = min(50, len(chunk))  # Process in small batches for responsiveness
 
-            # 2.5. Check for user interrupt (Ctrl+C) 
-            if check_interrupt():
+        for i, char in enumerate(chunk):
+            # Check for user interrupt every 10 characters or at batch boundaries for efficiency
+            if i % 10 == 0 and check_interrupt():
                 if not g.SUMMARY_MODE:
                     print("\n")
-                raise StreamInterruptedException(current_buffer)
+                raise StreamInterruptedException(response_buffer[0] + ''.join(char_batch) + char)
 
-            # 3. Check for interruption conditions only when necessary
-            should_check = char in '`><'
-            
-            if should_check:
-                # # Check for a complete Markdown code block
-                # code_match = CODE_BLOCK_REGEX.search(current_buffer)
-                # if code_match:
-                #     full_block = code_match.group(0).strip()
-                #     if not g.SUMMARY_MODE:
-                #         print("\n")
-                #     raise StreamInterruptedException(full_block)
+            char_batch.append(char)
 
-                # Check for a complete block of a known tool
-                if XML_TOOL_BLOCK_REGEX:
-                    tool_match = XML_TOOL_BLOCK_REGEX.search(current_buffer)
-                    if tool_match:
-                        full_block = tool_match.group(0).strip()
-                        if not g.SUMMARY_MODE:
-                            print("\n")
-                        raise StreamInterruptedException(full_block)
+            # Process batch when full or at special characters
+            should_process_batch = (
+                len(char_batch) >= batch_size or
+                char in '`><' or
+                i == len(chunk) - 1  # Last character
+            )
+
+            if should_process_batch:
+                batch_str = ''.join(char_batch)
+
+                # Print the batch
+                if not g.SUMMARY_MODE or g.DEBUG_MODE:
+                    if lock:
+                        async with lock:
+                            print(painter.apply_color(batch_str), end="", flush=True)
+                    else:
+                        print(painter.apply_color(batch_str), end="", flush=True)
+
+                # Append batch to shared buffer
+                response_buffer[0] += batch_str
+                current_buffer = response_buffer[0]
+
+                # Clear batch
+                char_batch = []
+
+                # Check for interruption conditions when we encounter special characters
+                if char in '`><':
+                    # # Check for a complete Markdown code block
+                    # code_match = CODE_BLOCK_REGEX.search(current_buffer)
+                    # if code_match:
+                    #     full_block = code_match.group(0).strip()
+                    #     if not g.SUMMARY_MODE:
+                    #         print("\n")
+                    #     raise StreamInterruptedException(full_block)
+
+                    # Check for a complete block of a known tool
+                    if XML_TOOL_BLOCK_REGEX:
+                        tool_match = XML_TOOL_BLOCK_REGEX.search(current_buffer)
+                        if tool_match:
+                            full_block = tool_match.group(0).strip()
+                            if not g.SUMMARY_MODE:
+                                print("\n")
+                            raise StreamInterruptedException(full_block)
 
     return _callback
 
@@ -1001,7 +975,7 @@ def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, s
     # Try to get provider from LLM router if available
     if llm_router:
         try:
-            llm_obj = llm_router.get_llm(model_key)
+            llm_obj = llm_router.get_model([model_key])
             if llm_obj and llm_obj.provider:
                 provider_class_name = llm_obj.provider.__class__.__name__
                 
@@ -1034,42 +1008,6 @@ def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, s
         provider_name = model_key.split('-')[0].title()
         return "☁️", provider_name
 
-def is_response_complete(response: str) -> bool:
-    """
-    Check if an interrupted response actually contains complete, usable content.
-    Returns True if the response has complete code blocks or meaningful content.
-    """
-    if not response or not response.strip():
-        return False
-    
-    # Use the same regex patterns as the interruption callback
-    CODE_BLOCK_REGEX = re.compile(r"```.*?(```)", re.DOTALL)
-    XML_CODE_BLOCK_REGEX = re.compile(r"<(python|bash|shell)([^>]*)>.*?</\1>", re.DOTALL)
-    TAG_BLOCK_REGEX = re.compile(r"<([a-zA-Z0-9_]+)[^>]*>.*?</\1>", re.DOTALL)
-    
-    # Check for complete code blocks
-    if CODE_BLOCK_REGEX.search(response) or XML_CODE_BLOCK_REGEX.search(response):
-        return True
-    
-    # Check for complete XML tags (excluding reasoning tags)
-    tag_match = TAG_BLOCK_REGEX.search(response)
-    if tag_match:
-        tag_name = tag_match.group(1)
-        if not (tag_name.startswith('antml:') or tag_name in ['thinking', 'think', 'plan', 'planning']):
-            return True
-    
-    # If response has substantial content and ends naturally, consider it complete
-    response_stripped = response.strip()
-    if len(response_stripped) > 50 and (
-        response_stripped.endswith('.') or 
-        response_stripped.endswith('!') or 
-        response_stripped.endswith('?') or
-        response_stripped.endswith(':') or
-        response_stripped.endswith(';')
-    ):
-        return True
-    
-    return False
 
 # Note: The type hint for 'UtilsManager' is a string to avoid circular dependency issues.
 # The full definition of other functions like get_extract_blocks, g, LlmRouter, etc.
@@ -1094,6 +1032,14 @@ async def get_gui_input() -> str:
             # Check if we have input from the browser
             if not g.visual_input_queue.empty():
                 user_input = g.visual_input_queue.get_nowait()
+
+                # Check for special reset command from browser
+                if user_input.strip() == "__AGENT_RESET__":
+                    logging.info(colored("🔄 Received agent reset request from browser", "yellow"))
+                    # Set a flag to trigger reset (will be handled in main loop)
+                    g.AGENT_RESET_REQUESTED = True
+                    return ""  # Return empty to trigger loop continuation
+
                 logging.info(colored(f"🌐 Received browser input: {user_input[:50]}...", "green"))
                 return user_input
         except queue.Empty:
@@ -1110,29 +1056,27 @@ async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False) 
     Constructs the initial Chat object with a dynamically generated system prompt.
     This prompt includes the agent's core principles and a list of available tools.
     """
+    voice_mode_text = 'The user is interacting with you in speech mode, please be aware of potential transcription issues. Provide concise responses and be helpful to the user.\n' if voice_agent else ''
     base_instructions = f'''**SYSTEM: Agent Protocol & Capabilities**
 
 You are a sophisticated AI agent capable of thinking and using tools to achieve your todos. Your primary directive is to understand user requests, formulate a plan, and perform actions to achieve the current needs.
-{'The user is interacting with you in speech mode, please be aware of potential transcription issues. Provide concise responses and be helpful to the user.\n' if voice_agent else ''}
+{voice_mode_text}
 ### Guiding Principles (Your Core Logic)
 The following loop is a suggestion of how to behave effectively, you may freely reorder your usage of the xml tools if it fits your needs, you aim for long term stability and progress in your responses.
-1.  **OBSERVE & DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
+1.  **DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
 2.  **PLAN & TRACK**: Display/update your <todos>...</todos> to align your next step(s) with the stated long term goal(s).'''
     
-    # Dynamically generate the documentation for all available tools
-    # This also populates g.tool_classes as a side effect.
-    tool_docs = _generate_tool_documentation()
-    
+    step_4 = "4.  **OBSERVE & ATTEND**: After executing a tool, ALWAYS use <think> and/or <todos> to update your observations and plan your next move for as long as needed, then, continue with the next action."
+
     # In GUI mode, modify the tool documentation and response behavior
     if gui_mode:
-        # Filter out non-visual tools or modify descriptions for GUI use
-        tool_docs = tool_docs.replace("**`response`**", "**`visualresponse`**") if "**`response`**" in tool_docs else tool_docs
-        
-        # Add GUI-specific instructions
-        gui_instructions = "\n\n### GUI Mode Active\nYou are running in GUI mode. Use `<visualresponse>` instead of `<response>` to display your final answers in the web interface. All your responses will be displayed in a rich web format."
-        tool_docs += gui_instructions
+        # Replace 'response' instructions with 'visualresponse'
+        base_instructions = base_instructions.replace("response", "visualresponse")
+        tool_docs = _generate_tool_documentation(["response"])
+    else:
+        tool_docs = _generate_tool_documentation()
+
     
-    step_4 = "4.  **ITERATE**: After executing a tool, return to Step 1 **OBSERVE & DECOMPOSE** to reflect on your observations and plan your next move."
 
     
     # Combine all parts into the final instruction message
@@ -1143,6 +1087,55 @@ The following loop is a suggestion of how to behave effectively, you may freely 
     context_chat.set_instruction_message(default_inst)
     
     return context_chat
+
+
+async def reset_agent_state(args: argparse.Namespace, context_chat: Chat) -> Chat:
+    """
+    Completely reset the agent state to a fresh start.
+    Clears all conversation history, tool context, images, and reconstructs the engineered prompt.
+    """
+    from core.globals import g
+
+    logging.info(colored("🔄 Performing complete agent reset...", "yellow"))
+
+    # Clear chat context
+    if context_chat:
+        context_chat.messages.clear()
+        if hasattr(context_chat, 'base64_images'):
+            context_chat.base64_images.clear()
+        if hasattr(context_chat, 'metadata'):
+            context_chat.metadata.clear()
+
+    # Reset tool context
+    tool_context.reset()
+
+    # Clear global tool execution state
+    if hasattr(g, 'last_executed_tools_info'):
+        g.last_executed_tools_info = None
+
+    # Clear reset flag
+    g.AGENT_RESET_REQUESTED = False
+
+    # Reconstruct fresh engineered prompt
+    fresh_context_chat = await construct_engineered_prompt(args.voice, args.gui)
+
+    # Clear visual interface
+    try:
+        from tools.visualresponse import visualresponse
+        session = visualresponse._get_session()
+        if session and session.is_healthy():
+            clear_payload = {
+                "id": f"reset-clear-{int(time.time() * 1000000)}",
+                "action": "clear",
+                "type": "system"
+            }
+            session.send_update(clear_payload)
+            logging.debug("Sent clear command to visual interface")
+    except Exception as e:
+        logging.debug(f"Failed to clear visual interface: {e}")
+
+    logging.info(colored("✅ Agent reset completed - fresh start initialized", "green"))
+    return fresh_context_chat
 
 
 async def save_current_llm_config_as_default():
@@ -1399,11 +1392,11 @@ async def main(
             logging.info(colored("Tools ready.", "blue"))
 
         if context_chat is None:
-            context_chat: Chat = await construct_engineered_prompt(args.voice, args.gui)
+            context_chat = await construct_engineered_prompt(args.voice, args.gui)
             
         # Install visual input bridge for browser integration
         try:
-            from visual_input_bridge import install_visual_input_bridge
+            from agent.visual_input_bridge import install_visual_input_bridge
             install_visual_input_bridge()
         except (ImportError, Exception) as e:
             logging.debug(f"Visual input bridge not available - browser integration disabled: {e}")
@@ -1422,25 +1415,8 @@ async def main(
         user_interrupt = False
         if not (args.c or args.regenerate):
             context_chat.add_message(Role.USER, "Please list the 5 most recently modified files of the cwd")
-            if (not args.gui):
-                initial_bootstrap_message = f"""<think>
-To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
-</think><todos>
-- [ ] List 5 most recently modified files.
-</todos><bash>
-ls -tp | grep -v /$ | head -5
-</bash><context>
-{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
-</context><todos>
-- [x] List 5 most recently modified files.
-</todos><response>
-The 5 most recently modified files have been listed. Would you like me to inspect any of them?
-</response>"""
-                assistant_permssions_prompt_p2 = """<response>
-I have successfully viewed my permissions. Is there anything else I can assist you with?
-</response>"""
-            else:
-                initial_bootstrap_message = f"""<think>
+            if (args.gui):
+                bootstrap_message_1 = f"""<think>
 To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
 </think><todos>
 - [ ] List 5 most recently modified files.
@@ -1458,15 +1434,32 @@ ls -tp | grep -v /$ | head -5
 {await bash.run_silent("ls -tp | grep -v /$ | head -5 | sed 's/^/- /'")}
   </content>
 </visualresponse>"""
-                assistant_permssions_prompt_p2 = """<visualresponse>
+                bootstrap_message_2 = """<visualresponse>
   <action>create</action>
   <type>markdown</type>
   <content>
 I have successfully viewed my permissions. Is there anything else I can assist you with?
   </content>
 </visualresponse>"""
+            else:
+                bootstrap_message_1 = f"""<think>
+To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
+</think><todos>
+- [ ] List 5 most recently modified files.
+</todos><bash>
+ls -tp | grep -v /$ | head -5
+</bash><context>
+{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
+</context><todos>
+- [x] List 5 most recently modified files.
+</todos><response>
+The 5 most recently modified files have been listed. Would you like me to inspect any of them?
+</response>"""
+                bootstrap_message_2 = """<response>
+I have successfully viewed my permissions. Is there anything else I can assist you with?
+</response>"""
             
-            context_chat.add_message(Role.ASSISTANT, initial_bootstrap_message)
+            context_chat.add_message(Role.ASSISTANT, bootstrap_message_1)
             permissions_str = viewpermissions.run()
             if ("No automatic permissions set" not in permissions_str):
                 context_chat.add_message(Role.USER, "view your permissions")
@@ -1477,9 +1470,11 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 {permissions_str}
 </context><todos>
 - [x] View permissions.
-</todos>""" + assistant_permssions_prompt_p2)
+</todos>""" + bootstrap_message_2)
         
         assistant_response = ""
+
+        initializing: bool = True
         while True:
             LlmRouter().failed_models.clear()
             user_input: Optional[str] = None
@@ -1512,23 +1507,19 @@ I have successfully viewed my permissions. Is there anything else I can assist y
             if args.regenerate:
                 user_input = ""
                 args.regenerate = False
-            elif args.voice:
-                user_input = ""
-                while (user_input == ""):
-                    # Keep the voice functionality
-                    if args.voice:
-                        spoken_text = context_chat.messages[-1][1].strip().split(">")[-1].strip()
-                        if (len(spoken_text)>0):
-                            try:
-                                text_to_speech(text=spoken_text, use_piper=True)
-                                logging.info(colored("TTS call completed.", "cyan"))
-                            except Exception as tts_e:
-                                logging.error(colored(f"TTS failed: {tts_e}", "red"), exc_info=True)
-                    user_input, _, wake_word_used = get_listen_microphone()(private_remote_wake_detection=args.private_remote_wake_detection, remote_voice_enabled=args.online_voice)
             elif args.message:
                 user_input = args.message.pop(0)
                 print(colored(f"💬 Processing message: {user_input}" + (f" (⏳ {len(args.message)} more queued)" if args.message else ""), 'blue', attrs=['bold']), flush=True)
-                
+
+                # Send user message to visual interface in GUI mode
+                if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+                    try:
+                        from tools.visualresponse import visualresponse
+                        result = visualresponse.send_user_message(user_input)
+                        logging.info(f"User message send result: {result} - Message: {user_input[:50]}...")
+                    except Exception as e:
+                        logging.debug(f"Failed to send user message to visual interface: {e}")
+
                 # CRITICAL SECURITY: Process commands BEFORE sending to AI
                 # Commands like /help, /exit, etc. should NEVER reach the AI
                 # This prevents users from accidentally exposing system commands to AI processing
@@ -1566,7 +1557,11 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         context_chat = await construct_engineered_prompt(args.voice, args.gui)
                         logging.info(colored("# cli-agent: Chat cleared.", "green"))
                         continue  # Skip AI processing
-                        
+
+                    elif canonical_command == 'reset':
+                        context_chat = await reset_agent_state(args, context_chat)
+                        continue  # Skip AI processing
+
                     elif canonical_command == 'save':
                         await save_current_llm_config_as_default()
                         continue  # Skip AI processing
@@ -1597,6 +1592,56 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         # For now, log and continue to prevent AI access
                         logging.warning(colored(f"# cli-agent: Command '{canonical_command}' not fully implemented in message mode.", "yellow"))
                         continue  # Skip AI processing
+            elif args.voice:
+                user_input = ""
+                
+                # --- NEW: Robustly extract the final response for TTS ---
+                # Get the full content of the agent's last message.
+                last_message_content = context_chat.messages[-1][1]
+                spoken_text = ""
+                
+                try:
+                    # Use a greedy search to find the *last* occurrence of the <response> block.
+                    # '.*' at the start is greedy and consumes the string, then backtracks
+                    # to find the rightmost possible match. This is more efficient than findall.
+                    match = re.search(r'.*<response[^>]*>(.*?)</response>', last_message_content, re.DOTALL)
+                    
+                    if match and not initializing:
+                        # If a match is found, extract its content from capture group 1.
+                        spoken_text = match.group(1).strip()
+                    elif not initializing:
+                        logging.info(colored("WARNING: No <response> tag found in the last message for TTS.", "yellow"))
+                        
+                except Exception as e:
+                    # Fails gracefully if last_message_content is not a string or another error occurs.
+                    logging.error(colored(f"Error extracting response for TTS: {e}", "red"))
+                    spoken_text = ""
+                # --- END of new logic ---
+
+                while (user_input == ""):
+                    # The text-to-speech call now happens inside the loop.
+                    if args.voice and spoken_text:
+                        try:
+                            text_to_speech(text=spoken_text, use_piper=True)
+                            logging.info(colored("TTS call completed.", "cyan"))
+                            # IMPORTANT: Clear the text after speaking it to prevent it from
+                            # being repeated if the user doesn't say anything.
+                            spoken_text = ""
+                        except Exception as tts_e:
+                            logging.error(colored(f"TTS failed: {tts_e}", "red"), exc_info=True)
+                            spoken_text = "" # Also clear on failure to prevent loops
+
+                    # Listen for the user's next command.
+                    user_input, _, wake_word_used = get_listen_microphone()(
+                        private_remote_wake_detection=args.private_remote_wake_detection, 
+                        remote_voice_enabled=args.online_voice
+                    )
+
+            # Handle agent reset request from visual interface
+            elif hasattr(g, 'AGENT_RESET_REQUESTED') and g.AGENT_RESET_REQUESTED:
+                context_chat = await reset_agent_state(args, context_chat)
+                continue  # Skip AI processing and continue with fresh state
+
             elif g.AGENT_IS_COMPACTING:
                 g.AGENT_IS_COMPACTING = False
                 context_chat = await construct_engineered_prompt(args.voice, args.gui)
@@ -1645,7 +1690,7 @@ latest summary LIMIT 1
                 
                 try:
                     from utils.viewfiles import ViewFiles
-                    local_paths, _ = extract_paths(user_input)
+                    local_paths = [path for path, _ in PathDetector.extract_paths_from_xml(user_input, "viewfiles")]
                     for path in local_paths:
                         expanded_path = os.path.expanduser(path)
                         if os.path.exists(expanded_path) and (os.path.isfile(expanded_path) or os.path.isdir(expanded_path)):
@@ -1655,6 +1700,23 @@ latest summary LIMIT 1
                                 user_input += f"\n\n# Content of: {path}\n{view_result['result']}"
                 except (ImportError, FileNotFoundError, subprocess.CalledProcessError, Exception):
                     pass
+                # Offer intelligent recovery options if we had an interrupt
+                if user_interrupt and hasattr(context_chat, 'metadata') and 'last_interrupt' in context_chat.metadata:
+                    recovery_choice = offer_intelligent_recovery_options(context_chat)
+
+                    # Handle recovery choices
+                    if recovery_choice == 'exit':
+                        user_interrupt = False
+                        continue  # Skip AI generation, go back to user input
+                    elif recovery_choice == 'single':
+                        # Force single-model mode for this request
+                        if hasattr(g, 'FORCE_SINGLE_MODEL'):
+                            g.FORCE_SINGLE_MODEL = True
+                        print(colored("  → Switching to single-model mode for better responsiveness", "cyan"))
+                    elif recovery_choice == 'retry_diff':
+                        # This would be implemented in model selection logic
+                        print(colored("  → Will attempt with different models", "cyan"))
+
                 user_interrupt = False
 
             if LlmRouter.has_unconfirmed_data():
@@ -1711,6 +1773,7 @@ latest summary LIMIT 1
                     logging.warning(f"Could not generate hints: {e}")
                 # --- END RE-ADDED HINT/PLAYBOOK LOGIC ---
 
+            initializing = False
             last_action_signature: Optional[str] = None
             stall_counter: int = 0
             MAX_STALLS: int = 2
@@ -1787,44 +1850,100 @@ latest summary LIMIT 1
                         if num_branches > 1:
                             print_lock = asyncio.Lock()
                             branch_model_map = {}
-                            tasks = [generate_branch(model_key, i, print_lock, context_chat, text_stream_painter, temperature, base64_images, llm_config, branch_model_map, num_branches) for i, model_key in enumerate(models_for_tasks)]
-                            branch_results = await asyncio.gather(*tasks)
-                            response_branches = [res for res in branch_results if res and res.strip()]
+
+                            # Use TaskGroup for better cancellation support in Monte Carlo mode
+                            try:
+                                # Try to use Python 3.11+ TaskGroup for robust branch cancellation
+                                if sys.version_info >= (3, 11):
+                                    from asyncio import TaskGroup
+                                    async with TaskGroup() as tg:
+                                        tasks = [
+                                            tg.create_task(
+                                                generate_branch(model_key, i, print_lock, context_chat, text_stream_painter,
+                                                             temperature, base64_images, llm_config, branch_model_map, num_branches)
+                                            )
+                                            for i, model_key in enumerate(models_for_tasks)
+                                        ]
+                                    branch_results = [task.result() for task in tasks if not task.cancelled()]
+                                else:
+                                    # Fallback to asyncio.gather for older Python versions
+                                    tasks = [generate_branch(model_key, i, print_lock, context_chat, text_stream_painter, temperature, base64_images, llm_config, branch_model_map, num_branches) for i, model_key in enumerate(models_for_tasks)]
+                                    branch_results = await asyncio.gather(*tasks)
+
+                                response_branches = [res for res in branch_results if res and res.strip()]
+
+                            except asyncio.CancelledError:
+                                print(colored("  → Monte Carlo branches cancelled", "yellow"))
+                                response_branches = []
+                                user_interrupt = True
+                                break
                         else:
                             response_buffer_list = [""]
                             interruption_callback = create_interruption_callback(response_buffer_list, text_stream_painter)
                             current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
                             # for assistant_prefix in ["<", current_todo, "<think", "<thinking>"]:
-                            for assistant_prefix in ["<", "<t", "<think", "<todos>", "<think>"]:
-                                if (assistant_prefix):
-                                    print(colored(f"Model did not generate text, attempting generation with prefix: {assistant_prefix}", "yellow"))
-                                if ("" == assistant_prefix and context_chat.messages[-1][1].endswith("</context>")):
-                                    assistant_prefix = "<think>"
-                                try:
-                                    # In default mode, use all available models for fallback
-                                    fallback_models = getattr(g, 'DEFAULT_FALLBACK_MODELS', models_for_tasks)
-                                    await LlmRouter.generate_completion(
-                                        chat=context_chat,
-                                        preferred_models=fallback_models,
-                                        force_preferred_model=True,
-                                        temperature=temperature,
-                                        base64_images=base64_images,
-                                        generation_stream_callback=interruption_callback,
-                                        assistant_prefix=assistant_prefix
-                                    )
-                                    generated_text = response_buffer_list[0]
-                                except StreamInterruptedException as e: # This exception is called by the tool delimiting mechanism at the end of any xml block
-                                    generated_text = e.response
+                            for tool_prefix in ["<think>", "<todos>", "<"]:
+                                if ("<think>" != tool_prefix):
+                                    print(colored(f"Model did not generate text, attempting generation with prefix: {tool_prefix}", "yellow"))
+                                # Force thinking after context
+                                # if ("" == tool_prefix and context_chat.messages[-1][1].endswith("</context>")):
+                                #     tool_prefix = "<think>"
                                 
-                                if (generated_text and generated_text != assistant_prefix):
-                                    response_branches.append(generated_text)
+                                # In default mode, use all available models for fallback
+                                fallback_models = getattr(g, 'DEFAULT_FALLBACK_MODELS', models_for_tasks)
+                                l_context_chat = context_chat.deep_copy()
+                                l_temperature = context_chat.deep_copy()
+                                generated_text = ""  # Initialize to prevent UnboundLocalError
+                                validated_text = ""  # Initialize to prevent UnboundLocalError
+                                try:
+                                    for i in range(10):
+                                        await LlmRouter.generate_completion(
+                                            chat=l_context_chat,
+                                            preferred_models=fallback_models,
+                                            force_preferred_model=True,
+                                            temperature=temperature,
+                                            base64_images=base64_images,
+                                            generation_stream_callback=interruption_callback,
+                                            assistant_prefix=tool_prefix
+                                        )
+                                        generated_text = response_buffer_list[0]
+                                        # If response did not end with '>' then it should be forcibly kept generating
+                                        if generated_text.endswith(">"):
+                                            validated_text = generated_text
+                                            break
+                                        else:
+                                            l_context_chat.add_message(Role.ASSISTANT, generated_text[:-i]) # Remove last few chars incrementatlly to force model to be regenerative
+                                except StreamInterruptedException as e: # This exception is called by the tool delimiting mechanism at the end of any xml block
+                                    validated_text = e.response
+                                
+                                if (validated_text and validated_text != tool_prefix):
+                                    response_branches.append(validated_text)
                                     break
                         
                         base64_images = []
 
                     except UserInterruptedException:
-                        # User interrupted model generation with Ctrl+C - handle gracefully
+                        # User interrupted model generation with Ctrl+C - handle gracefully with state preservation
                         print(colored("\n⚠️  Model generation interrupted by user (Ctrl+C)", "yellow", attrs=['bold']))
+
+                        # Immediate chat state preservation
+                        try:
+                            context_chat.save_to_json()
+                            print(colored("  → Chat context saved successfully", "green"))
+                        except Exception as e:
+                            print(colored(f"  ⚠️  Warning: Could not save chat context: {e}", "yellow"))
+
+                        # Store interrupt metadata for intelligent recovery
+                        if hasattr(context_chat, 'metadata'):
+                            import time
+                            context_chat.metadata['last_interrupt'] = {
+                                'timestamp': time.time(),
+                                'branch_count': len(response_branches) if 'response_branches' in locals() else 0,
+                                'had_partial_response': len(response_branches) > 0 if 'response_branches' in locals() else False,
+                                'models_attempted': list(branch_model_map.keys()) if 'branch_model_map' in locals() else [],
+                                'monte_carlo_mode': num_branches > 1 if 'num_branches' in locals() else False
+                            }
+
                         user_interrupt = True
                         break
                     except Exception as e:
@@ -1853,11 +1972,25 @@ latest summary LIMIT 1
                         break
 
                     context_chat.add_message(Role.ASSISTANT, assistant_response)
-                    
+
+                    # Note: AI response to visual interface will be sent after tool execution
+                    # to properly detect if visualresponse was used
+
                     # Display the response in summary mode (since streaming doesn't show it)
                     if g.SUMMARY_MODE and assistant_response.strip():
                         print(assistant_response)
-                    
+
+                    # --- XML VALIDATION ---
+                    # Check for malformed XML before attempting tool execution
+                    xml_errors = detect_malformed_xml(assistant_response)
+                    if xml_errors:
+                        # Generate context error message and add to chat
+                        error_context = generate_xml_error_context(xml_errors)
+                        context_chat.add_message(Role.ASSISTANT, error_context)
+                        assistant_response = ""
+                        print(colored("⚠️  XML syntax errors detected and reported to model", "yellow"))
+                        continue  # Skip tool execution and get corrected response
+
                     # --- NEW: Generic Tool Execution Loop ---
                     # Find all unique tool tags present in the assistant's response
                     tool_classes = getattr(g, 'tool_classes', {})
@@ -1922,7 +2055,7 @@ latest summary LIMIT 1
                                         logging.info(colored("⛔ Code execution denied", "green"))
 
                                         should_execute = False
-                                        break  # If any tool is denied, deny all
+                                        break
                                     logging.info(colored("✅ Code execution permitted", "green"))
 
                         if should_execute:
@@ -1930,6 +2063,7 @@ latest summary LIMIT 1
                                 # Reset tool context for clean execution
                                 tool_context.reset()
                                 tool_results = []
+                                executed_tools_info = []  # Track tool execution info for visual interface
                                 for tool_class in tool_tags_found:
                                     tool_name = tool_class.get_delim()
                                     blocks = get_extract_blocks()(assistant_response, [tool_name])
@@ -1942,23 +2076,107 @@ latest summary LIMIT 1
                                     if len(blocks) > 1:
                                         logging.warning(colored(f"⚠️  Duplicate '{tool_name}' blocks detected. Only the first was executed.", "yellow"))
                                     
-                                    # All tools now share the same simple run signature.
-                                    # Suppress runtime warnings from tools (gRPC/SSL/TF) unless debug mode
-                                    with suppress_warnings_runtime():
-                                        tool_result = tool_class.run(first_block)
+                                    # Track tool execution timing and status
+                                    import time
+                                    tool_start_time = time.time()
+                                    tool_status = "success"
+                                    tool_error = None
 
-                                    # Handle both sync and async tools with proper error handling
                                     try:
+                                        # Send live tool start notification to loading area header (skip visualresponse)
+                                        if hasattr(g, 'GUI_MODE') and g.GUI_MODE and tool_name != 'visualresponse':
+                                            try:
+                                                from tools.visualresponse import visualresponse
+                                                session = visualresponse._get_session()
+                                                if session and session.is_healthy():
+                                                    live_payload = {
+                                                        "id": f"loading-tools-{int(time.time() * 1000000)}",
+                                                        "action": "loading_tool_start",
+                                                        "tool_name": tool_name,
+                                                        "tool_args": first_block.strip() if first_block else "",
+                                                        "timestamp": time.time()
+                                                    }
+                                                    session.send_update(live_payload)
+                                                    logging.debug(f"Sent loading tool start notification for {tool_name}")
+                                            except Exception as e:
+                                                logging.debug(f"Failed to send loading tool start notification: {e}")
+
+                                        # All tools now share the same simple run signature.
+                                        # Suppress runtime warnings from tools (gRPC/SSL/TF) unless debug mode
+                                        with suppress_warnings_runtime():
+                                            tool_result = tool_class.run(first_block)
+
+                                        # Handle both sync and async tools with proper error handling
+                                        try:
+                                            if asyncio.iscoroutine(tool_result):
+                                                tool_result = await tool_result
+                                        except Exception as e:
+                                            tool_status = "error"
+                                            tool_error = str(e)
+                                            logging.error(colored(f"Error awaiting tool {tool_name}: {e}", "red"))
+                                            tool_result = f"Error executing {tool_name}: {str(e)}"
+
+                                        # Ensure tool_result is always a string, never a coroutine
                                         if asyncio.iscoroutine(tool_result):
-                                            tool_result = await tool_result
+                                            tool_status = "error"
+                                            tool_error = "returned unresolved coroutine"
+                                            logging.error(colored(f"Tool {tool_name} still returned coroutine after await - converting to error", "red"))
+                                            tool_result = f"Error: Tool {tool_name} returned unresolved coroutine"
+
                                     except Exception as e:
-                                        logging.error(colored(f"Error awaiting tool {tool_name}: {e}", "red"))
+                                        tool_status = "error"
+                                        tool_error = str(e)
+                                        logging.error(colored(f"Error executing tool {tool_name}: {e}", "red"))
                                         tool_result = f"Error executing {tool_name}: {str(e)}"
 
-                                    # Ensure tool_result is always a string, never a coroutine
-                                    if asyncio.iscoroutine(tool_result):
-                                        logging.error(colored(f"Tool {tool_name} still returned coroutine after await - converting to error", "red"))
-                                        tool_result = f"Error: Tool {tool_name} returned unresolved coroutine"
+                                    # Check if tool result contains error (for tools that return error JSON instead of raising exceptions)
+                                    if tool_status == "success" and tool_result:
+                                        try:
+                                            # Try to parse result as JSON to check for error key
+                                            import json
+                                            result_json = json.loads(tool_result)
+                                            if isinstance(result_json, dict) and "error" in result_json:
+                                                tool_status = "error"
+                                                tool_error = result_json["error"]
+                                                logging.debug(f"Tool {tool_name} returned error in result: {tool_error}")
+                                        except (json.JSONDecodeError, TypeError):
+                                            # If not valid JSON, keep original status
+                                            pass
+
+                                    # Calculate execution time
+                                    tool_duration_ms = int((time.time() - tool_start_time) * 1000)
+
+                                    # Send live tool completion notification to loading area header (skip visualresponse)
+                                    if hasattr(g, 'GUI_MODE') and g.GUI_MODE and tool_name != 'visualresponse':
+                                        try:
+                                            from tools.visualresponse import visualresponse
+                                            session = visualresponse._get_session()
+                                            if session and session.is_healthy():
+                                                live_payload = {
+                                                    "id": f"loading-tools-{int(time.time() * 1000000)}",
+                                                    "action": "loading_tool_complete",
+                                                    "tool_name": tool_name,
+                                                    "tool_status": tool_status,
+                                                    "tool_duration_ms": tool_duration_ms,
+                                                    "tool_error": tool_error,
+                                                    "tool_result": tool_result[:500] if tool_result else "",  # Truncate for header display
+                                                    "timestamp": time.time()
+                                                }
+                                                session.send_update(live_payload)
+                                                logging.debug(f"Sent loading tool completion notification for {tool_name}")
+                                        except Exception as e:
+                                            logging.debug(f"Failed to send loading tool completion notification: {e}")
+
+                                    # Store tool execution info for visual interface
+                                    executed_tools_info.append({
+                                        "name": tool_name,
+                                        "status": tool_status,
+                                        "duration_ms": tool_duration_ms,
+                                        "error": tool_error,
+                                        "args": first_block.strip() if first_block else "",
+                                        "context_returned": tool_result.strip() if tool_result else "",
+                                        "context_length": len(str(tool_result)) if tool_result else 0
+                                    })
 
                                     # Wrap tools returned values as tool_ouput
                                     if tool_name and tool_name not in ["todos"] and tool_result:
@@ -1971,9 +2189,16 @@ latest summary LIMIT 1
                                         context = context[:readfile.CHUNK_LIMIT//4] + "\n...output truncated...\n" + context[-readfile.CHUNK_LIMIT//4:]
                                     returned_context += f"<context>\n{context}\n</context>"
 
+                                # Store tool execution info in global context for visual response
+                                if executed_tools_info:
+                                    g.last_executed_tools_info = executed_tools_info
+                                    logging.debug(f"Stored execution info for {len(executed_tools_info)} tools")
+
+                                # Note: Automatic AI responses removed - only explicit visualresponse tool calls appear in interface
+
                                 if (len(returned_context) > 0):
                                     context_chat.add_message(Role.ASSISTANT, returned_context)
-                                    
+
                                     # Check for images from tool context and add them to the chat
                                     if tool_context.has_images():
                                         context_chat.base64_images.extend(tool_context.get_images())
@@ -1981,7 +2206,8 @@ latest summary LIMIT 1
                                         tool_context.clear_images()  # Clear images after adding them
                                     
                                     assistant_response = ""
-                                    if ("response" in tool_name):
+                                    if ("response" in tool_name and "error" not in returned_context.lower()):
+                                        # Break and wait for user input instead of continuing the loop
                                         break
                                     else:
                                         continue
@@ -1995,10 +2221,10 @@ latest summary LIMIT 1
                                 assistant_response = ""
                                 continue # Continue the agent loop for the next action
                         else:
-                            cancellation_notice = "<context>\nCode execution cancelled by user or guard.\n</context>"
+                            cancellation_notice = "<context>\nCode execution rejected by user or guard.\n</context>"
                             context_chat.add_message(Role.ASSISTANT, cancellation_notice)
                             assistant_response = ""
-                            break # Ask for user input
+                            continue # Continue the agent loop for the next action
                     
                     else:
                         # No tools or code found, this is a conversational response.

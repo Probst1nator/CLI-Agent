@@ -8,8 +8,11 @@ import os
 import sys
 import re
 import html
+import asyncio
 from dotenv import load_dotenv
 from core.llm_router import LlmRouter
+from core.chat import Chat, Role
+
 
 # Load environment variables
 load_dotenv()
@@ -22,22 +25,25 @@ if __name__ == '__main__':
         sys.path.insert(0, PROJECT_ROOT)
 
 from shared.utils.search.brave_search import BraveSearchAPI
+from shared.utils.search.search_vector_db import SearchResultsVectorDB
 
-try:
-    import chromadb
-    from chromadb.config import Settings
-    CHROMADB_AVAILABLE = True
-except ImportError:
-    CHROMADB_AVAILABLE = False
 
 class searchweb:
     """
     A tool to perform a web search with different content types.
     """
     MAX_RESULTS = 10
-    
-    VECTOR_DB_PATH = os.path.expanduser("~/.cli-agent/searchweb_vectordb")
-    COLLECTION_NAME = "web_search_results"
+
+    # Initialize vector database for caching and semantic search
+    _vector_db = None
+
+    @classmethod
+    def _get_vector_db(cls):
+        """Get or create the vector database instance"""
+        if cls._vector_db is None:
+            cls._vector_db = SearchResultsVectorDB()
+        return cls._vector_db
+
 
     @staticmethod
     def get_delim() -> str:
@@ -51,11 +57,13 @@ class searchweb:
             "description": (
                 f"Performs a web search using a specified query and type. "
                 f"Requires <query> and an optional <type> tag. Supported types are 'text' (default), "
-                f"'images', 'files', 'cited text', and 'any'. Returns up to {searchweb.MAX_RESULTS} results."
+                f"'images', 'files', 'cited text', and 'any'. Returns up to {searchweb.MAX_RESULTS} results. "
+                f"Disable the locally cached results for time-sensitive queries via <cache>false</cache>."
             ),
             "example": (
                 "<searchweb><query>How to use curl</query><type>text</type></searchweb>\n"
-                "<searchweb><query>golden retriever puppy</query><type>images</type></searchweb>"
+                "<searchweb><query>golden retriever puppy</query><type>images</type></searchweb>\n"
+                "<searchweb><query>latest Mathematical discoveries</query><type>text</type><cache>false</cache></searchweb>"
             )
         }
 
@@ -66,11 +74,23 @@ class searchweb:
         return clean_text.strip()
 
     @staticmethod
-    def _format_text_summary(results: list) -> str:
+    async def _format_text_summary(results: list, query: str, use_cache: bool = True) -> str:
         """ The original functionality: returns a single condensed string. """
         if not results:
             return "No web search results found."
-        
+
+        # Check for existing summary to avoid duplicates (only if caching enabled)
+        if use_cache:
+            vector_db = searchweb._get_vector_db()
+            existing_summary = vector_db.get_summary_by_query(query, 'text')
+            if existing_summary:
+                print("✅ Using cached LLM summary (skipping generation)")
+                return f"Web search summary: {existing_summary}"
+            else:
+                print("🤖 No cached summary found, generating new LLM summary")
+        else:
+            print("🤖 Cache disabled: generating fresh LLM summary")
+
         condensed_snippets = []
         for result in results:
             snippets = result.get('extra_snippets', [])
@@ -80,12 +100,46 @@ class searchweb:
             if snippets:
                 clean_snippet = searchweb._clean_snippet("\n".join(snippets))
                 condensed_snippets.append(clean_snippet)
-        
+
         if not condensed_snippets:
             return "No useful information found."
 
-        summary = " ".join(condensed_snippets)
-        # LlmRouter # TODO: test out using a llm generated summary (how do we get the needed context directive)
+        joined_text = " ".join(condensed_snippets)
+
+        chat = Chat()
+        chat.add_message(Role.USER, f"The search query was: {query}\nProvide a concise summary of the following raw web results: {joined_text}")
+
+        # Use await for async LLM completion
+        summary = await LlmRouter.generate_completion(chat)
+
+        # Store the generated summary in the vector database with enhanced metadata (only if caching enabled)
+        if use_cache:
+            try:
+                vector_db = searchweb._get_vector_db()
+
+                # Collect source IDs for audit trail
+                source_ids = []
+                for result in results:
+                    # Create the same content hash as used in store_search_results
+                    title = result.get('title', '')
+                    description = result.get('description', '')
+                    snippets = result.get('extra_snippets', [])
+                    snippet_text = ' '.join(snippets) if snippets else ''
+                    content = f"{title} {description} {snippet_text}".strip()
+                    if content:
+                        content_hash = vector_db._create_content_hash(content)
+                        source_ids.append(f"result_{content_hash}")
+
+                # Prepare generation info with actual model used
+                generation_info = {
+                    'method': 'llm',
+                    'model': LlmRouter.get_last_used_model()
+                }
+
+                if vector_db.store_summary(query, 'text', summary, source_ids, generation_info):
+                    print(f"💾 Stored LLM summary in vector database (linked to {len(source_ids)} source documents)")
+            except Exception as e:
+                print(f"⚠️ Failed to store summary in vector database: {e}")
 
         return f"Web search summary: {summary}"
 
@@ -139,13 +193,14 @@ class searchweb:
         return "\n\n".join(formatted_results)
 
     @staticmethod
-    def run(content: str) -> str:
+    async def run(content: str) -> str:
         """
         Executes a web search based on the provided query and type.
         """
         try:
             query_match = re.search(r'<query>(.*?)</query>', content, re.DOTALL)
             type_match = re.search(r'<type>(.*?)</type>', content, re.DOTALL)
+            cache_match = re.search(r'<cache>(.*?)</cache>', content, re.DOTALL)
 
             if not query_match:
                 # Fallback for old format
@@ -155,65 +210,221 @@ class searchweb:
                 query = query_match.group(1).strip()
                 search_type = type_match.group(1).strip().lower() if type_match else 'any'
 
+            # Parse cache flag (default: true)
+            use_cache = True
+            if cache_match and cache_match.group(1).strip().lower() == 'false':
+                use_cache = False
+                print("⚠️ Caching is explicitly disabled for this query.")
+
             if not query:
                 return "Error: No search query provided in the <query> tag."
-            
-            api_key = os.getenv("BRAVE_API_KEY")
-            if not api_key:
-                return "Error: BRAVE_API_KEY environment variable is not set."
 
             print(f"🔎 Performing '{search_type}' search for: '{query}'...")
 
-            api_endpoint = "web"
-            original_query = query
-            
-            if search_type == 'images':
-                api_endpoint = "images"
-            elif search_type == 'files':
-                query = f"filetype:pdf OR filetype:doc OR filetype:txt {query}"
+            # Get vector database instance
+            vector_db = searchweb._get_vector_db()
 
-            params = {"q": query}
-            results_json = BraveSearchAPI.search(api_key, api_endpoint, params)
+            results_list = []
+            need_brave_api = True
 
-            if not results_json:
-                return "Error: Web search failed. The API returned no response."
+            # Only search cache if caching is enabled
+            if use_cache:
+                # Search in vector database for similar results (using distance threshold)
+                cached_results_with_distances = vector_db.search_similar_results(query, search_type, searchweb.MAX_RESULTS, 0.5)
 
-            # Parse results based on endpoint type
-            if api_endpoint == "web":
-                results_list = results_json.get('web', {}).get('results', [])
-            elif api_endpoint == "images":
-                results_list = results_json.get('results', [])
+                if cached_results_with_distances:
+                    # Calculate distance details (lower = better)
+                    distances = [distance for _, distance in cached_results_with_distances]
+                    avg_distance = sum(distances) / len(distances)
+                    min_distance = min(distances)  # Best match
+                    max_distance = max(distances)  # Worst match
+
+                    print(f"📊 Found {len(cached_results_with_distances)} cached results (distance ≤ 0.5)")
+                    print(f"   └─ Distance scores: avg={avg_distance:.3f}, best={min_distance:.3f}, worst={max_distance:.3f}")
+
+                    # Add cached results with their distance scores (all are already below threshold)
+                    for metadata, distance in cached_results_with_distances:
+                        metadata['is_cached'] = True
+                        metadata['similarity_score'] = 1 - distance  # Convert to similarity for compatibility
+                        results_list.append(metadata)
+
+                    # Skip API call if we have enough high-quality cached results
+                    if len(cached_results_with_distances) >= searchweb.MAX_RESULTS:
+                        need_brave_api = False
+                        print(f"✅ Using {len(cached_results_with_distances)} cached results only (no API call needed)")
+                    else:
+                        print(f"🔄 Using {len(cached_results_with_distances)} cached + fetching {searchweb.MAX_RESULTS - len(cached_results_with_distances)} more from API")
+                else:
+                    print("📊 No cached results found with distance ≤ 0.5")
             else:
-                # For other endpoints, try both locations
-                results_list = results_json.get('results', []) or results_json.get('web', {}).get('results', [])
+                print("🚫 Cache disabled: bypassing all cached results")
 
-            if not results_list:
-                return f"No results found for '{original_query}' (type: {search_type})."
+            # If we need more results or have no cached results, call Brave API
+            if need_brave_api:
+                api_key = os.getenv("BRAVE_API_KEY")
+                if not api_key:
+                    if cached_results_with_scores:
+                        print("⚠️ No BRAVE_API_KEY found, using cached results only")
+                        need_brave_api = False
+                    else:
+                        return "Error: BRAVE_API_KEY environment variable is not set."
 
-            # Debug: Log the structure of the first result for images
-            if search_type == 'images' and results_list:
-                print("DEBUG: First image result structure:")
-                first_result = results_list[0]
-                print(f"  Top-level keys: {list(first_result.keys())}")
-                if 'properties' in first_result:
-                    print(f"  Properties keys: {list(first_result['properties'].keys())}")
-                if 'thumbnail' in first_result:
-                    print(f"  Thumbnail keys: {list(first_result['thumbnail'].keys())}")
-                if 'meta_url' in first_result:
-                    print(f"  Meta URL keys: {list(first_result['meta_url'].keys())}")
-                print("  Sample URLs:")
-                print(f"    url: {first_result.get('url', 'None')}")
-                print(f"    properties.url: {first_result.get('properties', {}).get('url', 'None')}")
-                print(f"    thumbnail.src: {first_result.get('thumbnail', {}).get('src', 'None')}")
+                if need_brave_api:
+                    print("🌐 Fetching additional results from Brave API...")
 
+                    api_endpoint = "web"
+                    brave_query = query
+
+                    if search_type == 'images':
+                        api_endpoint = "images"
+                    elif search_type == 'files':
+                        brave_query = f"filetype:pdf OR filetype:doc OR filetype:txt {query}"
+
+                    params = {"q": brave_query}
+                    # Run blocking API call in a thread to avoid blocking
+                    results_json = await asyncio.to_thread(
+                        BraveSearchAPI.search, api_key, api_endpoint, params
+                    )
+
+                    if results_json:
+                        # Parse results based on endpoint type
+                        brave_results = []
+                        if api_endpoint == "web":
+                            brave_results = results_json.get('web', {}).get('results', [])
+                        elif api_endpoint == "images":
+                            brave_results = results_json.get('results', [])
+                        else:
+                            # For other endpoints, try both locations
+                            brave_results = results_json.get('results', []) or results_json.get('web', {}).get('results', [])
+
+                        if brave_results:
+                            print(f"🌐 Retrieved {len(brave_results)} fresh results from Brave API")
+
+                            # Store new results in vector database for future searches (only if caching enabled)
+                            if use_cache and vector_db.store_search_results(query, search_type, brave_results, api_endpoint):
+                                print("💾 Stored new results in vector database for future use")
+                            elif not use_cache:
+                                print("🚫 Not storing results (cache disabled)")
+
+                            # Combine cached and fresh results, avoiding duplicates
+                            seen_urls = {result.get('url', '') for result in results_list}
+                            fresh_added = 0
+                            duplicates_skipped = 0
+
+                            for brave_result in brave_results:
+                                url = brave_result.get('url', '')
+                                if url not in seen_urls:
+                                    # Add flag to identify fresh results and assign high score
+                                    brave_result['is_cached'] = False
+                                    brave_result['similarity_score'] = 1.0  # Fresh results get max score
+                                    results_list.append(brave_result)
+                                    seen_urls.add(url)
+                                    fresh_added += 1
+                                else:
+                                    duplicates_skipped += 1
+
+                            if duplicates_skipped > 0:
+                                print(f"   └─ Added {fresh_added} fresh results, skipped {duplicates_skipped} duplicates")
+
+                            # Debug: Log the structure of the first result for images
+                            if search_type == 'images' and brave_results:
+                                print("DEBUG: First image result structure:")
+                                first_result = brave_results[0]
+                                print(f"  Top-level keys: {list(first_result.keys())}")
+                                if 'properties' in first_result:
+                                    print(f"  Properties keys: {list(first_result['properties'].keys())}")
+                                if 'thumbnail' in first_result:
+                                    print(f"  Thumbnail keys: {list(first_result['thumbnail'].keys())}")
+                                if 'meta_url' in first_result:
+                                    print(f"  Meta URL keys: {list(first_result['meta_url'].keys())}")
+                                print("  Sample URLs:")
+                                print(f"    url: {first_result.get('url', 'None')}")
+                                print(f"    properties.url: {first_result.get('properties', {}).get('url', 'None')}")
+                                print(f"    thumbnail.src: {first_result.get('thumbnail', {}).get('src', 'None')}")
+
+            # Intelligent ranking: prioritize fresh results, then by similarity score
+            results_list.sort(key=lambda r: (
+                not r.get('is_cached', False),  # Fresh results first (not cached = True = higher priority)
+                r.get('similarity_score', 0)   # Then by similarity score descending
+            ), reverse=True)
+
+            # Limit total results to MAX_RESULTS AFTER ranking
             results_list = results_list[:searchweb.MAX_RESULTS]
 
+            if not results_list:
+                return f"No results found for '{query}' (type: {search_type})."
+
+            # Final summary of result composition
+            cached_count = sum(1 for r in results_list if r.get('is_cached', False))
+            fresh_count = len(results_list) - cached_count
+            print(f"🎯 Final result set: {len(results_list)} total ({fresh_count} fresh + {cached_count} cached)")
+
             if search_type == 'text':
-                return searchweb._format_text_summary(results_list)
+                return await searchweb._format_text_summary(results_list, query, use_cache)
             elif search_type == 'images':
-                return searchweb._format_image_results(results_list)
+                # Check for existing image summary to avoid duplicates (only if caching enabled)
+                if use_cache:
+                    existing_summary = vector_db.get_summary_by_query(query, search_type)
+                    if existing_summary:
+                        print("✅ Found and using existing image summary from vector database")
+                        return existing_summary
+
+                result = searchweb._format_image_results(results_list)
+                # Store image list summary in vector database with enhanced metadata (only if caching enabled)
+                if use_cache:
+                    try:
+                        # Collect source IDs for audit trail
+                        source_ids = []
+                        for res in results_list:
+                            title = res.get('title', '')
+                            description = res.get('description', '')
+                            content = f"{title} {description}".strip()
+                            if content:
+                                content_hash = vector_db._create_content_hash(content)
+                                source_ids.append(f"result_{content_hash}")
+
+                        generation_info = {
+                            'method': 'image_list',
+                            'model': 'N/A'  # Image lists are formatted, not generated by LLM
+                        }
+
+                        if vector_db.store_summary(query, search_type, result, source_ids, generation_info):
+                            print("💾 Stored image list summary in vector database")
+                    except Exception as e:
+                        print(f"⚠️ Failed to store image summary in vector database: {e}")
+                return result
             elif search_type in ['files', 'cited text', 'any']:
-                return searchweb._format_cited_text(results_list)
+                # Check for existing cited text summary to avoid duplicates (only if caching enabled)
+                if use_cache:
+                    existing_summary = vector_db.get_summary_by_query(query, search_type)
+                    if existing_summary:
+                        print("✅ Found and using existing cited text summary from vector database")
+                        return existing_summary
+
+                result = searchweb._format_cited_text(results_list)
+                # Store cited text summary in vector database with enhanced metadata (only if caching enabled)
+                if use_cache:
+                    try:
+                        # Collect source IDs for audit trail
+                        source_ids = []
+                        for res in results_list:
+                            title = res.get('title', '')
+                            description = res.get('description', '')
+                            content = f"{title} {description}".strip()
+                            if content:
+                                content_hash = vector_db._create_content_hash(content)
+                                source_ids.append(f"result_{content_hash}")
+
+                        generation_info = {
+                            'method': 'cited',
+                            'model': 'N/A'  # Cited text is formatted, not generated by LLM
+                        }
+
+                        if vector_db.store_summary(query, search_type, result, source_ids, generation_info):
+                            print("💾 Stored cited text summary in vector database")
+                    except Exception as e:
+                        print(f"⚠️ Failed to store cited summary in vector database: {e}")
+                return result
             else:
                 return f"Error: Unknown search type '{search_type}'. Use 'text', 'images', 'files', 'cited text', or 'any'."
 

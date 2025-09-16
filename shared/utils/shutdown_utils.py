@@ -63,30 +63,5 @@ def perform_graceful_shutdown(context: Optional["AppContext"] = None) -> None:
             logging.debug(error_message)
 
 
-def perform_graceful_shutdown_legacy() -> None:
-    """
-    Legacy graceful shutdown for main.py compatibility.
-    
-    This is a wrapper around perform_graceful_shutdown() that maintains
-    the exact same behavior as the original main.py implementation.
-    """
-    perform_graceful_shutdown(context=None)
 
 
-def perform_graceful_shutdown_modern(context: "AppContext") -> None:
-    """
-    Modern graceful shutdown for main_refactored.py.
-    
-    Args:
-        context: AppContext instance for proper cleanup and logging
-    """
-    try:
-        # Cleanup temporary files first
-        if hasattr(context, 'cleanup_temp_files'):
-            context.cleanup_temp_files()
-        
-        # Then perform standard shutdown
-        perform_graceful_shutdown(context=context)
-        
-    except Exception as e:
-        print(colored(f"Error during graceful shutdown: {e}", "red"))

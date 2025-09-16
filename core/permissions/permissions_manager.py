@@ -107,7 +107,7 @@ class PermissionsManager:
         if xml_content:
             should_block, reason = self.is_sensitive_content_blocked(tool_name, xml_content)
             if should_block:
-                print(f"\n🚫 SECURITY BLOCK: {reason}")
+                print(f"\n⚠️ Additional confirmation required, reason: {reason}")
                 return False
         
         # Check global permission

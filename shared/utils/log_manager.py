@@ -426,34 +426,7 @@ def get_log_manager() -> LogRetentionManager:
     return _log_manager
 
 
-def setup_managed_logging(
-    log_file_path: str,
-    policy_name: str = 'application',
-    formatter: Optional[logging.Formatter] = None,
-    start_periodic_cleanup: bool = True
-) -> RotatingFileHandler:
-    """
-    Convenience function to set up managed logging with retention.
-    
-    Args:
-        log_file_path: Path to log file
-        policy_name: Retention policy name
-        formatter: Optional formatter for the handler
-        start_periodic_cleanup: Whether to start background cleanup
-        
-    Returns:
-        Configured RotatingFileHandler managed by LogRetentionManager
-    """
-    manager = get_log_manager()
-    handler = manager.create_rotating_handler(log_file_path, policy_name)
-    
-    if formatter:
-        handler.setFormatter(formatter)
-        
-    if start_periodic_cleanup:
-        manager.start_periodic_cleanup()
-        
-    return handler
+# setup_managed_logging function removed - was unused
 
 
 # Example usage and testing
