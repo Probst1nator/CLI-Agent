@@ -7,7 +7,7 @@ CLI-Agent commands, ensuring consistent interfaces and proper typing.
 
 from __future__ import annotations
 import abc
-from typing import Protocol, List, Optional, Any, Dict, TYPE_CHECKING
+from typing import List, Optional, Any, Dict, TYPE_CHECKING
 from dataclasses import dataclass
 from enum import Enum
 
@@ -99,31 +99,7 @@ class BaseCommand(abc.ABC):
                 
         return help_text
 
-class AsyncCommand(Protocol):
-    """Protocol for async command execution."""
-    
-    async def execute(
-        self, 
-        context: AppContext,
-        args: argparse.Namespace,
-        parts: List[str],
-        **kwargs: Any
-    ) -> CommandResponse:
-        """Execute async command."""
-        ...
 
-class SyncCommand(Protocol):
-    """Protocol for sync command execution."""
-    
-    def execute(
-        self, 
-        context: AppContext,
-        args: argparse.Namespace,
-        parts: List[str],
-        **kwargs: Any
-    ) -> CommandResponse:
-        """Execute sync command."""
-        ...
 
 # Utility functions for command registration
 CommandRegistry = Dict[str, BaseCommand]

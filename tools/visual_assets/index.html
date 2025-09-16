@@ -23,12 +23,22 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div><div id="header-text">Agent's Live Visual Response</div><div id="status" style="color: var(--status-connecting);">Connecting to agent...</div></div>
+    <div class="header">
+        <div><div id="header-text">Agent's Live Visual Response</div><div id="status" style="color: var(--status-connecting);">Connecting to agent...</div></div>
+        <div class="header-controls">
+            <button id="clear-history-btn" class="clear-history-button" title="Clear message history">
+                <span class="clear-icon">🗑️</span>
+                <span class="clear-text">Clear</span>
+            </button>
+            <button id="global-js-toggle" class="js-enabled" title="Toggle JavaScript for all messages">
+                <span class="js-icon">⚡</span>
+                <span class="js-text">JS Enabled</span>
+            </button>
             <div id="theme-switcher"><button id="light-theme-btn">Light</button><button id="dark-theme-btn">Dark</button></div>
         </div>
+    </div>
 
+    <div class="container">
         <div id="content-wrapper">
             <!-- Dynamic content will be inserted here -->
         </div>
@@ -36,7 +46,7 @@
         <!-- Hidden wrappers for legacy compatibility -->
         <div id="plotly-wrapper"></div>
         <div id="molecule-wrapper"></div>
-    </div>
+    </div></body>
 
     <div class="chat-input-container">
         <form id="chat-form">
@@ -55,6 +65,7 @@
 
     <!-- Application Modules -->
     <script src="/js/logger.js"></script>
+    <script src="/js/js-utils.js"></script>
     <script src="/js/renderers.js"></script>
     <script src="/js/websocket.js"></script>
     <script src="/js/main.js"></script>

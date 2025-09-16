@@ -1,0 +1,105 @@
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set working directory
+WORKDIR /workspace
+
+# Install minimal system dependencies
+RUN apt-get update && apt-get install -y \
+    # Essential tools
+    git \
+    curl \
+    wget \
+    unzip \
+    # Build essentials (but let agent handle specific build tools)
+    build-essential \
+    # Python 3.10+ for CLI-Agent
+    python3 \
+    python3-pip \
+    python3-venv \
+    # Basic system utilities
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    # Clean up
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN pip3 install --no-cache-dir --upgrade pip
+
+# Copy CLI-Agent source code
+COPY . /cli-agent/
+WORKDIR /cli-agent
+
+# Install CLI-Agent dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Create directories for mounting test files and output
+RUN mkdir -p /test_files /output
+
+# Set environment variables
+ENV PYTHONPATH=/cli-agent
+ENV PYTHONUNBUFFERED=1
+
+# Create a non-root user for security
+RUN useradd -m -u 1000 testuser && \
+    chown -R testuser:testuser /workspace /cli-agent /test_files /output
+USER testuser
+
+# Set working directory for test execution
+WORKDIR /workspace
+
+# Create test execution script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "=== CLI-Agent Test Environment Started ==="\n\
+echo "Timestamp: $(date)"\n\
+echo "Working Directory: $(pwd)"\n\
+echo "Available Test Files: $(ls /test_files/ 2>/dev/null || echo "No test files found")"\n\
+echo ""\n\
+\n\
+# Copy test files to workspace\n\
+if [ -d "/test_files" ] && [ "$(ls -A /test_files 2>/dev/null)" ]; then\n\
+  cp /test_files/* . 2>/dev/null || echo "Could not copy test files"\n\
+  echo "Test files copied to workspace"\n\
+else\n\
+  echo "No test files to copy"\n\
+fi\n\
+\n\
+echo "=== Starting CLI-Agent Execution ==="\n\
+cd /cli-agent\n\
+\n\
+# Execute the agent with the specified prompt\n\
+python3 main.py -l -a -m "inspect TEST_TASK.md and try to finish as many steps as you can to complete it." \\\n\
+  2>&1 | tee /output/agent_output.log\n\
+\n\
+# Capture exit code\n\
+EXIT_CODE=${PIPESTATUS[0]}\n\
+\n\
+echo ""\n\
+echo "=== Test Execution Complete ==="\n\
+echo "Exit Code: $EXIT_CODE"\n\
+echo "Timestamp: $(date)"\n\
+\n\
+# Copy any artifacts to output\n\
+find /workspace -name "*.log" -o -name "*.json" -o -name "*.md" -o -name "*.diff" 2>/dev/null | \\\n\
+  xargs -I {} cp {} /output/ 2>/dev/null || true\n\
+\n\
+# Generate summary report\n\
+echo "{" > /output/test_summary.json\n\
+echo "  \"exit_code\": $EXIT_CODE," >> /output/test_summary.json\n\
+echo "  \"timestamp\": \"$(date -Iseconds)\"," >> /output/test_summary.json\n\
+echo "  \"workspace_files\": $(find /workspace -type f | wc -l)," >> /output/test_summary.json\n\
+echo "  \"output_size_mb\": $(du -sm /output | cut -f1)" >> /output/test_summary.json\n\
+echo "}" >> /output/test_summary.json\n\
+\n\
+exit $EXIT_CODE\n\
+' > /workspace/run_test.sh
+
+# Make the script executable
+RUN chmod +x /workspace/run_test.sh
+
+# Default command runs the test
+CMD ["/workspace/run_test.sh"]

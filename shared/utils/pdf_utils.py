@@ -132,26 +132,6 @@ def extract_text_from_pdf(pdf_path: str) -> List[str]:
     return page_contents
 
 
-def extract_pdf_content_page_wise(file_path: str) -> List[str]:
-    """
-    Extract PDF content page by page with caching.
-    
-    Args:
-        file_path: Path to PDF file
-        
-    Returns:
-        List of text content for each page
-    """
-    cache_file = get_cache_file_path(file_path, "page_wise_text")
-    cached_content = load_from_cache(cache_file)
-    
-    if cached_content is not None:
-        return cached_content
-    
-    page_contents = extract_text_from_pdf(file_path)
-    
-    save_to_cache(cache_file, page_contents)
-    return page_contents
 
 
 def extract_pdf_content(file_path: str) -> str:
@@ -177,33 +157,3 @@ def extract_pdf_content(file_path: str) -> str:
     return full_content
 
 
-def get_joined_pdf_contents(pdf_or_folder_path: str) -> str:
-    """
-    Extract and join content from PDF file(s) in a path.
-    
-    Args:
-        pdf_or_folder_path: Path to PDF file or directory containing PDFs
-        
-    Returns:
-        Combined text content from all PDFs
-        
-    Raises:
-        ValueError: If path is neither a file nor directory
-    """
-    all_contents = []
-
-    if os.path.isfile(pdf_or_folder_path):
-        if pdf_or_folder_path.lower().endswith('.pdf'):
-            text_content = extract_pdf_content(pdf_or_folder_path)
-            all_contents.append(clean_pdf_text(text_content))
-    elif os.path.isdir(pdf_or_folder_path):
-        for root, _, files in os.walk(pdf_or_folder_path):
-            for file in files:
-                if file.lower().endswith('.pdf'):
-                    file_path = os.path.join(root, file)
-                    text_content = extract_pdf_content(file_path)
-                    all_contents.append(clean_pdf_text(text_content))
-    else:
-        raise ValueError(f"The path {pdf_or_folder_path} is neither a file nor a directory.")
-
-    return "\n\n".join(all_contents)

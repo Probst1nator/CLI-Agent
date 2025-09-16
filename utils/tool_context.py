@@ -27,6 +27,7 @@ class ToolContext:
         self.base64_images: List[str] = []
         self.image_descriptions: List[str] = []
         self.metadata: Dict[str, Any] = {}
+        self.current_viz_id: str = None
     
     def add_base64_image(self, base64_data: str, description: str = ""):
         """
@@ -63,6 +64,14 @@ class ToolContext:
     def get_metadata(self, key: str, default: Any = None) -> Any:
         """Get metadata value."""
         return self.metadata.get(key, default)
+
+    def set_current_viz_id(self, viz_id: str):
+        """Set the current visualresponse message ID for tool updates."""
+        self.current_viz_id = viz_id
+
+    def get_current_viz_id(self) -> str:
+        """Get the current visualresponse message ID."""
+        return self.current_viz_id
 
 # Global instance
 tool_context = ToolContext()

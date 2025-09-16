@@ -302,7 +302,87 @@ async def enhanced_permission_prompt(
         print(colored(f"{btm_left}{horizontal * INNER_WIDTH}{btm_right}", "light_yellow"))
     
     create_tool_operation_box(tool_name, action_description, file_path, format_xml_args(xml_content))
-    
+
+    # Get permission suggestions and options before potential GUI mode handling
+    suggestions = permissions_manager.get_permission_suggestions(tool_name, file_path, command_pattern, has_paths)
+
+    # For bash commands, add a read-only operations quick option at the top
+    read_only_option = None
+    if tool_name == "bash" and xml_content:
+        cwd = os.getcwd()
+        from .path_detector import PathDetector
+        actual_command = PathDetector.get_command_pattern(tool_name, xml_content).replace("bash: ", "")
+        if PathDetector._is_safe_command(actual_command.lower()):
+            read_only_option = f"All read-only operations in {os.path.basename(cwd)}"
+
+    # Check for GUI mode and send permission request to visual interface
+    from core.globals import g
+    if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+        try:
+            from tools.visualresponse import visualresponse
+            session = visualresponse._get_session()
+            if session and session.is_healthy():
+                import time
+                permission_payload = {
+                    "id": f"permission-{int(time.time() * 1000)}",
+                    "action": "create",
+                    "type": "permission_request",
+                    "permission_data": {
+                        "tool_name": tool_name,
+                        "action_description": action_description,
+                        "file_path": file_path,
+                        "command_pattern": command_pattern,
+                        "xml_content": xml_content or "",
+                        "args_display": format_xml_args(xml_content) if xml_content else "",
+                        "smart_action": smart_action,
+                        "read_only_option": read_only_option,
+                        "suggestions": suggestions
+                    }
+                }
+
+                session.send_update(permission_payload)
+
+                # Wait for response from visual interface
+                if hasattr(g, 'visual_input_queue'):
+                    try:
+                        import json
+                        # Wait for permission response (with timeout)
+                        timeout_seconds = 60  # 1 minute timeout
+                        import multiprocessing
+                        try:
+                            response_data = g.visual_input_queue.get(timeout=timeout_seconds)
+                            response = json.loads(response_data)
+
+                            if response.get('type') == 'permission_response':
+                                permission_result = response.get('result')
+                                permission_action = response.get('action')
+
+                                # Handle the permission response
+                                if permission_result == 'allow':
+                                    return True
+                                elif permission_result == 'deny':
+                                    return False
+                                elif permission_result == 'always_allow':
+                                    # Handle always allow with scope
+                                    scope = permission_action.get('scope', 'exact')
+                                    permissions_manager.save_permission(tool_name, file_path, True,
+                                                                      command_pattern, scope, permission_action.get('pattern'))
+                                    return True
+                                elif permission_result == 'always_deny':
+                                    # Handle always deny
+                                    permissions_manager.save_permission(tool_name, file_path, False,
+                                                                      command_pattern, 'exact')
+                                    return False
+                        except multiprocessing.TimeoutError:
+                            print("⏰ Permission request timed out, falling back to CLI prompt")
+                        except Exception as e:
+                            print(f"❌ Error processing permission response: {e}")
+                    except:
+                        pass
+        except Exception as e:
+            # If GUI mode fails, fall back to CLI mode
+            print(f"⚠️  GUI permission request failed, using CLI prompt: {e}")
+
     def format_option_line(text):
         # Calculate visual length without ANSI color codes
         visual_text = re.sub(r'\x1b\[[0-9;]*m', '', text)
@@ -324,17 +404,6 @@ async def enhanced_permission_prompt(
     bottom_border = f"└{'─' * INNER_WIDTH}┘"
     
     print(colored(top_border, "blue"))
-    
-    suggestions = permissions_manager.get_permission_suggestions(tool_name, file_path, command_pattern, has_paths)
-    
-    # For bash commands, add a read-only operations quick option at the top
-    read_only_option = None
-    if tool_name == "bash" and xml_content:
-        cwd = os.getcwd()
-        from .path_detector import PathDetector
-        actual_command = PathDetector.get_command_pattern(tool_name, xml_content).replace("bash: ", "")
-        if PathDetector._is_safe_command(actual_command.lower()):
-            read_only_option = f"All read-only operations in {os.path.basename(cwd)}"
     
     # Build the options dynamically to avoid duplicates
     options = []

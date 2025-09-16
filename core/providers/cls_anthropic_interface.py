@@ -1,5 +1,7 @@
 from anthropic import Anthropic
 import os
+import threading
+import logging
 from typing import Optional, Any
 from termcolor import colored
 from core.chat import Chat, Role
@@ -7,10 +9,35 @@ from py_classes.unified_interfaces import AIProviderInterface
 
 from core.globals import g
 
+logger = logging.getLogger(__name__)
+
 class AnthropicAPI(AIProviderInterface):
     """
     Implementation of the ChatClientInterface for the Anthropic API.
     """
+
+    # Class-level cancellation support
+    _cancellation_event = None
+    _current_task = None
+    _cancellation_lock = threading.Lock()
+
+    @classmethod
+    def cancel_current_generation(cls):
+        """
+        Cancel any currently running Anthropic generation.
+        This sets a cancellation event that can be checked by streaming operations.
+        """
+        try:
+            with cls._cancellation_lock:
+                if cls._cancellation_event:
+                    cls._cancellation_event.set()
+                    logger.debug("Anthropic stream cancellation event set")
+
+                # Note: Anthropic SDK doesn't support direct HTTP request cancellation
+                # The cancellation will be handled at the stream iteration level
+
+        except Exception as e:
+            logger.warning(f"Error cancelling Anthropic generation: {e}")
 
     @staticmethod
     def generate_response(chat: Chat, model_key: str = "claude-3-5-sonnet-latest", temperature: float = 0.7, silent_reason: str = "", thinking_budget: Optional[int] = None) -> Any:
@@ -136,7 +163,43 @@ class AnthropicAPI(AIProviderInterface):
         if system_content:
             create_args["system"] = system_content
             
+        # Set up cancellation event for this generation
+        AnthropicAPI._cancellation_event = threading.Event()
+
         # Let errors bubble up to the router for centralized handling
         # RateLimitError and TimeoutError will be handled by the router's _handle_model_error method
-        return client.messages.create(**create_args)
+        raw_stream = client.messages.create(**create_args)
+
+        # Return a cancellable stream wrapper
+        return AnthropicAPI._create_cancellable_stream(raw_stream, model_key)
+
+    @classmethod
+    def _create_cancellable_stream(cls, raw_stream, model_key: str):
+        """
+        Create a cancellable stream wrapper that monitors the cancellation event.
+        This allows for immediate interruption of Anthropic streaming responses.
+        """
+        class CancellableAnthropicStream:
+            def __init__(self, stream, cancellation_event, model_key):
+                self.stream = stream
+                self.cancellation_event = cancellation_event
+                self.model_key = model_key
+
+            def __iter__(self):
+                try:
+                    for chunk in self.stream:
+                        # Check for cancellation before yielding each chunk
+                        if self.cancellation_event and self.cancellation_event.is_set():
+                            logger.debug(f"Anthropic stream for {self.model_key} cancelled via interruption")
+                            break
+                        yield chunk
+                finally:
+                    # Cleanup: close the stream if possible
+                    try:
+                        if hasattr(self.stream, 'close'):
+                            self.stream.close()
+                    except Exception as e:
+                        logger.debug(f"Error closing Anthropic stream: {e}")
+
+        return CancellableAnthropicStream(raw_stream, cls._cancellation_event, model_key)
 

@@ -170,9 +170,4 @@ class AIProviderInterface(BaseProviderInterface):
         pass
     
     
-class UnifiedProviderInterface(AIProviderInterface, AudioProviderInterface):
-    """
-    Combined interface that provides both AI and audio capabilities.
-    Implementations of this interface must implement all methods from both parent interfaces.
-    """
-    pass 
+# UnifiedProviderInterface class removed - was unused 

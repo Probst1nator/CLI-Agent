@@ -7,6 +7,7 @@ from py_classes.unified_interfaces import AIProviderInterface
 from infrastructure.rate_limiting.cls_rate_limit_tracker import rate_limit_tracker
 import socket
 import logging
+import threading
 import requests
 from core.globals import g
 
@@ -29,6 +30,29 @@ class GroqAPI(AIProviderInterface):
     """
     Implementation of the AIProviderInterface for the Groq API.
     """
+
+    # Class-level cancellation support
+    _cancellation_event = None
+    _current_task = None
+    _cancellation_lock = threading.Lock()
+
+    @classmethod
+    def cancel_current_generation(cls):
+        """
+        Cancel any currently running Groq generation.
+        This sets a cancellation event that can be checked by streaming operations.
+        """
+        try:
+            with cls._cancellation_lock:
+                if cls._cancellation_event:
+                    cls._cancellation_event.set()
+                    logger.debug("Groq stream cancellation event set")
+
+                # Note: Groq SDK doesn't support direct HTTP request cancellation
+                # The cancellation will be handled at the stream iteration level
+
+        except Exception as e:
+            logger.warning(f"Error cancelling Groq generation: {e}")
 
     @staticmethod
     def generate_response(chat: Chat, model_key: str, temperature: float = 0, silent_reason: str = "", thinking_budget: Optional[int] = None) -> Any:
@@ -71,13 +95,19 @@ class GroqAPI(AIProviderInterface):
             prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
             g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
 
+        # Set up cancellation event for this generation
+        GroqAPI._cancellation_event = threading.Event()
+
         # Let any errors here bubble up to the router for centralized handling
-        return client.chat.completions.create(
+        raw_stream = client.chat.completions.create(
             model=model_key,
             messages=chat.to_groq(),
             temperature=temperature,
             stream=True
         )
+
+        # Return a cancellable stream wrapper
+        return GroqAPI._create_cancellable_stream(raw_stream, model_key)
 
     @staticmethod
     def get_available_models(chat: Optional[Chat] = None) -> List[Dict[str, Any]]:
@@ -262,4 +292,34 @@ class GroqAPI(AIProviderInterface):
 
     # The token counting method is commented out in your original code,
     # so I'm leaving it as is.
+
+    @classmethod
+    def _create_cancellable_stream(cls, raw_stream, model_key: str):
+        """
+        Create a cancellable stream wrapper that monitors the cancellation event.
+        This allows for immediate interruption of Groq streaming responses.
+        """
+        class CancellableGroqStream:
+            def __init__(self, stream, cancellation_event, model_key):
+                self.stream = stream
+                self.cancellation_event = cancellation_event
+                self.model_key = model_key
+
+            def __iter__(self):
+                try:
+                    for chunk in self.stream:
+                        # Check for cancellation before yielding each chunk
+                        if self.cancellation_event and self.cancellation_event.is_set():
+                            logger.debug(f"Groq stream for {self.model_key} cancelled via interruption")
+                            break
+                        yield chunk
+                finally:
+                    # Cleanup: close the stream if possible
+                    try:
+                        if hasattr(self.stream, 'close'):
+                            self.stream.close()
+                    except Exception as e:
+                        logger.debug(f"Error closing Groq stream: {e}")
+
+        return CancellableGroqStream(raw_stream, cls._cancellation_event, model_key)
     

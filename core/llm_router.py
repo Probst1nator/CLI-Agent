@@ -1560,5 +1560,15 @@ class LlmRouter:
         if last_role.value == "assistant" and last_content:
             # Return the existing assistant content as prefix
             return last_content
-        
+
         return ""
+
+    @classmethod
+    def get_last_used_model(cls) -> str:
+        """
+        Get the model key of the last model used for completion.
+
+        Returns:
+            str: The model key of the last used model, or 'unknown' if none
+        """
+        return cls.last_used_model if cls.last_used_model else 'unknown'

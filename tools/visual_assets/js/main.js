@@ -34,6 +34,7 @@ class VisualResponseApp {
         this.wsManager = null;
         this.chatInput = null;
         this.chatForm = null;
+        this.messageHistory = [];
 
         // Get logger reference
         this.logger = window.visualLogger;
@@ -50,6 +51,7 @@ class VisualResponseApp {
         this.initializeComponents();
         this.setupEventListeners();
         this.setupThemeSwitcher();
+        this.loadMessageHistory();
         console.log('Visual Response App initialized successfully');
     }
 
@@ -91,9 +93,12 @@ class VisualResponseApp {
         const statusDiv = document.getElementById('status');
         const contentWrapper = document.getElementById('content-wrapper');
         this.wsManager = new WebSocketManager(this.renderer, statusDiv, contentWrapper);
-        
+
         // Set app reference for loading indicator control
         this.wsManager.setApp(this);
+
+        // Expose WebSocket manager globally for permission responses
+        window.wsManager = this.wsManager;
 
         // Get chat elements
         this.chatForm = document.getElementById('chat-form');
@@ -194,6 +199,15 @@ class VisualResponseApp {
 
         // File upload event listeners
         this.setupFileUpload();
+
+        // Global JS toggle event listener
+        this.setupGlobalJSToggle();
+
+        // Clear history button event listener
+        this.setupClearHistoryButton();
+
+        // Iframe focus management
+        this.setupIframeFocusManagement();
     }
 
     handleChatSubmit() {
@@ -225,14 +239,16 @@ class VisualResponseApp {
         const contentWrapper = document.getElementById('content-wrapper');
         if (!contentWrapper) return;
 
+        const currentTimestamp = Date.now();
+
         // Create message block
         const messageBlock = document.createElement('div');
         messageBlock.className = 'message-block user-message';
 
         // Create timestamp
         const timestamp = document.createElement('div');
-        timestamp.className = 'message-timestamp';
-        timestamp.textContent = new Date().toLocaleTimeString();
+        timestamp.className = 'agent-msg-head';
+        timestamp.textContent = new Date(currentTimestamp).toLocaleTimeString();
 
         // Create content
         const content = document.createElement('div');
@@ -245,7 +261,13 @@ class VisualResponseApp {
 
         // Add to content wrapper
         contentWrapper.appendChild(messageBlock);
-        
+
+        // Save user message to history
+        this.saveMessageToHistory('user', {
+            message: message,
+            timestamp: currentTimestamp
+        });
+
         // Force immediate scroll after user message
         this.scrollToBottom();
 
@@ -271,40 +293,39 @@ class VisualResponseApp {
         const scrollToEnd = () => {
             const scrollHeight = contentWrapper.scrollHeight;
             const clientHeight = contentWrapper.clientHeight;
+            const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
             
             console.log('Scrolling attempt:', { 
                 scrollHeight, 
                 clientHeight, 
                 currentScrollTop: contentWrapper.scrollTop,
-                maxScroll: scrollHeight - clientHeight 
+                maxScroll: maxScrollTop,
+                targetScroll: scrollHeight + 100 // Extra padding to ensure bottom
             });
             
-            // Method 1: Direct scrollTop assignment (most reliable)
-            contentWrapper.scrollTop = scrollHeight;
+            // Method 1: Direct scrollTop assignment with extra padding
+            contentWrapper.scrollTop = scrollHeight + 100;
             
-            // Method 2: scrollTo with immediate behavior
-            contentWrapper.scrollTo(0, scrollHeight);
+            // Method 2: scrollTo with extra padding
+            contentWrapper.scrollTo(0, scrollHeight + 100);
             
-            // Method 3: Smooth scroll for better UX (if supported)
-            try {
-                contentWrapper.scrollTo({
-                    top: scrollHeight,
-                    left: 0,
-                    behavior: 'smooth'
-                });
-            } catch (e) {
-                console.log('Smooth scroll not supported');
-            }
+            // Method 3: Force scroll to absolute maximum
+            contentWrapper.scrollTop = contentWrapper.scrollHeight;
             
             // Method 4: Alternative scrollIntoView approach
             const lastChild = contentWrapper.lastElementChild;
             if (lastChild) {
                 try {
-                    lastChild.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                    lastChild.scrollIntoView({ behavior: 'instant', block: 'end', inline: 'nearest' });
                 } catch (e) {
                     lastChild.scrollIntoView(false); // Fallback
                 }
             }
+            
+            // Method 5: One more forced scroll after DOM settles
+            setTimeout(() => {
+                contentWrapper.scrollTop = contentWrapper.scrollHeight;
+            }, 1);
         };
 
         // Immediate scroll
@@ -459,6 +480,319 @@ class VisualResponseApp {
         }
     }
 
+    setupGlobalJSToggle() {
+        const globalJsToggle = document.getElementById('global-js-toggle');
+        if (!globalJsToggle) {
+            console.warn('Global JS toggle button not found');
+            return;
+        }
+
+        // Initialize button state based on stored preference
+        const isGlobalJsEnabled = window.JavaScriptUtils ? window.JavaScriptUtils.getGlobalJSState() : true;
+        this.updateGlobalJSToggleButton(globalJsToggle, isGlobalJsEnabled);
+
+        // Set up click event listener
+        globalJsToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (!window.JavaScriptUtils) {
+                console.error('JavaScriptUtils not available');
+                return;
+            }
+
+            // Toggle the global state
+            const newState = window.JavaScriptUtils.toggleGlobalJSState();
+
+            // Update button appearance
+            this.updateGlobalJSToggleButton(globalJsToggle, newState);
+
+            // Apply to all current messages with staggered timing
+            this.applyGlobalJSStateToMessages(newState);
+
+            console.log(`Global JS ${newState ? 'enabled' : 'disabled'}`);
+        });
+    }
+
+    updateGlobalJSToggleButton(button, enabled) {
+        if (enabled) {
+            button.className = 'js-enabled';
+            button.querySelector('.js-text').textContent = 'JS Enabled';
+            button.title = 'Disable JavaScript for all messages';
+        } else {
+            button.className = 'js-disabled';
+            button.querySelector('.js-text').textContent = 'JS Disabled';
+            button.title = 'Enable JavaScript for all messages';
+        }
+    }
+
+    applyGlobalJSStateToMessages(enabled) {
+        // Find all message containers with JS content
+        const messageContainers = document.querySelectorAll('[id*="msg-"]');
+        const jsMessages = [];
+
+        messageContainers.forEach(container => {
+            const messageId = container.id;
+            if (messageId && messageId.startsWith('msg-')) {
+                // Check if this message has JS content (iframe or JS toggle button)
+                const iframe = container.querySelector('iframe');
+                const jsToggle = container.querySelector('.msg-js-toggle');
+                if (iframe || jsToggle) {
+                    jsMessages.push({
+                        container,
+                        messageId,
+                        jsToggle,
+                        iframe
+                    });
+                }
+            }
+        });
+
+        console.log(`Applying global JS ${enabled ? 'enable' : 'disable'} to ${jsMessages.length} messages`);
+
+        // Apply changes with 200ms intervals
+        jsMessages.forEach((msgData, index) => {
+            setTimeout(() => {
+                this.applyJSStateToMessage(msgData, enabled);
+            }, index * 200);
+        });
+    }
+
+    applyJSStateToMessage(msgData, enabled) {
+        const { container, messageId, jsToggle, iframe } = msgData;
+
+        if (!window.JavaScriptUtils) {
+            console.error('JavaScriptUtils not available');
+            return;
+        }
+
+        // Update the message's individual JS state
+        window.JavaScriptUtils.setMessageJSState(messageId, enabled);
+
+        // Update individual toggle button appearance if present
+        if (jsToggle) {
+            jsToggle.className = `msg-js-toggle ${enabled ? 'enabled' : 'disabled'}`;
+            jsToggle.textContent = enabled ? 'JS ON' : 'JS OFF';
+            jsToggle.title = `Click to ${enabled ? 'disable' : 'enable'} JavaScript for this message`;
+        }
+
+        // Trigger re-rendering if we have access to the content renderer and original data
+        if (iframe && this.renderer && window.ContentRenderer) {
+            try {
+                // Try to get original HTML content from data attributes or reconstruct
+                const originalContent = this.getOriginalContentForMessage(messageId, iframe);
+                if (originalContent) {
+                    const data = { type: 'html', content: originalContent };
+                    this.renderer.reRenderMessage(container.querySelector('.message-content') || container, data, messageId, enabled);
+                    console.log(`Re-rendered message ${messageId} with JS ${enabled ? 'enabled' : 'disabled'}`);
+                } else {
+                    console.log(`Could not retrieve original content for message ${messageId}`);
+                }
+            } catch (error) {
+                console.warn(`Failed to re-render message ${messageId}:`, error);
+            }
+        }
+
+        console.log(`Applied JS ${enabled ? 'enable' : 'disable'} to message ${messageId}`);
+    }
+
+    getOriginalContentForMessage(messageId, iframe) {
+        // Try to get content from iframe srcdoc
+        if (iframe.srcdoc) {
+            return iframe.srcdoc;
+        }
+
+        // Try to get content from iframe contentDocument
+        try {
+            if (iframe.contentDocument) {
+                return iframe.contentDocument.documentElement.outerHTML;
+            }
+        } catch (e) {
+            // Cross-origin restrictions
+        }
+
+        // Try to get from data attributes if we stored it there
+        const messageContainer = document.getElementById(messageId);
+        if (messageContainer && messageContainer.dataset.originalContent) {
+            return messageContainer.dataset.originalContent;
+        }
+
+        return null;
+    }
+
+    setupClearHistoryButton() {
+        const clearHistoryBtn = document.getElementById('clear-history-btn');
+        if (!clearHistoryBtn) {
+            console.warn('Clear history button not found');
+            return;
+        }
+
+        clearHistoryBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Show custom reset confirmation dialog with stopwatch
+            this.showResetConfirmationDialog().then((confirmed) => {
+            if (confirmed) {
+                // Send agent reset command to backend
+                if (this.wsManager && this.wsManager.isConnected()) {
+                    this.wsManager.sendMessage('__AGENT_RESET__');
+
+                    // Visual feedback
+                    const originalText = clearHistoryBtn.querySelector('.clear-text').textContent;
+                    clearHistoryBtn.querySelector('.clear-text').textContent = 'Resetting...';
+                    clearHistoryBtn.disabled = true;
+
+                    // Clear UI immediately for instant feedback
+                    const contentWrapper = document.getElementById('content-wrapper');
+                    if (contentWrapper) {
+                        contentWrapper.innerHTML = '';
+                    }
+
+                    // Clear local storage
+                    this.clearMessageHistory();
+
+                    // Reset button state after delay
+                    setTimeout(() => {
+                        clearHistoryBtn.querySelector('.clear-text').textContent = originalText;
+                        clearHistoryBtn.disabled = false;
+                    }, 2000);
+
+                    console.log('Agent reset requested by user');
+                } else {
+                    // Fallback to UI-only clear if WebSocket not available
+                    console.warn('WebSocket not connected, falling back to UI-only clear');
+
+                    const contentWrapper = document.getElementById('content-wrapper');
+                    if (contentWrapper) {
+                        contentWrapper.innerHTML = '';
+                    }
+                    this.clearMessageHistory();
+
+                    // Visual feedback for fallback
+                    const originalText = clearHistoryBtn.querySelector('.clear-text').textContent;
+                    clearHistoryBtn.querySelector('.clear-text').textContent = 'Cleared (UI Only)';
+
+                    setTimeout(() => {
+                        clearHistoryBtn.querySelector('.clear-text').textContent = originalText;
+                    }, 2000);
+                }
+            }
+            }); // Close the promise callback
+        });
+    }
+
+    showResetConfirmationDialog() {
+        return new Promise((resolve) => {
+            // Create modal overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'reset-dialog-overlay';
+
+            // Create dialog
+            const dialog = document.createElement('div');
+            dialog.className = 'reset-dialog';
+
+            // Create dialog content
+            const content = document.createElement('div');
+            content.className = 'reset-dialog-content';
+
+            // Title
+            const title = document.createElement('h3');
+            title.textContent = '🔄 Agent Reset Confirmation';
+            title.className = 'reset-dialog-title';
+
+            // Message
+            const message = document.createElement('p');
+            message.innerHTML = 'This will completely reset the agent and clear all:<br>• Conversation history<br>• Tool states and context<br>• Images and metadata<br><br><strong>This action cannot be undone.</strong>';
+            message.className = 'reset-dialog-message';
+
+            // Progress area with stopwatch
+            const progressArea = document.createElement('div');
+            progressArea.className = 'reset-dialog-progress';
+            progressArea.style.display = 'none';
+
+            const progressText = document.createElement('div');
+            progressText.textContent = 'Resetting agent...';
+            progressText.className = 'reset-progress-text';
+
+            const progressStopwatch = document.createElement('div');
+            progressStopwatch.textContent = '0.0s';
+            progressStopwatch.className = 'reset-progress-stopwatch';
+
+            progressArea.appendChild(progressText);
+            progressArea.appendChild(progressStopwatch);
+
+            // Buttons
+            const buttonArea = document.createElement('div');
+            buttonArea.className = 'reset-dialog-buttons';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.className = 'reset-dialog-btn reset-dialog-cancel';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.textContent = 'Reset Agent';
+            confirmBtn.className = 'reset-dialog-btn reset-dialog-confirm';
+
+            buttonArea.appendChild(cancelBtn);
+            buttonArea.appendChild(confirmBtn);
+
+            // Assemble dialog
+            content.appendChild(title);
+            content.appendChild(message);
+            content.appendChild(progressArea);
+            content.appendChild(buttonArea);
+            dialog.appendChild(content);
+            overlay.appendChild(dialog);
+
+            // Event handlers
+            const cleanup = () => {
+                overlay.remove();
+            };
+
+            cancelBtn.addEventListener('click', () => {
+                cleanup();
+                resolve(false);
+            });
+
+            confirmBtn.addEventListener('click', () => {
+                // Hide buttons and message, show progress
+                buttonArea.style.display = 'none';
+                message.style.display = 'none';
+                progressArea.style.display = 'flex';
+
+                // Start progress stopwatch
+                const startTime = Date.now();
+                const progressTimer = setInterval(() => {
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    progressStopwatch.textContent = elapsed.toFixed(1) + 's';
+                }, 100);
+
+                // Auto-close after reset completes (2 seconds)
+                setTimeout(() => {
+                    clearInterval(progressTimer);
+                    cleanup();
+                }, 2000);
+
+                resolve(true);
+            });
+
+            // Close on overlay click
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    cleanup();
+                    resolve(false);
+                }
+            });
+
+            // Add to DOM
+            document.body.appendChild(overlay);
+
+            // Focus the confirm button
+            setTimeout(() => confirmBtn.focus(), 100);
+        });
+    }
+
     setupThemeSwitcher() {
         const lightThemeBtn = document.getElementById('light-theme-btn');
         const darkThemeBtn = document.getElementById('dark-theme-btn');
@@ -479,6 +813,7 @@ class VisualResponseApp {
         // Load saved theme or default to dark
         setTheme(localStorage.getItem('agent-theme') || 'dark');
     }
+    
 
     /**
      * Show loading indicator while waiting for agent response
@@ -516,7 +851,7 @@ class VisualResponseApp {
             'Pondering hallucinations...',
             'Untangling complexity...',
             'Calibrating neurons...',
-            'Shining...',
+            // 'Shining...',
             
             // Biblically inspired additions
             'Parting the data sea...',
@@ -531,7 +866,7 @@ class VisualResponseApp {
             'Waking up the servers...',         // A classic, simple and relatable
             'Reticulating splines...',          // A famous, nonsensical loading message from SimCity
             'Synergizing the paradigms...',     // Poking fun at corporate buzzwords
-            'Compiling...',     // A fun take on a standard developer task
+            'Compiling patterns...',     // A fun take on a standard developer task
             'Avoiding the singularity...',       // A humorous, high-stakes take on working with advanced AI
 
             // Philosphical
@@ -547,8 +882,24 @@ class VisualResponseApp {
         const randomMessage = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
         loadingText.textContent = randomMessage;
 
+        // Create stopwatch element
+        const stopwatch = document.createElement('div');
+        stopwatch.className = 'loading-stopwatch';
+        stopwatch.textContent = '0.0s';
+
+        // Start stopwatch timer
+        const startTime = Date.now();
+        const stopwatchTimer = setInterval(() => {
+            const elapsed = (Date.now() - startTime) / 1000;
+            stopwatch.textContent = elapsed.toFixed(1) + 's';
+        }, 100);
+
+        // Store timer ID on the loading indicator for cleanup
+        loadingIndicator.stopwatchTimer = stopwatchTimer;
+
         loadingContent.appendChild(spinner);
         loadingContent.appendChild(loadingText);
+        loadingContent.appendChild(stopwatch);
         loadingIndicator.appendChild(loadingContent);
 
         // Add to content wrapper
@@ -564,9 +915,460 @@ class VisualResponseApp {
     hideLoadingIndicator() {
         const loadingIndicator = document.getElementById('agent-loading-indicator');
         if (loadingIndicator) {
+            // Clear the stopwatch timer if it exists
+            if (loadingIndicator.stopwatchTimer) {
+                clearInterval(loadingIndicator.stopwatchTimer);
+            }
             loadingIndicator.remove();
         }
     }
+
+    /**
+     * Save message to history and localStorage
+     * @param {string} type - 'user' or 'agent'
+     * @param {object} data - Message data
+     */
+    saveMessageToHistory(type, data) {
+        const messageEntry = {
+            type: type,
+            timestamp: Date.now(),
+            data: data
+        };
+
+        this.messageHistory.push(messageEntry);
+
+        // Keep only last 50 messages to prevent localStorage bloat
+        if (this.messageHistory.length > 50) {
+            this.messageHistory = this.messageHistory.slice(-50);
+        }
+
+        try {
+            localStorage.setItem('agent-message-history', JSON.stringify(this.messageHistory));
+        } catch (e) {
+            console.warn('Failed to save message history to localStorage:', e);
+        }
+    }
+
+    /**
+     * Load message history from localStorage and restore messages
+     */
+    loadMessageHistory() {
+        try {
+            const stored = localStorage.getItem('agent-message-history');
+            console.log('🔍 Checking localStorage for message history...');
+            console.log('Raw stored data:', stored);
+
+            if (stored) {
+                this.messageHistory = JSON.parse(stored);
+                console.log('📋 Parsed message history:', this.messageHistory);
+                console.log(`🔄 Continue mode: Loading ${this.messageHistory.length} messages from previous session`);
+
+                // Count user vs agent messages
+                const userCount = this.messageHistory.filter(m => m.type === 'user').length;
+                const agentCount = this.messageHistory.filter(m => m.type === 'agent').length;
+                console.log(`📊 Message breakdown: ${userCount} user, ${agentCount} agent`);
+
+                // Add flag to indicate we're in restoration mode
+                this.isRestoring = true;
+                this.restoreMessages().then(() => {
+                    this.isRestoring = false;
+                });
+
+                // Show a temporary restoration indicator
+                this.showRestorationFeedback(this.messageHistory.length);
+            } else {
+                console.log('🔄 Continue mode: No previous session history found in localStorage');
+            }
+        } catch (e) {
+            console.warn('❌ Failed to load message history from localStorage:', e);
+            this.messageHistory = [];
+        }
+    }
+
+    /**
+     * Show temporary feedback when restoring messages
+     */
+    showRestorationFeedback(messageCount) {
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper) return;
+
+        // Create restoration indicator
+        const indicator = document.createElement('div');
+        indicator.className = 'restoration-indicator';
+        indicator.innerHTML = `
+            <div class="restoration-content">
+                <span class="restoration-icon">🔄</span>
+                <span class="restoration-text">Restoring ${messageCount} messages from previous session...</span>
+            </div>
+        `;
+
+        contentWrapper.appendChild(indicator);
+
+        // Remove indicator after restoration
+        setTimeout(() => {
+            if (indicator.parentNode) {
+                indicator.remove();
+                console.log(`✅ Successfully restored ${messageCount} messages`);
+            }
+        }, 2000);
+    }
+
+    /**
+     * Restore messages from history to the UI
+     */
+    async restoreMessages() {
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper || this.messageHistory.length === 0) return;
+
+        // Clear any existing content first to ensure clean restoration
+        contentWrapper.innerHTML = '';
+
+        // Sort messages by timestamp to ensure chronological order
+        const sortedHistory = [...this.messageHistory].sort((a, b) => a.timestamp - b.timestamp);
+
+        for (const entry of sortedHistory) {
+            try {
+                if (entry.type === 'user') {
+                    this.restoreUserMessage(entry.data);
+                } else if (entry.type === 'agent') {
+                    await this.restoreAgentMessage(entry.data);
+                }
+            } catch (e) {
+                console.warn('Failed to restore message:', e, entry);
+            }
+        }
+
+        // Scroll to bottom after restoration
+        if (this.wsManager) {
+            this.wsManager.scrollToBottom();
+        }
+
+        console.log(`Restored ${sortedHistory.length} messages in chronological order`);
+    }
+
+    /**
+     * Restore a user message to the UI
+     * @param {object} data - User message data
+     */
+    restoreUserMessage(data) {
+        console.log('👤 Restoring user message:', data);
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper) {
+            console.warn('❌ Content wrapper not found for user message restoration');
+            return;
+        }
+
+        // Create message block
+        const messageBlock = document.createElement('div');
+        messageBlock.className = 'message-block user-message';
+
+        // Create timestamp
+        const timestamp = document.createElement('div');
+        timestamp.className = 'agent-msg-head';
+        timestamp.textContent = new Date(data.timestamp).toLocaleTimeString();
+
+        // Create content
+        const content = document.createElement('div');
+        content.className = 'message-content';
+        content.textContent = data.message;
+
+        // Assemble message
+        messageBlock.appendChild(timestamp);
+        messageBlock.appendChild(content);
+        contentWrapper.appendChild(messageBlock);
+
+        console.log('✅ User message restored successfully');
+    }
+
+    /**
+     * Restore an agent message to the UI
+     * @param {object} data - Agent message data
+     */
+    async restoreAgentMessage(data) {
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper || !this.renderer) return;
+
+        const messageId = data.originalId || 'restored-' + Date.now();
+
+        // Create message block
+        const messageBlock = document.createElement('div');
+        messageBlock.className = 'message-block agent-message';
+        messageBlock.id = messageId;
+
+        // Create timestamp header with tool info if available
+        const timestampDiv = document.createElement('div');
+        timestampDiv.className = 'agent-msg-head';
+        const timestampText = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : 'Restored';
+
+        // Base timestamp content
+        let timestampContent = `<span class="timestamp-text">${timestampText} - ${data.originalId ? 'ID: ' + data.originalId : 'Restored'}</span>`;
+
+        // Add tool execution info if available in restored data
+        const toolInfo = data.messageData && data.messageData.tool_info;
+        if (toolInfo && Array.isArray(toolInfo) && toolInfo.length > 0) {
+            const toolCount = toolInfo.length;
+            const toolNames = toolInfo.map(tool => tool.name).join(', ');
+
+            timestampContent += `<span class="tool-info-summary" title="Click to expand tool details">
+                🔧 ${toolCount} tool${toolCount > 1 ? 's' : ''}: ${toolNames}
+            </span>`;
+        }
+
+        timestampDiv.innerHTML = timestampContent;
+        messageBlock.appendChild(timestampDiv);
+
+        // Add detailed tool info section for restored messages (initially hidden)
+        if (toolInfo && Array.isArray(toolInfo) && toolInfo.length > 0) {
+            const toolDetails = document.createElement('div');
+            toolDetails.className = 'tool-details hidden';
+
+            let detailsHTML = '<div class="tool-details-header">Tool Execution Details (Restored):</div>';
+            toolInfo.forEach(tool => {
+                const statusIcon = tool.status === 'success' ? '✅' : '❌';
+                const errorText = tool.error ? ` (${tool.error})` : '';
+                detailsHTML += `
+                    <div class="tool-detail-item">
+                        ${statusIcon} <strong>${tool.name}</strong> - ${tool.duration_ms}ms${errorText}
+                    </div>
+                `;
+            });
+
+            toolDetails.innerHTML = detailsHTML;
+            messageBlock.appendChild(toolDetails);
+
+            // Add click handler to toggle tool details
+            const toolSummary = timestampDiv.querySelector('.tool-info-summary');
+            if (toolSummary) {
+                toolSummary.addEventListener('click', () => {
+                    toolDetails.classList.toggle('hidden');
+                    const isHidden = toolDetails.classList.contains('hidden');
+                    toolSummary.style.backgroundColor = isHidden ? '' : 'rgba(100, 149, 237, 0.2)';
+                });
+                toolSummary.style.cursor = 'pointer';
+            }
+        }
+
+        // Create message content container
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        messageBlock.appendChild(messageContent);
+
+        contentWrapper.appendChild(messageBlock);
+
+        // Render the content using the existing renderer
+        await this.renderer.renderContent(messageContent, data.messageData, messageId, timestampDiv);
+    }
+
+    /**
+     * Clear message history
+     */
+    clearMessageHistory() {
+        this.messageHistory = [];
+        try {
+            localStorage.removeItem('agent-message-history');
+        } catch (e) {
+            console.warn('Failed to clear message history from localStorage:', e);
+        }
+        console.log('Message history cleared');
+    }
+
+    /**
+     * Setup iframe focus management for interactive content
+     * Allows users to click into iframes to capture keyboard/mouse events
+     */
+    setupIframeFocusManagement() {
+        let focusedIframe = null;
+        let iframeClickOverlay = null;
+
+        // Create click-to-focus overlay for iframes
+        const createIframeOverlay = (iframe) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'iframe-focus-overlay';
+            overlay.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: transparent;
+                cursor: pointer;
+                z-index: 10;
+                border: 2px dashed transparent;
+                transition: border-color 0.2s ease;
+            `;
+
+            overlay.addEventListener('mouseenter', () => {
+                overlay.style.borderColor = 'rgba(100, 149, 237, 0.5)';
+            });
+
+            overlay.addEventListener('mouseleave', () => {
+                overlay.style.borderColor = 'transparent';
+            });
+
+            overlay.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.focusIframe(iframe, overlay);
+            });
+
+            return overlay;
+        };
+
+        // Focus an iframe and enable interaction
+        this.focusIframe = (iframe, overlay) => {
+            // Remove focus from any previously focused iframe
+            if (focusedIframe && focusedIframe !== iframe) {
+                this.unfocusIframe(focusedIframe);
+            }
+
+            focusedIframe = iframe;
+
+            // Hide the overlay to allow direct interaction
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+
+            // Add focused state styling
+            iframe.style.border = '2px solid rgba(100, 149, 237, 0.8)';
+            iframe.style.boxShadow = '0 0 10px rgba(100, 149, 237, 0.3)';
+
+            // Add focus indicator
+            const indicator = document.createElement('div');
+            indicator.className = 'iframe-focus-indicator';
+            indicator.innerHTML = '🎯 Interactive Mode - Click outside to exit';
+            indicator.style.cssText = `
+                position: absolute;
+                top: -25px;
+                left: 0;
+                background: rgba(100, 149, 237, 0.9);
+                color: white;
+                padding: 2px 8px;
+                border-radius: 3px;
+                font-size: 12px;
+                z-index: 15;
+                pointer-events: none;
+            `;
+
+            const container = iframe.parentElement;
+            if (container.style.position !== 'absolute' && container.style.position !== 'relative') {
+                container.style.position = 'relative';
+            }
+            container.appendChild(indicator);
+
+            // Focus the iframe content window
+            try {
+                iframe.contentWindow.focus();
+            } catch (e) {
+                console.warn('Could not focus iframe content window:', e);
+            }
+
+            console.log('Iframe focused - interactive mode enabled');
+        };
+
+        // Unfocus an iframe and restore overlay
+        this.unfocusIframe = (iframe) => {
+            if (!iframe) return;
+
+            // Remove focused state styling
+            iframe.style.border = '';
+            iframe.style.boxShadow = '';
+
+            // Remove focus indicator
+            const indicator = iframe.parentElement.querySelector('.iframe-focus-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+
+            // Restore overlay for the iframe
+            const container = iframe.parentElement;
+            let overlay = container.querySelector('.iframe-focus-overlay');
+            if (overlay) {
+                overlay.style.display = 'block';
+            }
+
+            focusedIframe = null;
+            console.log('Iframe unfocused - click-to-focus mode restored');
+        };
+
+        // Set up mutation observer to handle dynamically added iframes
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        // Check if the node itself is an iframe
+                        if (node.tagName === 'IFRAME') {
+                            this.setupIframeInteraction(node, createIframeOverlay);
+                        }
+
+                        // Check for iframes within the added node
+                        const iframes = node.querySelectorAll ? node.querySelectorAll('iframe') : [];
+                        iframes.forEach(iframe => {
+                            this.setupIframeInteraction(iframe, createIframeOverlay);
+                        });
+                    }
+                });
+            });
+        });
+
+        // Start observing
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // Setup existing iframes
+        document.querySelectorAll('iframe').forEach(iframe => {
+            this.setupIframeInteraction(iframe, createIframeOverlay);
+        });
+
+        // Global click handler to unfocus iframes when clicking outside
+        document.addEventListener('click', (e) => {
+            if (focusedIframe && !focusedIframe.contains(e.target) && !e.target.closest('iframe')) {
+                this.unfocusIframe(focusedIframe);
+            }
+        });
+
+        // Prevent arrow keys from scrolling the main page when iframe is focused
+        document.addEventListener('keydown', (e) => {
+            if (focusedIframe && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                // Only prevent if the active element is not an input field in the main page
+                if (!e.target.matches('input, textarea, [contenteditable="true"]')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }
+        });
+
+        console.log('Iframe focus management initialized');
+    }
+
+    /**
+     * Setup interaction overlay for a specific iframe
+     */
+    setupIframeInteraction(iframe, createOverlayFn) {
+        // Skip if already set up
+        if (iframe.dataset.interactionSetup === 'true') {
+            return;
+        }
+
+        const container = iframe.parentElement;
+        if (!container) return;
+
+        // Ensure container has relative positioning for overlay placement
+        if (container.style.position !== 'absolute' && container.style.position !== 'relative') {
+            container.style.position = 'relative';
+        }
+
+        // Create and add overlay
+        const overlay = createOverlayFn(iframe);
+        container.appendChild(overlay);
+
+        // Mark as set up
+        iframe.dataset.interactionSetup = 'true';
+
+        console.log('Interactive overlay added to iframe');
+    }
+
 }
 
 // Initialize the application when DOM is ready and all dependencies are loaded
@@ -587,6 +1389,33 @@ function initializeApp() {
     console.log('All dependencies loaded, initializing app...');
     new VisualResponseApp();
 }
+
+// Global permission response function
+window.sendPermissionResponse = function(permissionId, result, action = {}) {
+    console.log('sendPermissionResponse called', { permissionId, result, action });
+
+    if (window.wsManager && window.wsManager.sendPermissionResponse) {
+        return window.wsManager.sendPermissionResponse(permissionId, result, action);
+    } else {
+        console.error('WebSocket manager not available for permission response');
+        return false;
+    }
+};
+
+// Global tool detail toggle function
+window.toggleToolDetail = function(toolDetailId) {
+    const element = document.getElementById(toolDetailId);
+    if (!element) return;
+
+    const isHidden = element.style.display === 'none';
+    element.style.display = isHidden ? 'block' : 'none';
+
+    // Find the toggle icon and update it
+    const summaryElement = element.parentElement.querySelector('.tool-summary .tool-toggle');
+    if (summaryElement) {
+        summaryElement.textContent = isHidden ? '▲' : '▼';
+    }
+};
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, checking dependencies...');

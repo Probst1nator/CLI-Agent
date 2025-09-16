@@ -89,7 +89,8 @@ class OllamaModel:
         """
         return asdict(self)
 
-@dataclass 
+
+@dataclass
 class OllamaModelList:
     """
     Represents a list of Ollama models.
@@ -130,6 +131,7 @@ class OllamaModelList:
             for model_data in data["models"]
         ]
         return cls(models=models)
+
 
 class OllamaClient(AIProviderInterface):
     """

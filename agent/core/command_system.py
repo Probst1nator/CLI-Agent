@@ -40,6 +40,7 @@ _COMMAND_DEFINITIONS: List[Dict[str, Any]] = [
     {'canonical': 'help', 'aliases': ['/h', '/help'], 'description': 'Show help and available commands'},
     {'canonical': 'save', 'aliases': ['/s', '/save'], 'description': 'Save current LLM selection as default'},
     {'canonical': 'clear', 'aliases': ['/clear'], 'description': 'Clear chat history and start fresh'},
+    {'canonical': 'reset', 'aliases': ['/reset'], 'description': 'Complete agent reset (chat, tools, images, context)'},
     {'canonical': 'compact', 'aliases': ['/compact'], 'description': 'Compact conversation (create summary)'},
 
     # Permission management commands
@@ -182,37 +183,4 @@ def get_prompt_session() -> PromptSession:
 # Expose the command map for use by the main dispatcher
 COMMAND_MAP = _build_command_map()
 
-# Expose functions needed by TUI
-def _build_command_definitions() -> Dict[str, Any]:
-    """
-    Build command definitions for TUI auto-completion.
-    
-    Returns:
-        Dictionary mapping command aliases to their sub-commands (if any)
-    """
-    defs = {}
-    for cmd_info in _COMMAND_DEFINITIONS:
-        for alias in cmd_info['aliases']:
-            if 'sub_commands' in cmd_info:
-                # Create a simple structure for the completer
-                defs[alias] = {sub: None for sub in cmd_info['sub_commands']}
-            else:
-                defs[alias] = None
-    return defs
 
-def _build_command_descriptions() -> Dict[str, str]:
-    """
-    Build command descriptions for TUI display.
-    
-    Returns:
-        Dictionary mapping command aliases to their descriptions
-    """
-    descs = {}
-    for cmd_info in _COMMAND_DEFINITIONS:
-        for alias in cmd_info['aliases']:
-            descs[alias] = cmd_info['description']
-        if 'sub_commands' in cmd_info:
-            for sub_cmd, sub_desc in cmd_info['sub_commands'].items():
-                # Provide descriptions for sub-commands as well
-                descs[f"{cmd_info['aliases'][0]} {sub_cmd}"] = sub_desc
-    return descs

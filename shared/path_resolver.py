@@ -95,15 +95,3 @@ class PathResolver:
         return root / "core"
 
 
-# Convenience function for simple usage
-def setup_cli_agent_imports(tool_name: Optional[str] = None) -> Path:
-    """
-    Convenience function to set up CLI-Agent imports
-    
-    Args:
-        tool_name: Optional tool name for future tool-specific features
-        
-    Returns:
-        Path to CLI-Agent root directory
-    """
-    return PathResolver.setup_imports(tool_name)

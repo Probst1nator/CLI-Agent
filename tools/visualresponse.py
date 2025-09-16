@@ -31,6 +31,7 @@ except ImportError as e:
     AIOHTTP_IMPORT_ERROR = str(e)
 
 from core.globals import g
+from utils.tool_context import tool_context
 
 # --- Server Configuration ---
 SERVER_HOST = "127.0.0.1"
@@ -153,9 +154,11 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 message = output_queue.get_nowait()
                 if message == "__EXIT__":
                     break
+
                 message_history.append(message)
                 if clients:
                     payload = json.dumps(message)
+
                     tasks = [asyncio.create_task(ws.send_str(payload)) for ws in clients]
                     await asyncio.gather(*tasks, return_exceptions=True)
             except QueueEmpty:
@@ -167,6 +170,22 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         await ws.prepare(request)
         clients.add(ws)
         subprocess_logger.info(f"Browser client connected: {request.remote}")
+
+        # Send continue mode configuration to new client
+        try:
+            from core.globals import g
+            continue_mode = getattr(g, 'CONTINUE_CONVERSATION', False)
+            config_message = {
+                "type": "config",
+                "action": "connection_init",
+                "continue_mode": continue_mode,
+                "id": f"config-{int(time.time() * 1000)}"
+            }
+            await ws.send_str(json.dumps(config_message))
+            subprocess_logger.info(f"Sent continue_mode={continue_mode} to new client")
+        except Exception as e:
+            subprocess_logger.warning(f"Failed to send continue mode config: {e}")
+
         if message_history:
             try:
                 for i, message in enumerate(message_history):
@@ -187,7 +206,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         return ws
     async def index_handler(request: web.Request):
         response = web.FileResponse(ASSETS_DIR / 'index.html')
-        response.headers['Content-Security-Policy'] = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.plot.ly; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src 'self' data: blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'")
+        response.headers['Content-Security-Policy'] = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.plot.ly https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src 'self' data: blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'")
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-XSS-Protection'] = '1; mode=block'
@@ -408,7 +427,7 @@ class visualresponse:
             "description": (
                 "Renders visualizations in a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. An `<id>` is recommended but optional for creation.\n"
                 "PARAMETERS:\n"
-                "- `<action>`: `create` (default), `delete`, `clear`.\n"
+                "- `<action>`: `create` (default), `delete`, `clear`, `agent_reset`.\n"
                 "- `<id>`: A unique ID for the element. If omitted on create, one is generated.\n"
                 "- `<type>`: Must be either `html` or `markdown`.\n"
                 "- `<content>`: The full HTML document or Markdown text. For HTML, you can wrap content in <![CDATA[...]]> to ensure correct parsing."
@@ -473,9 +492,19 @@ class visualresponse:
             # --- END OF FIX ---
 
             action = args.get('action', 'create').lower()
-            viz_id = args.get('id', f"viz-{int(time.time() * 1000)}")
-            
+            # Generate unique ID to prevent collisions using higher precision timestamp + random component
+            import random
+            unique_timestamp = int(time.time() * 1000000)  # Microsecond precision
+            random_suffix = random.randint(100, 999)
+            viz_id = args.get('id', f"viz-{unique_timestamp}-{random_suffix}")
+
             payload = {"id": viz_id, "action": action}
+
+            # Add tool execution info if available (for create actions)
+            if action == 'create' and hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
+                payload['tool_info'] = g.last_executed_tools_info
+                # Clear the info after using it to avoid reusing stale data
+                g.last_executed_tools_info = None
             
             if action == 'create':
                 viz_type = args.get('type')
@@ -500,8 +529,12 @@ class visualresponse:
             elif action == 'clear':
                 payload['type'] = 'system'
 
+            elif action == 'agent_reset':
+                payload['type'] = 'system'
+                payload['reset_agent'] = True
+
             else:
-                return f"Error: Unknown action '{action}'. Supported actions: create, delete, clear."
+                return f"Error: Unknown action '{action}'. Supported actions: create, delete, clear, agent_reset."
 
             session = visualresponse._get_session()
             if not session.is_healthy():
@@ -509,7 +542,11 @@ class visualresponse:
                 session = visualresponse._get_session()
             
             session.send_update(payload)
-            
+
+            # Set current viz_id in tool context for live tool updates
+            if action == 'create':
+                tool_context.set_current_viz_id(viz_id)
+
             return f"Visual response command '{action}' for ID '{viz_id}' sent to the live UI on port {session.port}."
                 
         except Exception as e:
@@ -538,3 +575,38 @@ class visualresponse:
         if available_port: diagnostics.append(f"\n🔌 Available port found: {available_port}")
         else: diagnostics.append(f"\n❌ No available ports in range {PORT_RANGE_START}-{PORT_RANGE_END}")
         return "\n".join(diagnostics)
+
+    @staticmethod
+    def send_user_message(message: str) -> bool:
+        """
+        Send a user message to the visual interface for display.
+        Used when user messages come from command line arguments instead of chat interface.
+
+        Args:
+            message: The user message to display
+
+        Returns:
+            bool: True if message was sent successfully, False otherwise
+        """
+        try:
+            session = visualresponse._get_session()
+            if not session or not session.is_healthy():
+                logging.debug("Visual session not available for user message")
+                return False
+
+            payload = {
+                "type": "user_message",
+                "action": "display",
+                "message": message,
+                "timestamp": time.time(),
+                "id": f"user-msg-{int(time.time() * 1000000)}"
+            }
+
+            logging.info(f"About to send user message payload: {payload}")
+            session.send_update(payload)
+            logging.info(f"Sent user message to visual interface: {message[:50]}...")
+            return True
+
+        except Exception as e:
+            logging.debug(f"Failed to send user message to visual interface: {e}")
+            return False

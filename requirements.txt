@@ -24,3 +24,5 @@ scipy>=1.9.0  # Audio processing and resampling
 sounddevice>=0.4.0  # Audio playback
 
 pathspec
+rank-bm25
+fasttext
