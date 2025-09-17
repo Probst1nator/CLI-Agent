@@ -1,0 +1,417 @@
+"""
+Concrete input source implementations for CLI-Agent.
+
+This module contains specific implementations of input sources for
+CLI, GUI, Web, and Voice interfaces.
+"""
+
+from __future__ import annotations
+import asyncio
+import time
+import re
+import math
+import threading
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
+
+from agent.core.input_manager import (
+    InputSource_ABC, InputEvent, InputEventType, InputSource
+)
+
+if TYPE_CHECKING:
+    from agent.core.app_context import AppContext
+    from core.chat import Chat
+    import argparse
+
+
+class CLIInputSource(InputSource_ABC):
+    """CLI input source using prompt_toolkit."""
+
+    def __init__(self, context: AppContext):
+        super().__init__(InputSource.CLI, context)
+        self._session = None
+
+    async def get_input(
+        self,
+        prompt: str = "",
+        timeout: Optional[float] = None,
+        context_chat: Optional[Chat] = None,
+        **kwargs: Any
+    ) -> InputEvent:
+        """Get input from CLI using prompt_toolkit."""
+        try:
+            # Import here to avoid circular imports
+            from agent.core.command_system import get_prompt_session
+            from prompt_toolkit import HTML
+
+            session = get_prompt_session()
+
+            # Clean prompt and format for HTML
+            clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt)
+
+            if context_chat:
+                token_info = f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] "
+                html_prompt = HTML(token_info + f'<dim>{clean_prompt}</dim>')
+            else:
+                html_prompt = HTML(f'<dim>{clean_prompt}</dim>')
+
+            # Get user input
+            if timeout:
+                user_input = await asyncio.wait_for(
+                    session.prompt_async(html_prompt),
+                    timeout=timeout
+                )
+            else:
+                user_input = await session.prompt_async(html_prompt)
+
+            # Determine event type
+            event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+
+            return InputEvent(
+                event_type=event_type,
+                source=InputSource.CLI,
+                content=user_input,
+                metadata={
+                    'prompt': prompt,
+                    'has_context': context_chat is not None
+                },
+                timestamp=time.time()
+            )
+
+        except ImportError:
+            # Fallback to regular input
+            user_input = input(prompt)
+            event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+
+            return InputEvent(
+                event_type=event_type,
+                source=InputSource.CLI,
+                content=user_input,
+                metadata={'prompt': prompt, 'fallback': True},
+                timestamp=time.time()
+            )
+
+        except KeyboardInterrupt:
+            return InputEvent(
+                event_type=InputEventType.INTERRUPT,
+                source=InputSource.CLI,
+                content="",
+                metadata={'reason': 'keyboard_interrupt'},
+                timestamp=time.time()
+            )
+
+    async def cleanup(self) -> None:
+        """Clean up CLI input source."""
+        self._session = None
+
+
+class GUIInputSource(InputSource_ABC):
+    """GUI input source for prompt_toolkit GUI interface."""
+
+    def __init__(self, context: AppContext):
+        super().__init__(InputSource.GUI, context)
+        self._input_event: Optional[asyncio.Event] = None
+        self._input_lock: Optional[threading.Lock] = None
+        self._shared_input: Optional[Dict[str, Any]] = None
+
+    def set_gui_handlers(
+        self,
+        input_event: asyncio.Event,
+        input_lock: threading.Lock,
+        shared_input: Dict[str, Any]
+    ) -> None:
+        """Set GUI event handlers for coordinated input."""
+        self._input_event = input_event
+        self._input_lock = input_lock
+        self._shared_input = shared_input
+
+    async def get_input(
+        self,
+        prompt: str = "",
+        timeout: Optional[float] = None,
+        **kwargs: Any
+    ) -> InputEvent:
+        """Get input from GUI interface."""
+        if not all([self._input_event, self._input_lock, self._shared_input]):
+            raise RuntimeError("GUI handlers not configured")
+
+        self.logger.debug("Waiting for GUI input event...")
+
+        # Wait for GUI input
+        if timeout:
+            await asyncio.wait_for(self._input_event.wait(), timeout=timeout)
+        else:
+            await self._input_event.wait()
+
+        # Get the input value
+        with self._input_lock:
+            user_input = self._shared_input["value"]
+            self.logger.debug(f"Retrieved GUI input: '{user_input}'")
+
+        # Clear event for next input
+        self._input_event.clear()
+
+        # Determine event type
+        event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+
+        return InputEvent(
+            event_type=event_type,
+            source=InputSource.GUI,
+            content=user_input,
+            metadata={'prompt': prompt},
+            timestamp=time.time()
+        )
+
+    async def cleanup(self) -> None:
+        """Clean up GUI input source."""
+        self._input_event = None
+        self._input_lock = None
+        self._shared_input = None
+
+
+class WebInputSource(InputSource_ABC):
+    """Web input source for browser-based interface."""
+
+    def __init__(self, context: AppContext):
+        super().__init__(InputSource.WEB, context)
+        self._pending_inputs: asyncio.Queue = asyncio.Queue()
+
+    async def get_input(
+        self,
+        prompt: str = "",
+        timeout: Optional[float] = None,
+        **kwargs: Any
+    ) -> InputEvent:
+        """Get input from web interface."""
+        try:
+            # HIGHEST PRIORITY: Check the legacy args.message queue from main.py.
+            # This bridges the gap between the background InputCollector and the new unified system.
+            args = kwargs.get('args')
+            if args and args.message:
+                from main import _get_next_priority_message
+                from termcolor import colored
+                
+                user_input = _get_next_priority_message(args.message)
+                if user_input:
+                    args.message.remove(user_input)
+                    print(colored(f"💬 Processing message: {user_input}" + (f" (⏳ {len(args.message)} more queued)" if args.message else ""), 'blue', attrs=['bold']), flush=True)
+                    
+                    event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+                    
+                    return InputEvent(
+                        event_type=event_type,
+                        source=InputSource.WEB,
+                        content=user_input.strip(),
+                        metadata={'prompt': prompt, 'source_queue': 'args.message'},
+                        timestamp=time.time()
+                    )
+
+            # If no legacy messages, proceed with polling the new visual_input_queue.
+            from core.globals import g
+            import json
+            from queue import Empty
+
+            if not hasattr(g, 'visual_input_queue'):
+                raise RuntimeError("Visual input queue not available")
+
+            start_time = time.time()
+            while True:
+                try:
+                    # Wait for input from the browser with a timeout to remain responsive
+                    raw_input = g.visual_input_queue.get(timeout=0.1)
+                    
+                    user_input = str(raw_input).strip()
+                    if user_input:
+                        event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+                        self.logger.debug(f"Web input processed: {user_input[:50]}...")
+                        return InputEvent(
+                            event_type=event_type,
+                            source=InputSource.WEB,
+                            content=user_input,
+                            metadata={'prompt': prompt},
+                            timestamp=time.time()
+                        )
+                except Empty:
+                    # Timeout occurred, loop again. This allows us to re-check for legacy messages
+                    # if they arrive while waiting.
+                    if timeout and (time.time() - start_time) >= timeout:
+                        raise asyncio.TimeoutError("Web input timeout")
+                    # Before continuing, check the legacy queue again in case a message arrived.
+                    if args and args.message:
+                        return await self.get_input(prompt, timeout, **kwargs)
+                    continue
+
+        except Exception as e:
+            self.logger.error(f"Error getting web input: {e}")
+            raise RuntimeError(f"Web input error: {e}")
+
+    async def submit_web_input(self, input_data: str) -> None:
+        """Submit input from web interface."""
+        await self._pending_inputs.put(input_data)
+
+    async def cleanup(self) -> None:
+        """Clean up web input source."""
+        # Clear any pending inputs
+        while not self._pending_inputs.empty():
+            try:
+                self._pending_inputs.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+
+class VoiceInputSource(InputSource_ABC):
+    """Voice input source with speech recognition."""
+
+    def __init__(self, context: AppContext):
+        super().__init__(InputSource.VOICE, context)
+
+    async def get_input(
+        self,
+        prompt: str = "",
+        timeout: Optional[float] = None,
+        args: Optional[argparse.Namespace] = None,
+        **kwargs: Any
+    ) -> InputEvent:
+        """Get input via voice recognition."""
+        try:
+            # Import voice functions
+            from main import get_listen_microphone, text_to_speech
+
+            listen_microphone = get_listen_microphone()
+
+            # Clean prompt for TTS
+            clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt).strip()
+
+            if clean_prompt == ">":
+                clean_prompt = "Please state your choice."
+            elif clean_prompt.endswith(":"):
+                clean_prompt = clean_prompt[:-1]
+
+            # Handle common prompt patterns
+            if '(y/n)' in clean_prompt:
+                clean_prompt = clean_prompt.replace('(y/n)', 'Please say yes or no.')
+            elif '(y=execute, n=abort, c=refine)' in clean_prompt:
+                clean_prompt = clean_prompt.replace(
+                    '(y=execute, n=abort, c=refine)',
+                    'Please say execute, abort, or refine.'
+                )
+            elif 'Permissions>' in clean_prompt:
+                clean_prompt = "Permissions manager. What would you like to do?"
+
+            self.logger.info(f"🎤 Asking: \"{clean_prompt}\"")
+
+            # Speak the prompt
+            text_to_speech(text=clean_prompt, speed=0.8, volume=0.7, use_piper=True)
+
+            # Listen for response
+            transcription, _, _ = listen_microphone(
+                private_remote_wake_detection=getattr(args, 'private_remote_wake_detection', False),
+                remote_voice_enabled=getattr(args, 'online_voice', False)
+            )
+
+            self.logger.info(f"🎤 User replied: \"{transcription}\"")
+
+            # Map voice keywords to commands
+            mapped_command = self._map_voice_keywords(transcription)
+
+            return InputEvent(
+                event_type=InputEventType.TEXT,
+                source=InputSource.VOICE,
+                content=mapped_command,
+                metadata={
+                    'prompt': prompt,
+                    'original_transcription': transcription,
+                    'mapped': mapped_command != transcription
+                },
+                timestamp=time.time()
+            )
+
+        except ImportError as e:
+            raise RuntimeError(f"Voice input not available: {e}")
+
+    def _map_voice_keywords(self, transcription: str) -> str:
+        """Map voice keywords to command shortcuts."""
+        keyword_map = {
+            'y': ['yes', 'yeah', 'yep', 'confirm', 'konfirm', 'allow', 'okay', 'ok', 'go', 'execute', 'proceed'],
+            'n': ['no', 'nope', 'stop', 'abort', 'cancel', 'deny'],
+            'a': ['always', 'always allow', 'always permit'],
+            'd': ['always deny'],
+            'm': ['manage', 'manager', 'manage permissions'],
+            '?': ['help', 'options', 'what are the options'],
+            'c': ['refine', 'change', 'correct', 'custom', 'custom pattern'],
+            '1': ['exact', 'exact command', 'one'],
+            '2': ['code', 'code execution', 'two'],
+            '3': ['files', 'file management', 'three'],
+            '4': ['shell', 'bash', 'shell operations', 'four'],
+            '5': ['pattern', 'five'],
+            'list': ['list', 'show'],
+            'remove': ['remove', 'delete'],
+            'clear': ['clear', 'reset'],
+            'exit': ['exit', 'quit', 'back'],
+            'x': ['cancel', 'exit', 'back']
+        }
+
+        user_reply = transcription.lower().strip()
+        for command, keywords in keyword_map.items():
+            for keyword in keywords:
+                if keyword in user_reply:
+                    self.logger.info(f"🎤 Interpreted \"{transcription}\" as command: '{command}'")
+                    return command
+
+        # No mapping found, return original
+        return transcription
+
+    async def cleanup(self) -> None:
+        """Clean up voice input source."""
+        pass
+
+
+class QueueInputSource(InputSource_ABC):
+    """Queued/programmatic input source for automated inputs."""
+
+    def __init__(self, context: AppContext):
+        super().__init__(InputSource.QUEUE, context)
+        self._message_queue: List[str] = []
+
+    def add_messages(self, messages: List[str]) -> None:
+        """Add messages to the queue."""
+        self._message_queue.extend(messages)
+        self.logger.debug(f"Added {len(messages)} messages to queue")
+
+    def has_messages(self) -> bool:
+        """Check if there are queued messages."""
+        return len(self._message_queue) > 0
+
+    async def get_input(
+        self,
+        prompt: str = "",
+        timeout: Optional[float] = None,
+        **kwargs: Any
+    ) -> InputEvent:
+        """Get input from message queue."""
+        if not self._message_queue:
+            raise RuntimeError("No queued messages available")
+
+        # Get next message
+        message = self._message_queue.pop(0)
+        remaining = len(self._message_queue)
+
+        self.logger.info(f"📋 Processing queued command: {message}" +
+                        (f" (⏳ {remaining} more queued)" if remaining else ""))
+
+        # Determine event type
+        event_type = InputEventType.COMMAND if message.startswith('/') else InputEventType.TEXT
+
+        return InputEvent(
+            event_type=event_type,
+            source=InputSource.QUEUE,
+            content=message,
+            metadata={
+                'remaining_count': remaining,
+                'total_processed': len(self._message_queue) + 1
+            },
+            timestamp=time.time()
+        )
+
+    async def cleanup(self) -> None:
+        """Clean up queue input source."""
+        self._message_queue.clear()

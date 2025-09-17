@@ -849,14 +849,15 @@ class WebSocketManager {
 
     // Comprehensive cleanup function to ensure proper state
     performMaintenanceCleanup() {
-        // Remove any orphaned loading tools headers
+        // Remove any orphaned loading tools headers (but keep completed ones visible)
         const orphanedHeaders = document.querySelectorAll('.loading-tools-header');
         orphanedHeaders.forEach(header => {
-            if (header.children.length === 0 ||
-                Array.from(header.children).every(child => child.classList.contains('completed') || child.classList.contains('failed'))) {
-                this.logger.info('Removing orphaned or completed loading tools header');
+            // Only remove headers that are completely empty
+            if (header.children.length === 0) {
+                this.logger.info('Removing empty loading tools header');
                 header.remove();
             }
+            // Keep headers with completed/failed tools visible for persistence
         });
 
         // Clear any stuck running timers for tools that should be completed

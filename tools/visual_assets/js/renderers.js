@@ -411,10 +411,6 @@ class ContentRenderer {
                 if (type === 'html' && messageId && timestampDiv && window.JavaScriptUtils) {
                     const hasJS = window.JavaScriptUtils.detectJavaScript(content);
 
-                    // Always add expand button for HTML messages
-                    const expandButton = window.JavaScriptUtils.createExpandButton(messageId);
-                    timestampDiv.appendChild(expandButton);
-
                     if (hasJS) {
                         // Add JS toggle to the right side of timestamp header
                         timestampDiv.classList.add('has-js-toggle');
@@ -485,15 +481,6 @@ class ContentRenderer {
 
         // Check if message was expanded before re-rendering
         const messageBlock = document.getElementById(messageId);
-        const wasExpanded = messageBlock && messageBlock.classList.contains('expanded-message');
-
-        // If expanded, collapse it first to clean up properly
-        if (wasExpanded && window.JavaScriptUtils) {
-            const expandButton = messageBlock.querySelector('.msg-expand-button');
-            if (expandButton) {
-                window.JavaScriptUtils.collapseMessage(messageBlock, expandButton);
-            }
-        }
 
         // Clear container
         container.innerHTML = '';

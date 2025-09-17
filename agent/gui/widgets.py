@@ -2,7 +2,7 @@
 GUI Widgets for CLI-Agent
 
 Custom widgets for chat display, status panels, and other GUI components
-using prompt_toolkit infrastructure.
+using prompt_toolkit infrastructure with standardized event handling.
 """
 
 import asyncio
@@ -13,6 +13,9 @@ from prompt_toolkit.widgets import TextArea
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+
+# Import standardized event system
+from agent.gui.event_manager import GUIEvent, GUIEventType, GUISession
 
 
 class ChatMessage:
@@ -65,9 +68,10 @@ class ChatMessage:
 
 
 class ChatDisplay:
-    """Chat display widget for showing conversation history."""
-    
-    def __init__(self):
+    """Chat display widget for showing conversation history with event support."""
+
+    def __init__(self, session: Optional[GUISession] = None):
+        self.session = session
         self.messages: List[ChatMessage] = []
         self.streaming_message: Optional[str] = None
         self.streaming_sender: Optional[str] = None
@@ -76,6 +80,7 @@ class ChatDisplay:
             focusable=False,
             show_cursor=False
         )
+        self._refresh_callbacks: List[Callable] = []
         
     def _get_formatted_text(self) -> FormattedText:
         """Get formatted text for all messages."""
@@ -102,30 +107,59 @@ class ChatDisplay:
         """Add a complete message to the chat."""
         message = ChatMessage(sender, content, msg_type)
         self.messages.append(message)
-        
+        self._trigger_refresh_event()
+
     def start_streaming_message(self, sender: str) -> None:
         """Start a new streaming message."""
         self.streaming_sender = sender
         self.streaming_message = ""
-        
+        self._trigger_refresh_event()
+
     def update_streaming_message(self, chunk: str) -> None:
         """Update the streaming message with new content."""
         if self.streaming_message is not None:
             self.streaming_message += chunk
-            
+            self._trigger_refresh_event()
+
     def finish_streaming_message(self) -> None:
         """Finish the streaming message and add it to the chat."""
         if self.streaming_message is not None and self.streaming_sender:
             self.add_message(self.streaming_sender, self.streaming_message, "assistant")
-            
+
         self.streaming_message = None
         self.streaming_sender = None
-        
+        self._trigger_refresh_event()
+
     def clear(self) -> None:
         """Clear all messages."""
         self.messages.clear()
         self.streaming_message = None
         self.streaming_sender = None
+        self._trigger_refresh_event()
+
+    def _trigger_refresh_event(self) -> None:
+        """Trigger a refresh event for the chat display."""
+        if self.session:
+            event = GUIEvent(
+                event_type=GUIEventType.REFRESH,
+                source="chat_display",
+                data={"widget": "chat_display", "message_count": len(self.messages)},
+                timestamp=datetime.now()
+            )
+            asyncio.create_task(self.session.queue_event(event))
+
+        # Also call any registered refresh callbacks
+        for callback in self._refresh_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                # Log error but don't break the refresh chain
+                import logging
+                logging.error(f"Error in refresh callback: {e}")
+
+    def register_refresh_callback(self, callback: Callable) -> None:
+        """Register a callback to be called when the display needs refreshing."""
+        self._refresh_callbacks.append(callback)
         
     def get_widget(self) -> Window:
         """Get the prompt_toolkit widget for this chat display."""

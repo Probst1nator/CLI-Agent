@@ -31,7 +31,7 @@ except ImportError as e:
     AIOHTTP_IMPORT_ERROR = str(e)
 
 from core.globals import g
-from utils.tool_context import tool_context
+from core.tool_context import tool_context
 
 # --- Server Configuration ---
 SERVER_HOST = "127.0.0.1"
@@ -425,7 +425,7 @@ class visualresponse:
         return {
             "name": "visualresponse",
             "description": (
-                "Renders visualizations in a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. An `<id>` is recommended but optional for creation.\n"
+                "Respond using a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. An `<id>` is recommended but optional for creation.\n"
                 "PARAMETERS:\n"
                 "- `<action>`: `create` (default), `delete`, `clear`, `agent_reset`.\n"
                 "- `<id>`: A unique ID for the element. If omitted on create, one is generated.\n"

@@ -45,5 +45,6 @@ class RegenerateCommand(BaseCommand):
         return CommandResponse(
             result=CommandResult.REGENERATE,
             message="Regenerating last response",
-            user_input=""  # Empty input triggers regeneration
+            user_input="",  # Empty input triggers regeneration
+            should_regenerate=True
         )

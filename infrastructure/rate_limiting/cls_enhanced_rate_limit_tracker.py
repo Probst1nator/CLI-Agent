@@ -117,6 +117,7 @@ class EnhancedRateLimitTracker:
         """Initialize the enhanced rate limit tracker."""
         self.model_limits: Dict[str, Dict[LimitType, RateLimit]] = {}
         self.backoff_manager = ExponentialBackoffManager()
+        self._last_file_mtime = 0  # Track file modification time for auto-reload
         self._load_limits()
     
     def _get_storage_path(self) -> str:
@@ -128,9 +129,12 @@ class EnhancedRateLimitTracker:
         try:
             storage_path = self._get_storage_path()
             if os.path.exists(storage_path):
+                # Update file modification time
+                self._last_file_mtime = os.path.getmtime(storage_path)
+
                 with open(storage_path, 'r') as f:
                     data = json.load(f)
-                
+
                 # Convert loaded data back to RateLimit objects
                 for model_key, limits_data in data.items():
                     self.model_limits[model_key] = {}
@@ -146,10 +150,26 @@ class EnhancedRateLimitTracker:
                             retry_delay=limit_data.get('retry_delay', 0)
                         )
                         self.model_limits[model_key][limit_type] = rate_limit
+            else:
+                # File doesn't exist, reset modification time
+                self._last_file_mtime = 0
         except Exception as e:
             logger.error(f"Failed to load enhanced rate limits: {e}")
             self.model_limits = {}
+            self._last_file_mtime = 0
     
+    def _reload_if_file_changed(self):
+        """Reload limits from file if it has been modified since last load."""
+        try:
+            storage_path = self._get_storage_path()
+            if os.path.exists(storage_path):
+                current_mtime = os.path.getmtime(storage_path)
+                if current_mtime > self._last_file_mtime:
+                    logger.debug(f"Rate limits file changed, reloading data...")
+                    self._load_limits()
+        except Exception as e:
+            logger.debug(f"Failed to check file modification time: {e}")
+
     def _save_limits(self):
         """Save rate limits to persistent storage."""
         try:
@@ -167,6 +187,9 @@ class EnhancedRateLimitTracker:
             
             with open(storage_path, 'w') as f:
                 json.dump(data, f, indent=2)
+
+            # Update our modification time after successful save
+            self._last_file_mtime = os.path.getmtime(storage_path)
         except Exception as e:
             logger.error(f"Failed to save enhanced rate limits: {e}")
     
@@ -203,15 +226,18 @@ class EnhancedRateLimitTracker:
     def can_make_request(self, model_key: str, token_cost: int = 0, image_count: int = 0) -> Tuple[bool, str]:
         """
         Check if a request can be made given the costs.
-        
+
         Args:
             model_key: Model identifier
             token_cost: Number of tokens this request will consume
             image_count: Number of images this request will process
-        
+
         Returns:
             Tuple of (can_make_request, reason_if_cannot)
         """
+        # Ensure we have the latest rate limit data
+        self._reload_if_file_changed()
+
         if model_key not in self.model_limits:
             return True, ""
         
@@ -229,18 +255,18 @@ class EnhancedRateLimitTracker:
         for limit_type, cost in checks:
             if limit_type in limits:
                 rate_limit = limits[limit_type]
-                
+
                 # Special handling for general cooldown
                 if limit_type == LimitType.GENERAL:
                     if rate_limit.is_rate_limited():
                         remaining = rate_limit.get_remaining_cooldown()
                         return False, f"General cooldown active for {remaining:.1f}s"
                     continue
-                
+
                 # Skip if no cost for this limit type
                 if cost == 0:
                     continue
-                
+
                 if not rate_limit.can_make_request(cost):
                     if rate_limit.is_rate_limited():
                         remaining = rate_limit.get_remaining_cooldown()
@@ -308,10 +334,13 @@ class EnhancedRateLimitTracker:
     def get_suggested_retry_delay(self, model_key: str) -> float:
         """
         Get suggested retry delay combining API suggestions and exponential backoff.
-        
+
         Returns:
             Delay in seconds, or -1 if max retries exceeded
         """
+        # Ensure we have the latest rate limit data
+        self._reload_if_file_changed()
+
         # Check if any rate limits have specific retry delays
         if model_key in self.model_limits:
             max_api_delay = 0
@@ -327,6 +356,9 @@ class EnhancedRateLimitTracker:
     
     def get_status_summary(self, model_key: str) -> Dict[str, Any]:
         """Get a summary of current rate limit status for a model."""
+        # Ensure we have the latest rate limit data
+        self._reload_if_file_changed()
+
         if model_key not in self.model_limits:
             return {"status": "no_limits_configured"}
         

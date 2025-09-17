@@ -4,6 +4,9 @@ Input handling utilities for CLI-Agent.
 This module contains input handling functions extracted from main.py to provide
 reusable input functionality including multiline input, screenshot capture,
 and permission management.
+
+MIGRATION NOTICE: This module is being migrated to use the new unified input
+management system. Legacy functions are maintained for backwards compatibility.
 """
 
 import asyncio
@@ -32,20 +35,21 @@ from agent.core.command_system import COMMAND_MAP, get_prompt_session, _COMMAND_
 from core.globals import g
 from core.chat import Chat
 
+# Import new unified input system
+from agent.core.input_compatibility import (
+    get_user_input_with_bindings_unified,
+    handle_multiline_input_unified,
+    handle_screenshot_capture_unified
+)
+
 
 def handle_multiline_input() -> str:
-    """Handles multiline input from the user."""
-    print(colored("Enter your multiline input. Type '--f' on a new line when finished.", "blue"))
-    lines = []
-    while True:
-        try:
-            line = input()
-            if line == "--f":
-                break
-            lines.append(line)
-        except EOFError:
-            break
-    return "\n".join(lines)
+    """
+    Handles multiline input from the user.
+
+    LEGACY WRAPPER: This function now delegates to the unified input system.
+    """
+    return handle_multiline_input_unified()
 
 
 async def get_user_input_with_bindings(
@@ -61,314 +65,27 @@ async def get_user_input_with_bindings(
     """
     Interactively captures user input, including voice for confirmation prompts.
 
+    LEGACY WRAPPER: This function now delegates to the unified input system
+    while maintaining the same interface for backwards compatibility.
+
     This function serves as the primary Read-Eval-Print Loop (REPL). It
     returns the user's text prompt. If voice mode is active and this is a
     confirmation prompt, it will use TTS and STT.
     """
-    
-    # --- First Call Logic ---
-    if get_user_input_with_bindings.is_first_call:
-        get_user_input_with_bindings.is_first_call = False
+    return await get_user_input_with_bindings_unified(
+        args=args,
+        context_chat=context_chat,
+        prompt=prompt,
+        input_override=input_override,
+        force_input=force_input,
+        input_event=input_event,
+        input_lock=input_lock,
+        shared_input=shared_input
+    )
 
-    # --- VOICE-ENABLED CONFIRMATION PROMPTS ---
-    # Check if this is an internal confirmation prompt, not the main REPL prompt.
-    is_internal_prompt = "Enter your request" not in prompt
 
-    if args.voice and is_internal_prompt:
-        try:
-            from main import get_listen_microphone, text_to_speech
-            listen_microphone = get_listen_microphone()
-        except ImportError as e:
-            logging.error(colored(f"# cli-agent: Voice functions not available. Import failed: {e}", "red"))
-            # Fallback to text input
-            return input(prompt), []
-        
-        # --- FIX: Improved clean_prompt logic ---
-        clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt).strip()
-        
-        if clean_prompt == ">":
-            clean_prompt = "Please state your choice."
-        elif clean_prompt.endswith(":"):
-            clean_prompt = clean_prompt[:-1]
-        
-        if '(y/n)' in clean_prompt:
-            clean_prompt = clean_prompt.replace('(y/n)', 'Please say yes or no.')
-        elif '(y=execute, n=abort, c=refine)' in clean_prompt:
-            clean_prompt = clean_prompt.replace('(y=execute, n=abort, c=refine)', 'Please say execute, abort, or refine.')
-        elif 'Permissions>' in clean_prompt:
-            clean_prompt = "Permissions manager. What would you like to do?"
+# Legacy implementation removed - now using unified input system only
 
-        logging.info(f"🎤 Asking: \"{clean_prompt}\"")
-        text_to_speech(text=clean_prompt, speed=0.8, volume=0.7, use_piper=True)
-        
-        transcription, _, _ = listen_microphone(
-            private_remote_wake_detection=args.private_remote_wake_detection, 
-            remote_voice_enabled=args.online_voice
-        )
-        
-        logging.info(f"🎤 User replied: \"{transcription}\"")
-
-        # --- NEW: Keyword mapping for voice commands ---
-        keyword_map = {
-            'y': ['yes', 'yeah', 'yep', 'confirm', 'konfirm', 'allow', 'okay', 'ok', 'go', 'execute', 'proceed'],
-            'n': ['no', 'nope', 'stop', 'abort', 'cancel', 'deny'],
-            'a': ['always', 'always allow', 'always permit'],
-            'd': ['always deny'],
-            'm': ['manage', 'manager', 'manage permissions'],
-            '?': ['help', 'options', 'what are the options'],
-            'c': ['refine', 'change', 'correct', 'custom', 'custom pattern'],
-            # Numeric options with voice-friendly keywords
-            '1': ['exact', 'exact command', 'one'],
-            '2': ['code', 'code execution', 'two'],
-            '3': ['files', 'file management', 'three'],
-            '4': ['shell', 'bash', 'shell operations', 'four'],
-            '5': ['pattern', 'five'],
-            # General option keywords
-            'list': ['list', 'show'],
-            'remove': ['remove', 'delete'],
-            'clear': ['clear', 'reset'],
-            'exit': ['exit', 'quit', 'back'],
-            'x': ['cancel', 'exit', 'back']
-        }
-
-        user_reply = transcription.lower().strip()
-        for command, keywords in keyword_map.items():
-            for keyword in keywords:
-                if keyword in user_reply:
-                    logging.info(colored(f"🎤 Interpreted \"{transcription}\" as command: '{command}'", "cyan"))
-                    return command, [] # Return the mapped single-letter command
-
-        # If no keyword is found, return the raw transcription for invalid option handling
-        return transcription, []
-
-    # --- STANDARD TEXT-BASED INPUT LOOP ---
-    while True:
-        # --- Check for GUI mode first ---
-        if hasattr(g, 'GUI_MODE') and g.GUI_MODE and not input_override:
-            # Use GUI input from browser interface
-            from main import get_gui_input
-            user_input = await get_gui_input()
-        elif prompt == "":
-            user_input = ""
-        elif input_override:
-            user_input = input_override
-        elif force_input:
-            if input_event and input_lock and shared_input is not None:
-                await input_event.wait()
-                input_event.clear()
-                with input_lock:
-                    user_input = shared_input["value"]
-            else:
-                user_input = input(prompt)
-        else:
-            try:
-                # --- FIX: Use the thread-safe event/lock mechanism ---
-                if input_event and input_lock and shared_input is not None:
-                    # In TUI mode, wait for the event that signals input is ready
-                    agent_logger = logging.getLogger("agent_main")
-                    agent_logger.info("Agent waiting for input event...")
-                    await input_event.wait()
-                    agent_logger.info("Input event received! Processing...")
-                    input_event.clear() # Reset the event for the next input
-                    with input_lock:
-                        user_input = shared_input["value"]
-                        agent_logger.info(f"Retrieved user input: '{user_input}'")
-                else:
-                    # Enhanced CLI behavior with command completion
-                    try:
-                        session = get_prompt_session()
-                        # Convert to prompt_toolkit's HTML format for proper styling
-                        # Strip ANSI codes from prompt and use the actual prompt parameter
-                        import re
-                        clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt)
-                        
-                        if context_chat:
-                            token_info = f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] "
-                            # Use very subtle coloring - just a gentle emphasis
-                            html_prompt = HTML(token_info + f'<dim>{clean_prompt}</dim>')
-                            user_input = await session.prompt_async(html_prompt)
-                        else:
-                            # Use very subtle coloring - just a gentle emphasis
-                            html_prompt = HTML(f'<dim>{clean_prompt}</dim>')
-                            user_input = await session.prompt_async(html_prompt)
-                    except ImportError:
-                        # Fallback to regular input if prompt_toolkit is not available
-                        if context_chat:
-                            user_input = input(f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] " + prompt)
-                        else:
-                            user_input = input(prompt)
-                    except Exception:
-                        # Reset the prompt session if it becomes corrupted (e.g., after Ctrl+C)
-                        global _prompt_session
-                        _prompt_session = None
-                        # Try once more with a fresh session
-                        try:
-                            session = get_prompt_session()
-                            import re
-                            clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt)
-                            
-                            if context_chat:
-                                token_info = f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] "
-                                html_prompt = HTML(token_info + f'<dim>{clean_prompt}</dim>')
-                                user_input = await session.prompt_async(html_prompt)
-                            else:
-                                html_prompt = HTML(f'<dim>{clean_prompt}</dim>')
-                                user_input = await session.prompt_async(html_prompt)
-                        except Exception:
-                            # Final fallback to regular input
-                            if context_chat:
-                                user_input = input(f"\n[Tokens: {math.ceil(len(context_chat.__str__())*3/4)} | Messages: {len(context_chat.messages)}] " + prompt)
-                            else:
-                                user_input = input(prompt)
-            except KeyboardInterrupt:
-                logging.warning(colored("\n# cli-agent: Exiting due to Ctrl+C...", "yellow"))
-                exit()
-        
-        # --- Command Handling ---
-        if user_input and user_input.startswith('/'):
-            parts = user_input.split()
-            command_alias = parts[0]
-            canonical_command = COMMAND_MAP.get(command_alias)
-
-            if not canonical_command:
-                logging.error(colored(f"# cli-agent: Unknown command '{command_alias}'. Type '/help' for a list of commands.", "red"))
-                continue
-
-            # --- Command Dispatcher ---
-            if canonical_command == 'screenshot':
-                logging.info(colored("# cli-agent: Taking screenshot.", "green"))
-                base64_images = await handle_screenshot_capture()
-                return "", base64_images
-
-            elif canonical_command == 'multiline':
-                return handle_multiline_input(), []
-
-            elif canonical_command == 'regenerate':
-                if not context_chat or len(context_chat.messages) < 2:
-                    logging.error(colored("# cli-agent: No chat history found, cannot regenerate.", "red"))
-                    continue
-                logging.info(colored("# cli-agent: Regenerating last response.", "green"))
-                context_chat.messages.pop()
-                return "", [] # Return empty to trigger regeneration
-
-            elif canonical_command == 'local':
-                args.local = not args.local
-                g.FORCE_LOCAL = args.local
-                logging.info(colored(f"# cli-agent: Local mode toggled {'on' if args.local else 'off'}.", "green"))
-                continue
-
-            elif canonical_command == 'llm':
-                logging.info(colored("# cli-agent: Opening LLM selection.", "green"))
-                try:
-                    from main import llm_selection
-                    await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
-                except ImportError as e:
-                    logging.error(colored(f"# cli-agent: LLM selection function not available. Import failed: {e}", "red"))
-                continue
-            
-            elif canonical_command == 'unsay':
-                if context_chat and len(context_chat.messages) >= 2:
-                    context_chat.messages.pop() # Assistant
-                    context_chat.messages.pop() # User
-                    logging.info(colored("# cli-agent: Removed last user message and AI response.", "green"))
-                elif context_chat and len(context_chat.messages) == 1:
-                    context_chat.messages.pop() # User
-                    logging.info(colored("# cli-agent: Removed last user message.", "green"))
-                else:
-                    logging.warning(colored("# cli-agent: No messages to remove.", "yellow"))
-                continue
-
-            elif canonical_command == 'auto_execute':
-                args.auto = not args.auto
-                # (Your existing logic for displaying guard status can remain here)
-                logging.info(colored(f"# cli-agent: Automatic execution toggled {'on' if args.auto else 'off'}.", "green"))
-                continue
-
-            elif canonical_command == 'fast_mode':
-                args.fast = not args.fast
-                logging.info(colored(f"# cli-agent: Fast mode toggled {'on' if args.fast else 'off'} (deprecated).", "green"))
-                continue
-
-            elif canonical_command == 'voice_mode':
-                args.voice = not args.voice
-                logging.info(colored(f"# cli-agent: Voice mode toggled {'on' if args.voice else 'off'}.", "green"))
-                continue
-
-            elif canonical_command == 'full_output':
-                args.full_output_mode = not args.full_output_mode
-                g.SUMMARY_MODE = not args.full_output_mode
-                logging.info(colored(f"# cli-agent: Full output mode toggled {'on' if args.full_output_mode else 'off'}.", "green"))
-                continue
-            
-            elif canonical_command == 'print':
-                logging.info(colored("# cli-agent: Printing chat history.", "green"))
-                os.system('clear')
-                print(colored("Chat history:", "green"))
-                if context_chat:
-                    context_chat.print_chat()
-                else:
-                    print(colored("No chat history available.", "yellow"))
-                continue
-
-            elif canonical_command == 'online':
-                args.online = not args.online
-                logging.info(colored(f"# cli-agent: Online mode toggled {'on' if args.online else 'off'}.", "green"))
-                continue
-
-            elif canonical_command == 'exit':
-                logging.info(colored("# cli-agent: Exiting...", "green"))
-                exit(0)
-
-            elif canonical_command == 'help':
-                try:
-                    from main import print_startup_summary
-                    print_startup_summary(args)
-                except ImportError:
-                    pass  # Skip startup summary if not available
-                print(colored("\n--- Available Commands ---", "yellow"))
-                CMD_WIDTH = 28
-                for cmd_info in _COMMAND_DEFINITIONS:
-                    aliases = ', '.join(cmd_info['aliases'])
-                    line = f"  {colored(aliases.ljust(CMD_WIDTH), 'white')}{cmd_info['description']}"
-                    print(line)
-                continue
-            
-            elif canonical_command == 'save':
-                try:
-                    from main import save_current_llm_config_as_default
-                    await save_current_llm_config_as_default()
-                except ImportError as e:
-                    logging.error(colored(f"# cli-agent: Save function not available. Import failed: {e}", "red"))
-                continue
-
-            elif canonical_command == 'clear':
-                if context_chat:
-                    context_chat.messages.clear()
-                try:
-                    from main import construct_engineered_prompt
-                    context_chat = await construct_engineered_prompt(args.voice)
-                except ImportError as e:
-                    logging.error(colored(f"# cli-agent: Clear function not available. Import failed: {e}", "red"))
-                logging.info(colored("# cli-agent: Chat cleared.", "green"))
-                continue
-            
-            elif canonical_command == 'compact':
-                if context_chat and context_chat.messages:
-                    logging.info(colored("# cli-agent: Compacting conversation...", "green"))
-                    g.AGENT_IS_COMPACTING = True
-                    automated_message = "Let's pause. Please summarize our conversation and progress into a markdown file at: {}/MEMORY/summary_{}.md".format(g.CLIAGENT_PERSISTENT_STORAGE_PATH, time.strftime("%Y%m%d_%H%M%S"))
-                    return automated_message, []
-                else:
-                    logging.warning(colored("# cli-agent: No conversation to compact.", "yellow"))
-                continue
-            
-            elif canonical_command == 'permissions':
-                # The dispatcher calls the handler, passing the full user input
-                await handle_permission_flags(user_input, get_user_input_with_bindings, args, input_event, input_lock, shared_input)
-                continue
-
-        # If it's not a command, it's a normal text prompt.
-        return user_input, []
 
 # Initialize the stateful flag for the first call.
 get_user_input_with_bindings.is_first_call = True
@@ -378,60 +95,12 @@ async def handle_screenshot_capture() -> List[str]:
     """
     Handles the screenshot capture process.
 
+    LEGACY WRAPPER: This function now delegates to the unified input system.
+
     Returns:
         List[str]: The base64 encoded image data or an empty list if failed.
     """
-    base64_images: List[str] = []
-    screenshots_paths: List[str] = []
-    max_attempts = 3
-    for attempt in range(1, max_attempts + 1):
-        base64_images = []
-        try:
-            logging.info(colored("Attempting screenshot with Spectacle (region selection)...", "green"))
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
-                temp_filename = temp_file.name
-            subprocess.run(['spectacle', '-rbno', temp_filename], check=True)
-            if os.path.exists(temp_filename) and os.path.getsize(temp_filename) > 0:
-                with open(temp_filename, 'rb') as image_file:
-                    png_data = image_file.read()
-                base64_img = base64.b64encode(png_data).decode('utf-8')
-                base64_images = [base64_img]
-                pyperclip.copy(base64_img)
-                logging.info(colored("Screenshot captured successfully. (+Copied to clipboard)", "green"))
-            else:
-                logging.warning(colored(f"No screenshot was captured (attempt {attempt}).", "yellow"))
-            if os.path.exists(temp_filename):
-                os.unlink(temp_filename)
-        except subprocess.CalledProcessError:
-            logging.error(colored(f"Spectacle command failed on attempt {attempt}. Is it installed?", "red"))
-        except Exception as e:
-            logging.exception(f"Unexpected error during screenshot capture attempt {attempt}: {e}")
-        if base64_images:
-            break
-        if attempt < max_attempts and not base64_images:
-            logging.warning(colored("Retrying screenshot capture...", "yellow"))
-            await asyncio.sleep(2)
-    if base64_images:
-        images_dir = os.path.join(g.AGENTS_SANDBOX_DIR, "screenshots")
-        os.makedirs(images_dir, exist_ok=True)
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        for i, base64_img in enumerate(base64_images):
-            try:
-                img_data = base64.b64decode(base64_img)
-                img_path = os.path.join(images_dir, f"screenshot_{timestamp}_{i+1}.png")
-                screenshots_paths.append(img_path)
-                with open(img_path, "wb") as img_file:
-                    img_file.write(img_data)
-                logging.info(colored(f"Screenshot saved to {img_path}", "green"))
-            except Exception as e:
-                logging.error(colored(f"Error saving screenshot {i+1}: {e}", "red"))
-    else:
-        logging.error(colored("No images were captured.", "red"))
-    if not base64_images:
-        logging.warning(colored("# cli-agent: No screenshot was captured after multiple attempts.", "yellow"))
-        return []
-    
-    return base64_images
+    return await handle_screenshot_capture_unified()
 
 
 async def handle_permission_flags(user_input: str, get_user_input_func, args, input_event, input_lock, shared_input):

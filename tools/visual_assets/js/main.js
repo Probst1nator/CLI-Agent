@@ -208,6 +208,9 @@ class VisualResponseApp {
 
         // Iframe focus management
         this.setupIframeFocusManagement();
+
+        // Agent message height management
+        // this.setupAgentMessageHeightManagement();
     }
 
     handleChatSubmit() {
@@ -873,7 +876,7 @@ class VisualResponseApp {
             'Pondering the cosmic giggle...',           // Watts: The playful, non-serious nature of existence
             'Ingesting a heroic dose of data...',          // McKenna: A nod to his ideas on profound experiences
             'Searching for synchronicities...',// Jung: Looking for meaningful, acausal connections
-            'Surrendering to the data stream...',       // Watts: A Taoist/Zen approach to letting the answer emerge
+            'Observing before judging...',       // Watts: A Taoist/Zen approach to letting the answer emerge
             'Increasing local novelty...',              // McKenna: A reference to his Novelty Theory
             'Querying the collective unconscious...',   // Jung: Accessing the shared, universal repository of archetypes
             'Juggling the prickly and the gooey...'     // Watts: His metaphor for the interplay of order and chaos
@@ -1367,6 +1370,63 @@ class VisualResponseApp {
         iframe.dataset.interactionSetup = 'true';
 
         console.log('Interactive overlay added to iframe');
+    }
+
+    /**
+     * Setup agent message height management
+     * Makes agent messages scale to 90% of content-wrapper height with hover scrolling
+     */
+    setupAgentMessageHeightManagement() {
+        const updateAgentMessageHeights = () => {
+            const contentWrapper = document.getElementById('content-wrapper');
+            if (!contentWrapper) return;
+
+            const contentWrapperHeight = contentWrapper.clientHeight;
+            const maxAgentMessageHeight = Math.floor(contentWrapperHeight * 0.9);
+
+            // Apply height to all agent messages
+            const agentMessages = document.querySelectorAll('.message-block.agent-message');
+            agentMessages.forEach(message => {
+                message.style.maxHeight = maxAgentMessageHeight + 'px';
+            });
+
+            console.log(`Updated agent message max-height to ${maxAgentMessageHeight}px (90% of ${contentWrapperHeight}px)`);
+        };
+
+        // Initial setup
+        updateAgentMessageHeights();
+
+        // Update on window resize
+        window.addEventListener('resize', updateAgentMessageHeights);
+
+        // Update whenever new messages are added (using MutationObserver)
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (contentWrapper) {
+            const observer = new MutationObserver((mutations) => {
+                let hasNewAgentMessage = false;
+                mutations.forEach((mutation) => {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === Node.ELEMENT_NODE &&
+                            (node.classList?.contains('agent-message') ||
+                             node.querySelector?.('.message-block.agent-message'))) {
+                            hasNewAgentMessage = true;
+                        }
+                    });
+                });
+
+                if (hasNewAgentMessage) {
+                    // Small delay to ensure DOM is fully updated
+                    setTimeout(updateAgentMessageHeights, 10);
+                }
+            });
+
+            observer.observe(contentWrapper, {
+                childList: true,
+                subtree: true
+            });
+        }
+
+        console.log('Agent message height management initialized');
     }
 
 }
