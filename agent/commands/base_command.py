@@ -30,6 +30,7 @@ class CommandResponse:
     message: str = ""
     base64_images: List[str] = None
     user_input: str = ""
+    should_regenerate: bool = False
     
     def __post_init__(self) -> None:
         if self.base64_images is None:

@@ -13,120 +13,121 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import FileHistory
 
 
-# --- UNIFIED COMMAND DEFINITION SYSTEM ---
+# --- LEGACY COMMAND DEFINITIONS ---
+# These definitions are deprecated and maintained only for backwards compatibility.
+# The new single source of truth is in agent.core.command_registry.
 
-# The single source of truth for all CLI commands.
-# Each entry defines:
-#   - canonical: The unique, internal name for the command.
-#   - aliases: A list of all user-facing strings that trigger the command (e.g., ['/r', '/regenerate']).
-#   - description: The help text for the command.
-#   - sub_commands: (Optional) A dictionary for commands with sub-actions.
-_COMMAND_DEFINITIONS: List[Dict[str, Any]] = [
-    # Basic commands
-    {'canonical': 'screenshot', 'aliases': ['/img', '/screenshot'], 'description': 'Take a screenshot for visual analysis'},
-    {'canonical': 'multiline', 'aliases': ['/m', '/message'], 'description': 'Enter multiline input mode'},
-    {'canonical': 'regenerate', 'aliases': ['/r', '/regenerate'], 'description': 'Regenerate the last AI response'},
-    {'canonical': 'local', 'aliases': ['/l', '/local'], 'description': 'Toggle local-only LLM mode'},
-    {'canonical': 'llm', 'aliases': ['/llm'], 'description': 'Open LLM selection interface'},
-    {'canonical': 'unsay', 'aliases': ['/unsay'], 'description': 'Remove last user message and AI response'},
-    {'canonical': 'auto_execute', 'aliases': ['/a', '/auto'], 'description': 'Toggle automatic code execution mode'},
-    {'canonical': 'voice_mode', 'aliases': ['/v', '/voice'], 'description': 'Toggle voice input/output mode'},
-    {'canonical': 'full_output', 'aliases': ['/fo', '/full_output'], 'description': 'Show full model output instead of summary'},
-    {'canonical': 'print', 'aliases': ['/p', '/print'], 'description': 'Print complete chat history'},
+from agent.core.command_registry import get_global_command_registry
 
-    # Navigation & session commands
-    {'canonical': 'online', 'aliases': ['/o', '/online'], 'description': 'Toggle online mode for web-enabled features'},
-    {'canonical': 'exit', 'aliases': ['/e', '/exit'], 'description': 'Exit CLI-Agent'},
-    {'canonical': 'help', 'aliases': ['/h', '/help'], 'description': 'Show help and available commands'},
-    {'canonical': 'save', 'aliases': ['/s', '/save'], 'description': 'Save current LLM selection as default'},
-    {'canonical': 'clear', 'aliases': ['/clear'], 'description': 'Clear chat history and start fresh'},
-    {'canonical': 'reset', 'aliases': ['/reset'], 'description': 'Complete agent reset (chat, tools, images, context)'},
-    {'canonical': 'compact', 'aliases': ['/compact'], 'description': 'Compact conversation (create summary)'},
+def _get_legacy_command_definitions() -> List[Dict[str, Any]]:
+    """Get command definitions in legacy format for backwards compatibility."""
+    registry = get_global_command_registry()
+    legacy_definitions = []
 
-    # Permission management commands
-    {
-        'canonical': 'permissions',
-        'aliases': ['/perms', '/permissions'],
-        'description': 'Manage tool execution permissions',
-        'sub_commands': {
-            'list': 'List all saved permissions',
-            'remove': 'Remove specific permission by ID',
-            'clear': 'Clear all saved permissions',
-            'interactive': 'Open interactive permission manager',
-            'manage': 'Open interactive permission manager',
+    for canonical, command_def in registry.get_all_commands().items():
+        legacy_def = {
+            'canonical': command_def.canonical,
+            'aliases': command_def.aliases,
+            'description': command_def.description
         }
-    }
-]
+        if command_def.sub_commands:
+            legacy_def['sub_commands'] = command_def.sub_commands
+        legacy_definitions.append(legacy_def)
+
+    return legacy_definitions
+
+# Legacy global for backwards compatibility
+_COMMAND_DEFINITIONS = _get_legacy_command_definitions()
 
 
 def get_command_definitions() -> Dict[str, Any]:
     """
     Dynamically generates command definitions for the completer.
-    
+
     Returns:
         Dictionary mapping command aliases to their sub-commands (if any)
     """
-    defs = {}
-    for cmd_info in _COMMAND_DEFINITIONS:
-        for alias in cmd_info['aliases']:
-            if 'sub_commands' in cmd_info:
-                # Create a simple structure for the completer
-                defs[alias] = {sub: None for sub in cmd_info['sub_commands']}
-            else:
-                defs[alias] = None
-    return defs
+    registry = get_global_command_registry()
+    return registry.get_command_definitions_for_completion()
 
 
 def get_command_descriptions() -> Dict[str, str]:
     """
     Dynamically generates command descriptions for the completer tooltips.
-    
+
     Returns:
         Dictionary mapping command aliases to their descriptions
     """
-    descs = {}
-    for cmd_info in _COMMAND_DEFINITIONS:
-        for alias in cmd_info['aliases']:
-            descs[alias] = cmd_info['description']
-        if 'sub_commands' in cmd_info:
-            for sub_cmd, sub_desc in cmd_info['sub_commands'].items():
-                # Provide descriptions for sub-commands as well
-                for alias in cmd_info['aliases']:
-                    descs[f"{alias} {sub_cmd}"] = sub_desc
-    return descs
+    registry = get_global_command_registry()
+    return registry.get_command_descriptions_for_completion()
 
 
 def _build_command_map() -> Dict[str, str]:
     """
     Builds a map from every alias to its canonical command name for the dispatcher.
-    
+
     Returns:
         Dictionary mapping aliases to canonical names (e.g., {'/r': 'regenerate'})
     """
-    command_map = {}
-    for cmd_info in _COMMAND_DEFINITIONS:
-        canonical_name = cmd_info['canonical']
-        for alias in cmd_info['aliases']:
-            command_map[alias] = canonical_name
-    return command_map
+    registry = get_global_command_registry()
+    return registry.export_command_map()
 
 
 class CommandCompleterWithDescriptions(Completer):
-    """Custom completer that shows command descriptions in completion tooltips."""
-    
+    """
+    LEGACY: Custom completer that shows command descriptions in completion tooltips.
+
+    This class is maintained for backwards compatibility but now delegates to
+    the unified completion system.
+    """
+
     def __init__(self):
         self.commands = get_command_definitions()
         self.descriptions = get_command_descriptions()
-    
+        self._unified_completer = None
+
+    def _get_unified_completer(self):
+        """Get the unified completer, creating it if necessary."""
+        if self._unified_completer is None:
+            try:
+                from agent.core.unified_completion import UnifiedCommandCompleter
+                from agent.commands.command_handler import CommandHandler
+
+                # Create a minimal context for the command handler
+                # This is a temporary solution for backwards compatibility
+                class MinimalContext:
+                    def __init__(self):
+                        import logging
+                        self.logger = logging.getLogger("command_system")
+
+                context = MinimalContext()
+                command_handler = CommandHandler(context)
+                self._unified_completer = UnifiedCommandCompleter(command_handler)
+            except ImportError:
+                # Fallback to legacy implementation
+                self._unified_completer = None
+
+        return self._unified_completer
+
     def get_completions(self, document, complete_event):
         """Generate completions with descriptions for the current input."""
+        unified_completer = self._get_unified_completer()
+        if unified_completer:
+            # Use unified completion system
+            try:
+                return unified_completer.get_completions(document, complete_event)
+            except Exception:
+                # Fall back to legacy implementation
+                pass
+
+        # Legacy implementation as fallback
         text = document.text_before_cursor
-        
+
         if not text.startswith('/'):
             return
-            
+
         words = text.split()
-        
+
         if len(words) <= 1:
             prefix = words[0] if words else ''
             for command in self.commands.keys():
@@ -137,11 +138,11 @@ class CommandCompleterWithDescriptions(Completer):
                         start_position=-len(prefix),
                         display_meta=description
                     )
-        
+
         elif len(words) == 2:
             main_command = words[0]
             subcommand_prefix = words[1]
-            
+
             if main_command in self.commands and isinstance(self.commands[main_command], dict):
                 for subcommand in self.commands[main_command].keys():
                     if subcommand.startswith(subcommand_prefix):

@@ -12,6 +12,14 @@
   - `core/cli_args.py` - CLI argument parsing extracted from main.py with exact same logic, enabling reuse across different entry points (main.py, main_refactored.py)
   - `core/config_utils.py` - LLM and Monte Carlo configuration functions extracted from main.py, consolidating apply_default_llm_config() and apply_monte_carlo_config() with preserved logic
   - `core/command_system.py` - **NEW (2025)**: Unified command definition system and command completion extracted from main.py. Provides centralized command management with aliases, descriptions, and prompt toolkit integration
+  - `core/input_manager.py` - **NEW (2025)**: Unified input management system providing clean abstraction layer for all input sources (CLI, GUI, Web, Voice) with standardized event handling, source registration, and processor routing
+  - `core/input_sources.py` - **NEW (2025)**: Concrete input source implementations for CLI (prompt_toolkit), GUI (event-driven), Web (browser-based), Voice (speech recognition), and Queue (programmatic) input methods
+  - `core/command_processor.py` - **NEW (2025)**: Command processing system integrating with unified input manager, providing specialized processors for commands, text, interrupts, and images with proper error handling
+  - `core/input_compatibility.py` - **NEW (2025)**: Compatibility layer bridging legacy and new input systems, enabling gradual migration while maintaining backwards compatibility with existing get_user_input_with_bindings interface
+  - `core/input_handlers.py` - **MIGRATED (2025)**: Input handling utilities now serving as compatibility wrappers that delegate to the unified input system while preserving original function interfaces for seamless transition
+  - `core/unified_completion.py` - **NEW (2025)**: Unified command completion system working across all interfaces (CLI, GUI, Web) with consistent behavior, real-time command discovery, and JSON serialization for web clients
+  - `core/command_registry.py` - **NEW (2025)**: Single source of truth for command definitions, centralizing command metadata and bridging static definitions with dynamic implementations through categorized command registry
+  - `core/migration_helper.py` - **NEW (2025)**: Migration utilities for transitioning main.py from legacy input handling to unified system, providing drop-in replacements, monkey-patching capabilities, and gradual migration support
   
   **NEW: Command System Architecture (2025)**
   - `commands/base_command.py` - Abstract base class and protocols for all CLI commands with proper typing, consistent interfaces, and command registration system
@@ -23,7 +31,8 @@
   
   **NEW: GUI Components (2025)**
   - `gui/layouts.py` - Layout definitions and management for prompt_toolkit-based GUI including main layout, debug layout, minimal layout, and compact layout options
-  - `gui/widgets.py` - Custom GUI widgets including ChatDisplay for conversation history, StatusPanel for system information, InputArea for user input, and ChatMessage for message formatting
+  - `gui/widgets.py` - **ENHANCED (2025)**: Custom GUI widgets with standardized event handling including ChatDisplay for conversation history, StatusPanel for system information, InputArea for user input, and ChatMessage for message formatting
+  - `gui/event_manager.py` - **NEW (2025)**: Standardized GUI event handling and session management system providing unified event types, session lifecycle management, input coordination, and event processing for all GUI interfaces
   - `gui/__init__.py` - GUI package initialization providing clean imports for layout and widget components
   
   **NEW: Monte Carlo Engine (2025)**

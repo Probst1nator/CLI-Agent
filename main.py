@@ -42,16 +42,17 @@ if '--debug' not in sys.argv:
     os.environ['TRANSFORMERS_VERBOSITY'] = 'error'  # Transformers library
     
     # Create comprehensive stderr suppression context
-    @contextlib.contextmanager 
+    @contextlib.contextmanager
     def suppress_stderr_completely():
         """Completely suppress stderr output during context"""
-        with open(os.devnull, "w") as devnull:
-            old_stderr = sys.stderr
-            sys.stderr = devnull
-            try:
-                yield
-            finally:
-                sys.stderr = old_stderr
+        devnull = open(os.devnull, "w")
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stderr = old_stderr
+            devnull.close()
                 
     @contextlib.contextmanager
     def suppress_warnings_runtime():
@@ -89,10 +90,11 @@ import time
 import logging
 import re
 import asyncio
-import threading  
+import threading
 import json
 import argparse
 import signal
+import queue
 from pathlib import Path
 from termcolor import colored
 from typing import Dict, List, Optional, Callable, Any
@@ -120,6 +122,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # --- Tool and Core Imports ---
+from core.tool_context import tool_context
 from tools.primitives.todos import todos
 from tools.readfile import readfile
 from tools.bash import bash
@@ -127,9 +130,6 @@ from shared.utils_audio import text_to_speech
 from core.globals import g
 from core.llm_router import LlmRouter, StreamInterruptedException, UserInterruptedException
 from core.chat import Chat, Role
-from agent.playbook.playbook_manager import PlaybookManager
-from agent.utils_manager.utils_manager import UtilsManager
-from utils.tool_context import tool_context
 from core.permissions.enhanced_permissions import enhanced_permission_prompt
 from shared.common_utils import extract_blocks
 import traceback
@@ -278,6 +278,15 @@ def setup_signal_handlers():
         _interrupt_flag.set()
         print(colored("\n🛑 INTERRUPT SIGNAL RECEIVED - Cancelling AI generation...", "red", attrs=['bold']))
 
+        # Break out of autonomous loops immediately
+        if hasattr(g, 'autonomous_iteration_count'):
+            g.autonomous_iteration_count = 999  # Force exit from autonomous mode
+        if hasattr(g, 'total_autonomous_count'):
+            g.total_autonomous_count = 999  # Force exit from autonomous mode
+
+        # Set a global interrupt flag for the main loop
+        g.USER_INTERRUPT_REQUESTED = True
+
         # Attempt immediate provider cancellation if available
         try:
             from core.llm_router import LlmRouter
@@ -294,7 +303,7 @@ def setup_signal_handlers():
             # Don't let provider cancellation errors break the signal handler
             pass
 
-        print(colored("  → Returning to user input...", "yellow"))
+        print(colored("  → Breaking out of autonomous mode and returning to user input...", "yellow"))
 
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -363,6 +372,217 @@ def offer_intelligent_recovery_options(context_chat):
     except Exception:
         # Fallback for systems without select support
         return 'continue'
+
+# --- Background Input Collector ---
+class InputCollector:
+    """
+    Background thread that collects user input without interrupting AI tool execution.
+    Queues user commands in args.message for processing at natural loop boundaries.
+    """
+
+    def __init__(self, args: argparse.Namespace):
+        self.args = args
+        self.running = False
+        self.thread = None
+        self.input_queue = queue.Queue()
+
+    def start(self):
+        """Start the background input collection thread."""
+        if self.running:
+            return
+
+        self.running = True
+        self.thread = threading.Thread(target=self._collect_input, daemon=True)
+        self.thread.start()
+        logging.debug("Background input collector started")
+
+    def stop(self):
+        """Stop the background input collection thread."""
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=1.0)
+        logging.debug("Background input collector stopped")
+
+    def _collect_input(self):
+        """Main input collection loop running in background thread."""
+        while self.running:
+            try:
+                # Check different input sources based on mode
+                if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+                    self._check_gui_input()
+                else:
+                    self._check_cli_input()
+
+                # Process any queued input
+                self._process_queued_input()
+
+                # Small sleep to prevent excessive CPU usage
+                time.sleep(0.1)
+
+            except Exception as e:
+                logging.debug(f"Input collector error: {e}")
+                time.sleep(0.5)  # Longer sleep on error
+
+    def _check_gui_input(self):
+        """Check for GUI input from visual_input_queue."""
+        if hasattr(g, 'visual_input_queue') and not g.visual_input_queue.empty():
+            try:
+                user_input = g.visual_input_queue.get_nowait()
+                if user_input and user_input.strip():
+                    self.input_queue.put(user_input.strip())
+            except queue.Empty:
+                pass
+
+    def _check_cli_input(self):
+        """Check for CLI input using non-blocking method."""
+        # Skip CLI input monitoring if we're in GUI mode - it can interfere
+        # The GUI mode will handle input through get_gui_input() which now
+        # checks for queued commands from this collector
+        if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+            return
+
+        try:
+            # Use select on Unix systems for non-blocking input
+            import select
+            import sys
+
+            # Check if stdin is available and not redirected
+            if not sys.stdin.isatty():
+                return
+
+            # Check if input is available on stdin
+            if select.select([sys.stdin], [], [], 0.0)[0]:
+                try:
+                    # Read a line of input
+                    user_input = sys.stdin.readline().strip()
+                    if user_input:
+                        self.input_queue.put(user_input)
+                except (EOFError, KeyboardInterrupt):
+                    pass
+
+        except ImportError:
+            # Windows doesn't have select, use msvcrt if available
+            try:
+                import msvcrt
+                if msvcrt.kbhit():
+                    # Read characters until we get a complete line
+                    line = ""
+                    while msvcrt.kbhit():
+                        char = msvcrt.getch().decode('utf-8', errors='ignore')
+                        if char == '\r':  # Enter key
+                            if line.strip():
+                                self.input_queue.put(line.strip())
+                            line = ""
+                            break
+                        elif char == '\b':  # Backspace
+                            if line:
+                                line = line[:-1]
+                        elif ord(char) >= 32:  # Printable characters
+                            line += char
+            except ImportError:
+                # Neither select nor msvcrt available, skip CLI monitoring
+                pass
+        except Exception:
+            # Ignore any other errors in input detection
+            pass
+
+    def _process_queued_input(self):
+        """Process any input in the queue and add to args.message."""
+        while not self.input_queue.empty():
+            try:
+                user_input = self.input_queue.get_nowait()
+
+                # Add to message queue for processing at next loop iteration
+                if user_input:
+                    self.args.message.append(user_input)
+
+                    # Show immediate feedback to user with priority indication
+                    queue_size = len(self.args.message)
+                    priority_indicator = ""
+
+                    # Determine priority level for display
+                    if user_input.startswith(('/exit', '/stop')):
+                        priority_indicator = " 🔴"  # Urgent
+                    elif user_input.startswith(('/help', '/save', '/clear', '/reset', '/screenshot')):
+                        priority_indicator = " 🟡"  # High priority
+                    elif user_input.startswith('/'):
+                        priority_indicator = " 🟢"  # Command
+
+                    if queue_size == 1:
+                        print(colored(f"\n⚡ Command ready for instant execution: {user_input}{priority_indicator}", "cyan"))
+                    else:
+                        print(colored(f"\n⚡ Command ready for instant execution: {user_input}{priority_indicator} (⏳ {queue_size} total queued)", "cyan"))
+
+                    # Set interrupt flag to break out of waiting states immediately
+                    self._set_command_interrupt()
+
+            except queue.Empty:
+                break
+
+    def _set_command_interrupt(self):
+        """Set flag to interrupt waiting states and process commands immediately."""
+        # Set a flag that can be checked by waiting functions
+        if not hasattr(self, '_command_interrupt'):
+            self._command_interrupt = threading.Event()
+        self._command_interrupt.set()
+
+    def has_pending_commands(self):
+        """Check if there are pending commands to process."""
+        return bool(self.args.message)
+
+    def get_command_interrupt_event(self):
+        """Get the command interrupt event for waiting functions."""
+        if not hasattr(self, '_command_interrupt'):
+            self._command_interrupt = threading.Event()
+        return self._command_interrupt
+
+# Global input collector instance
+_input_collector = None
+
+def get_input_collector(args: argparse.Namespace = None) -> InputCollector:
+    """Get or create the global input collector instance."""
+    global _input_collector
+    if _input_collector is None and args:
+        _input_collector = InputCollector(args)
+    return _input_collector
+
+def _get_next_priority_message(message_list: List[str]) -> Optional[str]:
+    """
+    Get the next message to process, prioritizing urgent commands.
+
+    Priority order:
+    1. /exit, /stop - Immediate termination commands
+    2. /help, /save, /clear, /reset - User assistance commands
+    3. Other commands (starting with /)
+    4. Regular messages (FIFO order)
+
+    Returns:
+        The next message to process, or None if no messages available
+    """
+    if not message_list:
+        return None
+
+    # Define priority levels
+    urgent_commands = ['/exit', '/stop']
+    high_priority_commands = ['/help', '/save', '/clear', '/reset', '/screenshot']
+
+    # Check for urgent commands first
+    for msg in message_list:
+        if any(msg.startswith(cmd) for cmd in urgent_commands):
+            return msg
+
+    # Check for high priority commands
+    for msg in message_list:
+        if any(msg.startswith(cmd) for cmd in high_priority_commands):
+            return msg
+
+    # Check for any other commands
+    for msg in message_list:
+        if msg.startswith('/'):
+            return msg
+
+    # Return first regular message (FIFO)
+    return message_list[0] if message_list else None
 
 # --- Custom Logging Setup ---
 def parse_cli_args() -> argparse.Namespace:
@@ -472,6 +692,11 @@ from dotenv import load_dotenv
 import warnings
 import subprocess
 
+# --- FIX: Import new command system components ---
+from agent.commands.command_handler import CommandHandler
+from agent.commands.base_command import CommandResult
+# --- END FIX ---
+
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="Valid config keys have changed in V2:")
@@ -511,6 +736,31 @@ def get_extract_blocks():
     """
     return extract_blocks
 
+def auto_correct_html_for_xml(text: str) -> str:
+    """
+    Automatically corrects common HTML void tags to be XML-compliant.
+    Finds tags like <img>, <br>, <hr>, <input> that are not self-closed
+    and adds the closing slash.
+
+    Args:
+        text (str): The text potentially containing non-compliant HTML.
+
+    Returns:
+        str: Text with void tags corrected for XML parsing.
+    """
+    # This regex finds unclosed void tags (img, br, hr, input, etc.)
+    # It looks for the tag name, followed by attributes, and ensures it doesn't already end with '/>'.
+    # The negative lookbehind `(?<!/)` ensures we don't match already self-closed tags.
+    void_tag_pattern = re.compile(r"<((?:img|br|hr|input|link|meta)[^>]*?)(?<!/)>", re.IGNORECASE)
+
+    # The substitution function adds the self-closing slash
+    def self_close_tag(match):
+        tag_content = match.group(1).strip()
+        return f"<{tag_content} />"
+
+    corrected_text = void_tag_pattern.sub(self_close_tag, text)
+
+    return corrected_text
 
 def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
     """
@@ -1017,38 +1267,46 @@ def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, s
 async def get_gui_input() -> str:
     """
     Get input from browser interface instead of terminal.
-    Monitors the visual_input_queue from the web server.
+    Prioritizes queued commands from the background input collector, then
+    waits for input from the visual_input_queue.
     """
     import queue
-    
+    input_collector = get_input_collector()
+
+    # HIGHEST PRIORITY: Process any commands queued by the background collector
+    if input_collector and input_collector.has_pending_commands():
+        # Let the main loop handle pulling from args.message by returning None
+        # This signals that the input source is the message queue.
+        return None
+
     if not hasattr(g, 'visual_input_queue'):
         raise Exception("Visual input queue not available for GUI input")
-    
+
     logging.info(colored("🌐 Waiting for browser input...", "blue"))
-    
-    # Wait for input from the browser
+
     while True:
+        # Check for newly queued commands during the wait
+        if input_collector and input_collector.has_pending_commands():
+            return None # Prioritize the new command
+
         try:
-            # Check if we have input from the browser
-            if not g.visual_input_queue.empty():
-                user_input = g.visual_input_queue.get_nowait()
+            # Wait for input from the browser with a timeout
+            user_input = g.visual_input_queue.get(timeout=0.1)
 
-                # Check for special reset command from browser
-                if user_input.strip() == "__AGENT_RESET__":
-                    logging.info(colored("🔄 Received agent reset request from browser", "yellow"))
-                    # Set a flag to trigger reset (will be handled in main loop)
-                    g.AGENT_RESET_REQUESTED = True
-                    return ""  # Return empty to trigger loop continuation
+            if user_input.strip() == "__AGENT_RESET__":
+                logging.info(colored("🔄 Received agent reset request from browser", "yellow"))
+                g.AGENT_RESET_REQUESTED = True
+                return None # Signal to main loop to handle the reset
 
-                logging.info(colored(f"🌐 Received browser input: {user_input[:50]}...", "green"))
-                return user_input
+            logging.info(colored(f"🌐 Received browser input: {user_input[:50]}...", "green"))
+            return user_input
+
         except queue.Empty:
-            pass
+            # Timeout occurred, loop again to check for queued commands
+            continue
         except Exception as e:
             logging.error(f"Error checking visual input queue: {e}")
-            
-        # Small delay to prevent busy waiting
-        await asyncio.sleep(0.1)
+            await asyncio.sleep(0.1)
 
 
 async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False) -> Chat:
@@ -1066,12 +1324,13 @@ The following loop is a suggestion of how to behave effectively, you may freely 
 1.  **DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
 2.  **PLAN & TRACK**: Display/update your <todos>...</todos> to align your next step(s) with the stated long term goal(s).'''
     
-    step_4 = "4.  **OBSERVE & ATTEND**: After executing a tool, ALWAYS use <think> and/or <todos> to update your observations and plan your next move for as long as needed, then, continue with the next action."
+    step_4 = "4.  **OBSERVE & ATTEND**: After executing a tool, ALWAYS use <think> and <todos> to remember and update your plan based on your observations. When you have finished your tasks or need intermittent information from the user, please prompt him with <response>."
 
     # In GUI mode, modify the tool documentation and response behavior
     if gui_mode:
         # Replace 'response' instructions with 'visualresponse'
         base_instructions = base_instructions.replace("response", "visualresponse")
+        step_4 = step_4.replace("response", "visualresponse")
         tool_docs = _generate_tool_documentation(["response"])
     else:
         tool_docs = _generate_tool_documentation()
@@ -1108,7 +1367,6 @@ async def reset_agent_state(args: argparse.Namespace, context_chat: Chat) -> Cha
 
     # Reset tool context
     tool_context.reset()
-
     # Clear global tool execution state
     if hasattr(g, 'last_executed_tools_info'):
         g.last_executed_tools_info = None
@@ -1229,14 +1487,6 @@ async def main(
             apply_monte_carlo_config()
         elif not args.llm and not args.local and not args.fast:
             apply_default_llm_config()
-
-        # Create the UtilsManager first, as it's needed for prompt generation
-        # Suppress noisy gRPC/SSL warnings from web search tools unless in debug mode
-        if '--debug' not in sys.argv:
-            with suppress_stderr_completely():
-                utils_manager = UtilsManager()
-        else:
-            utils_manager = UtilsManager()
 
         # Configure TTS engine priority based on --remote-tts flag
         if getattr(args, 'online_voice', False):
@@ -1359,9 +1609,6 @@ async def main(
         g.stderr_callback = stderr_callback
         g.tui_callback = tui_callback  # Store tui_callback as well for consistent logging
         
-        if tui_callback: tui_callback("  - Loading utilities and playbooks...", "system")
-        playbook_manager = PlaybookManager(vector_db=utils_manager.vector_db)
-        
         if tui_callback: tui_callback("✔ Initialization complete.", "system_ok")
         else: 
             # Display tool loading information
@@ -1411,6 +1658,11 @@ async def main(
             logging.info(colored("Agent Ready.", "magenta"))
             show_unified_bindings_display()
             swap_to_simple_logging()
+
+        # Start background input collector for real-time command queuing
+        input_collector = get_input_collector(args)
+        if input_collector:
+            input_collector.start()
 
         user_interrupt = False
         if not (args.c or args.regenerate):
@@ -1474,11 +1726,44 @@ I have successfully viewed my permissions. Is there anything else I can assist y
         
         assistant_response = ""
 
+        # --- FIX: Instantiate CommandHandler once before the loop ---
+        # This uses a minimal 'dummy' context to allow the command objects
+        # to be instantiated, as they rely on a context object.
+        class DummyAppContext:
+            def __init__(self):
+                self.logger = logging.getLogger("command_handler_context")
+                # Add a settings object to satisfy commands that need it
+                class DummySettings:
+                    def __init__(self):
+                        self.auto_execute = args.auto
+                        self.voice_mode = args.voice
+                        self.local_mode = args.local
+                        self.online_mode = args.online
+                        self.full_output_mode = args.full_output_mode
+                self.settings = DummySettings()
+        
+        command_handler = CommandHandler(DummyAppContext())
+        # --- END FIX ---
+
         initializing: bool = True
+        
+        # --- FIX: Initialize CommandHandler once, after logging is configured ---
+        class DummyAppContext:
+            def __init__(self):
+                self.logger = logging.getLogger("command_handler_context")
+                class DummySettings:
+                    def __init__(self):
+                        self.auto_execute = args.auto
+                        self.voice_mode = args.voice
+                        self.local_mode = args.local
+                        self.online_mode = args.online
+                        self.full_output_mode = args.full_output_mode
+                self.settings = DummySettings()
+        command_handler = CommandHandler(DummyAppContext())
+        # --- END FIX ---
+
         while True:
             LlmRouter().failed_models.clear()
-            user_input: Optional[str] = None
-            
             g.LLM_STRENGTHS = []
             assistant_response = ""
             
@@ -1498,183 +1783,37 @@ I have successfully viewed my permissions. Is there anything else I can assist y
             g.DEBUG_CHATS = args.debug_chats
             g.LLM = args.llm
             g.SUMMARY_MODE = not args.full_output_mode
+
+            # --- UNIFIED INPUT GATHERING ---
+            # All input sources are now handled within get_user_input_with_bindings
+            user_input, new_images = await get_user_input_with_bindings(
+                args, context_chat, force_input=user_interrupt,
+                input_event=input_event, input_lock=input_lock, shared_input=shared_input
+            )
             
-            # # Auto compact chat length limit in chars
-            # if (len(str(context_chat)) > 100000):
-            #     print("# cli-agent: 100.000 char threshold reached: Auto compacting conversation...")
-            #     g.AGENT_IS_COMPACTING = True
+            # --- UNIFIED COMMAND & IMAGE PROCESSING ---
+            if new_images:
+                base64_images.extend(new_images)
 
-            if args.regenerate:
-                user_input = ""
-                args.regenerate = False
-            elif args.message:
-                user_input = args.message.pop(0)
-                print(colored(f"💬 Processing message: {user_input}" + (f" (⏳ {len(args.message)} more queued)" if args.message else ""), 'blue', attrs=['bold']), flush=True)
-
-                # Send user message to visual interface in GUI mode
-                if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
-                    try:
-                        from tools.visualresponse import visualresponse
-                        result = visualresponse.send_user_message(user_input)
-                        logging.info(f"User message send result: {result} - Message: {user_input[:50]}...")
-                    except Exception as e:
-                        logging.debug(f"Failed to send user message to visual interface: {e}")
-
-                # CRITICAL SECURITY: Process commands BEFORE sending to AI
-                # Commands like /help, /exit, etc. should NEVER reach the AI
-                # This prevents users from accidentally exposing system commands to AI processing
-                if user_input.startswith('/'):
-                    from agent.core.command_system import COMMAND_MAP, _COMMAND_DEFINITIONS
-                    
-                    # Extract command and arguments
-                    parts = user_input.split()
-                    command_alias = parts[0]
-                    canonical_command = COMMAND_MAP.get(command_alias)
-                    
-                    if not canonical_command:
-                        logging.error(colored(f"# cli-agent: Unknown command '{command_alias}'. Type '/help' for a list of commands.", "red"))
-                        continue  # Skip this message and process next one
-                    
-                    # Handle each command type - these should NEVER go to the AI
-                    if canonical_command == 'help':
-                        # Show startup summary and command list
-                        print_startup_summary(args)
-                        print(colored("\n--- Available Commands ---", "yellow"))
-                        CMD_WIDTH = 28
-                        for cmd_info in _COMMAND_DEFINITIONS:
-                            aliases = ', '.join(cmd_info['aliases'])
-                            line = f"  {colored(aliases.ljust(CMD_WIDTH), 'white')}{cmd_info['description']}"
-                            print(line)
-                        continue  # Skip AI processing
-                        
-                    elif canonical_command == 'exit':
-                        logging.info(colored("# cli-agent: Exiting...", "green"))
-                        exit(0)
-                        
-                    elif canonical_command == 'clear':
-                        if context_chat:
-                            context_chat.messages.clear()
-                        context_chat = await construct_engineered_prompt(args.voice, args.gui)
-                        logging.info(colored("# cli-agent: Chat cleared.", "green"))
-                        continue  # Skip AI processing
-
-                    elif canonical_command == 'reset':
-                        context_chat = await reset_agent_state(args, context_chat)
-                        continue  # Skip AI processing
-
-                    elif canonical_command == 'save':
-                        await save_current_llm_config_as_default()
-                        continue  # Skip AI processing
-                        
-                    elif canonical_command == 'local':
-                        args.local = not args.local
-                        g.FORCE_LOCAL = args.local
-                        logging.info(colored(f"# cli-agent: Local mode toggled {'on' if args.local else 'off'}.", "green"))
-                        continue  # Skip AI processing
-                        
-                    elif canonical_command == 'voice_mode':
-                        args.voice = not args.voice
-                        logging.info(colored(f"# cli-agent: Voice mode toggled {'on' if args.voice else 'off'}.", "green"))
-                        continue  # Skip AI processing
-                        
-                    elif canonical_command == 'auto_execute':
-                        args.auto = not args.auto
-                        logging.info(colored(f"# cli-agent: Auto-execution toggled {'on' if args.auto else 'off'}.", "green"))
-                        continue  # Skip AI processing
-                        
-                    elif canonical_command == 'online':
-                        args.online = not args.online
-                        logging.info(colored(f"# cli-agent: Online mode toggled {'on' if args.online else 'off'}.", "green"))
-                        continue  # Skip AI processing
-                        
-                    else:
-                        # Handle other commands that might need more complex processing
-                        # For now, log and continue to prevent AI access
-                        logging.warning(colored(f"# cli-agent: Command '{canonical_command}' not fully implemented in message mode.", "yellow"))
-                        continue  # Skip AI processing
-            elif args.voice:
-                user_input = ""
-                
-                # --- NEW: Robustly extract the final response for TTS ---
-                # Get the full content of the agent's last message.
-                last_message_content = context_chat.messages[-1][1]
-                spoken_text = ""
-                
-                try:
-                    # Use a greedy search to find the *last* occurrence of the <response> block.
-                    # '.*' at the start is greedy and consumes the string, then backtracks
-                    # to find the rightmost possible match. This is more efficient than findall.
-                    match = re.search(r'.*<response[^>]*>(.*?)</response>', last_message_content, re.DOTALL)
-                    
-                    if match and not initializing:
-                        # If a match is found, extract its content from capture group 1.
-                        spoken_text = match.group(1).strip()
-                    elif not initializing:
-                        logging.info(colored("WARNING: No <response> tag found in the last message for TTS.", "yellow"))
-                        
-                except Exception as e:
-                    # Fails gracefully if last_message_content is not a string or another error occurs.
-                    logging.error(colored(f"Error extracting response for TTS: {e}", "red"))
-                    spoken_text = ""
-                # --- END of new logic ---
-
-                while (user_input == ""):
-                    # The text-to-speech call now happens inside the loop.
-                    if args.voice and spoken_text:
-                        try:
-                            text_to_speech(text=spoken_text, use_piper=True)
-                            logging.info(colored("TTS call completed.", "cyan"))
-                            # IMPORTANT: Clear the text after speaking it to prevent it from
-                            # being repeated if the user doesn't say anything.
-                            spoken_text = ""
-                        except Exception as tts_e:
-                            logging.error(colored(f"TTS failed: {tts_e}", "red"), exc_info=True)
-                            spoken_text = "" # Also clear on failure to prevent loops
-
-                    # Listen for the user's next command.
-                    user_input, _, wake_word_used = get_listen_microphone()(
-                        private_remote_wake_detection=args.private_remote_wake_detection, 
-                        remote_voice_enabled=args.online_voice
-                    )
-
-            # Handle agent reset request from visual interface
-            elif hasattr(g, 'AGENT_RESET_REQUESTED') and g.AGENT_RESET_REQUESTED:
-                context_chat = await reset_agent_state(args, context_chat)
-                continue  # Skip AI processing and continue with fresh state
-
-            elif g.AGENT_IS_COMPACTING:
-                g.AGENT_IS_COMPACTING = False
-                context_chat = await construct_engineered_prompt(args.voice, args.gui)
-                context_chat.add_message(Role.USER, "Hi can you please check your memory for the latest summary?")
-                context_chat.add_message(Role.ASSISTANT, """<think>
-The user wants me to search my memory for a the latest summary.
-I need to create a todo and call the summary tool with the order key set to latest.
-</think><todos>
-- [ ] Check my memory
-</todos><memory>
-<memory>
-latest summary LIMIT 1
-</memory>""")
-            else:
-                agent_logger = logging.getLogger("agent_main") if input_event else None
-                if agent_logger:
-                    agent_logger.info("About to call get_user_input_with_bindings")
-                user_input, new_images = await get_user_input_with_bindings(
-                    args, context_chat, force_input=user_interrupt, 
-                    input_event=input_event, input_lock=input_lock, shared_input=shared_input
+            if user_input and user_input.startswith('/'):
+                response = await command_handler.handle_command(
+                    user_input, args, context_chat=context_chat, command_handler=command_handler
                 )
-                if agent_logger:
-                    agent_logger.info(f"Got user input from get_user_input_with_bindings: '{user_input}'")
-                if new_images:
-                    base64_images.extend(new_images)
-                
+                if response.result == CommandResult.EXIT: exit(0)
+                if response.result == CommandResult.ERROR: logging.error(colored(f"# cli-agent: {response.message}", "red"))
+                continue # Always get next input after a command
+
+            # If no input was gathered from any source, loop back to wait for input
+            if user_input is None and not base64_images and not args.regenerate:
+                continue
+
                 if base64_images:
                     transcription_chat = Chat(
                         instruction_message="You are an image transcription assistant. Your only goal is to describe the provided image in detail.",
                         debug_title="Image Transcription"
                     )
                     transcription_chat.add_message(Role.USER, "Describe the following image.")
-                    
+
                     try:
                         transcription = await LlmRouter.generate_completion(
                             transcription_chat,
@@ -1687,7 +1826,6 @@ latest summary LIMIT 1
                         user_input = f"{user_input}{error_msg}"
 
                     base64_images = []
-                
                 try:
                     from utils.viewfiles import ViewFiles
                     local_paths = [path for path, _ in PathDetector.extract_paths_from_xml(user_input, "viewfiles")]
@@ -1980,8 +2118,14 @@ latest summary LIMIT 1
                     if g.SUMMARY_MODE and assistant_response.strip():
                         print(assistant_response)
 
-                    # --- XML VALIDATION ---
-                    # Check for malformed XML before attempting tool execution
+                    # --- INTELLIGENT CORRECTION & VALIDATION ---
+                    # 1. Proactively auto-correct common HTML tags to be XML-compliant
+                    corrected_response = auto_correct_html_for_xml(assistant_response)
+                    if corrected_response != assistant_response:
+                        logging.debug(colored("🔧 Auto-corrected HTML tags for XML compliance.", "cyan"))
+                        assistant_response = corrected_response
+
+                    # 2. Check for any remaining malformed XML
                     xml_errors = detect_malformed_xml(assistant_response)
                     if xml_errors:
                         # Generate context error message and add to chat
@@ -2060,8 +2204,6 @@ latest summary LIMIT 1
 
                         if should_execute:
                             try:
-                                # Reset tool context for clean execution
-                                tool_context.reset()
                                 tool_results = []
                                 executed_tools_info = []  # Track tool execution info for visual interface
                                 for tool_class in tool_tags_found:
@@ -2195,7 +2337,6 @@ latest summary LIMIT 1
                                     logging.debug(f"Stored execution info for {len(executed_tools_info)} tools")
 
                                 # Note: Automatic AI responses removed - only explicit visualresponse tool calls appear in interface
-
                                 if (len(returned_context) > 0):
                                     context_chat.add_message(Role.ASSISTANT, returned_context)
 
@@ -2204,7 +2345,6 @@ latest summary LIMIT 1
                                         context_chat.base64_images.extend(tool_context.get_images())
                                         logging.info(colored(f"📸 Added {len(tool_context.get_images())} image(s) to chat context for vision analysis", "blue"))
                                         tool_context.clear_images()  # Clear images after adding them
-                                    
                                     assistant_response = ""
                                     if ("response" in tool_name and "error" not in returned_context.lower()):
                                         # Break and wait for user input instead of continuing the loop
@@ -2326,6 +2466,11 @@ latest summary LIMIT 1
 
 def _perform_graceful_shutdown():
     """Perform graceful shutdown including log cleanup."""
+    # Stop input collector
+    input_collector = get_input_collector()
+    if input_collector:
+        input_collector.stop()
+
     try:
         from shared.utils.log_manager import get_log_manager
         log_manager = get_log_manager()

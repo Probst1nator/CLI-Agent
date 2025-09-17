@@ -38,9 +38,9 @@ class CommandHandler:
         from agent.commands.regenerate_command import RegenerateCommand
         from agent.commands.help_command import HelpCommand
         from agent.commands.simple_commands import (
-            MultilineCommand, ExitCommand, ClearCommand, UnsayCommand, 
-            PrintCommand, AutoCommand, VoiceCommand, LocalCommand,
-            OnlineCommand, FullOutputCommand, LlmCommand, 
+            MultilineCommand, ExitCommand, ClearCommand, ResetCommand, UnsayCommand,
+            PrintCommand, AutoCommand, VoiceCommand, FastModeCommand, LocalCommand,
+            OnlineCommand, FullOutputCommand, LlmCommand,
             PermissionCommand, SaveCommand, CompactCommand
         )
         
@@ -55,7 +55,9 @@ class CommandHandler:
             ExitCommand(self.context),
             SaveCommand(self.context),
             ClearCommand(self.context),
+            ResetCommand(self.context),
             VoiceCommand(self.context),
+            FastModeCommand(self.context),
             AutoCommand(self.context),
             LocalCommand(self.context),
             OnlineCommand(self.context),
@@ -67,10 +69,18 @@ class CommandHandler:
         
         for command in commands:
             register_command_aliases(self.registry, command)
+
+            # Also register with the global command registry
+            from agent.core.command_registry import register_command_implementation
+            register_command_implementation(command)
             
     def register_command(self, command: BaseCommand) -> None:
         """Register a new command."""
         register_command_aliases(self.registry, command)
+
+        # Also register with the global command registry
+        from agent.core.command_registry import register_command_implementation
+        register_command_implementation(command)
         
     def get_command_definitions(self) -> Dict[str, Any]:
         """Get command definitions for auto-completion."""

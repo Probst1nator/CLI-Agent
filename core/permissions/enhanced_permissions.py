@@ -365,13 +365,19 @@ async def enhanced_permission_prompt(
                                 elif permission_result == 'always_allow':
                                     # Handle always allow with scope
                                     scope = permission_action.get('scope', 'exact')
-                                    permissions_manager.save_permission(tool_name, file_path, True,
-                                                                      command_pattern, scope, permission_action.get('pattern'))
+                                    if scope == 'exact':
+                                        permissions_manager.add_always_allow(tool_name, file_path)
+                                    elif scope == 'directory':
+                                        permissions_manager.add_always_allow(tool_name, pattern=f"{os.path.dirname(file_path) if file_path else os.getcwd()}/*")
+                                    elif scope == 'project':
+                                        project_root = file_path.split("CLI-Agent")[0] + "CLI-Agent" if file_path and "CLI-Agent" in file_path else os.getcwd()
+                                        permissions_manager.add_always_allow(tool_name, pattern=f"{project_root}/*")
+                                    else:
+                                        permissions_manager.add_always_allow(tool_name, file_path)
                                     return True
                                 elif permission_result == 'always_deny':
                                     # Handle always deny
-                                    permissions_manager.save_permission(tool_name, file_path, False,
-                                                                      command_pattern, 'exact')
+                                    permissions_manager.add_always_deny(tool_name, file_path)
                                     return False
                         except multiprocessing.TimeoutError:
                             print("⏰ Permission request timed out, falling back to CLI prompt")

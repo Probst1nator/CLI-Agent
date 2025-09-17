@@ -111,7 +111,7 @@ class PrintCommand(BaseCommand):
         context_chat = kwargs.get('context_chat')
         if context_chat:
             print(colored("=== Chat History ===", "blue", attrs=["bold"]))
-            print(str(context_chat))
+            context_chat.print_chat()
         else:
             print(colored("# cli-agent: No chat history available.", "yellow"))
         return CommandResponse(result=CommandResult.CONTINUE)
@@ -136,19 +136,37 @@ class AutoCommand(BaseCommand):
 
 class VoiceCommand(BaseCommand):
     """Toggle voice input/output mode."""
-    
+
     @property
     def aliases(self) -> List[str]:
         return ['/v', '/voice']
-        
+
     @property
     def description(self) -> str:
         return 'Toggle voice input/output mode'
-        
+
     async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
         self.context.settings.voice_mode = not self.context.settings.voice_mode
         status = "enabled" if self.context.settings.voice_mode else "disabled"
         print(colored(f"# cli-agent: Voice mode {status}.", "green"))
+        return CommandResponse(result=CommandResult.CONTINUE)
+
+
+class FastModeCommand(BaseCommand):
+    """Toggle fast mode (deprecated feature)."""
+
+    @property
+    def aliases(self) -> List[str]:
+        return ['/f', '/fast']
+
+    @property
+    def description(self) -> str:
+        return 'Toggle fast mode (deprecated)'
+
+    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+        args.fast = not getattr(args, 'fast', False)
+        status = "enabled" if args.fast else "disabled"
+        print(colored(f"# cli-agent: Fast mode {status} (deprecated).", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)
 
 class LocalCommand(BaseCommand):
@@ -719,3 +737,40 @@ class CompactCommand(BaseCommand):
             error_msg = f"Conversation compacting failed: {str(e)}"
             self.logger.error(error_msg)
             return CommandResponse(result=CommandResult.ERROR, message=error_msg)
+
+
+class ResetCommand(BaseCommand):
+    """Complete agent reset (chat, tools, images, context)."""
+
+    @property
+    def aliases(self) -> List[str]:
+        return ['/reset']
+
+    @property
+    def description(self) -> str:
+        return 'Complete agent reset (chat, tools, images, context)'
+
+    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+        context_chat = kwargs.get('context_chat')
+
+        # Clear chat history
+        if context_chat:
+            context_chat.messages.clear()
+
+        # Clear any cached images or context
+        from core.globals import g
+        if hasattr(g, 'current_images'):
+            g.current_images = []
+
+        # Reset to default state
+        try:
+            # Re-initialize chat with engineered prompt
+            from main import construct_engineered_prompt
+            if context_chat:
+                context_chat = await construct_engineered_prompt(getattr(args, 'voice', False))
+        except ImportError:
+            # Fallback if not available
+            pass
+
+        print(colored("# cli-agent: Complete reset performed.", "green"))
+        return CommandResponse(result=CommandResult.CONTINUE)

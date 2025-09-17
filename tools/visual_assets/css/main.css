@@ -172,6 +172,7 @@ body {
 .message-block {
     margin-bottom: 3px;
     padding: 8px;
+    padding-top: 4px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background-color: var(--bg-color);
@@ -197,6 +198,17 @@ body {
     margin-right: auto;
     background-color: var(--bg-color);
     color: var(--text-color);
+    max-height: 90vh;
+    overflow: hidden;
+    transition: overflow 0.2s ease;
+}
+
+.message-block.agent-message:hover {
+    overflow-y: auto;
+}
+
+.message-block.agent-message .message-content {
+    max-height: inherit;
 }
 
 .message-block:first-child {
@@ -204,7 +216,7 @@ body {
 }
 
 .agent-msg-head {
-    font-size: 0.9rem;
+    font-size: rem;
     color: #888;
     font-family: "SF Mono", "Fira Code", "Courier New", monospace;
     margin-bottom: 6px;
@@ -341,27 +353,6 @@ body {
     border-color: #28a745;
 }
 
-.msg-expand-button {
-    background-color: #6c757d;
-    color: white;
-    border: 1px solid #6c757d;
-    padding: 1px 3px;
-    border-radius: 2px;
-    cursor: pointer;
-    font-size: 0.8rem;
-    font-weight: bold;
-    transition: all 0.2s;
-    min-width: 26px;
-    text-align: center;
-    margin-left: 4px;
-    flex-shrink: 0;
-}
-
-.msg-expand-button.expanded {
-    background-color: #fd7e14;
-    color: white;
-    border-color: #fd7e14;
-}
 
 .msg-js-toggle.enabled {
     background-color: #28a745;
@@ -375,12 +366,12 @@ body {
     border-color: #dc3545;
 }
 
-.msg-js-toggle:hover, .msg-reset-button:hover, .msg-copy-button:hover, .msg-save-button:hover, .msg-expand-button:hover {
+.msg-js-toggle:hover, .msg-reset-button:hover, .msg-copy-button:hover, .msg-save-button:hover {
     opacity: 0.8;
     transform: translateY(-1px);
 }
 
-.msg-js-toggle:active, .msg-reset-button:active, .msg-copy-button:active, .msg-save-button:active, .msg-expand-button:active {
+.msg-js-toggle:active, .msg-reset-button:active, .msg-copy-button:active, .msg-save-button:active {
     transform: translateY(0);
 }
 
@@ -866,51 +857,6 @@ code:not(pre > code) {
     pointer-events: auto;
 }
 
-/* Expanded message styling */
-.expanded-message {
-    position: fixed !important;
-    top: 20px;
-    left: 20px;
-    right: 20px;
-    bottom: 20px;
-    z-index: 10001;
-    background-color: var(--bg-color);
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    padding: 15px;
-    overflow-y: auto;
-    max-width: none !important;
-    width: calc(100vw - 40px) !important;
-    height: calc(100vh - 40px) !important;
-}
-
-.expanded-message .message-content {
-    height: calc(100% - 60px);
-    overflow: visible;
-}
-
-.expanded-message iframe {
-    width: 100% !important;
-    min-height: calc(100vh - 120px) !important;
-}
-
-/* Prevent body scroll when message is expanded */
-.message-expanded {
-    overflow: hidden;
-}
-
-/* Adjust header in expanded state */
-.expanded-message .agent-msg-head {
-    position: sticky;
-    top: 0;
-    background-color: var(--bg-color);
-    z-index: 10002;
-    padding-top: 10px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid var(--border-color);
-    margin-bottom: 15px;
-}
 
 /* --- Tool Execution Info Display --- */
 .tool-info-summary {
