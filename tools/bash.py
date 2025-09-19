@@ -21,6 +21,10 @@ from termcolor import colored
 # Assumes g is initialized and available from the project's core
 from core.globals import g
 
+# Set up tool-specific logging
+from shared.utils.tool_logging import get_logger_for_tool_module
+logger = get_logger_for_tool_module(__name__)
+
 # Add warning suppression for bash tool specifically
 @contextlib.contextmanager
 def suppress_bash_warnings():
@@ -40,11 +44,11 @@ def suppress_bash_warnings():
                 yield
             except Exception as e:
                 # If bash fails, re-raise with better context
-                logging.error(f"Bash session creation failed: {e}")
+                logger.error(f"Bash session creation failed: {e}")
                 raise
     else:
         # In debug mode, show everything for diagnosis
-        logging.debug("DEBUG mode: Bash warnings and errors will be shown")
+        logger.debug("DEBUG mode: Bash warnings and errors will be shown")
         yield
 
 class BashSession:
@@ -70,13 +74,13 @@ class BashSession:
         # Only log session start in debug mode to reduce noise
         debug_mode = '--debug' in sys.argv
         if debug_mode:
-            logging.info(colored("  - Starting bash session...", "cyan"))
+            logger.info(colored("  - Starting bash session...", "cyan"))
         
         # ENHANCED DIAGNOSTICS: Check shell availability and environment
         import shutil
         bash_path = shutil.which('bash') or '/usr/bin/bash' or '/bin/bash'
         if debug_mode:
-            logging.debug(f"  - Detected bash path: {bash_path}")
+            logger.debug(f"  - Detected bash path: {bash_path}")
         
         # Check if bash is executable
         if not os.path.isfile(bash_path) or not os.access(bash_path, os.X_OK):
@@ -85,7 +89,7 @@ class BashSession:
         # FALLBACK MODE: Use different parameters for problematic environments
         if fallback_mode:
             if debug_mode:
-                logging.warning("  - Using fallback mode for bash session creation")
+                logger.warning("  - Using fallback mode for bash session creation")
             spawn_command = f'{bash_path} -i'  # Interactive mode without profile restrictions
             spawn_timeout = 30  # Shorter timeout for fallback
             spawn_dimensions = (80, 24)  # Smaller dimensions
@@ -96,8 +100,8 @@ class BashSession:
         
         try:
             if debug_mode:
-                logging.debug(f"  - Spawning bash with command: {spawn_command}")
-                logging.debug(f"  - Using prompt: {self.bash_prompt_regex}")
+                logger.debug(f"  - Spawning bash with command: {spawn_command}")
+                logger.debug(f"  - Using prompt: {self.bash_prompt_regex}")
             
             # ENHANCED ERROR CAPTURE: Use selected parameters
             self.child = pexpect.spawn(spawn_command, 
@@ -109,24 +113,24 @@ class BashSession:
             # CRITICAL: Log bash process state immediately after spawn
             if self.child.isalive():
                 if debug_mode:
-                    logging.debug(f"  - Bash process started successfully (PID: {self.child.pid})")
+                    logger.debug(f"  - Bash process started successfully (PID: {self.child.pid})")
             else:
                 raise RuntimeError(f"Bash process died immediately after spawn (exit code: {self.child.exitstatus})")
             
             # Set the custom prompt and wait for it to appear
             if debug_mode:
-                logging.debug(f"  - Setting custom prompt: {self.bash_prompt_regex}")
+                logger.debug(f"  - Setting custom prompt: {self.bash_prompt_regex}")
             self.child.sendline(f'export PS1="{self.bash_prompt_regex}"')
             
             try:
                 self.child.expect_exact(self.bash_prompt_regex, timeout=10)
                 if debug_mode:
-                    logging.debug("  - Custom prompt established successfully")
+                    logger.debug("  - Custom prompt established successfully")
             except pexpect.TIMEOUT:
-                logging.error(f"  - Timeout waiting for prompt. Buffer content: '{self.child.before}'")
+                logger.error(f"  - Timeout waiting for prompt. Buffer content: '{self.child.before}'")
                 raise
             except pexpect.EOF:
-                logging.error(f"  - EOF during prompt setup. Before: '{self.child.before}', Exit status: {self.child.exitstatus}")
+                logger.error(f"  - EOF during prompt setup. Before: '{self.child.before}', Exit status: {self.child.exitstatus}")
                 raise
             
             # The problematic 'stty' and 'set +H' commands are now removed.
@@ -134,34 +138,34 @@ class BashSession:
             # Send a final command to flush any startup messages and confirm the session is ready
             dummy_boundary = f"__INIT_BOUNDARY_{uuid.uuid4().hex}__"
             if debug_mode:
-                logging.debug(f"  - Testing session with boundary: {dummy_boundary}")
+                logger.debug(f"  - Testing session with boundary: {dummy_boundary}")
             self.child.sendline(f'echo "{dummy_boundary}"')
             
             try:
                 self.child.expect_exact(dummy_boundary, timeout=10) # Expect the echo'd boundary
                 if debug_mode:
-                    logging.debug("  - Boundary echo successful")
+                    logger.debug("  - Boundary echo successful")
                 self.child.expect_exact(self.bash_prompt_regex, timeout=10) # Expect the prompt that follows
                 if debug_mode:
-                    logging.debug("  - Final prompt confirmation successful")
+                    logger.debug("  - Final prompt confirmation successful")
             except pexpect.TIMEOUT:
-                logging.error(f"  - Timeout during session validation. Buffer: '{self.child.before}'")
+                logger.error(f"  - Timeout during session validation. Buffer: '{self.child.before}'")
                 raise
             except pexpect.EOF:
-                logging.error(f"  - EOF during session validation. Before: '{self.child.before}', Exit: {self.child.exitstatus}")
+                logger.error(f"  - EOF during session validation. Before: '{self.child.before}', Exit: {self.child.exitstatus}")
                 raise
             
             # Clear buffers to start clean
             self.child.before = self.child.after = ""
             if debug_mode:
-                logging.info(colored("  - Bash session ready.", "cyan"))
+                logger.info(colored("  - Bash session ready.", "cyan"))
 
         except pexpect.exceptions.ExceptionPexpect as e:
             # --- Enhanced Error Logging ---
-            logging.error(colored(f"  - Failed to spawn bash: {e}", "red"))
+            logger.error(colored(f"  - Failed to spawn bash: {e}", "red"))
             if self.child:
-                logging.error(f"    Pexpect 'before' buffer: {self.child.before}")
-                logging.error(f"    Pexpect 'after' buffer: {self.child.after}")
+                logger.error(f"    Pexpect 'before' buffer: {self.child.before}")
+                logger.error(f"    Pexpect 'after' buffer: {self.child.after}")
             self.child = None
             raise
 
@@ -251,8 +255,8 @@ class BashSession:
                             self._stream_output(remaining)
                             output_capture.write(remaining + '\n')
                     break
-            
-            await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, 5)
+
+            await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, timeout)
             return output_capture.getvalue().strip()
 
         try:
@@ -320,7 +324,7 @@ class BashSession:
                     raise
             
             # Final prompt clear
-            await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, 5)
+            await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, timeout)
             return output_capture.getvalue().strip()
 
         try:
@@ -370,7 +374,7 @@ class BashSession:
             return response
             
         except Exception as e:
-            logging.error(f"Error converting to background process: {e}")
+            logger.error(f"Error converting to background process: {e}")
             error_string = f"\n[Error: TIMEOUT after {timeout} seconds. Failed to convert to background process: {e}]\n"
             self._try_recover_session()
             return error_string
@@ -390,7 +394,7 @@ class BashSession:
     def close(self):
         if self.child and self.child.isalive():
             self.child.close(force=True)
-        logging.info(colored("  - Bash session closed.", "cyan"))
+        logger.info(colored("  - Bash session closed.", "cyan"))
         self.child = None
 
 class bash:
@@ -407,12 +411,10 @@ class bash:
             "name": "bash",
             "description": (
                 "Executes shell commands in a persistent terminal session. "
-                "The `run` method streams output live to the console. "
-                "The `run_silent` method executes the command without printing to the console and returns the full output as a string. "
-                "Both methods require a <timeout> tag specifying the maximum execution time in seconds. "
+                "The <timeout> arg controls how long we run the session synchronously before converting it to async. (Defaults to 30s) "
                 "Essential for file system operations, running scripts, and system interaction."
             ),
-            "example": "<bash><timeout>30</timeout>\nls -l /app/src\n</bash>"
+            "example": "<bash><timeout>5</timeout>\nls -l /app/src\n</bash>"
         }
 
     @staticmethod
@@ -423,7 +425,7 @@ class bash:
         
         if session_dead:
             if bash._session:
-                logging.warning(colored("  - Bash session was found dead. Restarting.", "yellow"))
+                logger.warning(colored("  - Bash session was found dead. Restarting.", "yellow"))
             
             max_attempts = 3
             session_created = False
@@ -455,7 +457,7 @@ class bash:
                     pass
             
             if not session_created:
-                logging.error(colored("  - Bash session creation failed completely", "red"))
+                logger.error(colored("  - Bash session creation failed completely", "red"))
                 raise RuntimeError("Unable to create bash session")
                         
         return bash._session
@@ -495,7 +497,7 @@ class bash:
                 
                 bash._background_processes[process_id]['status'] = 'finished'
             except Exception as e:
-                logging.error(f"Error capturing background process output: {e}")
+                logger.error(f"Error capturing background process output: {e}")
                 if process_id in bash._background_processes:
                     bash._background_processes[process_id]['status'] = 'error'
         
@@ -510,14 +512,23 @@ class bash:
         Parses XML-like input, extracts a command and timeout, and executes it with live output.
         """
         try:
+            # Extract timeout if present
             timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
-            
+            timeout = 30  # Default timeout
+
             if timeout_match:
                 timeout = int(timeout_match.group(1))
                 if timeout <= 0: timeout = 5
-                command_content = content.replace(timeout_match.group(0), '').strip()
+                # Remove timeout tag from content
+                content = content.replace(timeout_match.group(0), '').strip()
+
+            # Handle special sleep pattern for backwards compatibility
+            sleep_match = re.search(r'<bash>\nsleep (\d+)\n</bash>', content)
+            if sleep_match:
+                timeout = int(sleep_match.group(1)) + 10  # process will end earlier but for leniency
+                command_content = content.replace(sleep_match.group(0), '').strip()
             else:
-                timeout = 5
+                # Extract command content (everything remaining after timeout removal)
                 command_content = content.strip()
 
             if not command_content:
@@ -530,7 +541,7 @@ class bash:
                 bash_return = "The bash tool exited successfully with no output."
             return bash_return
         except Exception as e:
-            logging.error(f"Fatal error executing bash command: {e}", exc_info=True)
+            logger.error(f"Fatal error executing bash command: {e}", exc_info=True)
             return f"Fatal error executing bash command: {e}"
 
     # NEW METHOD: `run_silent`
@@ -539,15 +550,16 @@ class bash:
         """
         Parses input and executes the command silently, only returning the final stdout.
         """
+        DEFAULT_TIMEOUT = 30
         try:
             timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
             
             if timeout_match:
                 timeout = int(timeout_match.group(1))
-                if timeout <= 0: timeout = 5
+                if timeout <= 0: timeout = DEFAULT_TIMEOUT
                 command_content = content.replace(timeout_match.group(0), '').strip()
             else:
-                timeout = 5
+                timeout = DEFAULT_TIMEOUT
                 command_content = content.strip()
 
             if not command_content:
@@ -558,5 +570,5 @@ class bash:
             return bash_return
         except Exception as e:
             # In silent mode, log the error but return a concise error string
-            logging.error(f"Fatal error during silent bash execution: {e}", exc_info=True)
+            logger.error(f"Fatal error during silent bash execution: {e}", exc_info=True)
             return f"[Silent Bash Error: {e}]"

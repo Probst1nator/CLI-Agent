@@ -6,9 +6,7 @@ with the unified input management framework.
 """
 
 from __future__ import annotations
-import asyncio
-import time
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 from agent.core.input_manager import (
     InputProcessor, InputEvent, InputResponse, InputEventType, InputSource
@@ -338,6 +336,7 @@ class UnifiedInputManager:
         args: Optional[argparse.Namespace] = None,
         context_chat = None,
         force_source: Optional[InputSource] = None,
+        force_input: bool = False,
         timeout: Optional[float] = None,
         **kwargs: Any
     ) -> tuple[str, list[str]]:
@@ -365,6 +364,25 @@ class UnifiedInputManager:
 
                     if queue_source.has_messages():
                         force_source = InputSource.QUEUE
+
+            # Handle force_input (e.g., from user interrupts)
+            if force_input:
+                # When forcing input, skip any queued messages and force interactive input
+                # Clear any queue-based force_source so we get fresh user input
+                if force_source == InputSource.QUEUE:
+                    force_source = None
+
+                # Force appropriate interactive source based on GUI mode
+                try:
+                    from core.globals import g
+                    if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+                        force_source = InputSource.WEB
+                    else:
+                        force_source = InputSource.CLI
+                except ImportError:
+                    force_source = InputSource.CLI
+
+                self.logger.info(f"Force input requested - using source: {force_source}")
 
             # Get input event
             event = await self.input_manager.get_input(

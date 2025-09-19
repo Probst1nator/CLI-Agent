@@ -11,28 +11,15 @@ management system. Legacy functions are maintained for backwards compatibility.
 
 import asyncio
 import argparse
-import base64
-import datetime
-import logging
-import math
-import os
-import re
-import subprocess
-import tempfile
 import threading
-import time
 from typing import Dict, Any, List, Optional, Tuple
 
-import pyperclip
 from termcolor import colored
-from prompt_toolkit import HTML
 
 # Functions will be imported dynamically to avoid circular imports
 
 # Import command system from refactored module
-from agent.core.command_system import COMMAND_MAP, get_prompt_session, _COMMAND_DEFINITIONS
 
-from core.globals import g
 from core.chat import Chat
 
 # Import new unified input system

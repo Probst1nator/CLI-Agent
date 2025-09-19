@@ -1,0 +1,116 @@
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set working directory
+WORKDIR /workspace
+
+# Install system dependencies for production
+RUN apt-get update && apt-get install -y \
+    # Essential tools
+    git \
+    curl \
+    wget \
+    unzip \
+    # Build essentials for Python packages
+    build-essential \
+    # Python 3.10+ for CLI-Agent
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-tk \
+    # Additional production dependencies
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    # Audio dependencies for TTS functionality
+    espeak \
+    espeak-data \
+    # Clean up to reduce image size
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip to latest version
+RUN pip3 install --no-cache-dir --upgrade pip
+
+# Copy CLI-Agent source code
+COPY . /cli-agent/
+WORKDIR /cli-agent
+
+# Install CLI-Agent dependencies (use full requirements for production)
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Create directories for data persistence and output
+RUN mkdir -p /cli-agent/data /cli-agent/logs /cli-agent/temp
+
+# Set environment variables for production
+ENV PYTHONPATH=/cli-agent
+ENV PYTHONUNBUFFERED=1
+ENV CLI_AGENT_GUI_MODE=true
+ENV CLI_AGENT_HOST=0.0.0.0
+ENV CLI_AGENT_DATA_DIR=/cli-agent/data
+ENV CLI_AGENT_LOG_DIR=/cli-agent/logs
+ENV CLI_AGENT_TEMP_DIR=/cli-agent/temp
+
+# Create a non-root user for security
+RUN useradd -m -u 1000 cliagent && \
+    chown -R cliagent:cliagent /workspace /cli-agent
+USER cliagent
+
+# Set working directory for execution
+WORKDIR /cli-agent
+
+# Expose the visual response server port range
+EXPOSE 7860-7870
+
+# Health check to ensure the visual response server is running
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:7860/health || curl -f http://localhost:7861/health || curl -f http://localhost:7862/health || exit 1
+
+# Create entrypoint script for production startup
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "=== CLI-Agent Production Container Starting ==="\n\
+echo "Timestamp: $(date)"\n\
+echo "Environment: Production"\n\
+echo "Data Directory: $CLI_AGENT_DATA_DIR"\n\
+echo "Log Directory: $CLI_AGENT_LOG_DIR"\n\
+echo "Host: $CLI_AGENT_HOST"\n\
+echo ""\n\
+\n\
+# Ensure data directories exist and are writable\n\
+mkdir -p "$CLI_AGENT_DATA_DIR" "$CLI_AGENT_LOG_DIR" "$CLI_AGENT_TEMP_DIR"\n\
+\n\
+# Function to handle graceful shutdown\n\
+cleanup() {\n\
+    echo ""\n\
+    echo "=== Graceful Shutdown Initiated ==="\n\
+    echo "Stopping CLI-Agent..."\n\
+    # Kill any running CLI-Agent processes\n\
+    pkill -f "python3.*main.py" || true\n\
+    echo "Cleanup complete"\n\
+    exit 0\n\
+}\n\
+\n\
+# Trap signals for graceful shutdown\n\
+trap cleanup SIGTERM SIGINT\n\
+\n\
+echo "=== Starting CLI-Agent in GUI Mode ==="\n\
+echo "Visual response server will start on available port in range 7860-7870"\n\
+echo "Access the interface at http://localhost:PORT after startup"\n\
+echo ""\n\
+\n\
+# Start CLI-Agent with GUI mode and handle shutdown gracefully\n\
+python3 main.py --gui &\n\
+CLI_AGENT_PID=$!\n\
+\n\
+# Wait for the process and handle signals\n\
+wait $CLI_AGENT_PID\n\
+' > /cli-agent/entrypoint.sh
+
+# Make the entrypoint script executable
+RUN chmod +x /cli-agent/entrypoint.sh
+
+# Use the entrypoint script as the default command
+ENTRYPOINT ["/cli-agent/entrypoint.sh"]

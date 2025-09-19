@@ -1,0 +1,190 @@
+#!/bin/bash
+# CLI-Agent Wrapper Script
+# Provides unified interface for local and containerized CLI-Agent instances
+
+set -e
+
+# Configuration
+CLI_AGENT_DIR="/home/prob/repos/CLI-Agent"
+DOCKER_ORCHESTRATOR="$CLI_AGENT_DIR/scripts/docker_orchestrator.py"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+print_status() {
+    local color=$1
+    local message=$2
+    echo -e "${color}${message}${NC}" >&2
+}
+
+show_help() {
+    echo "CLI-Agent - AI Command Line Agent"
+    echo ""
+    echo "Usage:"
+    echo "  cli-agent [options]                 # Run locally"
+    echo "  cli-agent -docker N [options]       # Run N containerized instances"
+    echo "  cli-agent --docker-status           # Show container status"
+    echo "  cli-agent --docker-stop             # Stop all containers"
+    echo "  cli-agent --docker-logs [N]         # Show logs for container N"
+    echo ""
+    echo "Docker Options:"
+    echo "  -docker N              Start N containerized CLI-Agent instances"
+    echo "  --docker-status        Show status of running containers"
+    echo "  --docker-stop          Stop all CLI-Agent containers"
+    echo "  --docker-logs [N]      Show logs for container N (or all if no N)"
+    echo "  --docker-clean         Remove all stopped containers and volumes"
+    echo "  --no-browser           Don't automatically open browser windows"
+    echo ""
+    echo "Local Options (passed through to main.py):"
+    echo "  -h, --help            Show this help message"
+    echo "  -a, --auto            Automatically execute safe commands"
+    echo "  -c                    Continue last conversation"
+    echo "  -l, --local           Use local Ollama backend"
+    echo "  -m, --message         Process messages in sequence"
+    echo "  -r, --regenerate      Regenerate last response"
+    echo "  -v, --voice           Enable voice input/output"
+    echo "  --online_voice        Use cloud-based speech services"
+    echo "  --full_output         Show live model output"
+    echo "  -img, --image         Enable image processing"
+    echo ""
+    echo "Examples:"
+    echo "  cli-agent -docker 3                 # Start 3 containers (auto-open browsers)"
+    echo "  cli-agent -docker 5 -v              # Start 5 containers with voice"
+    echo "  cli-agent -docker 2 --no-browser    # Start 2 containers without browsers"
+    echo "  cli-agent -m 'Hello world'          # Local execution with message"
+    echo "  cli-agent --docker-status            # Check container status"
+}
+
+# Parse command line arguments
+DOCKER_MODE=false
+DOCKER_COUNT=0
+DOCKER_ACTION=""
+NO_BROWSER=false
+REMAINING_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -docker)
+            DOCKER_MODE=true
+            if [[ $2 =~ ^[0-9]+$ ]]; then
+                DOCKER_COUNT=$2
+                shift 2
+            else
+                print_status $RED "Error: -docker requires a number (e.g., -docker 3)"
+                exit 1
+            fi
+            ;;
+        --docker-status)
+            DOCKER_ACTION="status"
+            shift
+            ;;
+        --docker-stop)
+            DOCKER_ACTION="stop"
+            shift
+            ;;
+        --docker-logs)
+            DOCKER_ACTION="logs"
+            if [[ $2 =~ ^[0-9]+$ ]]; then
+                DOCKER_LOGS_CONTAINER=$2
+                shift 2
+            else
+                shift
+            fi
+            ;;
+        --docker-clean)
+            DOCKER_ACTION="clean"
+            shift
+            ;;
+        --no-browser)
+            NO_BROWSER=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            REMAINING_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Change to CLI-Agent directory
+cd "$CLI_AGENT_DIR" || {
+    print_status $RED "Error: Cannot find CLI-Agent directory at $CLI_AGENT_DIR"
+    exit 1
+}
+
+# Handle Docker actions
+if [[ -n "$DOCKER_ACTION" ]]; then
+    case "$DOCKER_ACTION" in
+        status)
+            print_status $BLUE "🔍 Checking CLI-Agent container status..."
+            python3 "$DOCKER_ORCHESTRATOR" --status
+            ;;
+        stop)
+            print_status $BLUE "🛑 Stopping all CLI-Agent containers..."
+            python3 "$DOCKER_ORCHESTRATOR" --stop
+            ;;
+        logs)
+            if [[ -n "$DOCKER_LOGS_CONTAINER" ]]; then
+                print_status $BLUE "📝 Showing logs for container $DOCKER_LOGS_CONTAINER..."
+                python3 "$DOCKER_ORCHESTRATOR" --logs "$DOCKER_LOGS_CONTAINER"
+            else
+                print_status $BLUE "📝 Showing logs for all containers..."
+                python3 "$DOCKER_ORCHESTRATOR" --logs
+            fi
+            ;;
+        clean)
+            print_status $BLUE "🧹 Cleaning up Docker resources..."
+            python3 "$DOCKER_ORCHESTRATOR" --clean
+            ;;
+    esac
+    exit 0
+fi
+
+# Handle Docker mode
+if [[ "$DOCKER_MODE" = true ]]; then
+    if [[ $DOCKER_COUNT -lt 1 ]]; then
+        print_status $RED "Error: Docker count must be at least 1"
+        exit 1
+    fi
+
+    print_status $BLUE "🚀 Starting $DOCKER_COUNT CLI-Agent container(s)..."
+
+    # Check if Docker is available
+    if ! command -v docker &> /dev/null; then
+        print_status $RED "Error: Docker is not installed or not in PATH"
+        exit 1
+    fi
+
+    # Check if docker orchestrator exists
+    if [[ ! -f "$DOCKER_ORCHESTRATOR" ]]; then
+        print_status $RED "Error: Docker orchestrator not found at $DOCKER_ORCHESTRATOR"
+        exit 1
+    fi
+
+    # Build orchestrator command with no-browser flag if needed
+    ORCHESTRATOR_ARGS=("--count" "$DOCKER_COUNT")
+    if [[ "$NO_BROWSER" = true ]]; then
+        ORCHESTRATOR_ARGS+=("--no-browser")
+    fi
+    ORCHESTRATOR_ARGS+=("${REMAINING_ARGS[@]}")
+
+    # Execute docker orchestrator with all arguments
+    exec python3 "$DOCKER_ORCHESTRATOR" "${ORCHESTRATOR_ARGS[@]}"
+else
+    # Local execution using virtual environment (preserving original setup)
+    print_status $BLUE "🏃 Running CLI-Agent locally (virtual environment)..."
+    if [[ -n "$VIRTUAL_ENV" ]]; then
+        exec $VIRTUAL_ENV/bin/python "$CLI_AGENT_DIR/main.py" "${REMAINING_ARGS[@]}"
+    else
+        # Fallback to system python if no virtual env
+        exec python3 "$CLI_AGENT_DIR/main.py" "${REMAINING_ARGS[@]}"
+    fi
+fi

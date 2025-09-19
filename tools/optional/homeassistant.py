@@ -73,6 +73,7 @@ class _HomeAssistantAPI:
 
     @classmethod
     def check_reachability(cls) -> tuple[bool, str]:
+        hass_url = ""
         try:
             hass_url, hass_token = cls._get_config()
             # Attempt to hit a simple, unauthenticated endpoint or the /api/ endpoint

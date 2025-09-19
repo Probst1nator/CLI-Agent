@@ -207,7 +207,6 @@ class WebInputSource(InputSource_ABC):
 
             # If no legacy messages, proceed with polling the new visual_input_queue.
             from core.globals import g
-            import json
             from queue import Empty
 
             if not hasattr(g, 'visual_input_queue'):

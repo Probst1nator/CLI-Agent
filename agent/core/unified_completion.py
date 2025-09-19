@@ -7,7 +7,6 @@ real-time command discovery.
 """
 
 from __future__ import annotations
-import re
 from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document

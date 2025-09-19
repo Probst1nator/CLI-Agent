@@ -1152,6 +1152,14 @@ class LlmRouter:
                             else:
                                 logging.info(colored(full_msg, "cyan"))
 
+                # Check for interrupt before proceeding with model call
+                try:
+                    from main import check_interrupt
+                    if check_interrupt():
+                        raise UserInterruptedException("Model generation interrupted by user before starting.")
+                except ImportError:
+                    pass  # Fallback if main import is not available
+
                 # Check for cached completion (behavior varies by temperature)
                 prefixed_chat = chat.deep_copy()
                 if (assistant_prefix):

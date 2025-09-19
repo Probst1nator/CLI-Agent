@@ -26,3 +26,4 @@ sounddevice>=0.4.0  # Audio playback
 pathspec
 rank-bm25
 fasttext
+pyfiglet  # ASCII art for startup banner

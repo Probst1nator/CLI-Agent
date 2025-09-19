@@ -9,7 +9,7 @@ consistency between static definitions and dynamic command registration.
 from __future__ import annotations
 import logging
 from typing import Dict, List, Any, Optional, Set, TYPE_CHECKING
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 if TYPE_CHECKING:
     from agent.commands.base_command import BaseCommand

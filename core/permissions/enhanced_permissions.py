@@ -207,12 +207,15 @@ async def enhanced_permission_prompt(
         return False
     
     # Check if always allowed
-    if permissions_manager.is_always_allowed(tool_name, file_path, command_hash, xml_content):
-        def create_granted_operation_box(tool_name: str, action_description: str, file_path: str = None):
+    permission_result = permissions_manager.is_always_allowed(tool_name, file_path, command_hash, xml_content)
+    is_allowed, rule_description = permission_result if isinstance(permission_result, tuple) else (permission_result, None)
+
+    if is_allowed:
+        def create_granted_operation_box(tool_name: str, action_description: str, file_path: str = None, rule_info: str = None):
             tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
-            
+
             title = "─ PERMISSION GRANTED "
             remaining_width = INNER_WIDTH - len(title)
             top_border = f"┌{title}{'─' * remaining_width}┐"
@@ -229,10 +232,13 @@ async def enhanced_permission_prompt(
             if action_description:
                 action_display = (action_description[:(INNER_WIDTH - 11 - 3)] + "...") if len(action_description) > INNER_WIDTH - 11 else action_description
                 print(colored("│", "light_green") + f"    Action: {action_display}".ljust(INNER_WIDTH) + colored("│", "light_green"))
+            if rule_info:
+                rule_display = (rule_info[:(INNER_WIDTH - 9 - 3)] + "...") if len(rule_info) > INNER_WIDTH - 9 else rule_info
+                print(colored("│", "light_green") + f"    Rule: {rule_display}".ljust(INNER_WIDTH) + colored("│", "light_green"))
             print(colored("│", "light_green") + "".ljust(INNER_WIDTH) + colored("│", "light_green"))
             print(colored(bottom_border, "light_green"))
-        
-        create_granted_operation_box(tool_name, action_description, file_path)
+
+        create_granted_operation_box(tool_name, action_description, file_path, rule_description)
         return True
     
     # Get smart quick action
@@ -346,16 +352,62 @@ async def enhanced_permission_prompt(
                 if hasattr(g, 'visual_input_queue'):
                     try:
                         import json
+                        import queue
                         # Wait for permission response (with timeout)
                         timeout_seconds = 60  # 1 minute timeout
-                        import multiprocessing
-                        try:
-                            response_data = g.visual_input_queue.get(timeout=timeout_seconds)
-                            response = json.loads(response_data)
+                        max_attempts = 3  # Allow multiple attempts to find valid permission response
 
-                            if response.get('type') == 'permission_response':
+                        for attempt in range(max_attempts):
+                            # Check for main interrupt flag before each attempt
+                            try:
+                                from main import check_interrupt
+                                if check_interrupt():
+                                    print(colored("\n🛑 Permission request interrupted by user.", "red"))
+                                    return False
+                            except ImportError:
+                                pass  # Fallback if main import is not available
+
+                            try:
+                                response_data = g.visual_input_queue.get(timeout=timeout_seconds)
+
+                                # Skip None or empty responses
+                                if not response_data:
+                                    continue
+
+                                # Handle different types of input from the visual queue
+                                response = None
+                                if isinstance(response_data, dict):
+                                    # Already a dict, use directly
+                                    response = response_data
+                                elif isinstance(response_data, str):
+                                    # Try to parse as JSON, but handle regular user input gracefully
+                                    response_data = response_data.strip()
+                                    if response_data.startswith('{') and response_data.endswith('}'):
+                                        try:
+                                            response = json.loads(response_data)
+                                        except json.JSONDecodeError as je:
+                                            print(f"⚠️  Malformed JSON in visual queue (attempt {attempt + 1}): {je}")
+                                            continue
+                                    else:
+                                        # This is regular user input, not a permission response
+                                        # Put it back in the queue for the main input handler
+                                        g.visual_input_queue.put(response_data)
+                                        print(f"🔄 Regular user input detected, re-queuing: '{response_data[:50]}...'")
+                                        continue
+                                else:
+                                    print(f"⚠️  Unexpected data type in visual queue: {type(response_data)}")
+                                    continue
+
+                                # Validate that this is actually a permission response
+                                if not isinstance(response, dict) or response.get('type') != 'permission_response':
+                                    print(f"⚠️  Non-permission response in visual queue (attempt {attempt + 1}): {response}")
+                                    continue
+
+                                # Process valid permission response
                                 permission_result = response.get('result')
-                                permission_action = response.get('action')
+                                permission_action = response.get('action', {})
+
+                                print(f"✅ Valid permission response received: {permission_result}")
 
                                 # Handle the permission response
                                 if permission_result == 'allow':
@@ -379,15 +431,32 @@ async def enhanced_permission_prompt(
                                     # Handle always deny
                                     permissions_manager.add_always_deny(tool_name, file_path)
                                     return False
-                        except multiprocessing.TimeoutError:
-                            print("⏰ Permission request timed out, falling back to CLI prompt")
-                        except Exception as e:
-                            print(f"❌ Error processing permission response: {e}")
-                    except:
-                        pass
+                                else:
+                                    print(f"⚠️  Unknown permission result: {permission_result}")
+                                    continue
+
+                            except queue.Empty:
+                                print(f"⏰ Permission request timed out (attempt {attempt + 1}/{max_attempts})")
+                                if attempt == max_attempts - 1:
+                                    print("⏰ All permission response attempts timed out, falling back to CLI prompt")
+                                break  # Exit retry loop on timeout
+                            except json.JSONDecodeError as je:
+                                print(f"❌ JSON parsing error (attempt {attempt + 1}): {je}")
+                                continue
+                            except Exception as e:
+                                print(f"❌ Error processing permission response (attempt {attempt + 1}): {e}")
+                                continue
+
+                    except Exception as e:
+                        print(f"❌ Fatal error in GUI permission handling: {e}")
+                        import traceback
+                        traceback.print_exc()
         except Exception as e:
             # If GUI mode fails, fall back to CLI mode
             print(f"⚠️  GUI permission request failed, using CLI prompt: {e}")
+            print("🔄 Falling back to command-line permission prompt...")
+            import traceback
+            print(f"   Debug: {traceback.format_exc()}")
 
     def format_option_line(text):
         # Calculate visual length without ANSI color codes
@@ -503,22 +572,80 @@ async def enhanced_permission_prompt(
     print(colored(bottom_border, "blue"))
     
     while True:
+        # Check for main interrupt flag before prompting
+        try:
+            from main import check_interrupt
+            if check_interrupt():
+                print(colored("\n🛑 Operation interrupted by user.", "red"))
+                return False
+        except ImportError:
+            pass  # Fallback if main import is not available
+
         try:
             if get_user_input_func:
                 user_input, _ = await get_user_input_func(
                     args, None, colored("Choose an option: ", "blue"),
-                    input_event=input_event, 
-                    input_lock=input_lock, 
+                    input_event=input_event,
+                    input_lock=input_lock,
                     shared_input=shared_input
                 )
                 user_input = user_input or ""
             else:
                 user_input = input(colored(f"Choose an option {colored('y', 'green')}: ", "blue"))
-            
-            user_input = user_input.strip().lower()
+
+            user_input = user_input.strip()
+
+            # Check if this is a JSON permission response from the GUI
+            if user_input.startswith('{') and user_input.endswith('}'):
+                try:
+                    import json
+                    response = json.loads(user_input)
+                    if isinstance(response, dict) and response.get('type') == 'permission_response':
+                        print(f"✅ GUI permission response received: {response.get('result')}")
+
+                        permission_result = response.get('result')
+                        permission_action = response.get('action', {})
+
+                        # Handle the permission response
+                        if permission_result == 'allow':
+                            return True
+                        elif permission_result == 'deny':
+                            return False
+                        elif permission_result == 'always_allow':
+                            # Handle always allow with scope
+                            scope = permission_action.get('scope', 'exact')
+                            if scope == 'exact':
+                                permissions_manager.add_always_allow(tool_name, file_path)
+                            elif scope == 'directory':
+                                permissions_manager.add_always_allow(tool_name, pattern=f"{os.path.dirname(file_path) if file_path else os.getcwd()}/*")
+                            elif scope == 'project':
+                                project_root = file_path.split("CLI-Agent")[0] + "CLI-Agent" if file_path and "CLI-Agent" in file_path else os.getcwd()
+                                permissions_manager.add_always_allow(tool_name, pattern=f"{project_root}/*")
+                            else:
+                                permissions_manager.add_always_allow(tool_name, file_path)
+                            return True
+                        elif permission_result == 'always_deny':
+                            # Handle always deny
+                            permissions_manager.add_always_deny(tool_name, file_path)
+                            return False
+                        else:
+                            print(f"⚠️  Unknown permission result: {permission_result}")
+                            continue
+                except json.JSONDecodeError:
+                    # Not valid JSON, treat as regular user input
+                    pass
+
+            # Only convert to lowercase if it's not a JSON response
+            user_input = user_input.lower()
         except KeyboardInterrupt:
-            # User pressed Ctrl+C during permission prompt - treat as denial
+            # User pressed Ctrl+C during permission prompt - treat as denial but also propagate interrupt
             print(colored("\n❌ Operation cancelled by user (Ctrl+C).", "yellow"))
+            # Set the main interrupt flag to ensure the interrupt propagates to the main loop
+            try:
+                from main import _interrupt_flag
+                _interrupt_flag.set()
+            except ImportError:
+                pass  # Fallback if main import is not available
             return False
         
         if user_input in ('', 'y', 'yes'):
@@ -587,15 +714,60 @@ async def enhanced_permission_prompt(
         elif user_input in ('?', 'help'):
             show_permission_help(tool_name, file_path)
         else:
-            valid_options = "[Enter/y], n"
-            if read_only_option:
-                valid_options += ", r"
-            if tool_name == "bash" and xml_content:
-                valid_options += ", f"
-            if smart_action:
-                valid_options += f", {smart_action['quick_key']}"
-            valid_options += ", a/s/p/t/c/e, d/D, m, ?"
-            print(colored(f"❓ Invalid option. Enter one of: {valid_options}", "yellow"))
+            # Check if it looks like a JSON response and try to parse it
+            if user_input.startswith('{') and user_input.endswith('}'):
+                try:
+                    # Handle GUI JSON that might use single quotes instead of double quotes
+                    json_input = user_input.replace("'", '"')
+                    response = json.loads(json_input)
+                    if isinstance(response, dict) and response.get('type') == 'permission_response':
+                        print(f"✅ GUI permission response received: {response.get('result')}")
+                        permission_result = response.get('result')
+                        permission_action = response.get('action', {})
+
+                        # Handle the permission response
+                        if permission_result == 'allow':
+                            return True
+                        elif permission_result == 'deny':
+                            return False
+                        elif permission_result == 'always_allow':
+                            # Handle always allow with scope
+                            scope = permission_action.get('scope', 'exact')
+                            if scope == 'directory':
+                                permissions_manager.add_always_allow(tool_name, pattern=f"{os.path.dirname(file_path) if file_path else os.getcwd()}/*")
+                            elif scope == 'project':
+                                project_root = file_path.split("CLI-Agent")[0] + "CLI-Agent" if file_path and "CLI-Agent" in file_path else os.getcwd()
+                                permissions_manager.add_always_allow(tool_name, pattern=f"{project_root}/*")
+                            else:
+                                permissions_manager.add_always_allow(tool_name, file_path)
+                            return True
+                        elif permission_result == 'always_deny':
+                            # Handle always deny
+                            permissions_manager.add_always_deny(tool_name, file_path)
+                            return False
+                        else:
+                            print(f"⚠️  Unknown permission result: {permission_result}")
+                            continue
+                    else:
+                        print(colored("❓ Invalid JSON format. Expected permission_response type.", "yellow"))
+                except json.JSONDecodeError:
+                    print(colored(f"❓ Invalid option '{user_input}'. This looks like malformed JSON.", "yellow"))
+                    print(colored("   If this is from the GUI, there may be a communication issue.", "cyan"))
+                    print(colored("   Please try using keyboard input (y/n) or press ? for help.", "blue"))
+            else:
+                # Build dynamic list of valid options for better error messages
+                valid_options = "[Enter/y] (allow once), n (deny once)"
+                if read_only_option:
+                    valid_options += ", r (allow read-only operations)"
+                if tool_name == "bash" and xml_content:
+                    valid_options += ", f (always allow this bash command)"
+                if smart_action:
+                    valid_options += f", {smart_action['quick_key']} (smart action)"
+                valid_options += ", a/s/p/t/c/e (always allow with scope), d/D (always deny), m (manage permissions), ? (help)"
+
+                print(colored(f"❓ Invalid option '{user_input}'. Valid choices:", "yellow"))
+                print(colored(f"   {valid_options}", "cyan"))
+                print(colored("   Tip: Press ? for detailed help", "blue"))
 
 async def handle_direct_always_allow(suggestion: str, tool_name: str, file_path: str, permissions_manager, command_hash: str):
     if "* commands in current directory tree" in suggestion:
@@ -684,6 +856,15 @@ async def handle_permission_management(get_user_input_func, args, input_event, i
     print()
     
     while True:
+        # Check for main interrupt flag before prompting
+        try:
+            from main import check_interrupt
+            if check_interrupt():
+                print(colored("\n🛑 Permission manager interrupted by user.", "red"))
+                break
+        except ImportError:
+            pass  # Fallback if main import is not available
+
         try:
             if get_user_input_func:
                 user_input, _ = await get_user_input_func(
@@ -692,11 +873,17 @@ async def handle_permission_management(get_user_input_func, args, input_event, i
                 )
             else:
                 user_input = input(colored("Permission Manager> ", "cyan"))
-            
+
             user_input = user_input.strip().lower()
         except KeyboardInterrupt:
-            # User pressed Ctrl+C in permission manager - return to prompt
+            # User pressed Ctrl+C in permission manager - return to prompt but also propagate interrupt
             print(colored("\n↩️  Returning to permission prompt (Ctrl+C)...", "yellow"))
+            # Set the main interrupt flag to ensure the interrupt propagates to the main loop
+            try:
+                from main import _interrupt_flag
+                _interrupt_flag.set()
+            except ImportError:
+                pass  # Fallback if main import is not available
             break
         
         if user_input in ('back', 'exit'):

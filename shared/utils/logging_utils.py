@@ -9,6 +9,7 @@ import logging
 import re
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 from termcolor import colored
 
@@ -148,10 +149,100 @@ def setup_logging(debug_mode: bool, log_file: Optional[str] = None, tui_mode: bo
     logging.getLogger("transformers").setLevel(logging.WARNING)
 
 
+def setup_tool_logging(tool_name: str, debug_mode: bool = False) -> logging.Logger:
+    """
+    Configure a separate logger for tools with dedicated log file.
+
+    Args:
+        tool_name: Name of the tool (e.g., 'bash', 'visualresponse')
+        debug_mode: Enable debug logging level
+
+    Returns:
+        Configured logger for the tool
+    """
+    logger_name = f"tools.{tool_name}"
+    logger = logging.getLogger(logger_name)
+
+    # Avoid duplicate setup
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(logging.DEBUG if debug_mode else logging.INFO)
+
+    try:
+        # Import log manager for retention features
+        from shared.utils.log_manager import get_log_manager
+
+        log_manager = get_log_manager()
+
+        # Create tool-specific log file
+        log_file = f"~/.cli-agent/logs/tools_{tool_name}.log"
+        log_file_expanded = log_file.replace("~", str(Path.home()))
+
+        # Use tool-specific retention policy
+        file_handler = log_manager.create_rotating_handler(
+            log_file_expanded,
+            policy_name='application'  # Tools generate moderate logs
+        )
+        file_handler.setLevel(logging.DEBUG)
+
+        # Tool-specific formatter with tool name prefix
+        tool_formatter = FileFormatter(f"%(elapsed)s [{tool_name}] [%(levelname)-8s] %(message)s")
+        file_handler.setFormatter(tool_formatter)
+        logger.addHandler(file_handler)
+
+        # Optional console handler for errors only (reduces noise)
+        if debug_mode:
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(logging.WARNING)  # Only warnings/errors to console
+            console_formatter = SimpleFormatter(f"[{tool_name}] %(levelname)s: %(message)s")
+            console_handler.setFormatter(console_formatter)
+            logger.addHandler(console_handler)
+
+        # Don't propagate to root logger to avoid duplication
+        logger.propagate = False
+
+        logger.info(f"Tool logging initialized: {log_file}")
+
+    except ImportError:
+        # Fallback to basic file handler if log manager is not available
+        log_file = f"/tmp/cli-agent-tool-{tool_name}.log"
+        file_handler = logging.FileHandler(log_file, mode='a')
+        file_handler.setLevel(logging.DEBUG)
+        tool_formatter = logging.Formatter(f"%(asctime)s [{tool_name}] [%(levelname)-8s] %(message)s")
+        file_handler.setFormatter(tool_formatter)
+        logger.addHandler(file_handler)
+        logger.propagate = False
+        logger.info(f"Tool logging initialized (fallback): {log_file}")
+
+    return logger
+
+
+def get_tool_logger(tool_name: str, debug_mode: bool = False) -> logging.Logger:
+    """
+    Get or create a tool-specific logger.
+
+    Args:
+        tool_name: Name of the tool
+        debug_mode: Enable debug logging level
+
+    Returns:
+        Logger instance for the tool
+    """
+    logger_name = f"tools.{tool_name}"
+    logger = logging.getLogger(logger_name)
+
+    # Setup if not already done
+    if not logger.handlers:
+        return setup_tool_logging(tool_name, debug_mode)
+
+    return logger
+
+
 def swap_to_simple_logging() -> None:
     """
     Swaps the console handler's formatter to a simpler one without the timer.
-    
+
     This is useful for switching to a cleaner output format after startup.
     """
     root_logger = logging.getLogger()

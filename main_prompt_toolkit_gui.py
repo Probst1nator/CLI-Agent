@@ -28,7 +28,7 @@ try:
     from core.llm_router import LlmRouter
     from agent.core.command_system import _COMMAND_DEFINITIONS, _build_command_map
     from agent.gui.layouts import CLIAgentGUILayout
-    from agent.gui.widgets import ChatDisplay, StatusPanel
+    from agent.gui.widgets import ChatDisplay, StatusPanel, ConsoleLogWidget
     
     # Build command map for command handling
     COMMAND_MAP = _build_command_map()
@@ -52,6 +52,7 @@ class CLIAgentGUI:
         self.layout = CLIAgentGUILayout()
         self.chat_display = ChatDisplay()
         self.status_panel = StatusPanel()
+        self.console_log = ConsoleLogWidget()
         
         # CLI-Agent process and communication
         self.main_process: Optional[subprocess.Popen] = None
@@ -96,18 +97,41 @@ CLI-Agent GUI Help:
 - Ctrl+C: Exit
 - Ctrl+L: Clear chat
 - F1: Show this help
+- F2: Toggle console log sidebar
 - Enter: Send message
 - Up/Down: Navigate history
 """
             self.chat_display.add_message("📖 Help", help_text, "system")
+
+        @kb.add('f2')
+        def toggle_console_sidebar(event):
+            """Toggle the console log sidebar."""
+            sidebar_state = self.layout.toggle_sidebar()
+            self.status_panel.add_status(f"Console sidebar: {'visible' if sidebar_state else 'hidden'}")
+
+            # Rebuild the layout to reflect the change
+            self._rebuild_layout()
+
+            # Force refresh
+            if self.app:
+                self.app.invalidate()
             
         return kb
     
+    def _rebuild_layout(self):
+        """Rebuild the application layout (used when toggling sidebar)."""
+        if self.app:
+            # Create new layout
+            new_layout = self.layout.create_layout(self.chat_display, self.status_panel, self.console_log)
+
+            # Update the application layout
+            self.app.layout = Layout(new_layout)
+
     def create_application(self) -> Application:
         """Create the prompt_toolkit application."""
-        
+
         # Create layout
-        layout = self.layout.create_layout(self.chat_display, self.status_panel)
+        layout = self.layout.create_layout(self.chat_display, self.status_panel, self.console_log)
         
         # Create style
         style = Style.from_dict({
@@ -202,10 +226,17 @@ CLI-Agent GUI Help:
                     # Read output line by line
                     line = self.main_process.stdout.readline()
                     if line:
-                        # Display output in chat area (strip ANSI colors if needed)
+                        # Clean the line and remove ANSI escape sequences if needed
                         clean_line = line.strip()
                         if clean_line:
-                            self.chat_display.add_message("📺 CLI-Agent", clean_line, "system")
+                            # Add to console log (raw output)
+                            self.console_log.add_log_line(clean_line)
+
+                            # Add filtered output to chat display (skip some verbose messages)
+                            should_show_in_chat = self._should_show_in_chat(clean_line)
+                            if should_show_in_chat:
+                                self.chat_display.add_message("📺 CLI-Agent", clean_line, "system")
+
                             # Force GUI refresh
                             if self.app:
                                 self.app.invalidate()
@@ -222,6 +253,51 @@ CLI-Agent GUI Help:
         # Start monitor thread
         monitor_thread = threading.Thread(target=monitor_output, daemon=True)
         monitor_thread.start()
+
+    def _should_show_in_chat(self, line: str) -> bool:
+        """Determine if a console line should be shown in the chat display."""
+        line_lower = line.lower()
+
+        # Skip very verbose debug lines
+        skip_patterns = [
+            "debug:",
+            "reading",
+            "writing",
+            "loading",
+            "initialized",
+            "connecting to",
+            "setting up",
+            "[info]",
+            "[debug]",
+        ]
+
+        for pattern in skip_patterns:
+            if pattern in line_lower:
+                return False
+
+        # Show important messages
+        show_patterns = [
+            "error",
+            "exception",
+            "warning",
+            "user:",
+            "assistant:",
+            "starting",
+            "ready",
+            "failed",
+            "complete",
+        ]
+
+        for pattern in show_patterns:
+            if pattern in line_lower:
+                return True
+
+        # Show short lines (likely important)
+        if len(line) < 100:
+            return True
+
+        # Default: don't show in chat (but still in console log)
+        return False
         
     def start_input_processor(self):
         """Start processing queued input to CLI-Agent."""
@@ -365,8 +441,14 @@ GUI Controls:
 - Ctrl+C: Exit application
 - Ctrl+L: Clear chat
 - F1: Show help
+- F2: Toggle console log sidebar (shows raw CLI-Agent output)
 - Enter: Send message
 - Shift+Enter: New line in input
+
+Console Sidebar:
+The console sidebar shows ALL raw output from the CLI-Agent process,
+while the main chat area shows filtered important messages.
+Use F2 to toggle the sidebar visibility for debugging and monitoring.
 
 The GUI integrates with CLI-Agent's full command system.
 More commands will be implemented in future updates.

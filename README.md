@@ -66,10 +66,17 @@ python test.py --quick
 python test.py --full
 ```
 
+## Daily Celebration 🎉
+
+![Daily Celebration](docs/daily-celebration.png)
+*Auto-generated daily by CLI-Agent based on current date and celebrations*
+
 ## Architecture
 
+![Architecture Diagram](docs/architecture-diagram.png)
+
 - `core/`: Core AI infrastructure (LLM routing, chat, providers)
-- `shared/`: Shared utilities (audio, web, search, RAG)  
+- `shared/`: Shared utilities (audio, web, search, RAG)
 - `tools/`: Individual tool implementations (file operations, search, etc.)
 - `py_classes/`: Legacy classes and utilities
 - `tests/`: Comprehensive test suite including tool testing framework
@@ -83,6 +90,10 @@ The agent uses environment variables for configuration:
 - `GOOGLE_API_KEY`: Google Gemini API key
 - `GROQ_API_KEY`: Groq API key
 - `BRAVE_API_KEY`: Brave Search API key
+
+## Auto-Generated Test Image
+
+![Daily Celebration](docs/daily-celebration.png)
 
 ## Contributing
 

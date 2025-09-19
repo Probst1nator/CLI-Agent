@@ -107,12 +107,14 @@ def test_pattern_scope_context():
     with patch('os.getcwd', return_value='/different/directory'):
         # Should be allowed because file path is in allowed directory
         result = mock_permissions._is_pattern_allowed('bash', 'bash: ls -la', '/test/project/src/file.py')
-        if not result:
+        is_allowed = result[0] if isinstance(result, tuple) else result
+        if not is_allowed:
             return False
-        
+
         # Should not be allowed for files outside the pattern
         result = mock_permissions._is_pattern_allowed('bash', 'bash: ls -la', '/other/project/file.py')
-        if result:
+        is_allowed = result[0] if isinstance(result, tuple) else result
+        if is_allowed:
             return False
     
     return True
@@ -191,21 +193,24 @@ def test_permission_precedence_order():
     
     # Test exact file permission (should be highest precedence)
     result = mock_permissions.is_always_allowed('bash', '/test/project/specific_file.py')
-    if not result:
+    is_allowed = result[0] if isinstance(result, tuple) else result
+    if not is_allowed:
         return False
     
     # Test pattern permission for ls command
     with patch('os.getcwd', return_value='/test/project'):
         xml_content = '<bash>ls -la</bash>'
         result = mock_permissions.is_always_allowed('bash', '/test/project/other_file.py', xml_content=xml_content)
-        if not result:
+        is_allowed = result[0] if isinstance(result, tuple) else result
+        if not is_allowed:
             return False
     
     # Test dev tool permission for linting
     with patch('os.getcwd', return_value='/test/project'):
         xml_content = '<bash>ruff check .</bash>'
         result = mock_permissions.is_always_allowed('bash', '/test/project/src/code.py', xml_content=xml_content)
-        if not result:
+        is_allowed = result[0] if isinstance(result, tuple) else result
+        if not is_allowed:
             return False
     
     return True
@@ -239,7 +244,8 @@ def test_directory_pattern_matching():
     
     for file_path, should_be_allowed in test_cases:
         result = mock_permissions.is_always_allowed('readfile', file_path)
-        if result != should_be_allowed:
+        is_allowed = result[0] if isinstance(result, tuple) else result
+        if is_allowed != should_be_allowed:
             return False
     
     return True
@@ -266,12 +272,14 @@ def test_dev_tool_category_context():
     with patch('os.getcwd', return_value='/different/directory'):
         # Should be allowed because file is in /project/src/
         result = mock_permissions._is_dev_tool_allowed('bash: ruff check file.py', '/project/src/main.py')
-        if not result:
+        is_allowed = result[0] if isinstance(result, tuple) else result
+        if not is_allowed:
             return False
-        
+
         # Should not be allowed for files outside src
         result = mock_permissions._is_dev_tool_allowed('bash: ruff check file.py', '/project/tests/test.py')
-        if result:
+        is_allowed = result[0] if isinstance(result, tuple) else result
+        if is_allowed:
             return False
     
     return True

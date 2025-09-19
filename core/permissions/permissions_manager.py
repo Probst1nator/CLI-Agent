@@ -101,24 +101,29 @@ class PermissionsManager:
         
         return False, ""
     
-    def is_always_allowed(self, tool_name: str, file_path: str = None, command_hash: str = None, xml_content: str = None) -> bool:
-        """Check if a tool/path/command combination is always allowed."""
+    def is_always_allowed(self, tool_name: str, file_path: str = None, command_hash: str = None, xml_content: str = None) -> Tuple[bool, Optional[str]]:
+        """
+        Check if a tool/path/command combination is always allowed.
+
+        Returns:
+            Tuple of (is_allowed, rule_description) where rule_description explains which rule allowed the execution
+        """
         # SECURITY CHECK: Block execution if sensitive content is detected
         if xml_content:
             should_block, reason = self.is_sensitive_content_blocked(tool_name, xml_content)
             if should_block:
                 print(f"\n⚠️ Additional confirmation required, reason: {reason}")
-                return False
+                return False, None
         
         # Check global permission
         if self.permissions.get("global_always_allow", False):
-            return True
+            return True, "Global permission (all tools allowed)"
         
         # Check command-specific permissions (for exact command matching)
         if command_hash:
             command_permissions = self.permissions.get("always_allow_commands", {}).get(tool_name, [])
             if command_hash in command_permissions:
-                return True
+                return True, f"Exact command permission ({tool_name})"
         
         # Check tool-specific permissions (for path-based matching)
         tool_permissions = self.permissions.get("always_allow_tools", {}).get(tool_name, [])
@@ -134,27 +139,61 @@ class PermissionsManager:
         # Check development tool category permissions based on command content
         if xml_content and tool_name == 'bash':
             command_pattern = PathDetector.get_command_pattern(tool_name, xml_content)
-            if self._is_dev_tool_allowed(command_pattern, file_path):
-                return True
+            dev_tool_result = self._is_dev_tool_allowed(command_pattern, file_path)
+            if isinstance(dev_tool_result, tuple):
+                is_allowed, rule_desc = dev_tool_result
+                if is_allowed:
+                    return True, rule_desc
+            elif dev_tool_result:  # For backwards compatibility
+                return True, "Development tool permission"
         
         # Check pattern-based permissions (e.g., "bash:ls*")
         if xml_content:
             command_pattern = PathDetector.get_command_pattern(tool_name, xml_content)
-            if self._is_pattern_allowed(tool_name, command_pattern, file_path):
-                return True
+            pattern_result = self._is_pattern_allowed(tool_name, command_pattern, file_path)
+            if isinstance(pattern_result, tuple):
+                is_allowed, rule_desc = pattern_result
+                if is_allowed:
+                    return True, rule_desc
+            elif pattern_result:  # For backwards compatibility
+                return True, f"Pattern permission ({command_pattern[:50]}...)" if len(command_pattern) > 50 else f"Pattern permission ({command_pattern})"
         
         # Combine tool and group permissions
         all_permissions = tool_permissions + group_permissions
         
         if not file_path:
             # If no path specified, check if tool has any always-allow permissions
-            return tool_name in all_permissions
+            if tool_name in all_permissions:
+                # Determine if this came from tool permissions or group permissions
+                if tool_name in tool_permissions:
+                    return True, f"Tool-wide permission ({tool_name})"
+                else:
+                    # Find which group this came from
+                    tool_groups = PathDetector.get_tool_groups(tool_name)
+                    for group in tool_groups:
+                        group_perms = self.permissions.get("always_allow_groups", {}).get(group, [])
+                        if tool_name in group_perms:
+                            group_display = group.replace('_', ' ').title()
+                            return True, f"Group permission ({group_display})"
+                    return True, f"Tool permission ({tool_name})"
+            return False, None
         
         file_path = os.path.abspath(file_path)
         
         # Check exact path matches
         if file_path in all_permissions:
-            return True
+            # Determine source of permission
+            if file_path in tool_permissions:
+                return True, f"Exact file permission ({os.path.basename(file_path)})"
+            else:
+                # Must be from group permissions
+                tool_groups = PathDetector.get_tool_groups(tool_name)
+                for group in tool_groups:
+                    group_perms = self.permissions.get("always_allow_groups", {}).get(group, [])
+                    if file_path in group_perms:
+                        group_display = group.replace('_', ' ').title()
+                        return True, f"Group permission ({group_display} - {os.path.basename(file_path)})"
+                return True, f"File permission ({os.path.basename(file_path)})"
         
         # Check pattern matches (directories)
         for allowed_pattern in all_permissions:
@@ -162,13 +201,35 @@ class PermissionsManager:
                 # Directory pattern
                 dir_pattern = allowed_pattern[:-2]
                 if file_path.startswith(dir_pattern):
-                    return True
+                    # Determine source of permission
+                    if allowed_pattern in tool_permissions:
+                        return True, f"Directory permission ({os.path.basename(dir_pattern)}/*)"
+                    else:
+                        # Must be from group permissions
+                        tool_groups = PathDetector.get_tool_groups(tool_name)
+                        for group in tool_groups:
+                            group_perms = self.permissions.get("always_allow_groups", {}).get(group, [])
+                            if allowed_pattern in group_perms:
+                                group_display = group.replace('_', ' ').title()
+                                return True, f"Group permission ({group_display} - {os.path.basename(dir_pattern)}/*)"
+                        return True, f"Directory permission ({os.path.basename(dir_pattern)}/*)"
             elif allowed_pattern.endswith("/"):
                 # Directory pattern without wildcard
                 if file_path.startswith(allowed_pattern):
-                    return True
-        
-        return False
+                    # Determine source of permission
+                    if allowed_pattern in tool_permissions:
+                        return True, f"Directory permission ({os.path.basename(allowed_pattern.rstrip('/'))})"
+                    else:
+                        # Must be from group permissions
+                        tool_groups = PathDetector.get_tool_groups(tool_name)
+                        for group in tool_groups:
+                            group_perms = self.permissions.get("always_allow_groups", {}).get(group, [])
+                            if allowed_pattern in group_perms:
+                                group_display = group.replace('_', ' ').title()
+                                return True, f"Group permission ({group_display} - {os.path.basename(allowed_pattern.rstrip('/'))})"
+                        return True, f"Directory permission ({os.path.basename(allowed_pattern.rstrip('/'))})"
+
+        return False, None
     
     def is_always_denied(self, tool_name: str, file_path: str = None) -> bool:
         """Check if a tool/path combination is always denied."""
@@ -392,23 +453,23 @@ class PermissionsManager:
         
         return False
     
-    def _is_dev_tool_allowed(self, command_pattern: str, file_path: str = None) -> bool:
+    def _is_dev_tool_allowed(self, command_pattern: str, file_path: str = None) -> Tuple[bool, Optional[str]]:
         """
         Check if a development tool command pattern is allowed based on category permissions.
-        
+
         Args:
             command_pattern: The command pattern to check
             file_path: Optional file path being operated on (for context-aware checking)
-            
+
         Returns:
-            True if the command pattern is allowed by category permissions
+            Tuple of (is_allowed, rule_description) where rule_description explains which dev tool rule matched
         """
         from .path_detector import PathDetector
         
         # Detect what category this command belongs to
         category, config = PathDetector.detect_dev_tool_category(command_pattern)
         if not category:
-            return False
+            return False, None
         
         # Check if we have permissions for this dev tool category
         dev_tool_permissions = self.permissions.get("always_allow_dev_tools", {})
@@ -429,27 +490,30 @@ class PermissionsManager:
                     # Directory pattern
                     dir_pattern = perm_pattern[:-2]
                     if context_path.startswith(dir_pattern):
-                        return True
+                        category_display = category.replace('_', ' ').title()
+                        return True, f"Dev tool permission ({category_display} - {os.path.basename(dir_pattern)}/*)"
                 elif perm_pattern == category:
                     # Global category permission
-                    return True
+                    category_display = category.replace('_', ' ').title()
+                    return True, f"Dev tool permission ({category_display} - global)"
                 elif os.path.abspath(perm_pattern) == context_path:
                     # Exact directory match
-                    return True
-        
-        return False
+                    category_display = category.replace('_', ' ').title()
+                    return True, f"Dev tool permission ({category_display} - {os.path.basename(context_path)})"
+
+        return False, None
     
-    def _is_pattern_allowed(self, tool_name: str, command_pattern: str, file_path: str = None) -> bool:
+    def _is_pattern_allowed(self, tool_name: str, command_pattern: str, file_path: str = None) -> Tuple[bool, Optional[str]]:
         """
         Check if a command pattern is allowed based on stored pattern permissions.
-        
+
         Args:
             tool_name: Name of the tool (e.g., 'bash')
             command_pattern: The actual command being executed (e.g., 'bash: ls -l')
             file_path: Optional file path being operated on (for context-aware checking)
-            
+
         Returns:
-            True if the command pattern is allowed
+            Tuple of (is_allowed, rule_description) where rule_description explains which pattern rule matched
         """
         pattern_permissions = self.permissions.get("pattern_permissions", {})
         
@@ -462,12 +526,15 @@ class PermissionsManager:
         base_command = actual_command.split()[0] if actual_command and actual_command.split() else ""
         
         if not base_command:
-            return False
+            return False, None
             
         # Check for exact pattern match (e.g., "bash:ls -l")
         exact_pattern_key = f"{tool_name}:{actual_command}"
         if exact_pattern_key in pattern_permissions:
-            return self._check_pattern_scope(pattern_permissions[exact_pattern_key], file_path)
+            scope = pattern_permissions[exact_pattern_key]
+            if self._check_pattern_scope(scope, file_path):
+                scope_desc = "global" if scope == "*" else f"{os.path.basename(scope.rstrip('/*'))}" if scope.endswith("/*") else scope
+                return True, f"Pattern permission ({base_command} - {scope_desc})"
         
         # Check for wildcard pattern matches (e.g., "bash:ls*")
         for pattern_key, scope in pattern_permissions.items():
@@ -480,11 +547,15 @@ class PermissionsManager:
             if stored_pattern.endswith("*"):
                 pattern_prefix = stored_pattern[:-1]  # Remove the *
                 if base_command.startswith(pattern_prefix):
-                    return self._check_pattern_scope(scope, file_path)
+                    if self._check_pattern_scope(scope, file_path):
+                        scope_desc = "global" if scope == "*" else f"{os.path.basename(scope.rstrip('/*'))}" if scope.endswith("/*") else scope
+                        return True, f"Pattern permission ({stored_pattern} - {scope_desc})"
             elif stored_pattern == base_command:
-                return self._check_pattern_scope(scope, file_path)
-                
-        return False
+                if self._check_pattern_scope(scope, file_path):
+                    scope_desc = "global" if scope == "*" else f"{os.path.basename(scope.rstrip('/*'))}" if scope.endswith("/*") else scope
+                    return True, f"Pattern permission ({stored_pattern} - {scope_desc})"
+
+        return False, None
     
     def _check_pattern_scope(self, scope: str, file_path: str = None) -> bool:
         """
