@@ -37,28 +37,25 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip to latest version
 RUN pip3 install --no-cache-dir --upgrade pip
 
+# Copy CLI-Agent source code (for standalone mode)
+# Note: .dockerignore excludes .git, __pycache__, logs, temp files, etc.
+COPY . /cli-agent/
+WORKDIR /cli-agent
+
+# Verify core files exist and install dependencies
+RUN ls -la /cli-agent/ && \
+    test -f main.py && \
+    test -f requirements.txt && \
+    pip3 install --no-cache-dir -r requirements.txt
+
 # Create a non-root user for security with matching host UID
 RUN useradd -m -u 1000 -s /bin/bash cliagent && \
     usermod -aG sudo cliagent && \
     echo 'cliagent ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-# Pre-install common Python dependencies to speed up container startup
-# We'll install the full requirements.txt when the directory is mounted
-RUN pip3 install --no-cache-dir \
-    openai \
-    anthropic \
-    google-generativeai \
-    groq \
-    requests \
-    prompt-toolkit \
-    rich \
-    colorama \
-    pydub \
-    chromadb
-
 # Create directories for data persistence and output
-RUN mkdir -p /workspace/data /workspace/logs /workspace/temp && \
-    chown -R cliagent:cliagent /workspace
+RUN mkdir -p /workspace/data /workspace/logs /workspace/temp /cli-agent/data /cli-agent/logs /cli-agent/temp && \
+    chown -R cliagent:cliagent /workspace /cli-agent
 
 # Set environment variables for production
 ENV PYTHONPATH=/workspace
@@ -75,34 +72,53 @@ USER cliagent
 # Expose the visual response server port range
 EXPOSE 7860-7870
 
-# Create entrypoint script for synced directory startup
+# Create entrypoint script that handles both standalone and sync modes
 RUN echo '#!/bin/bash\n\
 set -e\n\
 \n\
-echo "=== CLI-Agent Sync Container Starting ==="\n\
+echo "=== CLI-Agent Container Starting ==="\n\
 echo "Timestamp: $(date)"\n\
-echo "Environment: Sync Container"\n\
-echo "Working Directory: $(pwd)"\n\
 echo "User: $(whoami)"\n\
 echo "UID: $(id -u)"\n\
 echo "GID: $(id -g)"\n\
 echo ""\n\
 \n\
-# Check if we have a proper CLI-Agent directory mounted\n\
-if [[ ! -f "/workspace/main.py" ]]; then\n\
-    echo "ERROR: CLI-Agent directory not properly mounted at /workspace"\n\
-    echo "Expected main.py not found"\n\
+# Detect mode: sync (bind mounted) vs standalone (copied code)\n\
+if [[ -f "/workspace/main.py" && -d "/workspace/.git" ]]; then\n\
+    # Sync mode: use bind mounted directory\n\
+    echo "Mode: SYNC (bind mounted directory)"\n\
+    cd /workspace\n\
+    export PYTHONPATH="/workspace"\n\
+    export CLI_AGENT_DATA_DIR="/workspace/data"\n\
+    export CLI_AGENT_LOG_DIR="/workspace/logs"\n\
+    export CLI_AGENT_TEMP_DIR="/workspace/temp"\n\
+    \n\
+    # Install/update requirements if they changed\n\
+    if [[ -f "/workspace/requirements.txt" ]]; then\n\
+        echo "Installing/updating Python requirements..."\n\
+        pip3 install --no-cache-dir -r /workspace/requirements.txt\n\
+    fi\n\
+elif [[ -f "/cli-agent/main.py" ]]; then\n\
+    # Standalone mode: use copied code\n\
+    echo "Mode: STANDALONE (copied code)"\n\
+    cd /cli-agent\n\
+    export PYTHONPATH="/cli-agent"\n\
+    export CLI_AGENT_DATA_DIR="/cli-agent/data"\n\
+    export CLI_AGENT_LOG_DIR="/cli-agent/logs"\n\
+    export CLI_AGENT_TEMP_DIR="/cli-agent/temp"\n\
+else\n\
+    echo "ERROR: No CLI-Agent code found in /workspace or /cli-agent"\n\
     echo "Contents of /workspace:"\n\
-    ls -la /workspace/\n\
+    ls -la /workspace/ 2>/dev/null || echo "  (empty or not accessible)"\n\
+    echo "Contents of /cli-agent:"\n\
+    ls -la /cli-agent/ 2>/dev/null || echo "  (empty or not accessible)"\n\
     exit 1\n\
 fi\n\
 \n\
-# Install/update requirements if requirements.txt exists and is newer\n\
-if [[ -f "/workspace/requirements.txt" ]]; then\n\
-    echo "Installing/updating Python requirements..."\n\
-    pip3 install --no-cache-dir -r /workspace/requirements.txt\n\
-    echo "Requirements updated successfully"\n\
-fi\n\
+echo "Working Directory: $(pwd)"\n\
+echo "Python Path: $PYTHONPATH"\n\
+echo "Data Directory: $CLI_AGENT_DATA_DIR"\n\
+echo ""\n\
 \n\
 # Ensure data directories exist and are writable\n\
 mkdir -p "$CLI_AGENT_DATA_DIR" "$CLI_AGENT_LOG_DIR" "$CLI_AGENT_TEMP_DIR"\n\
@@ -112,7 +128,6 @@ cleanup() {\n\
     echo ""\n\
     echo "=== Graceful Shutdown Initiated ==="\n\
     echo "Stopping CLI-Agent..."\n\
-    # Kill any running CLI-Agent processes\n\
     pkill -f "python3.*main.py" || true\n\
     echo "Cleanup complete"\n\
     exit 0\n\
@@ -124,8 +139,6 @@ trap cleanup SIGTERM SIGINT\n\
 echo "=== Starting CLI-Agent in GUI Mode ==="\n\
 echo "Visual response server will start on available port in range 7860-7870"\n\
 echo "Access the interface at http://localhost:PORT after startup"\n\
-echo "Current working directory contents:"\n\
-ls -la /workspace/ | head -10\n\
 echo ""\n\
 \n\
 # Start CLI-Agent with GUI mode and handle shutdown gracefully\n\
@@ -134,10 +147,10 @@ CLI_AGENT_PID=$!\n\
 \n\
 # Wait for the process and handle signals\n\
 wait $CLI_AGENT_PID\n\
-' > /workspace/entrypoint.sh
+' > /cli-agent/entrypoint.sh
 
 # Make the entrypoint script executable
-RUN chmod +x /workspace/entrypoint.sh
+RUN chmod +x /cli-agent/entrypoint.sh
 
 # Use the entrypoint script as the default command
-ENTRYPOINT ["/workspace/entrypoint.sh"]
+ENTRYPOINT ["/cli-agent/entrypoint.sh"]

@@ -1919,3 +1919,275 @@ html[data-theme='light'] .iframe-focus-overlay:hover {
         margin-top: 8px;
     }
 }
+
+/* ====================================
+   LLM Selectbox Component Styles
+   ==================================== */
+
+.llm-selectbox {
+    position: relative;
+    display: inline-block;
+    min-width: 90px;
+    max-width: 250px;
+    width: auto;
+    font-size: 13px;
+    z-index: 1000;
+}
+
+.llm-selectbox-trigger {
+    background: var(--button-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.2s ease;
+    outline: none;
+    min-height: 20px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.llm-selectbox-trigger:hover {
+    background: var(--button-hover-bg);
+    border-color: var(--primary-color);
+}
+
+.llm-selectbox-trigger:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.llm-selectbox-label {
+    flex: 1;
+    white-space: nowrap;
+    color: var(--text-color);
+    overflow: visible;
+    text-overflow: clip;
+}
+
+.llm-selectbox-arrow {
+    margin-left: 4px;
+    color: var(--text-color);
+    font-size: 10px;
+    transition: transform 0.2s ease;
+}
+
+.llm-selectbox-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-height: 300px;
+    overflow: hidden;
+    z-index: 1001;
+    margin-top: 2px;
+}
+
+.llm-selectbox-search {
+    padding: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.llm-search-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-size: 12px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.llm-search-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px rgba(0, 122, 204, 0.2);
+}
+
+.llm-selectbox-options {
+    max-height: 250px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+
+.llm-selectbox-options::-webkit-scrollbar {
+    width: 6px;
+}
+
+.llm-selectbox-options::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.llm-selectbox-options::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.llm-selectbox-provider-header {
+    padding: 8px 12px 4px 12px;
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.llm-provider-icon {
+    font-size: 12px;
+}
+
+.llm-provider-name {
+    flex: 1;
+}
+
+.llm-provider-count {
+    opacity: 0.7;
+    font-size: 10px;
+}
+
+.llm-selectbox-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background-color 0.15s ease;
+    position: relative;
+}
+
+.llm-selectbox-option:hover,
+.llm-selectbox-option.focused {
+    background: var(--button-hover-bg);
+}
+
+.llm-selectbox-option.selected {
+    background: var(--primary-color);
+    color: white;
+}
+
+.llm-selectbox-option.selected .llm-capabilities,
+.llm-selectbox-option.selected .llm-context {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.llm-option-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2px;
+}
+
+.llm-option-name {
+    font-weight: 500;
+    flex: 1;
+}
+
+.llm-context {
+    font-size: 10px;
+    color: var(--primary-color);
+    background: rgba(0, 122, 204, 0.1);
+    padding: 1px 4px;
+    border-radius: 2px;
+    margin-left: 8px;
+}
+
+.llm-capabilities {
+    font-size: 10px;
+    color: #888;
+    margin-top: 2px;
+    display: block;
+}
+
+.llm-selectbox-loading,
+.llm-selectbox-error,
+.llm-selectbox-no-results {
+    padding: 12px;
+    text-align: center;
+    color: #888;
+    font-size: 12px;
+}
+
+.llm-selectbox-error {
+    color: var(--status-disconnected);
+}
+
+/* Light theme adjustments for LLM selectbox */
+html[data-theme='light'] .llm-selectbox-provider-header {
+    background: #f8f9fa;
+    border-bottom-color: #dee2e6;
+}
+
+html[data-theme='light'] .llm-selectbox-option {
+    border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+
+html[data-theme='light'] .llm-context {
+    background: rgba(0, 122, 204, 0.1);
+    color: var(--primary-color);
+}
+
+/* LLM Selection Header Integration */
+.llm-selection-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 8px;
+    padding: 0 8px;
+    border-left: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+}
+
+.llm-selection-label {
+    font-size: 11px;
+    color: var(--text-color);
+    opacity: 0.8;
+    margin-right: 4px;
+    white-space: nowrap;
+}
+
+.llm-fallback-label {
+    font-size: 10px;
+    color: var(--text-color);
+    opacity: 0.6;
+    margin-right: 2px;
+}
+
+.llm-selector-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Responsive design for LLM selection */
+@media (max-width: 1200px) {
+    .llm-selectbox {
+        min-width: 80px;
+        max-width: 180px;
+    }
+
+    .llm-selection-label,
+    .llm-fallback-label {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .llm-selection-container {
+        display: none;
+    }
+}

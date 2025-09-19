@@ -281,7 +281,16 @@ class LlmRouter:
                 if model_key in instance.failed_models:
                     logger.debug(f"Skipping {model_key}: in failed_models list")
                     continue
-                model = next((model for model in instance.retry_models if model_key in model.model_key), None)
+
+                # Find the most specific match (exact match preferred over substring match)
+                # This ensures fallback order is preserved correctly
+                exact_match = next((model for model in instance.retry_models if model.model_key == model_key), None)
+                if exact_match:
+                    model = exact_match
+                else:
+                    # Fallback to substring match (for backward compatibility)
+                    model = next((model for model in instance.retry_models if model_key in model.model_key), None)
+
                 logger.debug(f"Found model object for {model_key}: {model}")
                 if model:
                     capability_result, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, debug_model_key=model_key)
@@ -304,7 +313,14 @@ class LlmRouter:
             # First check preferred models
             for model_key in preferred_models:
                 if model_key and model_key not in instance.failed_models:
-                    model = next((model for model in instance.retry_models if model_key in model.model_key), None)
+                    # Find the most specific match (exact match preferred over substring match)
+                    exact_match = next((model for model in instance.retry_models if model.model_key == model_key), None)
+                    if exact_match:
+                        model = exact_match
+                    else:
+                        # Fallback to substring match (for backward compatibility)
+                        model = next((model for model in instance.retry_models if model_key in model.model_key), None)
+
                     capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision)
                     if model and capable:
                         available_models.append(model)
@@ -405,7 +421,15 @@ class LlmRouter:
         # First try to find preferred model with exact capabilities
         for model_key in preferred_models:
             if (model_key not in instance.failed_models) and model_key:
-                model = next((model for model in instance.retry_models if model_key in model.model_key and (not has_vision or has_vision == model.has_vision)), None)
+                # Find the most specific match (exact match preferred over substring match)
+                # This ensures fallback order is preserved correctly
+                exact_match = next((model for model in instance.retry_models if model.model_key == model_key and (not has_vision or has_vision == model.has_vision)), None)
+                if exact_match:
+                    model = exact_match
+                else:
+                    # Fallback to substring match (for backward compatibility)
+                    model = next((model for model in instance.retry_models if model_key in model.model_key and (not has_vision or has_vision == model.has_vision)), None)
+
                 if model:
                     capable, _ = instance.model_capable_check(model, chat, strengths, model.local, False, has_vision, debug_model_key=model_key)
                     if capable:

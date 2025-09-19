@@ -77,6 +77,9 @@ class Globals:
         # --- Agent Control Flags ---
         self.CONTINUE_CONVERSATION: bool = False  # Set by CLI args for continuous conversation
         self.AGENT_RESET_REQUESTED: bool = False  # Set when agent reset is requested
+        self.autonomous_iteration_count: int = 0  # Counter for autonomous iterations
+        self.total_autonomous_count: int = 0  # Total autonomous iterations counter
+        self.USER_INTERRUPT_REQUESTED: bool = False  # Set when user requests interrupt
         
         # --- Utility and Tool Management ---
         self.SELECTED_UTILS: List[str] = []

@@ -101,7 +101,7 @@ class PythonSession:
             
             # Expect the prompt, which signals the end of output for this command.
             self.python_child.expect('>>> ', timeout=300)
-            output = self.python_child.before.strip()
+            output = (self.python_child.before or "").strip()
             
             # Clean up the output by removing the exec command echo and prompt artifacts.
             if exec_command in output:

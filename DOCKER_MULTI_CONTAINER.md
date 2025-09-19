@@ -21,7 +21,7 @@ source ~/.bashrc
 ### 2. Start Multiple Containers
 
 ```bash
-# Start 3 containerized CLI-Agent instances (browsers auto-open)
+# Start 3 containerized CLI-Agent instances (sync mode, browsers auto-open)
 cli-agent -docker 3
 
 # Start 5 containers with voice mode enabled
@@ -29,6 +29,9 @@ cli-agent -docker 5 -v
 
 # Start 2 containers without opening browsers
 cli-agent -docker 2 --no-browser
+
+# Start 3 standalone containers (no source code sync)
+cli-agent -docker 3 --standalone
 
 # Start containers with specific arguments
 cli-agent -docker 2 -m "Hello from container"
@@ -48,8 +51,9 @@ Each container gets 3 consecutive ports starting from 7860:
 
 ### Docker Operations
 ```bash
-cli-agent -docker N               # Start N containers (auto-open browsers)
+cli-agent -docker N               # Start N containers with source sync (auto-open browsers)
 cli-agent -docker N --no-browser  # Start N containers without opening browsers
+cli-agent -docker N --standalone  # Start N standalone containers (no source sync)
 cli-agent --docker-status         # Show container status
 cli-agent --docker-stop           # Stop all containers
 cli-agent --docker-logs [N]       # Show logs (all or specific container)
@@ -92,7 +96,29 @@ ca -docker 5                      # Short alias for cli-agent
    - Configures shell integration
    - Manages PATH and aliases
 
-### Directory Synchronization
+**Note**: This is now the only Docker setup for CLI-Agent. Previous production and test Docker configurations have been replaced by this unified multi-container system.
+
+## Container Modes
+
+### Sync Mode (Default)
+```bash
+cli-agent -docker 3    # Full directory synchronization
+```
+- **Real-time sync**: Your entire CLI-Agent directory is mounted into containers
+- **Live development**: Code changes are immediately available in all containers
+- **Includes everything**: `.git`, `__pycache__`, temporary files, etc.
+- **Use case**: Development, testing, live coding
+
+### Standalone Mode
+```bash
+cli-agent -docker 3 --standalone    # No directory sync
+```
+- **Copied code**: CLI-Agent code is copied into the image at build time
+- **Isolated**: No bind mounts, containers run independently
+- **Static**: Changes to local code don't affect running containers
+- **Use case**: Production deployment, CI/CD, GitHub Actions
+
+### Directory Synchronization (Sync Mode)
 
 The system uses Docker bind mounts to provide real-time synchronization:
 
@@ -274,8 +300,11 @@ chmod +x scripts/*.py
 
 ### Basic Usage
 ```bash
-# Start 3 containers
+# Start 3 containers with source sync (development)
 cli-agent -docker 3
+
+# Start 3 standalone containers (production/CI)
+cli-agent -docker 3 --standalone
 
 # Check status
 cli-agent --docker-status

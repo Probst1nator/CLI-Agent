@@ -19,10 +19,13 @@ from tools.bash import bash  # Import to access the shared process list
 try:
     from shared.utils.text_resource_manager import TextResourceManager
     RESOURCE_MANAGER_AVAILABLE = True
+
     def get_resource_manager():
         return TextResourceManager._get_manager()
+
 except ImportError:
     RESOURCE_MANAGER_AVAILABLE = False
+
     def get_resource_manager():
         return None
 
@@ -102,7 +105,6 @@ class taskmanager:
             # Look for the pattern and escape newlines within data tags
             import re
             def escape_data_content(match):
-                full_tag = match.group(0)
                 data_content = match.group(1)
                 # Escape problematic characters within data content
                 escaped_content = data_content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')

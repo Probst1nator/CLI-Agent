@@ -19,7 +19,7 @@ jobs:
 
     - name: Build CLI-Agent Docker image
       run: |
-        docker build -f Dockerfile.prod -t cli-agent:latest .
+        docker build -f docker_files/Dockerfile.sync -t cli-agent:latest .
 
     - name: Run CLI-Agent to generate celebration image
       env:
