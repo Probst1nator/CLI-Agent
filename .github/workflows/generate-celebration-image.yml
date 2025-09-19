@@ -6,8 +6,7 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch: # Allow manual trigger
   push:
-    branches: [ "main" ]
-    paths: [ ".github/workflows/**" ]  # Only trigger when workflow files change
+    branches: [ "main" ] # Trigger on any push to the main branch
 
 jobs:
   generate-celebration-image:
