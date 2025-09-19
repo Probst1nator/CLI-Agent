@@ -34,12 +34,13 @@ jobs:
         # Create output directory
         mkdir -p celebration_output
 
-        # Run CLI-Agent with the celebration prompt
+        # Run CLI-Agent with the celebration prompt (CLI mode, not GUI)
         docker run --rm \
           -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
           -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
           -e GOOGLE_API_KEY="${GOOGLE_API_KEY}" \
           -e GROQ_API_KEY="${GROQ_API_KEY}" \
+          -e CLI_AGENT_GUI_MODE=false \
           -v "$(pwd)/celebration_output:/output" \
           cli-agent:latest \
           -m "Please figure out the current date and draw/create/generate an image to represent related typical celebratory human events. Save the image at /output/celebration.png so that it can be found by an automated system later."
