@@ -220,6 +220,9 @@ class VisualResponseApp {
             // Display user message immediately
             this.displayUserMessage(message);
 
+            // Show interrupt button when sending user message (agent will start generating)
+            this.showInterruptButton();
+
             // Send the message
             this.wsManager.sendMessage(message);
             this.chatInput.value = '';
@@ -630,6 +633,14 @@ class VisualResponseApp {
             return;
         }
 
+        // Setup interrupt button
+        const interruptBtn = document.getElementById('interrupt-btn');
+        if (interruptBtn) {
+            this.setupInterruptButton(interruptBtn);
+        } else {
+            console.warn('Interrupt button not found');
+        }
+
         clearHistoryBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -683,6 +694,102 @@ class VisualResponseApp {
             }
             }); // Close the promise callback
         });
+    }
+
+    setupInterruptButton(interruptBtn) {
+        // Track agent state to show/hide button appropriately
+        this.agentGenerating = false;
+
+        // Button starts in inactive (grayed out) state
+        interruptBtn.classList.remove('active', 'processing');
+
+        interruptBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Only process clicks when button is active
+            if (!interruptBtn.classList.contains('active')) {
+                return;
+            }
+
+            if (!this.wsManager || !this.wsManager.isConnected()) {
+                console.warn('Cannot send interrupt - WebSocket not connected');
+                this.showInterruptError('WebSocket not connected');
+                return;
+            }
+
+            // Send interrupt signal
+            const success = this.wsManager.sendInterruptSignal();
+
+            if (success) {
+                // Visual feedback
+                const originalIcon = interruptBtn.querySelector('.interrupt-icon').textContent;
+
+                interruptBtn.classList.remove('active');
+                interruptBtn.classList.add('processing');
+                interruptBtn.querySelector('.interrupt-icon').textContent = '⏳';
+                // Keep button clickable - users should be able to send multiple interrupts
+
+                // Reset button state after a delay (agent should stop soon)
+                setTimeout(() => {
+                    this.hideInterruptButton();
+
+                    // Reset button state
+                    interruptBtn.classList.remove('processing');
+                    interruptBtn.querySelector('.interrupt-icon').textContent = originalIcon;
+                }, 3000);
+
+                console.log('Interrupt signal sent to agent');
+            } else {
+                this.showInterruptError('Failed to send interrupt signal');
+            }
+        });
+
+        // Store reference for external access
+        this.interruptBtn = interruptBtn;
+    }
+
+    showInterruptButton() {
+        if (this.interruptBtn) {
+            this.interruptBtn.classList.add('active');
+            this.interruptBtn.classList.remove('processing');
+            this.agentGenerating = true;
+        }
+    }
+
+    hideInterruptButton() {
+        if (this.interruptBtn) {
+            this.interruptBtn.classList.remove('active', 'processing');
+            this.agentGenerating = false;
+        }
+    }
+
+    showInterruptError(message) {
+        // Show a brief error message
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'interrupt-error-message';
+        errorDiv.textContent = `⚠️ ${message}`;
+        errorDiv.style.cssText = `
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            background-color: #dc3545;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            z-index: 10001;
+            animation: fadeInOut 3s ease-in-out;
+        `;
+
+        document.body.appendChild(errorDiv);
+
+        // Remove after animation
+        setTimeout(() => {
+            if (errorDiv.parentNode) {
+                errorDiv.remove();
+            }
+        }, 3000);
     }
 
     showResetConfirmationDialog() {
@@ -932,6 +1039,40 @@ class VisualResponseApp {
      * @param {object} data - Message data
      */
     saveMessageToHistory(type, data) {
+        // Enhanced validation and debugging
+        if (!type || !data) {
+            console.error('❌ Invalid message data for history save:', { type, data });
+            return;
+        }
+
+        // Prevent saving transient UI elements that should not be restored on page reload
+        if (type === 'agent' && data.messageData) {
+            // FIXED: Removed 'user_message' from transient types - this was incorrectly filtering user messages
+            const transientTypes = ['permission_request', 'config'];
+            if (transientTypes.includes(data.messageData.type)) {
+                console.log(`Skipping storage of transient message type: ${data.messageData.type}`);
+                return;
+            }
+        }
+
+        // Validate user message structure
+        if (type === 'user') {
+            if (!data.message || typeof data.message !== 'string') {
+                console.error('❌ Invalid user message structure - missing or invalid message field:', data);
+                return;
+            }
+            console.log(`💾 Saving user message to history: "${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}"`);
+        }
+
+        // Validate agent message structure
+        if (type === 'agent') {
+            if (!data.messageData) {
+                console.error('❌ Invalid agent message structure - missing messageData field:', data);
+                return;
+            }
+            console.log(`💾 Saving agent message to history: type=${data.messageData.type}, id=${data.originalId || 'unknown'}`);
+        }
+
         const messageEntry = {
             type: type,
             timestamp: Date.now(),
@@ -942,13 +1083,25 @@ class VisualResponseApp {
 
         // Keep only last 50 messages to prevent localStorage bloat
         if (this.messageHistory.length > 50) {
+            const removedCount = this.messageHistory.length - 50;
             this.messageHistory = this.messageHistory.slice(-50);
+            console.log(`🧹 Trimmed ${removedCount} old messages from history to maintain 50 message limit`);
         }
 
         try {
             localStorage.setItem('agent-message-history', JSON.stringify(this.messageHistory));
+            console.log(`📊 Message history saved: ${this.messageHistory.length} total messages`);
         } catch (e) {
-            console.warn('Failed to save message history to localStorage:', e);
+            console.error('❌ Failed to save message history to localStorage:', e);
+
+            // Try to recover by clearing and saving current message only
+            try {
+                this.messageHistory = [messageEntry];
+                localStorage.setItem('agent-message-history', JSON.stringify(this.messageHistory));
+                console.log('🔧 Recovered by clearing history and saving current message only');
+            } catch (recoveryError) {
+                console.error('❌ Recovery attempt also failed:', recoveryError);
+            }
         }
     }
 
@@ -963,13 +1116,57 @@ class VisualResponseApp {
 
             if (stored) {
                 this.messageHistory = JSON.parse(stored);
+
+                // Clean up any legacy permission requests that may have been incorrectly stored
+                const originalLength = this.messageHistory.length;
+                this.messageHistory = this.messageHistory.filter(entry => {
+                    // CRITICAL FIX: Never filter out actual user messages (type: 'user')
+                    if (entry.type === 'user') {
+                        console.log('✅ Preserving user message during history cleanup:', entry.data?.message?.substring(0, 50) + '...');
+                        return true; // Always keep user messages
+                    }
+
+                    // Only filter agent messages with transient types
+                    if (entry.type === 'agent' && entry.data && entry.data.messageData) {
+                        // Removed 'user_message' from transient types - this was incorrectly filtering user messages
+                        const transientTypes = ['permission_request', 'config'];
+                        if (transientTypes.includes(entry.data.messageData.type)) {
+                            console.log(`Removing legacy transient message: ${entry.data.messageData.type}`);
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+
+                // Save cleaned history back to localStorage if we removed anything
+                if (this.messageHistory.length < originalLength) {
+                    console.log(`Cleaned ${originalLength - this.messageHistory.length} transient messages from history`);
+                    try {
+                        localStorage.setItem('agent-message-history', JSON.stringify(this.messageHistory));
+                    } catch (e) {
+                        console.warn('Failed to save cleaned message history:', e);
+                    }
+                }
+
                 console.log('📋 Parsed message history:', this.messageHistory);
                 console.log(`🔄 Continue mode: Loading ${this.messageHistory.length} messages from previous session`);
 
-                // Count user vs agent messages
-                const userCount = this.messageHistory.filter(m => m.type === 'user').length;
-                const agentCount = this.messageHistory.filter(m => m.type === 'agent').length;
-                console.log(`📊 Message breakdown: ${userCount} user, ${agentCount} agent`);
+                // Count user vs agent messages with detailed breakdown
+                const userMessages = this.messageHistory.filter(m => m.type === 'user');
+                const agentMessages = this.messageHistory.filter(m => m.type === 'agent');
+                console.log(`📊 Message breakdown: ${userMessages.length} user, ${agentMessages.length} agent`);
+
+                // Debug: Log first few characters of each user message to verify content
+                if (userMessages.length > 0) {
+                    console.log('👤 User messages found for restoration:');
+                    userMessages.forEach((msg, i) => {
+                        const preview = msg.data?.message?.substring(0, 50) || 'No message content';
+                        const timestamp = new Date(msg.data?.timestamp || msg.timestamp).toLocaleTimeString();
+                        console.log(`  ${i + 1}. [${timestamp}] "${preview}${msg.data?.message?.length > 50 ? '...' : ''}"`);
+                    });
+                } else {
+                    console.log('⚠️ No user messages found in history - this may indicate the bug');
+                }
 
                 // Add flag to indicate we're in restoration mode
                 this.isRestoring = true;
@@ -1029,15 +1226,23 @@ class VisualResponseApp {
         // Sort messages by timestamp to ensure chronological order
         const sortedHistory = [...this.messageHistory].sort((a, b) => a.timestamp - b.timestamp);
 
-        for (const entry of sortedHistory) {
+        console.log(`🔄 Starting restoration of ${sortedHistory.length} messages...`);
+
+        for (const [index, entry] of sortedHistory.entries()) {
             try {
+                console.log(`📝 Restoring message ${index + 1}/${sortedHistory.length}: type=${entry.type}`);
+
                 if (entry.type === 'user') {
+                    console.log(`👤 Processing user message: "${entry.data?.message?.substring(0, 30)}..."`);
                     this.restoreUserMessage(entry.data);
                 } else if (entry.type === 'agent') {
+                    console.log(`🤖 Processing agent message: id=${entry.data?.originalId || 'unknown'}`);
                     await this.restoreAgentMessage(entry.data);
+                } else {
+                    console.warn(`⚠️ Unknown message type during restoration: ${entry.type}`);
                 }
             } catch (e) {
-                console.warn('Failed to restore message:', e, entry);
+                console.error(`❌ Failed to restore message ${index + 1}:`, e, entry);
             }
         }
 
@@ -1055,32 +1260,53 @@ class VisualResponseApp {
      */
     restoreUserMessage(data) {
         console.log('👤 Restoring user message:', data);
-        const contentWrapper = document.getElementById('content-wrapper');
-        if (!contentWrapper) {
-            console.warn('❌ Content wrapper not found for user message restoration');
+
+        // Enhanced validation and debugging
+        if (!data) {
+            console.error('❌ User message restoration failed: No data provided');
             return;
         }
 
-        // Create message block
-        const messageBlock = document.createElement('div');
-        messageBlock.className = 'message-block user-message';
+        if (!data.message) {
+            console.error('❌ User message restoration failed: No message content in data:', data);
+            return;
+        }
 
-        // Create timestamp
-        const timestamp = document.createElement('div');
-        timestamp.className = 'agent-msg-head';
-        timestamp.textContent = new Date(data.timestamp).toLocaleTimeString();
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper) {
+            console.error('❌ Content wrapper not found for user message restoration');
+            return;
+        }
 
-        // Create content
-        const content = document.createElement('div');
-        content.className = 'message-content';
-        content.textContent = data.message;
+        try {
+            // Create message block
+            const messageBlock = document.createElement('div');
+            messageBlock.className = 'message-block user-message';
 
-        // Assemble message
-        messageBlock.appendChild(timestamp);
-        messageBlock.appendChild(content);
-        contentWrapper.appendChild(messageBlock);
+            // Create timestamp with fallback handling
+            const timestamp = document.createElement('div');
+            timestamp.className = 'agent-msg-head';
 
-        console.log('✅ User message restored successfully');
+            // Handle both data.timestamp and legacy timestamp formats
+            const timestampValue = data.timestamp || Date.now();
+            const timeString = new Date(timestampValue).toLocaleTimeString();
+            timestamp.textContent = timeString;
+
+            // Create content
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.textContent = data.message;
+
+            // Assemble message
+            messageBlock.appendChild(timestamp);
+            messageBlock.appendChild(content);
+            contentWrapper.appendChild(messageBlock);
+
+            console.log(`✅ User message restored successfully: "${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}"`);
+
+        } catch (error) {
+            console.error('❌ Error during user message restoration:', error, 'Data:', data);
+        }
     }
 
     /**
@@ -1462,6 +1688,18 @@ window.sendPermissionResponse = function(permissionId, result, action = {}) {
     }
 };
 
+// Global interrupt signal function
+window.sendInterruptSignal = function() {
+    console.log('sendInterruptSignal called');
+
+    if (window.wsManager && window.wsManager.sendInterruptSignal) {
+        return window.wsManager.sendInterruptSignal();
+    } else {
+        console.error('WebSocket manager not available for interrupt signal');
+        return false;
+    }
+};
+
 // Global tool detail toggle function
 window.toggleToolDetail = function(toolDetailId) {
     const element = document.getElementById(toolDetailId);
@@ -1477,7 +1715,258 @@ window.toggleToolDetail = function(toolDetailId) {
     }
 };
 
+/**
+ * Console Log Manager
+ * Handles the console sidebar functionality for displaying raw CLI-Agent output
+ */
+class ConsoleLogManager {
+    constructor() {
+        this.consoleVisible = false;
+        this.consoleLog = [];
+        this.maxLogLines = 1000;
+        this.consoleWidth = 350; // Default width
+        this.isResizing = false;
+        this.init();
+    }
+
+    init() {
+        this.setupToggleButton();
+        this.setupClearButton();
+        this.setupResizeHandle();
+        this.loadConsoleState();
+    }
+
+    setupToggleButton() {
+        const toggleBtn = document.getElementById('console-toggle-btn');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+                this.toggleConsole();
+            });
+        }
+    }
+
+    setupClearButton() {
+        const clearBtn = document.getElementById('console-clear-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                this.clearConsole();
+            });
+        }
+    }
+
+    setupResizeHandle() {
+        const resizeHandle = document.getElementById('console-resize-handle');
+        if (!resizeHandle) return;
+
+        resizeHandle.addEventListener('mousedown', (e) => {
+            this.isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+
+            const onMouseMove = (e) => {
+                if (!this.isResizing) return;
+
+                const sidebar = document.getElementById('console-sidebar');
+                if (!sidebar) return;
+
+                // Calculate new width based on mouse position
+                const containerRect = sidebar.parentElement.getBoundingClientRect();
+                const newWidth = containerRect.right - e.clientX;
+
+                // Apply constraints
+                const minWidth = 200;
+                const constrainedWidth = Math.max(minWidth, newWidth);
+
+                // Update width
+                this.consoleWidth = constrainedWidth;
+                sidebar.style.width = constrainedWidth + 'px';
+
+                // Save to localStorage
+                this.saveConsoleState();
+            };
+
+            const onMouseUp = () => {
+                this.isResizing = false;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+
+            e.preventDefault();
+        });
+    }
+
+    toggleConsole() {
+        this.consoleVisible = !this.consoleVisible;
+        this.updateConsoleVisibility();
+        this.saveConsoleState();
+    }
+
+    updateConsoleVisibility() {
+        const sidebar = document.getElementById('console-sidebar');
+        const toggleBtn = document.getElementById('console-toggle-btn');
+
+        if (sidebar) {
+            if (this.consoleVisible) {
+                sidebar.classList.remove('hidden');
+                // Apply saved width when showing
+                sidebar.style.width = this.consoleWidth + 'px';
+            } else {
+                sidebar.classList.add('hidden');
+            }
+        }
+
+        if (toggleBtn) {
+            if (this.consoleVisible) {
+                toggleBtn.classList.add('active');
+            } else {
+                toggleBtn.classList.remove('active');
+            }
+        }
+    }
+
+    addLogLine(line, level = 'info') {
+        const timestamp = new Date().toLocaleTimeString();
+
+        // Clean ANSI escape sequences from the line
+        const cleanLine = this.cleanAnsiCodes(line.trim());
+
+        const logEntry = {
+            timestamp,
+            line: cleanLine,
+            level
+        };
+
+        this.consoleLog.push(logEntry);
+
+        // Keep only the most recent lines
+        if (this.consoleLog.length > this.maxLogLines) {
+            this.consoleLog = this.consoleLog.slice(-this.maxLogLines);
+        }
+
+        this.renderConsoleLog();
+        this.scrollToBottom();
+    }
+
+    renderConsoleLog() {
+        const consoleContent = document.getElementById('console-content');
+        if (!consoleContent) return;
+
+        // Show last 100 lines for performance
+        const displayLines = this.consoleLog.slice(-100);
+
+        if (displayLines.length === 0) {
+            consoleContent.innerHTML = `
+                <div class="console-line">
+                    <span class="console-timestamp">[${new Date().toLocaleTimeString()}]</span>
+                    <span class="console-text">Console log will appear here...</span>
+                </div>
+            `;
+            return;
+        }
+
+        consoleContent.innerHTML = displayLines.map(entry => {
+            const levelClass = this.getLevelClass(entry.level);
+            return `
+                <div class="console-line">
+                    <span class="console-timestamp">[${entry.timestamp}]</span>
+                    <span class="console-text ${levelClass}">${this.escapeHtml(entry.line)}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    getLevelClass(level) {
+        const normalizedLevel = level.toLowerCase();
+        if (normalizedLevel.includes('error') || normalizedLevel.includes('exception')) {
+            return 'error';
+        } else if (normalizedLevel.includes('warning') || normalizedLevel.includes('warn')) {
+            return 'warning';
+        } else if (normalizedLevel.includes('info')) {
+            return 'info';
+        } else if (normalizedLevel.includes('debug')) {
+            return 'debug';
+        }
+        return '';
+    }
+
+    cleanAnsiCodes(text) {
+        // Remove ANSI escape sequences for colors, cursor control, etc.
+        return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+                  .replace(/\x1b\].*?\x07/g, '')
+                  .replace(/\x1b\[.*?[@-~]/g, '')
+                  .replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '');
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    scrollToBottom() {
+        const consoleContent = document.getElementById('console-content');
+        if (consoleContent) {
+            consoleContent.scrollTop = consoleContent.scrollHeight;
+        }
+    }
+
+    clearConsole() {
+        this.consoleLog = [];
+        this.renderConsoleLog();
+    }
+
+    saveConsoleState() {
+        try {
+            const state = {
+                visible: this.consoleVisible,
+                width: this.consoleWidth
+            };
+            localStorage.setItem('console-state', JSON.stringify(state));
+        } catch (e) {
+            console.warn('Failed to save console state:', e);
+        }
+    }
+
+    loadConsoleState() {
+        try {
+            // Try new format first
+            const stored = localStorage.getItem('console-state');
+            if (stored) {
+                const state = JSON.parse(stored);
+                this.consoleVisible = state.visible || false;
+                this.consoleWidth = state.width || 350;
+                this.updateConsoleVisibility();
+                return;
+            }
+
+            // Fallback to old format
+            const oldStored = localStorage.getItem('console-visible');
+            if (oldStored !== null) {
+                this.consoleVisible = JSON.parse(oldStored);
+                this.updateConsoleVisibility();
+            }
+        } catch (e) {
+            console.warn('Failed to load console state:', e);
+        }
+    }
+}
+
+// Global console log manager instance
+let consoleLogManager = null;
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, checking dependencies...');
+
+    // Initialize console log manager
+    consoleLogManager = new ConsoleLogManager();
+
+    // Make it globally accessible for WebSocket messages
+    window.consoleLogManager = consoleLogManager;
+
     initializeApp();
 });

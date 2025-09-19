@@ -12,7 +12,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Any, Optional, Callable, List, Union, TYPE_CHECKING
+from typing import Dict, Any, Optional, Callable, List, TYPE_CHECKING
 from datetime import datetime
 
 if TYPE_CHECKING:

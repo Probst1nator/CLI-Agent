@@ -8,9 +8,9 @@ SECURITY NOTE: This tool is restricted to managing only processes that were
 started by the bash tool using <bash><background>true</background>. It cannot
 access or control system processes or processes started outside of the agent.
 """
-import re
 import time
 import asyncio
+import xml.etree.ElementTree as ET
 from termcolor import colored
 from core.globals import g
 from tools.bash import bash  # Import to access the shared process list
@@ -45,7 +45,8 @@ class taskmanager:
             ),
             "example": (
                 "<taskmanager><list/></taskmanager>\n"
-                "<taskmanager><stdout>bg_a1b2c3d4</stdout></taskmanager> <!-- If output is large, this returns a resource_id -->"
+                "<taskmanager><stdout>bg_a1b2c3d4</stdout></taskmanager> <!-- If output is large, this returns a resource_id -->\n"
+                "<taskmanager><input><pid>bg_a1b2c3d4</pid><data>y\\n</data></input></taskmanager> <!-- Use \\\\n for newlines in data -->"
             )
         }
     
@@ -75,54 +76,106 @@ class taskmanager:
     @staticmethod
     async def run(content: str) -> str:
         """
-        Parses the command and dispatches to the appropriate handler.
+        Parses the XML command and dispatches to the appropriate handler using a robust XML parser.
         """
-        list_match = re.search(r'<list\s*/>', content, re.IGNORECASE)
-        kill_match = re.search(r'<kill>(.*?)</kill>', content, re.DOTALL | re.IGNORECASE)
-        stdout_match = re.search(r'<stdout>(.*?)</stdout>', content, re.DOTALL | re.IGNORECASE)
-        watch_match = re.search(r'<watch>(.*?)</watch>', content, re.DOTALL | re.IGNORECASE)
-        input_match = re.search(r'<input>(.*?)</input>', content, re.DOTALL | re.IGNORECASE)
-
         # Initialize background processes tracking if it doesn't exist
         if not hasattr(bash, '_background_processes'):
             bash._background_processes = {}
-        
+
         # Update status of all processes before any operation
         for pid, info in bash._background_processes.items():
             taskmanager._update_process_status(info)
 
-        if list_match:
-            return taskmanager._list_processes()
-        elif kill_match:
-            target = kill_match.group(1).strip()
-            return taskmanager._kill_process(target)
-        elif stdout_match:
-            pid = stdout_match.group(1).strip()
-            return taskmanager._read_stdout(pid)
-        elif watch_match:
-            watch_content = watch_match.group(1)
-            pid_match = re.search(r'<stdout>(.*?)</stdout>', watch_content, re.DOTALL | re.IGNORECASE)
-            duration_match = re.search(r'<duration>(\d+)</duration>', watch_content, re.IGNORECASE)
-            
-            if pid_match and duration_match:
-                pid = pid_match.group(1).strip()
-                duration = int(duration_match.group(1).strip())
-                return await taskmanager._watch_process(pid, duration)
+        try:
+            # Use a proper XML parser instead of brittle regex
+            # Handle potential XML encoding issues with newlines and special chars
+            content_clean = content.strip()
+
+            # DEBUG: Log the exact input for troubleshooting
+            from shared.utils.tool_logging import get_logger_for_tool_module
+            logger = get_logger_for_tool_module(__name__)
+            logger.debug(f"Taskmanager raw input: {repr(content)}")
+            logger.debug(f"Taskmanager cleaned input: {repr(content_clean)}")
+
+            # PREPROCESSING: Handle common XML issues
+            # If content contains literal newlines in data tags, it will break XML parsing
+            # Look for the pattern and escape newlines within data tags
+            import re
+            def escape_data_content(match):
+                full_tag = match.group(0)
+                data_content = match.group(1)
+                # Escape problematic characters within data content
+                escaped_content = data_content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+                return f"<data>{escaped_content}</data>"
+
+            # Apply escaping to data tags
+            content_preprocessed = re.sub(r'<data>(.*?)</data>', escape_data_content, content_clean, flags=re.DOTALL)
+            logger.debug(f"Taskmanager preprocessed input: {repr(content_preprocessed)}")
+
+            root = ET.fromstring(f"<root>{content_preprocessed}</root>")
+            command_element = root[0]  # Get the first child element
+            command = command_element.tag.lower()
+
+            if command == 'list':
+                return taskmanager._list_processes()
+
+            elif command == 'kill':
+                target = command_element.text.strip() if command_element.text else ''
+                if not target:
+                    return "Error: <kill> tag cannot be empty. Provide a process ID or 'all'."
+                return taskmanager._kill_process(target)
+
+            elif command == 'stdout':
+                pid = command_element.text.strip() if command_element.text else ''
+                if not pid:
+                    return "Error: <stdout> tag cannot be empty. Provide a process ID."
+                return taskmanager._read_stdout(pid)
+
+            elif command == 'watch':
+                pid_element = command_element.find('stdout')
+                duration_element = command_element.find('duration')
+
+                if pid_element is not None and duration_element is not None and pid_element.text and duration_element.text:
+                    pid = pid_element.text.strip()
+                    duration = int(duration_element.text.strip())
+                    return await taskmanager._watch_process(pid, duration)
+                else:
+                    return "Error: <watch> requires both <stdout>pid</stdout> and <duration>seconds</duration> tags."
+
+            elif command == 'input':
+                pid_element = command_element.find('pid')
+                data_element = command_element.find('data')
+
+                if pid_element is not None and data_element is not None and pid_element.text:
+                    pid = pid_element.text.strip()
+                    # Data can be None or empty, and whitespace is significant, so we don't strip it.
+                    # Handle both text content and CDATA sections
+                    data = ""
+                    if data_element.text is not None:
+                        data = data_element.text
+                    # Also check for CDATA or nested content
+                    if not data and len(list(data_element)) == 0 and data_element.text is None:
+                        # Element might be empty but valid
+                        data = ""
+                    return taskmanager._send_input(pid, data)
+                else:
+                    return "Error: <input> requires both <pid>some_pid</pid> and <data>keystrokes_to_send</data> tags."
+
             else:
-                return "Error: <watch> requires both <stdout>pid</stdout> and <duration>seconds</duration> tags."
-        elif input_match:
-            input_content = input_match.group(1)
-            pid_match = re.search(r'<pid>(.*?)</pid>', input_content, re.DOTALL | re.IGNORECASE)
-            data_match = re.search(r'<data>(.*?)</data>', input_content, re.DOTALL | re.IGNORECASE)
-            
-            if pid_match and data_match:
-                pid = pid_match.group(1).strip()
-                data = data_match.group(1) # Do not strip data, whitespace is significant
-                return taskmanager._send_input(pid, data)
-            else:
-                return "Error: <input> requires both <pid>some_pid</pid> and <data>keystrokes_to_send</data> tags."
-        else:
-            return "Error: Invalid command for taskmanager. Use <list/>, <kill>pid|all</kill>, <stdout>pid</stdout>, <watch>, or <input>."
+                return f"Error: Unknown command '{command}' for taskmanager. Use <list/>, <kill>, <stdout>, <watch>, or <input>."
+
+        except ET.ParseError as e:
+            # Try to provide more helpful error message for common XML issues
+            if "mismatched tag" in str(e):
+                return (f"Error: XML parsing failed. This often happens when special characters "
+                       f"like newlines are included in data tags. Try using \\n instead of literal newlines. "
+                       f"Parser error: {e}")
+            return f"Error: Malformed XML input for taskmanager. Parser error: {e}"
+        except IndexError:
+            return "Error: No command found in taskmanager input. Expected a command like <list/>, <kill>, <stdout>, <watch>, or <input>."
+        except Exception as e:
+            # Catch any other unexpected errors during parsing or execution
+            return f"An unexpected error occurred in taskmanager: {e}"
 
     @staticmethod
     def _list_processes() -> str:
@@ -195,8 +248,10 @@ class taskmanager:
                 proc_info['status'] = 'finished'
                 return f"Error: Process {pid} terminated before input could be sent."
             
-            # The 'data' string is sent as-is. The user can include '\n' for newlines.
-            child.send(data)
+            # The 'data' string is sent as-is. Convert common escape sequences.
+            # Handle \n, \t, \r escape sequences
+            processed_data = data.replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '\r')
+            child.send(processed_data)
             return f"Successfully sent {len(data)} byte(s) of input to process {pid}."
         except Exception as e:
             return f"Error sending input to process {pid}: {e}"
@@ -212,22 +267,23 @@ class taskmanager:
         
         output = proc_info['output_buffer'].getvalue()
         status = proc_info.get('status', 'unknown')
-        header = f"--- Output for PID {pid} (Status: {status}) ---\n"
+        header = f"--- Output for PID {pid} (Status: {status}) [use the bash 'sleep' if you want to wait for it to finish] ---\n"
 
         # *** CRITICAL WORKFLOW LOGIC ***
         if len(output) > taskmanager.OUTPUT_THRESHOLD:
             resource_manager = get_resource_manager()
             if resource_manager:
-                resource = resource_manager.add_resource(
-                    output, 
-                    source_prefix=f"proc_{pid}",
-                    metadata={'command': proc_info.get('command', 'unknown')}
+                resource_id = resource_manager.create_resource(
+                    content=output,
+                    source=f"proc_{pid}",
+                    source_type='process'
                 )
+                resource = resource_manager.get_resource(resource_id)
                 return (f"Output for PID {pid} is too large to display directly.\n"
                         f"Loaded into searchable resource.\n"
-                        f"Resource ID: {resource.resource_id}\n"
-                        f"Total Lines: {resource.metadata['total_lines']}\n"
-                        f"Use <searchtext resource_id=\"{resource.resource_id}\" pattern=\"...\"/> to inspect.")
+                        f"Resource ID: {resource.metadata.resource_id}\n"
+                        f"Total Lines: {resource.metadata.total_lines}\n"
+                        f"Use <searchtext resource_id=\"{resource.metadata.resource_id}\" pattern=\"...\"/> to inspect.")
         
         # Logic for small output
         if not output.strip():
@@ -303,16 +359,17 @@ class taskmanager:
         if len(final_output) > taskmanager.OUTPUT_THRESHOLD:
             resource_manager = get_resource_manager()
             if resource_manager:
-                resource = resource_manager.add_resource(
-                    final_output, 
-                    source_prefix=f"proc_{pid}_watch",
-                    metadata={'command': proc_info.get('command', 'unknown')}
+                resource_id = resource_manager.create_resource(
+                    content=final_output,
+                    source=f"proc_{pid}_watch",
+                    source_type='process'
                 )
+                resource = resource_manager.get_resource(resource_id)
                 return (f"Watch session for PID {pid} completed.\n"
-                        f"Captured {resource.metadata['total_lines']} lines ({len(final_output)} chars).\n"
+                        f"Captured {resource.metadata.total_lines} lines ({len(final_output)} chars).\n"
                         f"Loaded output into searchable resource.\n"
-                        f"Resource ID: {resource.resource_id}\n"
-                        f"Use <searchtext resource_id=\"{resource.resource_id}\" pattern=\"...\"/> to inspect.")
+                        f"Resource ID: {resource.metadata.resource_id}\n"
+                        f"Use <searchtext resource_id=\"{resource.metadata.resource_id}\" pattern=\"...\"/> to inspect.")
         
         # Logic for small output
         header = f"--- Final Captured Output for PID {pid} ---\n"

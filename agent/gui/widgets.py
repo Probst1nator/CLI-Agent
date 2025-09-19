@@ -280,3 +280,97 @@ class InputArea:
         """Focus the input area."""
         # This will be handled by the application layout
         pass
+
+
+class ConsoleLogWidget:
+    """Widget for displaying raw console output from CLI-Agent process."""
+
+    def __init__(self, session: Optional[GUISession] = None):
+        self.session = session
+        self.log_lines: List[str] = []
+        self.max_lines = 1000  # Keep last 1000 lines
+        self._control = FormattedTextControl(
+            text=self._get_formatted_text,
+            focusable=True,
+            show_cursor=False
+        )
+        self._refresh_callbacks: List[Callable] = []
+
+    def _get_formatted_text(self) -> FormattedText:
+        """Get formatted text for console log."""
+        formatted = FormattedText([
+            ('class:title', 'Raw Console Log\n'),
+            ('', '─' * 30 + '\n')
+        ])
+
+        # Show recent log lines
+        display_lines = self.log_lines[-50:] if len(self.log_lines) > 50 else self.log_lines
+
+        for line in display_lines:
+            # Apply different styling based on content
+            if "ERROR" in line.upper() or "EXCEPTION" in line.upper():
+                formatted.extend(FormattedText([('class:error-message', line + '\n')]))
+            elif "WARNING" in line.upper() or "WARN" in line.upper():
+                formatted.extend(FormattedText([('class:system-message', line + '\n')]))
+            elif "INFO" in line.upper():
+                formatted.extend(FormattedText([('class:assistant-message', line + '\n')]))
+            elif "DEBUG" in line.upper():
+                formatted.extend(FormattedText([('class:timestamp', line + '\n')]))
+            else:
+                formatted.extend(FormattedText([('', line + '\n')]))
+
+        if not self.log_lines:
+            formatted.extend(FormattedText([('class:timestamp', '(No console output yet)\n')]))
+
+        return formatted
+
+    def add_log_line(self, line: str) -> None:
+        """Add a raw console log line."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_line = f"[{timestamp}] {line.strip()}"
+
+        self.log_lines.append(log_line)
+
+        # Keep only the most recent lines
+        if len(self.log_lines) > self.max_lines:
+            self.log_lines = self.log_lines[-self.max_lines:]
+
+        self._trigger_refresh_event()
+
+    def clear_log(self) -> None:
+        """Clear all log lines."""
+        self.log_lines.clear()
+        self._trigger_refresh_event()
+
+    def _trigger_refresh_event(self) -> None:
+        """Trigger a refresh event for the console log."""
+        if self.session:
+            event = GUIEvent(
+                event_type=GUIEventType.REFRESH,
+                source="console_log",
+                data={"widget": "console_log", "line_count": len(self.log_lines)},
+                timestamp=datetime.now()
+            )
+            asyncio.create_task(self.session.queue_event(event))
+
+        # Also call any registered refresh callbacks
+        for callback in self._refresh_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                import logging
+                logging.error(f"Error in console log refresh callback: {e}")
+
+    def register_refresh_callback(self, callback: Callable) -> None:
+        """Register a callback to be called when the display needs refreshing."""
+        self._refresh_callbacks.append(callback)
+
+    def get_widget(self) -> Window:
+        """Get the prompt_toolkit widget for this console log."""
+        return Window(
+            content=self._control,
+            height=Dimension(min=3),
+            width=Dimension(min=30, max=80),
+            wrap_lines=True,
+            always_hide_cursor=True
+        )

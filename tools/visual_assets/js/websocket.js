@@ -211,6 +211,18 @@ class WebSocketManager {
         }
     }
 
+    handleConsoleLog(data) {
+        this.logger.debug('Received console log message', { line: data.line, level: data.level });
+
+        // Forward to console log manager if available
+        if (window.consoleLogManager) {
+            window.consoleLogManager.addLogLine(data.line, data.level || 'info');
+        } else {
+            // Fallback: log to browser console
+            console.log(`[CLI-Agent Console] ${data.line}`);
+        }
+    }
+
     createUserMessageFallback(message) {
         // Fallback implementation in case app.displayUserMessage is not available
         const contentWrapper = document.getElementById('content-wrapper');
@@ -266,6 +278,12 @@ class WebSocketManager {
             return;
         }
 
+        // Handle console log messages
+        if (data.type === 'console_log') {
+            this.handleConsoleLog(data);
+            return;
+        }
+
         // Handle live tool notifications (legacy)
         if (data.action === 'tool_start') {
             this.handleLiveToolStart(data);
@@ -292,6 +310,11 @@ class WebSocketManager {
         // Hide loading indicator when regular message is received from the agent
         if (this.app && typeof this.app.hideLoadingIndicator === 'function') {
             this.app.hideLoadingIndicator();
+        }
+
+        // Hide interrupt button when agent response is complete
+        if (this.app && typeof this.app.hideInterruptButton === 'function') {
+            this.app.hideInterruptButton();
         }
 
         // Clean up any remaining live tools container when regular message arrives
@@ -429,12 +452,18 @@ class WebSocketManager {
         await this.renderer.renderContent(messageContent, data, messageId, timestampDiv);
 
         // Save agent message to history if main app is available (but not during restoration)
+        // IMPORTANT: Do not save permission requests or other transient UI elements to history
         if (this.app && typeof this.app.saveMessageToHistory === 'function' && !this.app.isRestoring) {
-            this.app.saveMessageToHistory('agent', {
-                originalId: data.id,
-                timestamp: Date.now(),
-                messageData: data
-            });
+            // Filter out transient message types that should not be persisted
+            // FIXED: Removed 'user_message' from transient types - this was incorrectly preventing user message storage
+            const transientTypes = ['permission_request', 'config'];
+            if (!transientTypes.includes(data.type)) {
+                this.app.saveMessageToHistory('agent', {
+                    originalId: data.id,
+                    timestamp: Date.now(),
+                    messageData: data
+                });
+            }
         }
 
         // Auto-scroll to bottom for consistency with user messages
@@ -519,6 +548,22 @@ class WebSocketManager {
             return true;
         }
         return false;
+    }
+
+    sendInterruptSignal() {
+        const interruptMessage = {
+            type: 'interrupt_signal',
+            timestamp: Date.now(),
+            source: 'web_ui'
+        };
+
+        if (this.sendMessage(JSON.stringify(interruptMessage))) {
+            this.logger.info('Sent interrupt signal to agent');
+            return true;
+        } else {
+            this.logger.error('Failed to send interrupt signal - WebSocket not connected');
+            return false;
+        }
     }
 
     handleLiveToolStart(data) {

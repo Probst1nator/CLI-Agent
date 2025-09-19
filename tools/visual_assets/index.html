@@ -34,13 +34,33 @@
                 <span class="js-icon">⚡</span>
                 <span class="js-text">JS Enabled</span>
             </button>
+            <button id="console-toggle-btn" class="console-toggle-button" title="Toggle console log sidebar">
+                <span class="console-icon">📺</span>
+                <span class="console-text">Console</span>
+            </button>
             <div id="theme-switcher"><button id="light-theme-btn">Light</button><button id="dark-theme-btn">Dark</button></div>
         </div>
     </div>
 
     <div class="container">
-        <div id="content-wrapper">
-            <!-- Dynamic content will be inserted here -->
+        <div class="main-content-area">
+            <div id="content-wrapper">
+                <!-- Dynamic content will be inserted here -->
+            </div>
+
+            <div id="console-sidebar" class="console-sidebar hidden">
+                <div class="console-resize-handle" id="console-resize-handle"></div>
+                <div class="console-header">
+                    <h3>Console Log</h3>
+                    <button id="console-clear-btn" class="console-clear-btn" title="Clear console log">🗑️</button>
+                </div>
+                <div id="console-content" class="console-content">
+                    <div class="console-line">
+                        <span class="console-timestamp">[00:00:00]</span>
+                        <span class="console-text">Console log will appear here...</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Hidden wrappers for legacy compatibility -->
@@ -56,6 +76,9 @@
                 </svg>
             </button>
             <input type="text" id="chat-input" placeholder="Send a message to the agent (or drag files here)..." autocomplete="off">
+            <button type="button" id="interrupt-btn" class="interrupt-button-input" title="Stop/interrupt current AI generation">
+                <span class="interrupt-icon">⏹</span>
+            </button>
             <button type="submit">Send</button>
             <div id="send-indicator" class="send-indicator-overlay">✅ Sent</div>
         </form>

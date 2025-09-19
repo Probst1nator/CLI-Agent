@@ -1,0 +1,143 @@
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set working directory - this will be the mount point for full directory sync
+WORKDIR /workspace
+
+# Install system dependencies for production
+RUN apt-get update && apt-get install -y \
+    # Essential tools
+    git \
+    curl \
+    wget \
+    unzip \
+    rsync \
+    # Build essentials for Python packages
+    build-essential \
+    # Python 3.10+ for CLI-Agent
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-tk \
+    # Additional production dependencies
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    # Audio dependencies for TTS functionality
+    espeak \
+    espeak-data \
+    # File management tools
+    tree \
+    htop \
+    # Clean up to reduce image size
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip to latest version
+RUN pip3 install --no-cache-dir --upgrade pip
+
+# Create a non-root user for security with matching host UID
+RUN useradd -m -u 1000 -s /bin/bash cliagent && \
+    usermod -aG sudo cliagent && \
+    echo 'cliagent ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+# Pre-install common Python dependencies to speed up container startup
+# We'll install the full requirements.txt when the directory is mounted
+RUN pip3 install --no-cache-dir \
+    openai \
+    anthropic \
+    google-generativeai \
+    groq \
+    requests \
+    prompt-toolkit \
+    rich \
+    colorama \
+    pydub \
+    chromadb
+
+# Create directories for data persistence and output
+RUN mkdir -p /workspace/data /workspace/logs /workspace/temp && \
+    chown -R cliagent:cliagent /workspace
+
+# Set environment variables for production
+ENV PYTHONPATH=/workspace
+ENV PYTHONUNBUFFERED=1
+ENV CLI_AGENT_GUI_MODE=true
+ENV CLI_AGENT_HOST=0.0.0.0
+ENV CLI_AGENT_DATA_DIR=/workspace/data
+ENV CLI_AGENT_LOG_DIR=/workspace/logs
+ENV CLI_AGENT_TEMP_DIR=/workspace/temp
+
+# Switch to non-root user
+USER cliagent
+
+# Expose the visual response server port range
+EXPOSE 7860-7870
+
+# Create entrypoint script for synced directory startup
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "=== CLI-Agent Sync Container Starting ==="\n\
+echo "Timestamp: $(date)"\n\
+echo "Environment: Sync Container"\n\
+echo "Working Directory: $(pwd)"\n\
+echo "User: $(whoami)"\n\
+echo "UID: $(id -u)"\n\
+echo "GID: $(id -g)"\n\
+echo ""\n\
+\n\
+# Check if we have a proper CLI-Agent directory mounted\n\
+if [[ ! -f "/workspace/main.py" ]]; then\n\
+    echo "ERROR: CLI-Agent directory not properly mounted at /workspace"\n\
+    echo "Expected main.py not found"\n\
+    echo "Contents of /workspace:"\n\
+    ls -la /workspace/\n\
+    exit 1\n\
+fi\n\
+\n\
+# Install/update requirements if requirements.txt exists and is newer\n\
+if [[ -f "/workspace/requirements.txt" ]]; then\n\
+    echo "Installing/updating Python requirements..."\n\
+    pip3 install --no-cache-dir -r /workspace/requirements.txt\n\
+    echo "Requirements updated successfully"\n\
+fi\n\
+\n\
+# Ensure data directories exist and are writable\n\
+mkdir -p "$CLI_AGENT_DATA_DIR" "$CLI_AGENT_LOG_DIR" "$CLI_AGENT_TEMP_DIR"\n\
+\n\
+# Function to handle graceful shutdown\n\
+cleanup() {\n\
+    echo ""\n\
+    echo "=== Graceful Shutdown Initiated ==="\n\
+    echo "Stopping CLI-Agent..."\n\
+    # Kill any running CLI-Agent processes\n\
+    pkill -f "python3.*main.py" || true\n\
+    echo "Cleanup complete"\n\
+    exit 0\n\
+}\n\
+\n\
+# Trap signals for graceful shutdown\n\
+trap cleanup SIGTERM SIGINT\n\
+\n\
+echo "=== Starting CLI-Agent in GUI Mode ==="\n\
+echo "Visual response server will start on available port in range 7860-7870"\n\
+echo "Access the interface at http://localhost:PORT after startup"\n\
+echo "Current working directory contents:"\n\
+ls -la /workspace/ | head -10\n\
+echo ""\n\
+\n\
+# Start CLI-Agent with GUI mode and handle shutdown gracefully\n\
+python3 main.py --gui "$@" &\n\
+CLI_AGENT_PID=$!\n\
+\n\
+# Wait for the process and handle signals\n\
+wait $CLI_AGENT_PID\n\
+' > /workspace/entrypoint.sh
+
+# Make the entrypoint script executable
+RUN chmod +x /workspace/entrypoint.sh
+
+# Use the entrypoint script as the default command
+ENTRYPOINT ["/workspace/entrypoint.sh"]

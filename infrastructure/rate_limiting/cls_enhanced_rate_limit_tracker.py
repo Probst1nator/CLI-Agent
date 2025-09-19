@@ -136,6 +136,7 @@ class EnhancedRateLimitTracker:
                     data = json.load(f)
 
                 # Convert loaded data back to RateLimit objects
+                windows_reset = False
                 for model_key, limits_data in data.items():
                     self.model_limits[model_key] = {}
                     for limit_type_str, limit_data in limits_data.items():
@@ -149,7 +150,19 @@ class EnhancedRateLimitTracker:
                             cooldown_until=limit_data.get('cooldown_until', 0),
                             retry_delay=limit_data.get('retry_delay', 0)
                         )
+
+                        # Reset expired windows on load to prevent stale usage counts
+                        if rate_limit.is_window_expired():
+                            logger.debug(f"Resetting expired window for {model_key} {limit_type.value}")
+                            rate_limit.reset_window()
+                            windows_reset = True
+
                         self.model_limits[model_key][limit_type] = rate_limit
+
+                # Save cleaned limits if any windows were reset
+                if windows_reset:
+                    logger.debug("Saving cleaned rate limits after resetting expired windows")
+                    self._save_limits()
             else:
                 # File doesn't exist, reset modification time
                 self._last_file_mtime = 0
@@ -165,8 +178,10 @@ class EnhancedRateLimitTracker:
             if os.path.exists(storage_path):
                 current_mtime = os.path.getmtime(storage_path)
                 if current_mtime > self._last_file_mtime:
-                    logger.debug(f"Rate limits file changed, reloading data...")
+                    logger.debug("Rate limits file changed, reloading data...")
                     self._load_limits()
+                    # Save the cleaned limits after resetting expired windows
+                    self._save_limits()
         except Exception as e:
             logger.debug(f"Failed to check file modification time: {e}")
 

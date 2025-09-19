@@ -1,0 +1,74 @@
+name: Generate Daily Celebration Image
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  generate-celebration-image:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Build CLI-Agent Docker image
+      run: |
+        docker build -f Dockerfile.prod -t cli-agent:latest .
+
+    - name: Run CLI-Agent to generate celebration image
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      run: |
+        # Create output directory
+        mkdir -p celebration_output
+
+        # Run CLI-Agent with the celebration prompt
+        docker run --rm \
+          -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
+          -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
+          -e GOOGLE_API_KEY="${GOOGLE_API_KEY}" \
+          -e GROQ_API_KEY="${GROQ_API_KEY}" \
+          -v "$(pwd)/celebration_output:/output" \
+          cli-agent:latest \
+          -m "Please figure out the current date and draw/create/generate an image to represent related typical celebratory human events. Save the image at /output/celebration.png so that it can be found by an automated system later."
+
+    - name: Copy generated image to docs
+      run: |
+        if [ -f celebration_output/celebration.png ]; then
+          cp celebration_output/celebration.png docs/daily-celebration.png
+          echo "✅ Celebration image generated successfully!"
+        else
+          echo "❌ No celebration image found"
+          exit 1
+        fi
+
+    - name: Check if image changed
+      id: changes
+      run: |
+        if git diff --quiet docs/daily-celebration.png 2>/dev/null; then
+          echo "changed=false" >> $GITHUB_OUTPUT
+        else
+          echo "changed=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Commit and push changes
+      if: steps.changes.outputs.changed == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "CLI-Agent Bot"
+        git add docs/daily-celebration.png
+        git commit -m "🎉 Auto-update daily celebration image [skip ci]"
+        git push
+
+    - name: No changes
+      if: steps.changes.outputs.changed == 'false'
+      run: echo "No changes to celebration image detected"

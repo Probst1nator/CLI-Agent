@@ -126,7 +126,6 @@ from core.tool_context import tool_context
 from tools.primitives.todos import todos
 from tools.readfile import readfile
 from tools.bash import bash
-from shared.utils_audio import text_to_speech
 from core.globals import g
 from core.llm_router import LlmRouter, StreamInterruptedException, UserInterruptedException
 from core.chat import Chat, Role
@@ -1293,6 +1292,18 @@ async def get_gui_input() -> str:
             # Wait for input from the browser with a timeout
             user_input = g.visual_input_queue.get(timeout=0.1)
 
+            # Handle structured interrupt commands
+            if isinstance(user_input, dict) and user_input.get('type') == 'interrupt_command':
+                logging.info(colored("🛑 Received interrupt command from web UI", "red"))
+                _interrupt_flag.set()
+                # Force exit from autonomous mode
+                if hasattr(g, 'autonomous_iteration_count'):
+                    g.autonomous_iteration_count = 999
+                print(colored("\n🛑 INTERRUPT SIGNAL RECEIVED - Cancelling AI generation...", "red", attrs=['bold']))
+                print(colored("  → Provider cancellation initiated", "yellow"))
+                print(colored("  → Breaking out of autonomous mode and returning to user input...", "yellow"))
+                return None # Signal to main loop that interrupt was processed
+
             if user_input.strip() == "__AGENT_RESET__":
                 logging.info(colored("🔄 Received agent reset request from browser", "yellow"))
                 g.AGENT_RESET_REQUESTED = True
@@ -1517,6 +1528,14 @@ async def main(
                 # Get a session which will start the server and open the browser
                 session = visualresponse._get_session()
                 logging.info(colored(f"✅ GUI mode active - interface available at http://127.0.0.1:{session.port}", "green"))
+
+                # Enable console capture for real-time log streaming to web interface
+                try:
+                    from tools.visualresponse import enable_console_capture
+                    enable_console_capture()
+                    logging.info(colored("📺 Console capture enabled - logs will stream to web interface", "cyan"))
+                except Exception as e:
+                    logging.warning(colored(f"⚠️  Could not enable console capture: {e}", "yellow"))
             except ImportError as e:
                 logging.error(colored(f"❌ Could not start visualresponse server: {e}", "red"))
             except Exception as e:
@@ -1918,6 +1937,11 @@ I have successfully viewed my permissions. Is there anything else I can assist y
             
             # Agent loop
             while True:
+                # Check for interrupt at the start of each loop iteration
+                if check_interrupt():
+                    print(colored("\n🛑 Agent loop interrupted by user.", "red"))
+                    break
+
                 try:
                     response_branches: List[str] = []
                     try:
@@ -2021,6 +2045,9 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
                             # for assistant_prefix in ["<", current_todo, "<think", "<thinking>"]:
                             for tool_prefix in ["<think>", "<todos>", "<"]:
+                                if check_interrupt():
+                                    user_interrupt = True
+                                    break
                                 if ("<think>" != tool_prefix):
                                     print(colored(f"Model did not generate text, attempting generation with prefix: {tool_prefix}", "yellow"))
                                 # Force thinking after context

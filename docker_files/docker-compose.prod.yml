@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  cli-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    image: cli-agent:prod
+    container_name: cli-agent-prod
+    restart: unless-stopped
+
+    # Port mapping - expose visual response server
+    ports:
+      - "7860:7860"
+      - "7861:7861"
+      - "7862:7862"
+
+    # Environment variables for API keys and configuration
+    environment:
+      # LLM API Keys (set these in your .env file)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+
+      # CLI-Agent specific configuration
+      - CLI_AGENT_GUI_MODE=true
+      - CLI_AGENT_HOST=0.0.0.0
+      - CLI_AGENT_DATA_DIR=/cli-agent/data
+      - CLI_AGENT_LOG_DIR=/cli-agent/logs
+      - CLI_AGENT_TEMP_DIR=/cli-agent/temp
+
+      # Python configuration
+      - PYTHONPATH=/cli-agent
+      - PYTHONUNBUFFERED=1
+      - DEBIAN_FRONTEND=noninteractive
+
+    # Volume mounts for data persistence
+    volumes:
+      # Persistent data storage
+      - cli-agent-data:/cli-agent/data
+      - cli-agent-logs:/cli-agent/logs
+      - cli-agent-temp:/cli-agent/temp
+
+      # Optional: Mount local directories for development
+      # - ./local-data:/cli-agent/data
+      # - ./local-logs:/cli-agent/logs
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+    # Health check configuration
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/ || curl -f http://localhost:7861/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Network configuration
+    networks:
+      - cli-agent-network
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Named volumes for data persistence
+volumes:
+  cli-agent-data:
+    driver: local
+  cli-agent-logs:
+    driver: local
+  cli-agent-temp:
+    driver: local
+
+# Custom network for future multi-agent setup
+networks:
+  cli-agent-network:
+    driver: bridge
+
+# Optional: Additional services for future expansion
+# services:
+#   cli-agent-2:
+#     # Second agent instance
+#     extends:
+#       service: cli-agent
+#     container_name: cli-agent-2
+#     ports:
+#       - "7863:7860"
+#       - "7864:7861"
+#       - "7865:7862"
+#     volumes:
+#       - cli-agent-data-2:/cli-agent/data
+#       - cli-agent-logs-2:/cli-agent/logs
+#       - cli-agent-temp-2:/cli-agent/temp

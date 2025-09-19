@@ -12,12 +12,11 @@ import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Any, Callable, Union, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 import logging
 
 if TYPE_CHECKING:
     from agent.core.app_context import AppContext
-    import argparse
 
 
 class InputSource(Enum):

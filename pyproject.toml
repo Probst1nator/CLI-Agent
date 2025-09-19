@@ -19,6 +19,13 @@ exclude = '''
 # General Ruff settings go here, like target Python version.
 target-version = "py311"
 
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+disallow_untyped_defs = true
+
 [tool.ruff.lint]
 # Rule selection and ignoring rules goes under the [tool.ruff.lint] section.
 select = ["E", "F"]  # Select all E and F rules by default

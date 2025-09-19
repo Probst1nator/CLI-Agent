@@ -359,20 +359,29 @@ class GoogleAPI(AIProviderInterface):
                 # Parse the error using the Gemini-specific parser
                 parser = RateLimitParserFactory.get_parser("gemini")
                 limit_type, cooldown_seconds, extra_info = parser.parse_error(error_str)
-                
+
                 # Update limits based on error info if needed
                 RateLimitConfig.update_limits_from_error(model_key, error_str)
-                
+
+                # Check if there's already an active cooldown and use remaining time if shorter
+                if model_key in enhanced_rate_limit_tracker.model_limits:
+                    if limit_type in enhanced_rate_limit_tracker.model_limits[model_key]:
+                        existing_limit = enhanced_rate_limit_tracker.model_limits[model_key][limit_type]
+                        if existing_limit.is_rate_limited():
+                            remaining_cooldown = existing_limit.get_remaining_cooldown()
+                            if remaining_cooldown > 0 and remaining_cooldown < cooldown_seconds:
+                                cooldown_seconds = remaining_cooldown
+
                 # Apply the rate limit
                 enhanced_rate_limit_tracker.apply_rate_limit(
-                    model_key, limit_type, cooldown_seconds, 
+                    model_key, limit_type, cooldown_seconds,
                     retry_delay=extra_info.get('api_suggested_delay', 0)
                 )
-                
+
                 # Show user-friendly message
                 if not silent_reason:
                     limit_name = limit_type.value.replace('_', ' ').title()
-                    g.debug_log(f"⚡ {limit_name} limit reached for {model_key} - retry in {cooldown_seconds}s", "yellow", force_print=True, prefix=prefix)
+                    g.debug_log(f"⚡ {limit_name} limit reached for {model_key} - retry in {cooldown_seconds:.1f}s", "yellow", force_print=True, prefix=prefix)
                 
                 # Mark the exception as already logged and raise as RateLimitException
                 setattr(e, 'already_logged', True)

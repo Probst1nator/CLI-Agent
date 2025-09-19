@@ -140,7 +140,6 @@ def handle_multiline_input_unified() -> str:
 
 async def handle_screenshot_capture_unified() -> List[str]:
     """Unified screenshot capture handler."""
-    from agent.core.input_manager import InputEvent, InputEventType, InputSource
     import base64
     import tempfile
     import subprocess

@@ -19,6 +19,10 @@ from typing import Optional, Set, Any, List
 from termcolor import colored
 from queue import Empty as QueueEmpty
 
+# Set up tool-specific logging
+from shared.utils.tool_logging import get_logger_for_tool_module
+logger = get_logger_for_tool_module(__name__)
+
 try:
     from aiohttp import web
     import aiohttp
@@ -32,9 +36,10 @@ except ImportError as e:
 
 from core.globals import g
 from core.tool_context import tool_context
+import sys
 
 # --- Server Configuration ---
-SERVER_HOST = "127.0.0.1"
+SERVER_HOST = "0.0.0.0"  # Changed from 127.0.0.1 for Docker compatibility
 PORT_RANGE_START = 7860
 PORT_RANGE_END = 7870
 ASSETS_DIR = Path(__file__).parent / "visual_assets"
@@ -46,15 +51,15 @@ def find_open_port(start_port, end_port, host="127.0.0.1"):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
                 s.bind((host, port))
-                logging.debug(f"Port {port} is available")
+                logger.debug(f"Port {port} is available")
                 return port
             except OSError as e:
                 tested_ports.append((port, str(e)))
-                logging.debug(f"Port {port} is unavailable: {e}")
+                logger.debug(f"Port {port} is unavailable: {e}")
                 continue
-    logging.warning(f"No available ports found in range {start_port}-{end_port}")
+    logger.warning(f"No available ports found in range {start_port}-{end_port}")
     for port, error in tested_ports[-5:]:
-        logging.debug(f"Port {port}: {error}")
+        logger.debug(f"Port {port}: {error}")
     return None
 
 def test_port_connectivity(host, port, timeout=5):
@@ -64,7 +69,7 @@ def test_port_connectivity(host, port, timeout=5):
             result = s.connect_ex((host, port))
             return result == 0
     except Exception as e:
-        logging.debug(f"Port connectivity test failed for {host}:{port}: {e}")
+        logger.debug(f"Port connectivity test failed for {host}:{port}: {e}")
         return False
 
 def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: multiprocessing.Queue, port: int):
@@ -103,19 +108,9 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         import traceback
         traceback.print_exc()
         return
-    import logging
-    subprocess_logger = logging.getLogger('visualserver')
-    subprocess_logger.setLevel(logging.DEBUG)
-    subprocess_logger.handlers.clear()
-    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - PID:%(process)d - %(name)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-    subprocess_logger.addHandler(file_handler)
-    subprocess_logger.addHandler(console_handler)
+    # Use centralized tool logging
+    from shared.utils.tool_logging import setup_tool_logger
+    subprocess_logger = setup_tool_logger("visualserver", debug_mode=True)
     subprocess_logger.info(f"Visual server subprocess starting on port {port}")
     subprocess_logger.info(f"Log file: {log_file}")
     subprocess_logger.info(f"Assets directory: {ASSETS_DIR}")
@@ -165,6 +160,27 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 await asyncio.sleep(0.1)
         for ws in clients:
             await ws.close(code=1000, message=b'Server shutdown')
+
+    async def broadcast_console_log(line: str, level: str = 'info'):
+        """Broadcast console log message to all connected WebSocket clients."""
+        if not clients:
+            return
+
+        console_message = {
+            "type": "console_log",
+            "line": line,
+            "level": level,
+            "timestamp": time.time()
+        }
+
+        payload = json.dumps(console_message)
+        tasks = [asyncio.create_task(ws.send_str(payload)) for ws in clients if not ws.closed]
+
+        try:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        except Exception as e:
+            subprocess_logger.debug(f"Error broadcasting console log: {e}")
+
     async def websocket_handler(request: web.Request):
         ws = web.WebSocketResponse()
         await ws.prepare(request)
@@ -197,7 +213,66 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         try:
             async for msg in ws:
                 if msg.type == web.WSMsgType.TEXT:
-                    input_queue.put(msg.data)
+                    # Parse message to distinguish between permission responses, interrupt signals, and regular user input
+                    try:
+                        message_data = json.loads(msg.data) if msg.data else {}
+
+                        # Check message type
+                        if isinstance(message_data, dict):
+                            message_type = message_data.get('type')
+
+                            if message_type == 'permission_response':
+                                # For permission responses, put the structured data directly
+                                input_queue.put(message_data)
+                            elif message_type == 'interrupt_signal':
+                                # Handle interrupt signal - trigger the main interrupt system
+                                subprocess_logger.info(f"Interrupt signal received from web UI: {message_data.get('source', 'unknown')}")
+
+                                # Use the established IPC mechanism instead of signals
+                                # Send a special interrupt command through the input queue
+                                interrupt_command = {
+                                    'type': 'interrupt_command',
+                                    'source': 'web_ui',
+                                    'timestamp': message_data.get('timestamp', time.time()),
+                                    'reason': 'user_interrupt_button'
+                                }
+
+                                try:
+                                    # Send to the visual input queue that the main process monitors
+                                    input_queue.put(interrupt_command)
+                                    subprocess_logger.info("Interrupt command sent via queue to main process")
+
+                                    # Also try the signal approach as backup
+                                    import signal
+                                    import os
+                                    main_pid = os.getppid()
+                                    os.kill(main_pid, signal.SIGINT)
+                                    subprocess_logger.info(f"Also sent SIGINT to main process (PID: {main_pid}) as backup")
+                                except Exception as e:
+                                    subprocess_logger.error(f"Failed to send interrupt via queue or signal: {e}")
+
+                                # Also try setting the interrupt flag directly if we can access it
+                                try:
+                                    # This is a fallback - we'll rely on the SIGINT signal primarily
+                                    pass
+                                except Exception as e:
+                                    subprocess_logger.debug(f"Could not access main interrupt flag: {e}")
+                            else:
+                                # For other JSON messages, put the raw string
+                                input_queue.put(msg.data)
+                                subprocess_logger.info(f"JSON message queued: {message_type}")
+                        else:
+                            # For regular user input, put the raw string
+                            input_queue.put(msg.data)
+                            subprocess_logger.info(f"User input queued: {msg.data[:50]}...")
+                    except json.JSONDecodeError:
+                        # If it's not valid JSON, treat it as regular user input
+                        input_queue.put(msg.data)
+                        subprocess_logger.info(f"Non-JSON user input queued: {msg.data[:50]}...")
+                    except Exception as e:
+                        subprocess_logger.error(f"Error processing WebSocket message: {e}")
+                        # Default to treating as user input
+                        input_queue.put(msg.data)
                 elif msg.type == web.WSMsgType.ERROR:
                     subprocess_logger.error(f'WebSocket connection closed with exception {ws.exception()}')
         finally:
@@ -336,52 +411,52 @@ class VisualServerSession:
             g.register_cleanup(self.close)
     def start(self):
         if self.process and self.process.is_alive(): return
-        logging.info("Starting visual server process...")
+        logger.info("Starting visual server process...")
         self.port = find_open_port(PORT_RANGE_START, PORT_RANGE_END, SERVER_HOST)
         if self.port is None:
-            logging.error(colored(f"Could not find an open port in range {PORT_RANGE_START}-{PORT_RANGE_END}.", "red"))
+            logger.error(colored(f"Could not find an open port in range {PORT_RANGE_START}-{PORT_RANGE_END}.", "red"))
             return
-        logging.info(colored(f"Spawning visual response server on port {self.port}...", "cyan"))
+        logger.info(colored(f"Spawning visual response server on port {self.port}...", "cyan"))
         try:
             self.process = self.ctx.Process(target=_server_process_main_loop, args=(self.output_queue, self.input_queue, self.port))
             self.process.start()
-            logging.info(f"Visual server subprocess started with PID: {self.process.pid}")
+            logger.info(f"Visual server subprocess started with PID: {self.process.pid}")
             time.sleep(1.0)
             if not self.process.is_alive():
-                logging.error(f"Visual server process died immediately. Exit code: {self.process.exitcode}")
+                logger.error(f"Visual server process died immediately. Exit code: {self.process.exitcode}")
                 return
             else:
-                logging.info("Visual server process is running successfully")
+                logger.info("Visual server process is running successfully")
         except Exception as e:
-            logging.error(f"Failed to start visual server process: {e}", exc_info=True)
+            logger.error(f"Failed to start visual server process: {e}", exc_info=True)
             return
         server_url = f"http://{SERVER_HOST}:{self.port}"
-        logging.info(colored(f"Visual response UI available at {server_url}", "cyan"))
+        logger.info(colored(f"Visual response UI available at {server_url}", "cyan"))
         try:
             time.sleep(0.5)
             import urllib.request
             req = urllib.request.Request(server_url, headers={'User-Agent': 'CLI-Agent'})
             with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status == 200: logging.info("Server connectivity test passed")
-                else: logging.warning(f"Server responded with status {response.status}")
+                if response.status == 200: logger.info("Server connectivity test passed")
+                else: logger.warning(f"Server responded with status {response.status}")
         except Exception as e:
-            logging.warning(f"Server connectivity test failed: {e}")
+            logger.warning(f"Server connectivity test failed: {e}")
         try:
             webbrowser.open(server_url)
-            logging.info("Browser opened successfully")
+            logger.info("Browser opened successfully")
         except Exception as e:
-            logging.warning(colored(f"Could not automatically open browser: {e}", "yellow"))
+            logger.warning(colored(f"Could not automatically open browser: {e}", "yellow"))
     def send_update(self, data: dict):
         if not self.process or not self.process.is_alive():
-            logging.warning("Visual server process not running, attempting to restart")
+            logger.warning("Visual server process not running, attempting to restart")
             self.start()
         if self.process and self.process.is_alive():
             try:
                 self.output_queue.put(data)
             except Exception as e:
-                logging.error(f"Failed to send update to visual server: {e}")
+                logger.error(f"Failed to send update to visual server: {e}")
         else:
-            logging.error("Cannot send update: visual server process failed to start")
+            logger.error("Cannot send update: visual server process failed to start")
     def is_healthy(self):
         if not self.process or not self.process.is_alive(): return False
         if not self.port: return False
@@ -395,13 +470,13 @@ class VisualServerSession:
         return status
     def close(self):
         if self.process and self.process.is_alive():
-            logging.info(colored(f"Closing visual response server (PID: {self.process.pid})...", "cyan"))
+            logger.info(colored(f"Closing visual response server (PID: {self.process.pid})...", "cyan"))
             self.output_queue.put("__EXIT__")
             self.process.join(timeout=3)
             if self.process.is_alive():
-                logging.warning(colored("Server process did not exit gracefully, terminating.", "yellow"))
+                logger.warning(colored("Server process did not exit gracefully, terminating.", "yellow"))
                 self.process.terminate()
-            logging.info(colored("Visual response server closed.", "cyan"))
+            logger.info(colored("Visual response server closed.", "cyan"))
         self.process = None
         if hasattr(g, 'visual_input_queue'):
             delattr(g, 'visual_input_queue')
@@ -550,7 +625,7 @@ class visualresponse:
             return f"Visual response command '{action}' for ID '{viz_id}' sent to the live UI on port {session.port}."
                 
         except Exception as e:
-            logging.error(f"Fatal error in visualresponse tool: {e}", exc_info=True)
+            logger.error(f"Fatal error in visualresponse tool: {e}", exc_info=True)
             return f"Fatal error in visualresponse tool: {e}"
     
     @staticmethod
@@ -591,7 +666,7 @@ class visualresponse:
         try:
             session = visualresponse._get_session()
             if not session or not session.is_healthy():
-                logging.debug("Visual session not available for user message")
+                logger.debug("Visual session not available for user message")
                 return False
 
             payload = {
@@ -602,11 +677,157 @@ class visualresponse:
                 "id": f"user-msg-{int(time.time() * 1000000)}"
             }
 
-            logging.info(f"About to send user message payload: {payload}")
+            logger.info(f"About to send user message payload: {payload}")
             session.send_update(payload)
-            logging.info(f"Sent user message to visual interface: {message[:50]}...")
+            logger.info(f"Sent user message to visual interface: {message[:50]}...")
             return True
 
         except Exception as e:
-            logging.debug(f"Failed to send user message to visual interface: {e}")
+            logger.debug(f"Failed to send user message to visual interface: {e}")
             return False
+
+    @staticmethod
+    def send_console_log(line: str, level: str = 'info') -> bool:
+        """
+        Send a console log message to the visual interface.
+
+        Args:
+            line: The console line to send
+            level: The log level (info, warning, error, debug)
+
+        Returns:
+            bool: True if message was sent successfully, False otherwise
+        """
+        try:
+            session = visualresponse._get_session()
+            if not session or not session.is_healthy():
+                return False
+
+            # Use the broadcast_console_log function from the server process
+            # by sending it through the update queue
+            payload = {
+                "type": "console_log",
+                "line": line.strip(),
+                "level": level,
+                "timestamp": time.time(),
+                "id": f"console-log-{int(time.time() * 1000000)}"
+            }
+
+            session.send_update(payload)
+            return True
+
+        except Exception as e:
+            logger.debug(f"Failed to send console log to visual interface: {e}")
+            return False
+
+
+class ConsoleCapture:
+    """
+    Console output capture system for forwarding stdout/stderr to visual interface.
+    """
+
+    def __init__(self):
+        self.original_stdout = sys.stdout
+        self.original_stderr = sys.stderr
+        self.enabled = False
+
+    def enable(self):
+        """Enable console capture and forwarding."""
+        if self.enabled:
+            return
+
+        # Create wrapper streams that forward to visual interface
+        sys.stdout = ConsoleWrapper(self.original_stdout, 'info')
+        sys.stderr = ConsoleWrapper(self.original_stderr, 'error')
+        self.enabled = True
+        logger.debug("Console capture enabled for visual interface")
+
+    def disable(self):
+        """Disable console capture and restore original streams."""
+        if not self.enabled:
+            return
+
+        sys.stdout = self.original_stdout
+        sys.stderr = self.original_stderr
+        self.enabled = False
+        logger.debug("Console capture disabled")
+
+    def __enter__(self):
+        self.enable()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.disable()
+
+
+class ConsoleWrapper:
+    """
+    Wrapper for stdout/stderr that forwards output to visual interface.
+    """
+
+    def __init__(self, original_stream, level: str):
+        self.original_stream = original_stream
+        self.level = level
+
+    def write(self, text):
+        # Write to original stream first
+        self.original_stream.write(text)
+
+        # Forward to visual interface (only non-empty, meaningful lines)
+        if text.strip() and not text.isspace():
+            # Clean text of ANSI escape sequences (comprehensive pattern)
+            import re
+            # Remove all ANSI escape sequences: colors, cursor movements, etc.
+            ansi_escape = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[@-~]')
+            clean_text = ansi_escape.sub('', text.strip())
+
+            # Also remove any remaining escape sequences
+            clean_text = re.sub(r'\x1b.*?[a-zA-Z]', '', clean_text)
+
+            # Skip very short fragments (likely streaming artifacts)
+            if len(clean_text) < 3:
+                return
+
+            # Skip some noisy patterns
+            skip_patterns = [
+                'debug:', 'loading', 'initializing', 'connection',
+                'browser client', 'sent continue_mode', 'successfully sent',
+                'get /', 'http/1.1', 'mozilla/', 'webkit/',
+                # Skip streaming fragments
+                '<think>', '</think>', 'thinking', 'i should', 'i need to',
+                'the user', 'let me', 'i will', 'i can',
+                # Skip ANSI escape sequence fragments
+                '[97m', '[0m', '[91m', '[92m', '[93m', '[94m', '[95m', '[96m'
+            ]
+
+            if not any(pattern in clean_text.lower() for pattern in skip_patterns):
+                # Only send if it's a substantial line (not streaming fragments)
+                if len(clean_text) > 10 or any(important in clean_text.lower() for important in [
+                    'error', 'warning', 'failed', 'success', 'complete', 'started', 'ready'
+                ]):
+                    visualresponse.send_console_log(clean_text, self.level)
+
+    def flush(self):
+        self.original_stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.original_stream, name)
+
+
+# Global console capture instance
+_console_capture = None
+
+
+def enable_console_capture():
+    """Enable console output capture for visual interface."""
+    global _console_capture
+    if _console_capture is None:
+        _console_capture = ConsoleCapture()
+    _console_capture.enable()
+
+
+def disable_console_capture():
+    """Disable console output capture."""
+    global _console_capture
+    if _console_capture is not None:
+        _console_capture.disable()
