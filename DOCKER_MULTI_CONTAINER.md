@@ -118,6 +118,22 @@ cli-agent -docker 3 --standalone    # No directory sync
 - **Static**: Changes to local code don't affect running containers
 - **Use case**: Production deployment, CI/CD, GitHub Actions
 
+### GUI vs CLI Mode
+
+**GUI Mode (Default for multi-container)**:
+- Containers start web interface on ports 7860-7870
+- Browsers auto-open for interactive use
+- Set `CLI_AGENT_GUI_MODE=false` to disable
+
+**CLI Mode (For automation)**:
+```bash
+# In Docker run command
+docker run -e CLI_AGENT_GUI_MODE=false cli-agent:sync -m "hello"
+
+# In orchestrator (future feature)
+cli-agent -docker 3 --no-gui
+```
+
 ### Directory Synchronization (Sync Mode)
 
 The system uses Docker bind mounts to provide real-time synchronization:

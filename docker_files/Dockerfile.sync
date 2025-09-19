@@ -136,13 +136,19 @@ cleanup() {\n\
 # Trap signals for graceful shutdown\n\
 trap cleanup SIGTERM SIGINT\n\
 \n\
-echo "=== Starting CLI-Agent in GUI Mode ==="\n\
-echo "Visual response server will start on available port in range 7860-7870"\n\
-echo "Access the interface at http://localhost:PORT after startup"\n\
-echo ""\n\
-\n\
-# Start CLI-Agent with GUI mode and handle shutdown gracefully\n\
-python3 main.py --gui "$@" &\n\
+# Check if GUI mode should be enabled (default for multi-container)\n\
+if [[ "${CLI_AGENT_GUI_MODE:-true}" == "true" ]] && [[ "$1" != "--help" ]] && [[ "$1" != "-h" ]]; then\n\
+    echo "=== Starting CLI-Agent in GUI Mode ==="\n\
+    echo "Visual response server will start on available port in range 7860-7870"\n\
+    echo "Access the interface at http://localhost:PORT after startup"\n\
+    echo ""\n\
+    python3 main.py --gui "$@" &\n\
+else\n\
+    echo "=== Starting CLI-Agent in CLI Mode ==="\n\
+    echo "Running in command-line mode"\n\
+    echo ""\n\
+    python3 main.py "$@" &\n\
+fi\n\
 CLI_AGENT_PID=$!\n\
 \n\
 # Wait for the process and handle signals\n\
