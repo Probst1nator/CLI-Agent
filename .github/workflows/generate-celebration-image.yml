@@ -5,6 +5,9 @@ on:
     # Run daily at 2 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch: # Allow manual trigger
+  push:
+    branches: [ "main" ]
+    paths: [ ".github/workflows/**" ]  # Only trigger when workflow files change
 
 jobs:
   generate-celebration-image:
