@@ -566,6 +566,23 @@ class WebSocketManager {
         }
     }
 
+    sendLLMSelectionUpdate(selectionData) {
+        const message = {
+            type: 'llm_selection_update',
+            data: selectionData,
+            timestamp: Date.now(),
+            source: 'web_ui'
+        };
+
+        if (this.sendMessage(JSON.stringify(message))) {
+            this.logger.info('Sent LLM selection update', { selections: selectionData });
+            return true;
+        } else {
+            this.logger.error('Failed to send LLM selection update - WebSocket not connected');
+            return false;
+        }
+    }
+
     handleLiveToolStart(data) {
         this.logger.info('Live tool started', { tool_name: data.tool_name });
 

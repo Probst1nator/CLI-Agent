@@ -150,6 +150,12 @@ docs/
 .travis.yml
 .circleci/
 
+# GitHub Actions specific
+/.dockerignore
+**/runner/
+**/actions-runner/
+**/.runner/
+
 # Package manager files (pip will use requirements.txt)
 Pipfile
 Pipfile.lock

@@ -26,6 +26,21 @@
     <div class="header">
         <div><div id="header-text">Agent's Live Visual Response</div><div id="status" style="color: var(--status-connecting);">Connecting to agent...</div></div>
         <div class="header-controls">
+            <div class="llm-selection-container">
+                <span class="llm-selection-label">LLMs:</span>
+                <div class="llm-selector-wrapper">
+                    <span class="llm-fallback-label">1st</span>
+                    <div id="llm-selector-primary"></div>
+                </div>
+                <div class="llm-selector-wrapper">
+                    <span class="llm-fallback-label">2nd</span>
+                    <div id="llm-selector-fallback1"></div>
+                </div>
+                <div class="llm-selector-wrapper">
+                    <span class="llm-fallback-label">3rd</span>
+                    <div id="llm-selector-fallback2"></div>
+                </div>
+            </div>
             <button id="clear-history-btn" class="clear-history-button" title="Clear message history">
                 <span class="clear-icon">🗑️</span>
                 <span class="clear-text">Clear</span>
@@ -91,6 +106,7 @@
     <script src="/js/js-utils.js"></script>
     <script src="/js/renderers.js"></script>
     <script src="/js/websocket.js"></script>
+    <script src="/js/llm-selector.js"></script>
     <script src="/js/main.js"></script>
 </body>
 </html>

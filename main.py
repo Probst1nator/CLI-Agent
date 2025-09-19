@@ -538,7 +538,7 @@ class InputCollector:
 # Global input collector instance
 _input_collector = None
 
-def get_input_collector(args: argparse.Namespace = None) -> InputCollector:
+def get_input_collector(args: Optional[argparse.Namespace] = None) -> Optional[InputCollector]:
     """Get or create the global input collector instance."""
     global _input_collector
     if _input_collector is None and args:
@@ -1263,7 +1263,7 @@ def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, s
 # are assumed to exist elsewhere in the project.
 
 
-async def get_gui_input() -> str:
+async def get_gui_input() -> Optional[str]:
     """
     Get input from browser interface instead of terminal.
     Prioritizes queued commands from the background input collector, then
@@ -1304,13 +1304,83 @@ async def get_gui_input() -> str:
                 print(colored("  → Breaking out of autonomous mode and returning to user input...", "yellow"))
                 return None # Signal to main loop that interrupt was processed
 
-            if user_input.strip() == "__AGENT_RESET__":
-                logging.info(colored("🔄 Received agent reset request from browser", "yellow"))
-                g.AGENT_RESET_REQUESTED = True
-                return None # Signal to main loop to handle the reset
+            # Handle LLM selection updates from web UI
+            if isinstance(user_input, dict) and user_input.get('type') == 'llm_selection_update':
+                logging.info(colored("🎯 Received LLM selection update from web UI", "blue"))
+                selection_data = user_input.get('data', {})
 
-            logging.info(colored(f"🌐 Received browser input: {user_input[:50]}...", "green"))
-            return user_input
+                # Update the system configuration
+                new_fallback_models = []
+                for key in ['primary', 'fallback1', 'fallback2']:
+                    if selection_data.get(key):
+                        new_fallback_models.append(selection_data[key])
+
+                # Update g.SELECTED_LLMS to match the UI selection
+                if new_fallback_models:
+                    # Replace existing fallback models with the 3 from UI
+                    # Keep any specialized models (branch, eval, guard) intact
+                    llm_config = g.get_llm_config()
+                    specialized_models = []
+
+                    # Find specialized models to preserve
+                    for model_key, config in llm_config.items():
+                        if config.get('beams', 0) > 0 or config.get('eval', 0) > 0 or config.get('guard', 0) > 0:
+                            specialized_models.append(model_key)
+
+                    # Create new selection list: specialized models + UI fallback models
+                    new_selected_llms = specialized_models + new_fallback_models
+
+                    # Remove duplicates while preserving order
+                    unique_selected = []
+                    seen = set()
+                    for model in new_selected_llms:
+                        if model not in seen:
+                            unique_selected.append(model)
+                            seen.add(model)
+
+                    # Update global selection
+                    old_selection = g.SELECTED_LLMS.copy()
+                    g.SELECTED_LLMS = unique_selected
+
+                    logging.info(colored(f"🔄 Updated LLM selection from UI:", "green"))
+                    logging.info(colored(f"  → Old fallback models: {len(old_selection)} total", "yellow"))
+                    logging.info(colored(f"  → New fallback models: {new_fallback_models}", "green"))
+                    logging.info(colored(f"  → Total selected: {len(unique_selected)} models", "cyan"))
+
+                    # If requested, update the persistent configuration
+                    if selection_data.get('remove_extra_fallbacks'):
+                        try:
+                            # Update the LLM config to match the new selection
+                            updated_config = {}
+                            for model in unique_selected:
+                                if model in llm_config:
+                                    updated_config[model] = llm_config[model].copy()
+                                else:
+                                    # New model, add as simple fallback
+                                    updated_config[model] = {"selected": True}
+
+                            # Save the updated configuration
+                            g.save_llm_config(updated_config)
+                            logging.info(colored("💾 Saved updated LLM configuration to disk", "green"))
+
+                        except Exception as e:
+                            logging.error(colored(f"❌ Failed to save LLM configuration: {e}", "red"))
+
+                return None # Continue without treating this as user input
+
+            # Handle string inputs
+            if isinstance(user_input, str):
+                if user_input.strip() == "__AGENT_RESET__":
+                    logging.info(colored("🔄 Received agent reset request from browser", "yellow"))
+                    g.AGENT_RESET_REQUESTED = True
+                    return None # Signal to main loop to handle the reset
+
+                logging.info(colored(f"🌐 Received browser input: {user_input[:50]}...", "green"))
+                return user_input
+            else:
+                # Handle non-string inputs (like dicts)
+                logging.warning(f"Received non-string input: {type(user_input)} - {user_input}")
+                continue
 
         except queue.Empty:
             # Timeout occurred, loop again to check for queued commands
@@ -1766,20 +1836,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
         initializing: bool = True
         
-        # --- FIX: Initialize CommandHandler once, after logging is configured ---
-        class DummyAppContext:
-            def __init__(self):
-                self.logger = logging.getLogger("command_handler_context")
-                class DummySettings:
-                    def __init__(self):
-                        self.auto_execute = args.auto
-                        self.voice_mode = args.voice
-                        self.local_mode = args.local
-                        self.online_mode = args.online
-                        self.full_output_mode = args.full_output_mode
-                self.settings = DummySettings()
-        command_handler = CommandHandler(DummyAppContext())
-        # --- END FIX ---
+        # CommandHandler already initialized above - no need to reinitialize
 
         while True:
             LlmRouter().failed_models.clear()

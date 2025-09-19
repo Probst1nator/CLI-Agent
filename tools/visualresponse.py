@@ -224,6 +224,22 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                             if message_type == 'permission_response':
                                 # For permission responses, put the structured data directly
                                 input_queue.put(message_data)
+                            elif message_type == 'llm_selection_update':
+                                # Handle LLM selection update from web UI
+                                subprocess_logger.info(f"LLM selection update received from web UI: {message_data.get('data', {})}")
+
+                                # Create a command to update LLM configuration
+                                llm_update_command = {
+                                    'type': 'llm_selection_update',
+                                    'source': 'web_ui',
+                                    'timestamp': message_data.get('timestamp', time.time()),
+                                    'data': message_data.get('data', {})
+                                }
+
+                                # Send to the main process via input queue
+                                input_queue.put(llm_update_command)
+                                subprocess_logger.info("LLM selection update sent to main process")
+
                             elif message_type == 'interrupt_signal':
                                 # Handle interrupt signal - trigger the main interrupt system
                                 subprocess_logger.info(f"Interrupt signal received from web UI: {message_data.get('source', 'unknown')}")
@@ -291,23 +307,104 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         response = web.FileResponse(ASSETS_DIR / 'favicon.ico')
         response.headers['Cache-Control'] = 'public, max-age=86400'
         return response
+    async def llm_data_handler(request: web.Request):
+        """Serve available LLM models data for the frontend selectboxes."""
+        try:
+            # Import here to avoid circular imports and ensure g is initialized
+            from core.llm import Llm
+            from core.globals import g
+
+            # Get all available LLMs including dynamic discovery
+            available_llms = Llm.get_available_llms(include_dynamic=True)
+
+            # Convert to JSON-serializable format
+            llm_data = []
+            for llm in available_llms:
+                # Get provider name and emoji from the provider class
+                provider_name = llm.provider.__class__.__name__.replace('API', '')
+
+                # Create a clean model entry
+                model_entry = {
+                    'id': llm.model_key,
+                    'name': llm.model_key,
+                    'provider': provider_name,
+                    'context_window': llm.context_window,
+                    'capabilities': [str(capability) for capability in llm.strengths] if llm.strengths else [],
+                    'status': 'available'  # Could be enhanced to check actual availability
+                }
+                llm_data.append(model_entry)
+
+            # Sort by provider and then by name for consistent ordering
+            llm_data.sort(key=lambda x: (x['provider'], x['name']))
+
+            # Get current system configuration
+            selected_llms = getattr(g, 'SELECTED_LLMS', [])
+
+            # Calculate fallback models (same logic as main.py)
+            llm_config = g.get_llm_config()
+            selected_configs = []
+            for model_key in selected_llms:
+                config = llm_config.get(model_key, {})
+                config['model_key'] = model_key
+                selected_configs.append(config)
+
+            # Categorize models by their roles
+            branch_models = [config['model_key'] for config in selected_configs if config.get('beams', 0) > 0 or config.get('branches', 0) > 0]
+            eval_models = [config['model_key'] for config in selected_configs if config.get('eval', 0) > 0]
+            guard_models = [config['model_key'] for config in selected_configs if config.get('guard', 0) > 0]
+
+            # Calculate fallback models (selected but not specialized)
+            unique_models = []
+            seen = set()
+            for model in selected_llms:
+                if model not in seen:
+                    unique_models.append(model)
+                    seen.add(model)
+
+            specialized_models = set(branch_models + eval_models + guard_models)
+            fallback_models = [model for model in unique_models if model not in specialized_models]
+
+            logger.info(f"Served LLM data: {len(llm_data)} models from {len(set(m['provider'] for m in llm_data))} providers")
+            logger.info(f"Current system state: {len(selected_llms)} selected, {len(fallback_models)} fallback models")
+
+            return web.json_response({
+                'status': 'success',
+                'models': llm_data,
+                'total_count': len(llm_data),
+                'current_configuration': {
+                    'selected_llms': selected_llms,
+                    'fallback_models': fallback_models,
+                    'branch_models': branch_models,
+                    'eval_models': eval_models,
+                    'guard_models': guard_models
+                }
+            })
+
+        except Exception as e:
+            logger.error(f"Failed to get LLM data: {e}", exc_info=True)
+            return web.json_response({
+                'status': 'error',
+                'message': f'Failed to retrieve LLM data: {str(e)}',
+                'models': []
+            }, status=500)
+
     async def upload_handler(request: web.Request):
         try:
             reader = await request.multipart()
             uploaded_files = []
-            
+
             while True:
                 field = await reader.next()
                 if field is None:
                     break
-                    
+
                 if field.name == 'file':
                     # Get the filename, sanitize it
                     filename = field.filename or 'uploaded_file'
                     safe_filename = "".join(c for c in filename if c.isalnum() or c in (' ', '.', '_', '-')).rstrip()
                     if not safe_filename:
                         safe_filename = f"uploaded_file_{int(time.time())}"
-                    
+
                     # Import g to get temp storage path
                     from core.globals import g
                     temp_dir = Path(g.CLIAGENT_TEMP_STORAGE_PATH)
@@ -354,6 +451,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         app.router.add_get('/', index_handler)
         app.router.add_get('/ws', websocket_handler)
         app.router.add_get('/favicon.ico', favicon_handler)
+        app.router.add_get('/api/llms', llm_data_handler)
         app.router.add_post('/upload', upload_handler)
         app.router.add_static('/libs/', path=ASSETS_DIR / 'libs', name='libs')
         app.router.add_static('/css/', path=ASSETS_DIR / 'css', name='css')

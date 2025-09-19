@@ -33,7 +33,7 @@ def print_status(color: str, message: str, file=sys.stderr):
     print(f"{color}{message}{Colors.NC}", file=file)
 
 class DockerOrchestrator:
-    def __init__(self, cli_agent_dir: str, open_browser: bool = True):
+    def __init__(self, cli_agent_dir: str, open_browser: bool = True, standalone: bool = False):
         self.cli_agent_dir = Path(cli_agent_dir).resolve()
         self.docker_dir = self.cli_agent_dir / "docker_files"
         self.compose_file = self.docker_dir / "docker-compose.sync.yml"
@@ -41,6 +41,7 @@ class DockerOrchestrator:
         self.container_prefix = "cli-agent-sync"
         self.network_name = "cli-agent-network"
         self.open_browser = open_browser
+        self.standalone = standalone
 
     def build_image(self) -> bool:
         """Build the CLI-Agent sync Docker image"""
@@ -136,6 +137,27 @@ class DockerOrchestrator:
                 if value:
                     environment.append(f"{key}={value}")
 
+            # Configure volumes based on mode
+            if self.standalone:
+                # Standalone mode: only persistent data volumes, no source code mount
+                volumes = [
+                    f"cli-agent-data-{i}:/cli-agent/data",
+                    f"cli-agent-logs-{i}:/cli-agent/logs",
+                    f"cli-agent-temp-{i}:/cli-agent/temp"
+                ]
+                working_dir = '/cli-agent'
+            else:
+                # Sync mode: mount source code + persistent data volumes
+                volumes = [
+                    # Full directory sync - mount entire CLI-Agent directory
+                    f"{self.cli_agent_dir}:/workspace",
+                    # Persistent data volumes
+                    f"cli-agent-data-{i}:/workspace/data",
+                    f"cli-agent-logs-{i}:/workspace/logs",
+                    f"cli-agent-temp-{i}:/workspace/temp"
+                ]
+                working_dir = '/workspace'
+
             # Service definition
             service_def = {
                 'image': self.image_name,
@@ -143,16 +165,9 @@ class DockerOrchestrator:
                 'restart': 'unless-stopped',
                 'ports': ports,
                 'environment': environment,
-                'volumes': [
-                    # Full directory sync - mount entire CLI-Agent directory
-                    f"{self.cli_agent_dir}:/workspace",
-                    # Persistent data volumes
-                    f"cli-agent-data-{i}:/workspace/data",
-                    f"cli-agent-logs-{i}:/workspace/logs",
-                    f"cli-agent-temp-{i}:/workspace/temp"
-                ],
+                'volumes': volumes,
                 'networks': [self.network_name],
-                'working_dir': '/workspace',
+                'working_dir': working_dir,
                 'user': '1000:1000',  # Match host user
                 'deploy': {
                     'resources': {
@@ -488,6 +503,7 @@ def main():
     parser.add_argument("--clean", action="store_true", help="Clean up resources")
     parser.add_argument("--build", action="store_true", help="Build the Docker image")
     parser.add_argument("--no-browser", action="store_true", help="Don't automatically open browsers")
+    parser.add_argument("--standalone", action="store_true", help="Use standalone mode (no bind mount of source code)")
 
     # Parse known args to allow passing extra arguments to containers
     args, extra_args = parser.parse_known_args()
@@ -498,9 +514,10 @@ def main():
         print_status(Colors.RED, f"❌ CLI-Agent directory not found: {cli_agent_dir}")
         sys.exit(1)
 
-    # Create orchestrator with browser setting
+    # Create orchestrator with browser and standalone settings
     open_browser = not args.no_browser
-    orchestrator = DockerOrchestrator(cli_agent_dir, open_browser=open_browser)
+    standalone = args.standalone
+    orchestrator = DockerOrchestrator(cli_agent_dir, open_browser=open_browser, standalone=standalone)
 
     try:
         if args.build:

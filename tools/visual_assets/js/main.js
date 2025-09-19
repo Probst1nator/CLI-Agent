@@ -107,6 +107,9 @@ class VisualResponseApp {
         // File upload elements
         this.fileInput = document.getElementById('file-input');
         this.fileUploadBtn = document.getElementById('file-upload-btn');
+
+        // Initialize LLM selectors
+        this.initializeLLMSelectors();
     }
 
     setupMarkedRenderer() {
@@ -1653,6 +1656,206 @@ class VisualResponseApp {
         }
 
         console.log('Agent message height management initialized');
+    }
+
+    /**
+     * Initialize the LLM selectors in the header
+     */
+    initializeLLMSelectors() {
+        // Check if SearchableLLMSelectbox is available
+        if (typeof SearchableLLMSelectbox === 'undefined') {
+            console.warn('SearchableLLMSelectbox not available, LLM selectors will not be initialized');
+            return;
+        }
+
+        // Initialize the three LLM selectors
+        this.llmSelectors = {};
+        this.llmSelectorsLoaded = { primary: false, fallback1: false, fallback2: false };
+
+        // Store system configuration for reference
+        this.systemConfiguration = null;
+
+        // Create a callback to track when all selectors have loaded their models
+        const onModelsLoaded = (selector, models, systemConfig) => {
+            // Store the system configuration from the first selector that loads
+            if (systemConfig && !this.systemConfiguration) {
+                this.systemConfiguration = systemConfig;
+                console.log('System configuration received:', systemConfig);
+            }
+
+            // Find which selector this is
+            const selectorName = Object.keys(this.llmSelectors).find(key => this.llmSelectors[key] === selector);
+            if (selectorName) {
+                this.llmSelectorsLoaded[selectorName] = true;
+                console.log(`Models loaded for ${selectorName} selector: ${models.length} models`);
+
+                // Check if all selectors have loaded their models
+                const allLoaded = Object.values(this.llmSelectorsLoaded).every(loaded => loaded);
+                if (allLoaded) {
+                    console.log('All LLM selectors have loaded their models...');
+                    this.initializeFromSystemConfiguration();
+                }
+            }
+        };
+
+        // Primary LLM selector
+        const primaryContainer = document.getElementById('llm-selector-primary');
+        if (primaryContainer) {
+            this.llmSelectors.primary = new SearchableLLMSelectbox(primaryContainer, {
+                placeholder: 'Primary LLM...',
+                id: 'llm-primary',
+                onSelectionChange: (model) => this.handleLLMSelectionChange('primary', model),
+                onModelsLoaded: onModelsLoaded
+            });
+        }
+
+        // First fallback LLM selector
+        const fallback1Container = document.getElementById('llm-selector-fallback1');
+        if (fallback1Container) {
+            this.llmSelectors.fallback1 = new SearchableLLMSelectbox(fallback1Container, {
+                placeholder: 'Fallback 1...',
+                id: 'llm-fallback1',
+                onSelectionChange: (model) => this.handleLLMSelectionChange('fallback1', model),
+                onModelsLoaded: onModelsLoaded
+            });
+        }
+
+        // Second fallback LLM selector
+        const fallback2Container = document.getElementById('llm-selector-fallback2');
+        if (fallback2Container) {
+            this.llmSelectors.fallback2 = new SearchableLLMSelectbox(fallback2Container, {
+                placeholder: 'Fallback 2...',
+                id: 'llm-fallback2',
+                onSelectionChange: (model) => this.handleLLMSelectionChange('fallback2', model),
+                onModelsLoaded: onModelsLoaded
+            });
+        }
+
+        console.log('LLM selectors initialized successfully');
+    }
+
+    /**
+     * Initialize selectors from system configuration
+     */
+    initializeFromSystemConfiguration() {
+        if (this.systemConfiguration && this.systemConfiguration.fallback_models) {
+            const fallbackModels = this.systemConfiguration.fallback_models;
+            console.log(`Initializing UI with ${fallbackModels.length} fallback models:`, fallbackModels);
+
+            // Display first 3 fallback models in the UI
+            if (fallbackModels.length >= 1 && this.llmSelectors.primary) {
+                this.llmSelectors.primary.setSelectedModel(fallbackModels[0]);
+                console.log(`Set primary selector to: ${fallbackModels[0]}`);
+            }
+
+            if (fallbackModels.length >= 2 && this.llmSelectors.fallback1) {
+                this.llmSelectors.fallback1.setSelectedModel(fallbackModels[1]);
+                console.log(`Set fallback1 selector to: ${fallbackModels[1]}`);
+            }
+
+            if (fallbackModels.length >= 3 && this.llmSelectors.fallback2) {
+                this.llmSelectors.fallback2.setSelectedModel(fallbackModels[2]);
+                console.log(`Set fallback2 selector to: ${fallbackModels[2]}`);
+            }
+
+            // Note if there's a 4th model that will be removed on next change
+            if (fallbackModels.length >= 4) {
+                console.log(`Note: 4th fallback model (${fallbackModels[3]}) will be removed on next UI change`);
+            }
+
+            // Set a flag to indicate we've initialized from system config
+            this.initializedFromSystem = true;
+        } else {
+            console.log('No system configuration available, falling back to localStorage...');
+            this.loadLLMSelections();
+        }
+    }
+
+    /**
+     * Handle LLM selection changes
+     * @param {string} position - 'primary', 'fallback1', or 'fallback2'
+     * @param {Object} model - Selected model object
+     */
+    handleLLMSelectionChange(position, model) {
+        console.log(`LLM selection changed - ${position}:`, model);
+
+        // Store current selections
+        if (!this.llmSelections) {
+            this.llmSelections = {};
+        }
+        this.llmSelections[position] = model;
+
+        // Send the selection change via WebSocket if connected
+        if (this.wsManager && this.wsManager.isConnected()) {
+            const selectionData = {
+                primary: this.llmSelections.primary?.id || null,
+                fallback1: this.llmSelections.fallback1?.id || null,
+                fallback2: this.llmSelections.fallback2?.id || null,
+                // Flag to indicate we should remove any 4th+ fallback models
+                remove_extra_fallbacks: true,
+                // Include system state for context
+                system_had_extra_models: this.systemConfiguration &&
+                    this.systemConfiguration.fallback_models &&
+                    this.systemConfiguration.fallback_models.length > 3
+            };
+
+            console.log('Sending LLM selection update:', selectionData);
+            this.wsManager.sendLLMSelectionUpdate(selectionData);
+        } else {
+            console.warn('WebSocket not connected, LLM selection not sent to backend');
+        }
+
+        // Save to localStorage for persistence
+        try {
+            const allSelections = {
+                primary: this.llmSelections.primary?.id || null,
+                fallback1: this.llmSelections.fallback1?.id || null,
+                fallback2: this.llmSelections.fallback2?.id || null,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('llm-selections', JSON.stringify(allSelections));
+            console.log('LLM selections saved to localStorage');
+        } catch (e) {
+            console.warn('Failed to save LLM selections to localStorage:', e);
+        }
+    }
+
+    /**
+     * Load and restore LLM selections from localStorage
+     */
+    loadLLMSelections() {
+        try {
+            const stored = localStorage.getItem('llm-selections');
+            if (stored) {
+                const selections = JSON.parse(stored);
+                console.log('Attempting to restore LLM selections:', selections);
+
+                let restoredCount = 0;
+
+                // Restore selections to selectboxes
+                if (selections.primary && this.llmSelectors.primary) {
+                    this.llmSelectors.primary.setSelectedModel(selections.primary);
+                    console.log(`Restoring primary selection: ${selections.primary}`);
+                    restoredCount++;
+                }
+                if (selections.fallback1 && this.llmSelectors.fallback1) {
+                    this.llmSelectors.fallback1.setSelectedModel(selections.fallback1);
+                    console.log(`Restoring fallback1 selection: ${selections.fallback1}`);
+                    restoredCount++;
+                }
+                if (selections.fallback2 && this.llmSelectors.fallback2) {
+                    this.llmSelectors.fallback2.setSelectedModel(selections.fallback2);
+                    console.log(`Restoring fallback2 selection: ${selections.fallback2}`);
+                    restoredCount++;
+                }
+
+                console.log(`LLM selections restoration completed: ${restoredCount} selections restored`);
+            } else {
+                console.log('No stored LLM selections found in localStorage');
+            }
+        } catch (e) {
+            console.warn('Failed to load LLM selections from localStorage:', e);
+        }
     }
 
 }

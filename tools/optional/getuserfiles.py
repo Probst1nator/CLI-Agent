@@ -45,11 +45,11 @@ class WebSocketDiscovery:
     
     async def discover_websocket_endpoint(self) -> str:
         """Discover WebSocket endpoint using multi-tier strategy"""
-        
+
         # Check cache first (for rapid successive calls)
         if self._is_cache_valid():
             print(colored(f"🔄 Using cached WebSocket endpoint: {self.cached_uri}", "cyan"))
-            return self.cached_uri
+            return self.cached_uri  # type: ignore[return-value]
         
         strategies = [
             self._strategy_environment_variables,
@@ -74,8 +74,8 @@ class WebSocketDiscovery:
     
     def _is_cache_valid(self) -> bool:
         """Check if cached URI is still valid"""
-        return (self.cached_uri and 
-                time.time() - self.cache_timestamp < self.cache_duration)
+        return bool(self.cached_uri and
+                   time.time() - self.cache_timestamp < self.cache_duration)
     
     def _cache_uri(self, uri: str):
         """Cache successful URI"""
@@ -170,7 +170,7 @@ class WebSocketDiscovery:
                 content = await asyncio.wait_for(websocket.recv(), timeout=timeout)
                 
                 # Basic validation - should not be an error message
-                if content and not content.startswith("Error:"):
+                if content and not str(content).startswith("Error:"):
                     return True
                     
         except (websockets.exceptions.ConnectionClosed, 
@@ -269,13 +269,13 @@ class getuserfiles:
         except Exception as e:
             result = f"Error: {e}"
         
-        if result.startswith("Error:"):
+        if str(result).startswith("Error:"):
             print(colored(f"   -> {result}", "red"))
         else:
-            size_kb = len(result) / 1024
+            size_kb = len(str(result)) / 1024
             print(colored(f"   -> Successfully received {size_kb:.1f} KB of context.", "green"))
-            
-        return result
+
+        return str(result)
 
     @staticmethod
     def create_user_config(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):

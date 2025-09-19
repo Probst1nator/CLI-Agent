@@ -232,9 +232,12 @@ class searchtext:
         
         # Check for list resources command
         if re.search(r'<list_resources\s*/>', content, re.IGNORECASE):
-            resource_manager = TextResourceManager._get_manager()
-            resources = resource_manager.list_resources()
-            return searchtext._format_resource_list(resources)
+            try:
+                resource_manager = TextResourceManager._get_manager()
+                resources = resource_manager.list_resources()
+                return searchtext._format_resource_list(resources)
+            except NameError:
+                return "❌ Error: TextResourceManager not available. This tool requires the text resource management system."
         
         # Parse XML tags
         tags = searchtext._parse_xml_tags(content)
@@ -244,16 +247,19 @@ class searchtext:
             return "❌ Error: No resource_id specified. Use <resource_id>RESOURCE_ID</resource_id> to specify which resource to search."
         
         # Check if resource exists using lazy access
-        resource_manager = TextResourceManager._get_manager()
-        metadata = resource_manager.get_metadata(resource_id)
-        if not metadata:
-            return f"❌ Error: Resource '{resource_id}' not found. Use <searchtext><list_resources/></searchtext> to see available resources."
+        try:
+            resource_manager = TextResourceManager._get_manager()
+            metadata = resource_manager.get_metadata(resource_id)
+            if not metadata:
+                return f"❌ Error: Resource '{resource_id}' not found. Use <searchtext><list_resources/></searchtext> to see available resources."
+        except NameError:
+            return "❌ Error: TextResourceManager not available. This tool requires the text resource management system."
         
         # Handle pattern search
         pattern = tags.get('pattern')
         if pattern:
-            context_lines = tags.get('context_lines', 0)
-            max_results = tags.get('max_results', 50)
+            context_lines = int(tags.get('context_lines', 0))
+            max_results = int(tags.get('max_results', 50))
             
             results = resource_manager.search_resource(
                 resource_id=resource_id,

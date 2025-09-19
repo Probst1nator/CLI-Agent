@@ -38,6 +38,7 @@ show_help() {
     echo "  --docker-logs [N]      Show logs for container N (or all if no N)"
     echo "  --docker-clean         Remove all stopped containers and volumes"
     echo "  --no-browser           Don't automatically open browser windows"
+    echo "  --standalone           Use standalone mode (no source code sync)"
     echo ""
     echo "Local Options (passed through to main.py):"
     echo "  -h, --help            Show this help message"
@@ -55,6 +56,7 @@ show_help() {
     echo "  cli-agent -docker 3                 # Start 3 containers (auto-open browsers)"
     echo "  cli-agent -docker 5 -v              # Start 5 containers with voice"
     echo "  cli-agent -docker 2 --no-browser    # Start 2 containers without browsers"
+    echo "  cli-agent -docker 3 --standalone    # Start 3 standalone containers"
     echo "  cli-agent -m 'Hello world'          # Local execution with message"
     echo "  cli-agent --docker-status            # Check container status"
 }
@@ -64,6 +66,7 @@ DOCKER_MODE=false
 DOCKER_COUNT=0
 DOCKER_ACTION=""
 NO_BROWSER=false
+STANDALONE=false
 REMAINING_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -101,6 +104,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-browser)
             NO_BROWSER=true
+            shift
+            ;;
+        --standalone)
+            STANDALONE=true
             shift
             ;;
         -h|--help)
@@ -169,10 +176,13 @@ if [[ "$DOCKER_MODE" = true ]]; then
         exit 1
     fi
 
-    # Build orchestrator command with no-browser flag if needed
+    # Build orchestrator command with flags
     ORCHESTRATOR_ARGS=("--count" "$DOCKER_COUNT")
     if [[ "$NO_BROWSER" = true ]]; then
         ORCHESTRATOR_ARGS+=("--no-browser")
+    fi
+    if [[ "$STANDALONE" = true ]]; then
+        ORCHESTRATOR_ARGS+=("--standalone")
     fi
     ORCHESTRATOR_ARGS+=("${REMAINING_ARGS[@]}")
 
