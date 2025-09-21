@@ -40,22 +40,14 @@ def apply_default_llm_config() -> None:
     Loads the cached LLM configuration from disk and applies it as the default
     for the current session. This makes LLM selections persistent.
 
-    Extracted from main.py with exact same logic.
+    Updated to work with unified LLM role management.
     """
-    llm_config = g.get_llm_config()
-    if not llm_config:
-        return # No saved config to apply
+    # LLM roles are automatically loaded during globals initialization
+    # This function now just reports what was loaded
+    selected_llms = g.SELECTED_LLMS
 
-    # Preserve chronological selection order by using g.SELECTED_LLMS if available
-    if g.SELECTED_LLMS:
-        selected_llms = [key for key in g.SELECTED_LLMS if llm_config.get(key, {}).get('selected')]
-    else:
-        selected_llms = [key for key, data in llm_config.items() if data.get('selected')]
-
-
-    # Only apply if there are actual selections, to not override command line flags unintentionally
+    # Only log if there are actual selections
     if selected_llms:
-        g.SELECTED_LLMS = selected_llms
         # Count unique models by provider
         unique_models = list(set(selected_llms))  # Deduplicate
         provider_counts = {}

@@ -327,21 +327,12 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
             # Get current system configuration from the most recent saved state
             # The web server subprocess should always read fresh config to get latest changes
+            # Use unified LLM role configuration
+            g.load_llm_roles()  # Refresh from disk
             llm_config = g.get_llm_config(force_reread=True)
-            # Get selected models and sort them by their saved order
-            selected_models_with_order = []
-            for key, data in llm_config.items():
-                if key != '__planner_llm__' and isinstance(data, dict) and data.get('selected'):
-                    order = data.get('order', 999)  # Default high order for models without order
-                    selected_models_with_order.append((order, key))
-
-            # Sort by order and extract just the model keys
-            selected_models_with_order.sort(key=lambda x: x[0])
-            selected_llms = [key for order, key in selected_models_with_order]
-
-            # Get planner LLM and router LLM from the fresh config
-            planner_llm = llm_config.get('__planner_llm__')
-            router_llm = llm_config.get('__router_llm__')
+            selected_llms = g.SELECTED_LLMS
+            planner_llm = g.planner_llm
+            router_llm = g.router_llm
 
             selected_configs = []
             for model_key in selected_llms:

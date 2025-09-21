@@ -973,9 +973,11 @@ class LlmSelector:
                         self.selection_order[model_key] = self.next_selection_order
                         self.next_selection_order += 1
 
-            # Sync planner selection with global planner LLM and config
+            # Sync planner and router selection with global LLM roles and config
             from core.globals import g
-            saved_planner_llm = saved_config.get('__planner_llm__')
+
+            # Load current roles from globals (which loads from disk)
+            saved_planner_llm = g.planner_llm
             if saved_planner_llm:
                 # Clear all planner flags first
                 for row in self.data:
@@ -985,19 +987,8 @@ class LlmSelector:
                     if row.get('model_key') == saved_planner_llm:
                         row['planner'] = 1
                         break
-                # Update global using unified method
-                g.update_planner_llm(saved_planner_llm)
-            elif g.planner_llm:
-                # Global is set but not in saved config - apply it
-                for row in self.data:
-                    row['planner'] = 0
-                for row in self.data:
-                    if row.get('model_key') == g.planner_llm:
-                        row['planner'] = 1
-                        break
 
-            # Sync router selection with global router LLM and config
-            saved_router_llm = saved_config.get('__router_llm__')
+            saved_router_llm = g.router_llm
             if saved_router_llm:
                 # Clear all router flags first
                 for row in self.data:
@@ -1005,16 +996,6 @@ class LlmSelector:
                 # Set router flag for the configured model
                 for row in self.data:
                     if row.get('model_key') == saved_router_llm:
-                        row['router'] = 1
-                        break
-                # Update global using unified method
-                g.update_router_llm(saved_router_llm)
-            elif g.router_llm:
-                # Global is set but not in saved config - apply it
-                for row in self.data:
-                    row['router'] = 0
-                for row in self.data:
-                    if row.get('model_key') == g.router_llm:
                         row['router'] = 1
                         break
 
@@ -1098,12 +1079,12 @@ class LlmSelector:
                             # Update global router LLM using unified method
                             from core.globals import g
                             model_key = row_data.get('model_key', '')
-                            g.update_router_llm(model_key)
+                            g.update_llm_role('router', model_key)
                         elif increment < 0 and current_value == 1:
                             # Clear router selection
                             row_data['router'] = 0
                             from core.globals import g
-                            g.update_router_llm(None)
+                            g.update_llm_role('router', None)
                     elif col_key == 'planner':
                         # Planner column: toggle between 0 and 1, with exclusive selection
                         if increment > 0 and current_value == 0:
@@ -1114,12 +1095,12 @@ class LlmSelector:
                             # Update global planner LLM using unified method
                             from core.globals import g
                             model_key = row_data.get('model_key', '')
-                            g.update_planner_llm(model_key)
+                            g.update_llm_role('planner', model_key)
                         elif increment < 0 and current_value == 1:
                             # Clear planner selection
                             row_data['planner'] = 0
                             from core.globals import g
-                            g.update_planner_llm(None)
+                            g.update_llm_role('planner', None)
                     else:
                         # Regular numeric columns
                         row_data[col_key] = max(0, current_value + increment)
@@ -1153,12 +1134,12 @@ class LlmSelector:
                                     # Update global router LLM using unified method
                                     from core.globals import g
                                     model_key = row_data.get('model_key', '')
-                                    g.update_router_llm(model_key)
+                                    g.update_llm_role('router', model_key)
                                 else:
                                     # Clear router selection
                                     row_data['router'] = 0
                                     from core.globals import g
-                                    g.update_router_llm(None)
+                                    g.update_llm_role('router', None)
                             elif col_key == 'planner':
                                 # Planner column: handle exclusive selection
                                 if new_value > 0:
@@ -1169,12 +1150,12 @@ class LlmSelector:
                                     # Update global planner LLM using unified method
                                     from core.globals import g
                                     model_key = row_data.get('model_key', '')
-                                    g.update_planner_llm(model_key)
+                                    g.update_llm_role('planner', model_key)
                                 else:
                                     # Clear planner selection
                                     row_data['planner'] = 0
                                     from core.globals import g
-                                    g.update_planner_llm(None)
+                                    g.update_llm_role('planner', None)
                             else:
                                 # Regular numeric columns
                                 row_data[col_key] = new_value
@@ -1364,15 +1345,23 @@ class LlmSelector:
                 if data.get('selected') or any(data.get(k, 0) > 0 for k in ['beams', 'eval', 'guard', 'planner'])
             }
 
-            # Save the special planner LLM key using unified method
+            # Save planner and router LLM keys using unified method
             planner_model = None
+            router_model = None
+            selected_models = []
+
             for model, data in config.items():
                 if data.get('planner', 0) > 0:
                     planner_model = model
-                    break
+                if data.get('router', 0) > 0:
+                    router_model = model
+                if data.get('selected', False):
+                    selected_models.append(model)
 
             from core.globals import g
-            g.update_planner_llm(planner_model)
+            g.update_llm_role('planner', planner_model)
+            g.update_llm_role('router', router_model)
+            g.update_llm_role('selected', model_keys=selected_models)
 
             with open(self.config_file, 'w') as f:
                 json.dump(config_to_save, f, indent=2)

@@ -765,7 +765,7 @@ class PlannerLlmCommand(BaseCommand):
 
         try:
             from core.globals import g
-            g.update_planner_llm(model_key)
+            g.update_llm_role('planner', model_key)
 
             if model_key:
                 message = f"Planner LLM set to: {model_key}"
@@ -805,7 +805,7 @@ class RouterLlmCommand(BaseCommand):
 
         try:
             from core.globals import g
-            g.update_router_llm(model_key)
+            g.update_llm_role('router', model_key)
 
             if model_key:
                 message = f"Router LLM set to: {model_key}"
