@@ -150,9 +150,15 @@
 
 - `Dockerfile.test` - Docker container configuration for testing CLI-Agent functionality with Ubuntu 22.04 base, complete dependency installation, and non-root user setup for isolated testing environment.
 
+- `docker_files/Dockerfile.isolated` - Production Docker container for secure, isolated CLI-Agent deployment with Ubuntu 22.04, security hardening, non-root user (UID 1000), comprehensive dependencies, and isolated entrypoint script for standalone operation.
+
+- `docker_files/docker-compose.isolated.yml` - Container orchestration configuration for isolated CLI-Agent deployment with network isolation (internet-only access), persistent Docker volumes, resource limits, health checks, and systemd integration for production use.
+
 - `docs/AGENT_RAG.md` - Documentation of the CLI-Agent's RAG (Retrieval-Augmented Generation) system architecture, covering ToolVectorDB, PlaybookManager, and UtilsManager integration for contextual guidance and strategic planning.
 
 - `docs/APIS.md` - Comprehensive API documentation for LLM providers (Google Gemini, Groq, Ollama), detailing data structures, parameters, and model discovery endpoints for dynamic model integration.
+
+- `docs/DOCKER_ISOLATED.md` - Comprehensive documentation for CLI-Agent isolated Docker container setup with network isolation, security hardening, UFW firewall configuration, troubleshooting guide, and production-ready deployment instructions including port mapping (7860→7861) and dependency management.
 
 - `docs/CURRENT_AND_IDEAL_ARCHITECTURE.md` - Architecture analysis documenting duplicate files between py_classes and core directories, with findings on AI provider interfaces and proposed monorepo structure improvements.
 
@@ -227,6 +233,12 @@
 - `shell_scripts/setup_dia_environment.sh` - Environment setup script for configuring the development and runtime environment for the CLI agent system.
 
 - `scripts/manage_search_cache.py` - : Cache management utility for the SearchWeb Vector Database providing commands for viewing statistics, pruning old entries, listing recent cache entries, and clearing cache data with comprehensive maintenance capabilities.
+
+- `scripts/setup_isolated_container.sh` - Automated setup script for CLI-Agent isolated Docker container with prerequisite checking, image building, environment file creation, systemd service installation, and comprehensive status reporting with colored output.
+
+- `scripts/cli-agent-isolated.service` - Systemd service definition for CLI-Agent isolated container providing auto-restart on boot, proper dependency management, timeout handling, and Docker Compose integration for production deployment.
+
+- `scripts/verify_isolated_setup.sh` - Comprehensive verification script for CLI-Agent isolated container setup, testing systemd service, container status, web UI accessibility, dependencies, port mapping, firewall configuration, and internet connectivity with colored output and detailed reporting.
 
 - `tests/README.md` - Testing documentation explaining the test structure, running procedures, and testing methodology for the CLI agent project.
 

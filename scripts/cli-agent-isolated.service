@@ -1,0 +1,43 @@
+[Unit]
+Description=CLI-Agent Isolated Container
+Documentation=https://github.com/yourusername/CLI-Agent
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+# Environment
+Environment=COMPOSE_PROJECT_NAME=cli-agent-isolated
+Environment=COMPOSE_FILE=~/repos/CLI-Agent/docker_files/docker-compose.isolated.yml
+
+# Working directory
+WorkingDirectory=~/repos/CLI-Agent
+
+# Start command
+ExecStartPre=/usr/bin/docker compose -f ${COMPOSE_FILE} down --remove-orphans
+ExecStartPre=-/usr/bin/docker compose -f ${COMPOSE_FILE} pull --quiet
+ExecStart=/usr/bin/docker compose -f ${COMPOSE_FILE} up -d
+
+# Stop command
+ExecStop=/usr/bin/docker compose -f ${COMPOSE_FILE} down
+
+# Restart policy
+Restart=on-failure
+RestartSec=30
+
+# Security
+User=root
+Group=docker
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cli-agent-isolated
+
+[Install]
+WantedBy=multi-user.target
