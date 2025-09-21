@@ -65,7 +65,7 @@ class GroqAPI(AIProviderInterface):
             silent_reason (str): Reason for silence if applicable.
         Returns:
             Any: A stream object that yields response chunks.
-            
+
         Raises:
             RateLimitException: If the model is rate limited.
             Exception: For other issues, to be handled by the router.
@@ -74,17 +74,17 @@ class GroqAPI(AIProviderInterface):
         if rate_limit_tracker.is_rate_limited(model_key):
             remaining_time = rate_limit_tracker.get_remaining_time(model_key)
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
-            
+
             if not silent_reason:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Groq-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True, prefix=prefix)
-            
+
             # Raise a rate limit exception to be handled by the router
             raise RateLimitException(f"Model {model_key} is rate limited. Try again in {remaining_time:.1f} seconds")
 
         # Configure the client (let any error here bubble up to the router)
         client = Groq(api_key=os.getenv('GROQ_API_KEY'))
-        
+
         # Informational logging (not error handling)
         if silent_reason:
             temp_str = "" if temperature == 0 or temperature == None else f" at temperature {temperature}"
@@ -113,15 +113,15 @@ class GroqAPI(AIProviderInterface):
     def get_available_models(chat: Optional[Chat] = None) -> List[Dict[str, Any]]:
         """
         Discovers and returns available Groq models.
-        
+
         This method queries the Groq API to get a real-time list of available models.
         Can be used for dynamic model discovery in the future.
-        Currently, the LLM router uses a static list of known Groq models for 
+        Currently, the LLM router uses a static list of known Groq models for
         performance reasons, but this method provides the foundation for dynamic discovery.
-        
+
         Args:
             chat (Optional[Chat]): The chat object for debug printing.
-            
+
         Returns:
             List[Dict[str, Any]]: List of available model information dictionaries.
                 Each dictionary contains:
@@ -143,25 +143,25 @@ class GroqAPI(AIProviderInterface):
                     g.debug_log(f"Groq-Api: {error_msg}", "red", is_error=True, prefix=prefix)
                 logger.error(error_msg)
                 return []
-            
+
             # Print status message
             prefix = chat.get_debug_title_prefix() if chat and hasattr(chat, 'get_debug_title_prefix') else ""
             if chat:
                 g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} discovering available models...", force_print=True, prefix=prefix)
-            
+
             # Make request to Groq models endpoint
             url = "https://api.groq.com/openai/v1/models"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
-            
+
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            
+
             models_data = response.json()
             models = []
-            
+
             if "data" in models_data:
                 for model in models_data["data"]:
                     model_info = {
@@ -178,10 +178,10 @@ class GroqAPI(AIProviderInterface):
                         'supported_modalities': model.get('supported_modalities', [])
                     }
                     models.append(model_info)
-                
+
                 if chat:
                     g.debug_log(f"Groq-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} found {len(models)} available models", force_print=True, prefix=prefix)
-                
+
                 return models
             else:
                 error_msg = "No 'data' field found in Groq API response"
@@ -189,7 +189,7 @@ class GroqAPI(AIProviderInterface):
                     g.debug_log(f"Groq-Api: {error_msg}", "yellow", prefix=prefix)
                 logger.warning(error_msg)
                 return []
-            
+
         except requests.exceptions.RequestException as e:
             error_msg = f"Groq API model discovery request error: {e}"
             if chat:
@@ -216,17 +216,17 @@ class GroqAPI(AIProviderInterface):
     def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional['Chat'] = None) -> Optional[Tuple[str, str]]:
         """
         Transcribes an audio file using Groq's Whisper implementation.
-        
+
         Args:
             filepath (str): The path to the audio file.
             model (str): The Whisper model to use.
             language (str): The language of the audio (default: "auto" for auto-detection).
             silent_reason (str): Reason for silence if applicable.
             chat (Optional[Chat]): Chat object for debug printing with title.
-            
+
         Returns:
             Optional[Tuple[str, str]]: A tuple containing the transcribed text and detected language.
-            
+
         Raises:
             RateLimitException: If the model is rate limited.
             TimeoutException: If the request times out.
@@ -236,21 +236,21 @@ class GroqAPI(AIProviderInterface):
         if rate_limit_tracker.is_rate_limited(model):
             remaining_time = rate_limit_tracker.get_remaining_time(model)
             rate_limit_reason = f"rate limited (wait {remaining_time:.1f}s)"
-            
+
             if not silent_reason and chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Groq-Api: {colored('<', 'yellow')}{colored(model, 'yellow')}{colored('>', 'yellow')} is {colored(rate_limit_reason, 'yellow')}", force_print=True, prefix=prefix)
-            
+
             # Raise a silent rate limit exception
             raise RateLimitException(f"Model {model} is rate limited. Try again in {remaining_time:.1f} seconds")
-        
+
         try:
             client = Groq(api_key=os.getenv('GROQ_API_KEY'), timeout=3.0, max_retries=0)
-            
+
             if not silent_reason and chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Groq-Api: Transcribing audio using {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')}...", force_print=True, prefix=prefix)
-            
+
             with open(filepath, "rb") as file:
                 transcription = client.audio.transcriptions.create(
                     file=(filepath, file.read()),
@@ -258,11 +258,11 @@ class GroqAPI(AIProviderInterface):
                     response_format="verbose_json",
                     language=language
                 )
-            
+
             if not silent_reason and chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(colored("Transcription complete.", 'green'), force_print=True, prefix=prefix)
-            
+
             return transcription.text, transcription.language
 
         except (socket.timeout, socket.error, TimeoutError) as e:
@@ -278,13 +278,13 @@ class GroqAPI(AIProviderInterface):
                     # If parsing fails, use a default value
                     try_again_seconds = 60.0  # Default to 60 seconds if parsing fails
                     logger.warning(f"Failed to parse rate limit wait time, using default of {try_again_seconds}s")
-                
+
                 # Update the rate limit tracker
                 rate_limit_tracker.update_rate_limit(model, try_again_seconds)
-                
+
                 # Handle rate limit errors silently
                 raise RateLimitException(f"❌ Rate limit exceeded: {e}")
-            
+
             # Handle other errors without printing
             error_msg = f"Groq-Api audio transcription error: {e}"
             logger.error(error_msg)
@@ -322,4 +322,4 @@ class GroqAPI(AIProviderInterface):
                         logger.debug(f"Error closing Groq stream: {e}")
 
         return CancellableGroqStream(raw_stream, cls._cancellation_event, model_key)
-    
+

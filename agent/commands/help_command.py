@@ -11,42 +11,42 @@ if TYPE_CHECKING:
 
 class HelpCommand(BaseCommand):
     """Command to display help information."""
-    
+
     @property
     def aliases(self) -> List[str]:
         return ['/h', '/help']
-        
+
     @property
     def description(self) -> str:
         return 'Show help and available commands'
-        
+
     async def execute(
-        self, 
+        self,
         args: argparse.Namespace,
         parts: List[str],
         **kwargs: Any
     ) -> CommandResponse:
         """Execute help display."""
-        
+
         # Get command handler from kwargs if available
         command_handler = kwargs.get('command_handler')
-        
+
         if command_handler:
             help_text = command_handler.get_help_text()
         else:
             # Fallback help text
             help_text = self._get_basic_help()
-            
+
         print(colored("# CLI-Agent Help", "blue", attrs=["bold"]))
         print(help_text)
         print()
         print(colored("Type any command for assistance or start chatting!", "cyan"))
-        
+
         return CommandResponse(
             result=CommandResult.CONTINUE,
             message="Help displayed"
         )
-        
+
     def _get_basic_help(self) -> str:
         """Get basic help text as fallback."""
         return """

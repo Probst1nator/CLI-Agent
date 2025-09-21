@@ -33,7 +33,8 @@ class SearchableLLMSelectbox {
             id: options.id || 'llm-selector-' + Date.now(),
             onSelectionChange: options.onSelectionChange || (() => {}),
             onModelsLoaded: options.onModelsLoaded || (() => {}),
-            initialModels: options.initialModels || []
+            initialModels: options.initialModels || [],
+            includeNoneOption: options.includeNoneOption || false
         };
 
         this.models = [];
@@ -217,8 +218,23 @@ class SearchableLLMSelectbox {
      * @param {Array} models - Array of model objects
      */
     setModels(models) {
-        this.models = models;
-        this.filteredModels = [...models];
+        this.models = [...models];
+
+        // Add None option if specified
+        if (this.options.includeNoneOption) {
+            const noneOption = {
+                id: null,
+                name: 'None',
+                provider: 'System',
+                context_window: 'N/A',
+                pricing: null,
+                capabilities: [],
+                isNoneOption: true
+            };
+            this.models.unshift(noneOption);  // Add at the beginning
+        }
+
+        this.filteredModels = [...this.models];
         this.filterAndRenderOptions();
 
         // Handle deferred selection if there was one
@@ -342,7 +358,9 @@ class SearchableLLMSelectbox {
             option.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const modelId = option.dataset.modelId;
-                this.selectModel(modelId);
+                // Convert string "null" back to actual null for None option
+                const actualModelId = modelId === "null" ? null : modelId;
+                this.selectModel(actualModelId);
             });
         });
     }
@@ -380,7 +398,7 @@ class SearchableLLMSelectbox {
 
     /**
      * Select a model by ID
-     * @param {string} modelId - Model ID to select
+     * @param {string|null} modelId - Model ID to select, or null for None option
      */
     selectModel(modelId) {
         const model = this.models.find(m => m.id === modelId);
@@ -391,6 +409,25 @@ class SearchableLLMSelectbox {
             this.updateSelectboxWidth();
             this.closeDropdown();
             this.options.onSelectionChange(model);
+        } else if (modelId === null && this.options.includeNoneOption) {
+            // Handle selection of None option
+            const noneModel = this.models.find(m => m.isNoneOption);
+            if (noneModel) {
+                this.selectedModel = noneModel;
+                this.label.textContent = noneModel.name;
+                this.label.title = `${noneModel.provider}: ${noneModel.name}`;
+                this.updateSelectboxWidth();
+                this.closeDropdown();
+                this.options.onSelectionChange(noneModel);
+            }
+        } else if (modelId === null) {
+            // Clear selection when modelId is null and no None option exists
+            this.selectedModel = null;
+            this.label.textContent = this.options.placeholder;
+            this.label.title = '';
+            this.updateSelectboxWidth();
+            this.closeDropdown();
+            this.options.onSelectionChange(null);
         } else {
             // Model not found, store for deferred selection
             console.warn(`Model ${modelId} not found, will try again when models are loaded`);

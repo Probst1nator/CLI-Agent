@@ -1,7 +1,7 @@
 # tools/deletelines.py
 """
 This file implements the 'deletelines' tool. It allows the agent to delete
-specific lines or ranges of lines from a file, resolving paths relative to 
+specific lines or ranges of lines from a file, resolving paths relative to
 the current working directory.
 """
 import os
@@ -50,22 +50,22 @@ class deletelines:
                     start_line = end_line = line_number
                 except ValueError:
                     return "Error: Invalid line number. Must be an integer."
-            
+
             elif start_match and end_match:
                 # Range deletion
                 try:
                     start_line = int(start_match.group(1).strip())
                     end_line = int(end_match.group(1).strip())
-                    
+
                     if start_line < 1 or end_line < 1:
                         return "Error: Line numbers must be 1 or greater."
-                    
+
                     if start_line > end_line:
                         return "Error: Start line must be less than or equal to end line."
-                        
+
                 except ValueError:
                     return "Error: Invalid line numbers. Must be integers."
-            
+
             else:
                 return "Error: Invalid format. Input must contain either <line> for single line deletion or both <start> and <end> for range deletion."
 
@@ -79,11 +79,11 @@ class deletelines:
                 lines = f.readlines()
 
             total_lines = len(lines)
-            
+
             # Validate line numbers against file length
             if start_line > total_lines:
                 return f"Error: Start line {start_line} exceeds file length ({total_lines} lines)."
-            
+
             if end_line > total_lines:
                 return f"Error: End line {end_line} exceeds file length ({total_lines} lines)."
 
@@ -105,7 +105,7 @@ class deletelines:
                 result = f"Successfully deleted line {start_line} from {full_path}"
             else:
                 result = f"Successfully deleted lines {start_line}-{end_line} from {full_path}"
-            
+
             if deleted_lines:
                 result += ":\nDeleted content:\n" + "\n".join(deleted_lines)
 

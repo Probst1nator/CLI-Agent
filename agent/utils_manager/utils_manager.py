@@ -11,26 +11,30 @@ class UtilsManager:
     def __init__(self):
         import logging
         # Get the absolute path of the CLI agent directory
-        # From: agent/utils_manager/utils_manager.py -> 
+        # From: agent/utils_manager/utils_manager.py ->
         self.cli_agent_root = Path(__file__).parent.parent.parent.absolute()
         self.utils_directory = "utils"
         self.utils_path = self.cli_agent_root / self.utils_directory
         self.utils: List[Type[UtilBase]] = []
         self.util_history: List[Type[UtilBase]] = []
-        
+
+        # Initialize stream painter for text output
+        from agent.text_painter.stream_painter import TextStreamPainter
+        self.stream_painter = TextStreamPainter()
+
         logging.info(colored("  - Loading utility modules...", "cyan"))
         self._load_utils()
-        
+
         # Test GUI connection
         # Temporarily disabled to fix startup hang
         # gui_status = self._test_gui_connection()
         gui_status = ""
-        
+
         # Initialize vector database for smart tool retrieval
         logging.info(colored("  - Initializing tool search engine...", "cyan"))
         self.vector_db = None
         self._init_vector_db()
-        
+
         # Show tool count and names
         tool_names = [UtilBase.get_name(util_cls) for util_cls in self.utils] if self.utils else []
         if tool_names:
@@ -55,7 +59,7 @@ class UtilsManager:
                 continue
 
             try:
-                # Convert file path to a Python module path 
+                # Convert file path to a Python module path
                 # e.g., /path/to/utils/updatefile.py -> utils.updatefile
                 module_name = f"utils.{file.stem}"
                 module = importlib.import_module(module_name)
@@ -63,8 +67,8 @@ class UtilsManager:
                 # Find all classes in the module that inherit from UtilBase
                 for name, obj in inspect.getmembers(module):
                     if (
-                        inspect.isclass(obj) and 
-                        issubclass(obj, UtilBase) and 
+                        inspect.isclass(obj) and
+                        issubclass(obj, UtilBase) and
                         obj != UtilBase
                     ):
                         try:
@@ -86,26 +90,26 @@ class UtilsManager:
             if UtilBase.get_name(util_cls) == name:
                 # Add to utility history
                 self.util_history.append(util_cls)
-                
+
                 # Limit history size if needed
                 if len(self.util_history) > 10:  # Keep only the last 10 utilities
                     self.util_history = self.util_history[-10:]
-                
+
                 return util_cls
-        
+
         raise KeyError(f"Utility '{name}' not found")
 
     def get_utils(self) -> List[Type[UtilBase]]:
         """Get all available utilities
-        
+
         Returns:
             List of utility classes
         """
         return self.utils.copy()
-    
+
     def get_util_names(self) -> List[str]:
         """Get names of all available utilities
-        
+
         Returns:
             List of utility names
         """
@@ -113,31 +117,31 @@ class UtilsManager:
 
     def get_available_utils_info(self, util_names: Optional[List[str]] = None) -> str:
         """Generate a prompt that describes available utilities.
-        
+
         Args:
             util_names: Optional list of utility names to include. If None, includes all available utilities.
-            
+
         Returns:
             str: Formatted prompt describing the specified utilities.
         """
         prompt = "Custom available utilities:\n"
-        
+
         # Get all currently available utilities
         available_utils = self.get_utils()
-        
+
         # If specific utilities were requested, filter for those
         if util_names is not None:
             util_names = [name.lower() for name in util_names]
             available_utils = [
-                util_cls for util_cls in available_utils 
+                util_cls for util_cls in available_utils
                 if UtilBase.get_name(util_cls) in util_names
             ]
-        
+
         i = 0
         # Format the utilities into the prompt
         for util_cls in available_utils:
             util_name = UtilBase.get_name(util_cls)
-            
+
             # Get the signature and docstring of the run method if available
             try:
                 # Try to find the run method
@@ -146,11 +150,11 @@ class UtilsManager:
                     run_docstring = inspect.getdoc(run_method) or "No method documentation available"
                     run_docstring = "\n".join("# " + line for line in run_docstring.strip().splitlines())
                     signature = inspect.signature(run_method)
-                    
+
                     # Format the method signature with docstring and example showing static usage
                     prompt += f"""# Custom Utility {i}
-## Name: {util_name}                    
-## Usage: 
+## Name: {util_name}
+## Usage:
 ```python
 from {util_cls.__module__} import {util_cls.__name__}
 {run_docstring}
@@ -161,10 +165,10 @@ from {util_cls.__module__} import {util_cls.__name__}
                     prompt += "```python\n# No run method found\n```\n"
             except Exception:
                 prompt += "```python\n# Could not retrieve method signature\n```\n"
-            
+
             prompt += "\n"
             i += 1
-            
+
         return prompt
 
     def _init_vector_db(self) -> None:
@@ -172,16 +176,16 @@ from {util_cls.__module__} import {util_cls.__name__}
         try:
             import logging
             from infrastructure.vector_db.vector_database import ToolVectorDB
-            
+
             # Reset singleton to ensure we get a fresh instance with correct configuration
             ToolVectorDB.reset_singleton()
-            
+
             self.vector_db = ToolVectorDB()
-            
+
             # Add all loaded utilities to the vector database
             for util_cls in self.utils:
                 self.vector_db.add_tool(util_cls)
-                
+
         except Exception as e:
             # If vector DB initialization fails, continue without it
             import logging
@@ -191,11 +195,11 @@ from {util_cls.__module__} import {util_cls.__name__}
     def get_relevant_utils(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """
         Get utilities most relevant to a query using vector search.
-        
+
         Args:
             query: The search query describing what the user wants to do
             top_k: Number of relevant utilities to return
-            
+
         Returns:
             List of utility information dictionaries
         """
@@ -207,10 +211,10 @@ from {util_cls.__module__} import {util_cls.__name__}
                     "score": 1.0,
                     "class": util_cls,
                     "metadata": getattr(util_cls, 'get_metadata', lambda: {})()
-                } 
+                }
                 for util_cls in self.utils[:top_k]
             ]
-        
+
         try:
             results = self.vector_db.search(query, top_k)
         except Exception as e:
@@ -223,31 +227,31 @@ from {util_cls.__module__} import {util_cls.__name__}
                     "score": 1.0,
                     "class": util_cls,
                     "metadata": getattr(util_cls, 'get_metadata', lambda: {})()
-                } 
+                }
                 for util_cls in self.utils[:top_k]
             ]
-        
+
         # Record the search for learning purposes
         if results and len(results) > 0:
             # For now, record the first result as selected for learning
             self.vector_db.record_tool_selection(results[0]["name"], query)
-        
+
         return results
-    
+
     def get_relevant_guidance(self, query: str, top_k: int = 2) -> List[Dict[str, Any]]:
         """
         Get relevant guidance hints for a query.
-        
+
         Args:
             query: The search query
             top_k: Number of guidance hints to return
-            
+
         Returns:
             List of relevant guidance hints
         """
         if self.vector_db is None:
             return []
-        
+
         try:
             return self.vector_db.get_relevant_guidance(query, top_k)
         except Exception as e:
@@ -313,21 +317,21 @@ from {util_cls.__module__} import {util_cls.__name__}
                 for tool in high_confidence_tools:
                     tool_name = tool['name']
                     tool_class = tool['class']
-                    
+
                     # Get concise signature and summary from _run_logic method
                     try:
                         if hasattr(tool_class, '_run_logic'):
                             run_logic_method = tool_class._run_logic
                             run_logic_signature = inspect.signature(run_logic_method)
                             run_logic_docstring = inspect.getdoc(run_logic_method) or "No documentation available"
-                            
+
                             # Extract just the first line of docstring for concise summary
                             summary = run_logic_docstring.split('\n')[0].strip()
-                            
+
                             # Get the module name for proper import pattern
                             module_name = tool_class.__module__
-                            
-                            # Format tool information with import pattern and usage  
+
+                            # Format tool information with import pattern and usage
                             # Simplify the signature display by removing complex type annotations
                             simplified_sig = str(run_logic_signature).replace('typing.', '').replace('Optional[', '').replace(']', '?')
                             tool_line = f"- **{tool_name}**: `from {module_name} import {tool_class.__name__}; {tool_class.__name__}.run{simplified_sig}` - {summary}"
@@ -339,9 +343,9 @@ from {util_cls.__module__} import {util_cls.__name__}
                         # Fallback for any errors
                         description = tool_class.get_description(tool_class).splitlines()[0]
                         tool_line = f"- **{tool_name}**: {description} (Signature unavailable)"
-                    
+
                     tool_suggestions.append(tool_line)
-                
+
                 prompt = "\n".join(tool_suggestions)
 
         if relevant_guidance:
@@ -363,23 +367,23 @@ from {util_cls.__module__} import {util_cls.__name__}
             tools_path = self.cli_agent_root / "tools"
             if not (tools_path / "getuserfiles.py").exists():
                 return " (GUI: not found)"
-            
+
             # Add tools to path for import
             import sys
             tools_str = str(tools_path)
             if tools_str not in sys.path:
                 sys.path.insert(0, tools_str)
-            
+
             # Import and test connection quickly
             from getuserfiles import getuserfiles
-            
+
             # Quick connection test using discovery
             discovery = getuserfiles._discovery
-            
+
             # Check if we have a cached URI from a recent connection
             if discovery._is_cache_valid():
                 return " (GUI: connected)"
-            
+
             # Try a very quick discovery without full testing
             try:
                 # Import websockets - if not available, return not connected
@@ -387,14 +391,14 @@ from {util_cls.__module__} import {util_cls.__name__}
                     import websockets
                 except ImportError:
                     return " (GUI: not available)"
-                
+
                 # Create a new event loop for the test
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                
+
                 # Quick port scan test
                 uri = "ws://localhost:8765"  # Most common port
-                
+
                 async def quick_test():
                     try:
                         async with websockets.connect(uri, open_timeout=0.5) as websocket:
@@ -402,15 +406,15 @@ from {util_cls.__module__} import {util_cls.__name__}
                             return True
                     except:
                         return False
-                
+
                 connected = loop.run_until_complete(quick_test())
                 loop.close()
-                
+
                 return " (GUI: connected)" if connected else " (GUI: not connected)"
-                
+
             except Exception:
                 return " (GUI: not connected)"
-                
+
         except Exception:
             return " (GUI: not available)"
 
@@ -420,4 +424,3 @@ from {util_cls.__module__} import {util_cls.__name__}
         self._load_utils()
         # Reinitialize vector DB with new utilities
         self._init_vector_db()
-        

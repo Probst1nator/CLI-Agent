@@ -39,24 +39,24 @@ class writefile:
 
             if not filepath:
                 return "Error: The <filepath> tag cannot be empty."
-            
+
             # This is a specific hook for the memory compaction process.
             # It intercepts writes to a special 'MEMORY' path.
             if g.AGENT_IS_COMPACTING and "MEMORY" in filepath:
-                from tools.memory import memory
+                from tools.disabled.memory import memory
                 memory.store(file_content)
                 return "Content stored in agent's long-term memory."
-            
+
             # Resolve the path relative to the current working directory for safety.
             full_path = os.path.abspath(filepath)
 
             # Ensure the parent directory exists before writing the file.
             parent_dir = os.path.dirname(full_path)
             os.makedirs(parent_dir, exist_ok=True)
-            
+
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(file_content)
-                
+
             return f"Successfully wrote {len(file_content)} bytes to {full_path}"
 
         except Exception as e:

@@ -67,7 +67,7 @@ def list_services():
             ]
         }
     }
-    
+
     if WHISPER_AVAILABLE:
         services_docs["whisper"] = {
             "endpoints": [
@@ -83,7 +83,7 @@ def list_services():
                 }
             ]
         }
-    
+
     return jsonify({
         "services": SERVICES_STATUS,
         "docs": services_docs
@@ -94,13 +94,13 @@ def list_services():
 def detect_wake_word():
     """
     Endpoint to detect wake word from audio data.
-    
+
     Expects JSON with:
     {
         "audio_data": "<base64 encoded audio data>",
         "sample_rate": 16000  # Optional, defaults to 16000
     }
-    
+
     Returns:
     {
         "detected": true/false,
@@ -109,22 +109,22 @@ def detect_wake_word():
     """
     if not WAKE_WORD_AVAILABLE:
         return jsonify({"error": "Wake word detection service is not available"}), 503
-        
+
     try:
         # Get audio data from request
         data = request.get_json()
-        
+
         if not data or "audio_data" not in data:
             return jsonify({"error": "Missing audio_data"}), 400
-            
+
         audio_data_b64 = data["audio_data"]
         sample_rate = data.get("sample_rate", 16000)
-        
+
         # Process audio data
         result = wake_word_service.process_audio(audio_data_b64, sample_rate)
-        
+
         return jsonify(result)
-        
+
     except Exception as e:
         logger.error(f"Error in wake word detection endpoint: {e}")
         return jsonify({"error": str(e)}), 500
@@ -135,7 +135,7 @@ def list_whisper_models():
     """Get information about available Whisper models."""
     if not WHISPER_AVAILABLE:
         return jsonify({"error": "Whisper transcription service is not available"}), 503
-        
+
     try:
         models = whisper_service.get_available_models()
         return jsonify({"models": models})
@@ -147,14 +147,14 @@ def list_whisper_models():
 def transcribe_audio():
     """
     Transcribe audio using Whisper.
-    
+
     Expects JSON with:
     {
         "audio_data": "<base64 encoded audio data>",
         "sample_rate": 16000,
         "model": "large-v2"  # Optional, defaults to large-v2
     }
-    
+
     Returns:
     {
         "success": true/false,
@@ -166,23 +166,23 @@ def transcribe_audio():
     """
     if not WHISPER_AVAILABLE:
         return jsonify({"error": "Whisper transcription service is not available"}), 503
-        
+
     try:
         # Get audio data from request
         data = request.get_json()
-        
+
         if not data or "audio_data" not in data:
             return jsonify({"error": "Missing audio_data"}), 400
-            
+
         audio_data_b64 = data["audio_data"]
         sample_rate = data.get("sample_rate", 16000)
         model_name = data.get("model", "large-v2")
-        
+
         # Process audio data for transcription
         result = whisper_service.transcribe_audio(audio_data_b64, sample_rate, model_name)
-        
+
         return jsonify(result)
-        
+
     except Exception as e:
         logger.error(f"Error in transcription endpoint: {e}")
         return jsonify({"error": str(e)}), 500
@@ -193,7 +193,7 @@ if __name__ == "__main__":
     # Get port from environment or use default
     port = int(os.environ.get("PORT", 5000))
     host = os.environ.get("HOST", "0.0.0.0")
-    
+
     # Start server
     logger.info(f"Starting CLI-Agent Remote Host server on {host}:{port}")
-    app.run(host=host, port=port) 
+    app.run(host=host, port=port)

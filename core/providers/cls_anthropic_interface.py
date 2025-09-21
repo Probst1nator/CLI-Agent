@@ -53,7 +53,7 @@ class AnthropicAPI(AIProviderInterface):
 
         Returns:
             Any: A stream object that yields response chunks.
-            
+
         Raises:
             RateLimitError: If the API rate limit is exceeded.
             TimeoutError: If the request times out.
@@ -61,7 +61,7 @@ class AnthropicAPI(AIProviderInterface):
         """
         # Configure the client (let any error here bubble up to the router)
         client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
-        
+
         # Informational logging (not error handling)
         if silent_reason:
             temp_str = "" if temperature == 0 else f" at temperature {temperature}"
@@ -81,7 +81,7 @@ class AnthropicAPI(AIProviderInterface):
             # Extract the system prompt if it exists
             if hasattr(chat, 'system_prompt') and chat.system_prompt:
                 system_content = chat.system_prompt
-            
+
             # Get any image URLs from the last user message
             if chat.messages and chat.messages[-1][0] == Role.USER:
                 last_user_content = chat.messages[-1][1]
@@ -92,28 +92,28 @@ class AnthropicAPI(AIProviderInterface):
                             image_url = item.get("image_url")
                             if image_url and isinstance(image_url, dict) and "url" in image_url:
                                 image_urls.append(image_url["url"])
-        
+
         # Create messages array in Anthropic format
         anthropic_messages = []
-        
+
         if isinstance(chat, Chat):
             # Convert Chat object to Anthropic format
             for message in chat.messages:
                 # Extract role and content from the message tuple (role, content)
                 message_role = message[0]  # Role enum
                 message_content = message[1]  # Content string or list
-                
+
                 if message_role == Role.USER:
                     # Handle user messages with potential images
                     if image_urls and chat.messages[-1] == message:
                         # This is the last user message and has images
                         content = []
-                        
+
                         # First add the text content
                         text_content = message_content
                         if isinstance(text_content, str) and text_content:
                             content.append({"type": "text", "text": text_content})
-                        
+
                         # Then add each image
                         for url in image_urls:
                             if url.startswith("data:image"):
@@ -137,7 +137,7 @@ class AnthropicAPI(AIProviderInterface):
                                         "url": url
                                     }
                                 })
-                        
+
                         anthropic_messages.append({"role": "user", "content": content})
                     else:
                         # Regular text-only message
@@ -150,7 +150,7 @@ class AnthropicAPI(AIProviderInterface):
         else:
             # If chat is a string, just use it as a user message
             anthropic_messages.append({"role": "user", "content": chat})
-        
+
         # Create the stream with system prompt if provided
         create_args = {
             "model": model_key,
@@ -159,10 +159,10 @@ class AnthropicAPI(AIProviderInterface):
             "temperature": temperature,
             "stream": True
         }
-        
+
         if system_content:
             create_args["system"] = system_content
-            
+
         # Set up cancellation event for this generation
         AnthropicAPI._cancellation_event = threading.Event()
 

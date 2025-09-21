@@ -117,6 +117,24 @@ class CommandRegistry:
                 description="Toggle online mode for web-enabled features",
                 category="configuration"
             ),
+            CommandDefinition(
+                canonical="planner_llm",
+                aliases=["/planner_llm"],
+                description="Set the planner LLM model",
+                category="configuration"
+            ),
+            CommandDefinition(
+                canonical="router_llm",
+                aliases=["/router_llm"],
+                description="Set the router LLM model",
+                category="configuration"
+            ),
+            CommandDefinition(
+                canonical="fallbacks",
+                aliases=["/fallbacks"],
+                description="Set the fallback LLM models",
+                category="configuration"
+            ),
 
             # Session management commands
             CommandDefinition(

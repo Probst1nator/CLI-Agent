@@ -22,7 +22,7 @@ class WebServer:
         self.setup_routes()  # Call setup_routes in initialization
         self._start_notification_thread()
         self._start_print_thread()
-        
+
     def _start_notification_thread(self):
         """Start a background thread to handle notifications"""
         def notification_worker():
@@ -46,10 +46,10 @@ class WebServer:
                 except Exception:
                     # Ignore any other errors to keep the thread running
                     pass
-                
+
         self.notification_thread = threading.Thread(target=notification_worker, daemon=True)
         self.notification_thread.start()
-        
+
     def _start_print_thread(self):
         """Start a background thread to handle print messages"""
         def print_worker():
@@ -67,49 +67,49 @@ class WebServer:
                 except Exception:
                     # Ignore any other errors to keep the thread running
                     pass
-                
+
         self.print_thread = threading.Thread(target=print_worker, daemon=True)
         self.print_thread.start()
-        
+
     def log_print(self, *args, **kwargs):
         """Log a print statement to the web interface"""
         # Reconstruct the print arguments into a string, similar to how print works
         sep = kwargs.get('sep', ' ')
         end = kwargs.get('end', '\n')
         content = sep.join(str(arg) for arg in args) + end
-        
+
         # Add to queue for processing
         self.print_queue.put(content.strip())
-        
+
     def setup_routes(self):
         @self.app.route('/')
         def home():
             return render_template_string(self.get_html_template())
-        
+
         @self.app.route('/add_message', methods=['POST'])
         def add_message():
             """Endpoint to add a new message"""
             data = request.get_json()
             if not data or 'role' not in data or 'content' not in data:
                 return jsonify({'error': 'Invalid message format'}), 400
-            
+
             # Add message to chat if it doesn't exist already
             if self.chat:
                 role = Role[data['role'].upper()] if isinstance(data['role'], str) else data['role']
                 self.chat.add_message(role, data['content'])
             return jsonify({'status': 'ok'})
-        
+
         @self.app.route('/messages')
         def get_messages():
             """Get all messages in the chat"""
             if not self.chat:
                 print("Debug: Chat instance is None")
                 return jsonify([])
-            
+
             if not self.chat.messages:
                 print("Debug: No messages in chat")
                 return jsonify([])
-            
+
             messages = []
             for role, content in self.chat.messages:
                 # Convert role to string value if it's an enum
@@ -118,51 +118,51 @@ class WebServer:
                     'role': role_str,
                     'content': content
                 })
-            
+
             print(f"Debug: Returning {len(messages)} messages")
             return jsonify(messages)
-        
+
         @self.app.route('/health')
         def health_check():
             """Endpoint to verify server is running"""
             return jsonify({'status': 'ok'})
-        
+
         @self.app.route('/send_input', methods=['POST'])
         def send_input():
             """Endpoint for sending user input to CLI-Agent"""
             data = request.get_json()
             if not data or 'input' not in data:
                 return jsonify({'error': 'Invalid input format'}), 400
-            
+
             user_input = data['input'].strip()
             if not user_input:
                 return jsonify({'error': 'Empty input'}), 400
-            
+
             # Add to visual input queue
             from core.globals import g
             if not hasattr(g, 'visual_input_queue'):
                 import queue
                 g.visual_input_queue = queue.Queue()
-            
+
             g.visual_input_queue.put(user_input)
             return jsonify({'status': 'ok', 'message': 'Input received'})
-    
+
     def add_message_to_chat(self, role: Role, content: str):
         """Add a message to the chat and notify the web interface"""
         if self.chat:
             # Ensure the role is properly converted to Role enum if it's a string
             if isinstance(role, str):
                 role = Role[role.upper()]
-            
+
             # Add message to chat
             self.chat.add_message(role, content)
-            
+
             # Queue the notification to be sent asynchronously
             self.notification_queue.put((role, content))
-            
+
             # Save chat to JSON after each message
             self.chat.save_to_json()
-            
+
     def get_html_template(self) -> str:
         return '''
 <!DOCTYPE html>
@@ -173,16 +173,16 @@ class WebServer:
         .message { margin: 10px; padding: 10px; border-radius: 5px; white-space: pre-wrap; }
         .user { background: #e3f2fd; margin-left: 20%; }
         .assistant { background: #f5f5f5; margin-right: 20%; }
-        .system { 
-            background: #f0f8ff; 
-            border-left: 4px solid #4682b4; 
-            font-family: monospace; 
+        .system {
+            background: #f0f8ff;
+            border-left: 4px solid #4682b4;
+            font-family: monospace;
             font-size: 0.9em;
             margin-right: 20%;
             opacity: 0.85;
         }
-        .tool-call { 
-            background: #fff3e0; 
+        .tool-call {
+            background: #fff3e0;
             margin-right: 20%;
             border-left: 4px solid #ff9800;
         }
@@ -259,12 +259,12 @@ class WebServer:
     <button id="toggle-logs">Toggle Logs</button>
     <script>
         let showLogs = true;
-        
+
         document.getElementById('toggle-logs').addEventListener('click', function() {
             showLogs = !showLogs;
             document.body.classList.toggle('log-hidden', !showLogs);
         });
-        
+
         function formatContent(content) {
             // Handle code blocks
             if (content.includes('```')) {
@@ -275,7 +275,7 @@ class WebServer:
                         // This is a code block
                         var codeContent = parts[i];
                         var language = '';
-                        
+
                         // Check if there's a language specified
                         if (codeContent.indexOf('\\n') > 0) {
                             language = codeContent.substring(0, codeContent.indexOf('\\n')).trim();
@@ -283,7 +283,7 @@ class WebServer:
                                 codeContent = codeContent.substring(codeContent.indexOf('\\n')+1);
                             }
                         }
-                        
+
                         result += '<pre><code>' + codeContent + '</code></pre>';
                     } else {
                         result += parts[i];
@@ -297,22 +297,22 @@ class WebServer:
         function addMessage(role, content) {
             var div = document.createElement('div');
             div.className = 'message ' + role;
-            
+
             // Format tool calls specially
             if (content.includes('🛠️ Using tool:')) {
                 div.className += ' tool-call';
                 var lines = content.split('\\n');
                 var toolHeader = lines[0];  // First line with the tool icon
                 var toolContent = lines.slice(1).join('\\n');  // Rest of the content
-                
+
                 div.innerHTML = '<div class="tool-header">' + toolHeader + '</div>' +
                                '<div class="tool-content">' + formatContent(toolContent) + '</div>';
             } else {
                 div.innerHTML = formatContent(content);
             }
-            
+
             document.getElementById('chat-container').appendChild(div);
-            
+
             // Scroll to bottom
             window.scrollTo(0, document.body.scrollHeight);
         }
@@ -333,10 +333,10 @@ class WebServer:
             var input = document.getElementById('user-input');
             var message = input.value.trim();
             if (!message) return;
-            
+
             // Clear input immediately
             input.value = '';
-            
+
             // Send message to server
             fetch('/send_input', {
                 method: 'POST',
@@ -354,7 +354,7 @@ class WebServer:
                 console.error('Error sending message:', error);
             });
         }
-        
+
         function handleKeyPress(event) {
             if (event.key === 'Enter') {
                 sendMessage();
@@ -367,11 +367,11 @@ class WebServer:
 </body>
 </html>
 '''
-    
+
     def start(self, chat: Optional[Chat] = None) -> None:
         """Start the web server"""
         self.chat = chat if chat else Chat()
-        
+
         # Save the app to a temporary file that gunicorn can import
         with open('app.py', 'w') as f:
             f.write('''
@@ -392,32 +392,32 @@ g.web_server = server
 def custom_print(*args, **kwargs):
     # Call the original print function
     g.original_print(*args, **kwargs)
-    
+
     # Also send to the web interface
     try:
         server.log_print(*args, **kwargs)
     except Exception:
         pass
-        
+
 # Replace the built-in print function
 builtins.print = custom_print
 
 # Print a test message to confirm the web UI is receiving logs
 print("Web server initialized successfully - all print() outputs will now appear in the web UI")
 ''')
-        
+
         # Save current chat state so gunicorn can load it
         if self.chat:
             self.chat.save_to_json()
-        
+
         # Start Flask development server in a background thread
         def run_server():
             self.app.run(host="127.0.0.1", port=self.port, debug=False, use_reloader=False, threaded=True)
-        
+
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
-        
-        # Wait for server to be ready before opening browser  
+
+        # Wait for server to be ready before opening browser
         time.sleep(1)  # Give server a moment to start
         if self.wait_for_server(timeout=5):
             self.server_ready.set()
@@ -429,7 +429,7 @@ print("Web server initialized successfully - all print() outputs will now appear
             ).start()
         else:
             print(f"Warning: Web server failed to start on port {self.port}")
-    
+
     def stop(self):
         """Stop the web server and notification thread"""
         if self.notification_thread:
@@ -440,7 +440,7 @@ print("Web server initialized successfully - all print() outputs will now appear
             self.print_queue.put(None)  # Send sentinel value to stop the thread
             self.print_thread.join(timeout=1)
         # Note: Flask dev server running in daemon thread will stop when main process exits
-    
+
     def wait_for_server(self, timeout: int = 10) -> bool:
         """Wait for server to be ready, returns True if server is ready, False if timeout"""
         start_time = time.time()
@@ -451,8 +451,8 @@ print("Web server initialized successfully - all print() outputs will now appear
                     return True
             except (requests.exceptions.RequestException, ConnectionError):
                 time.sleep(0.1)
-        return False 
+        return False
 
     def _run_server(self):
         """Run the Flask server"""
-        self.app.run(host='127.0.0.1', port=self.port, debug=False, use_reloader=False) 
+        self.app.run(host='127.0.0.1', port=self.port, debug=False, use_reloader=False)

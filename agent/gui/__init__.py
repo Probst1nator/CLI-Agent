@@ -12,6 +12,6 @@ from .widgets import ChatDisplay, StatusPanel
 
 __all__ = [
     "CLIAgentGUILayout",
-    "ChatDisplay", 
+    "ChatDisplay",
     "StatusPanel"
 ]

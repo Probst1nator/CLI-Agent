@@ -1,7 +1,7 @@
 # tools/paralleltodos.py
 """
 This file implements the 'paralleltodos' tool. It allows an agent to specify
-multiple file paths and a single prompt, then spawns concurrent, read-only 
+multiple file paths and a single prompt, then spawns concurrent, read-only
 sub-agents to execute that prompt on each path.
 """
 
@@ -21,7 +21,7 @@ class paralleltodos:
     A tool to execute a single prompt across multiple directories in parallel
     using sandboxed, read-only sub-agents.
     """
-    
+
     @staticmethod
     def get_delim() -> str:
         """Provides the delimiter for this tool."""
@@ -53,12 +53,12 @@ class paralleltodos:
             return {}
 
         allowed_tool_names = [
-            'readfile', 'grepsearch', 'searchweb', 'think', 
+            'readfile', 'grepsearch', 'searchweb', 'think',
             'response', 'todos', 'viewpermissions', 'getuserfiles'
         ]
-        
+
         readonly_tools = {
-            name: cls for name, cls in g.tool_classes.items() 
+            name: cls for name, cls in g.tool_classes.items()
             if name in allowed_tool_names
         }
         return readonly_tools
@@ -78,16 +78,16 @@ class paralleltodos:
             "1.  **OBSERVE & DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.\n"
             "2.  **PLAN & TRACK**: Use `<todos>...</todos>` to outline your plan and track your progress."
         )
-        
+
         tool_docs_parts = []
         # We only document executable tools, not cognitive/structural ones like think/todos/response.
         documented_tools = {k: v for k, v in readonly_tools.items() if k not in ['think', 'todos', 'response']}
-        
+
         for tool_name, tool_class in sorted(documented_tools.items()):
             info = tool_class.get_tool_info()
             doc_string = f"- **{tool_name}**: {info['description']}\n  - *Example*: `{info['example']}`"
             tool_docs_parts.append(doc_string)
-        
+
         tool_docs = "3. **EXECUTE**: Use one of the following tools to perform an action. Use only ONE tool at a time.\n\n" + "\n".join(tool_docs_parts)
 
         final_step = "4.  **RESPOND**: Once you have gathered all necessary information, provide a final, comprehensive answer using the `<response>...</response>` tag. This tag concludes your work and terminates your session."
@@ -110,18 +110,18 @@ class paralleltodos:
             chat = Chat(debug_title=f"Sub-Agent({os.path.basename(path)})")
             chat.set_instruction_message(readonly_system_prompt)
             chat.add_message(Role.USER, prompt)
-            
+
             llm_router = LlmRouter()
-            
+
             # 3. Sub-agent Execution Loop
-            MAX_TURNS = 10 
+            MAX_TURNS = 10
             for _ in range(MAX_TURNS):
                 assistant_response = await llm_router.chat_with_retry(
                     chat=chat,
                     temperature=0.0, # Use low temperature for focused, deterministic sub-agents
                     model_key=None # Use default model
                 )
-                
+
                 if not assistant_response:
                     return f"Sub-agent for '{path}' failed to generate a response."
 
@@ -142,14 +142,14 @@ class paralleltodos:
                         # Run the first block found for this tool
                         block_content = blocks[0]
                         tool_result = tool_class.run(block_content)
-                        
+
                         if asyncio.iscoroutine(tool_result):
                             tool_result = await tool_result
-                        
+
                         if tool_result:
                             context_msg = f"<context>\n{tool_result}\n</context>"
                             chat.add_message(Role.ASSISTANT, context_msg)
-                
+
                 # If no tool was found, the agent might be stuck in a conversational loop.
                 # We break to return its last message instead of looping infinitely.
                 if not tool_was_executed:
@@ -175,7 +175,7 @@ class paralleltodos:
 
         if not path_matches or not prompt_match:
             return "Error: <paralleltodos> requires one or more <path> tags and one <prompt> tag."
-            
+
         paths = [p.strip() for p in path_matches]
         prompt = prompt_match.group(1).strip()
 
@@ -183,7 +183,7 @@ class paralleltodos:
         readonly_tools = paralleltodos._get_readonly_tools()
         if not readonly_tools:
             return "Error: Could not load read-only tools for sub-agents. Main agent may not be initialized correctly."
-            
+
         readonly_system_prompt = paralleltodos._generate_readonly_system_prompt(readonly_tools)
 
         # 3. Create and run all sub-agent tasks concurrently
@@ -191,7 +191,7 @@ class paralleltodos:
             paralleltodos._run_sub_agent(path, prompt, readonly_tools, readonly_system_prompt)
             for path in paths
         ]
-        
+
         print(colored(f"🤖 Spawning {len(paths)} read-only sub-agents to work in parallel...", "cyan"))
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -204,5 +204,5 @@ class paralleltodos:
             else:
                 output_parts.append(result)
             output_parts.append("--- End of Results ---")
-            
+
         return "\n\n".join(output_parts)

@@ -7,7 +7,6 @@ streaming of output to the console and robust timeout handling.
 import pexpect
 import io
 import uuid
-import logging
 import re
 import asyncio
 import threading
@@ -34,7 +33,7 @@ def suppress_bash_warnings():
     """
     # Always allow critical errors through when --debug is enabled or when bash fails
     debug_mode = '--debug' in sys.argv
-    
+
     if not debug_mode:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
@@ -66,7 +65,7 @@ class BashSession:
 
         self.bash_prompt_regex = f"__PROMPT_{uuid.uuid4().hex}__"
         self.child = None
-        
+
         # STREAMING FIX: Add state tracking to prevent duplicate output
         self.displayed_lines: set = set()  # Track what we've already shown
         self.last_buffer_position: int = 0  # Track where we last read from buffer
@@ -75,17 +74,17 @@ class BashSession:
         debug_mode = '--debug' in sys.argv
         if debug_mode:
             logger.info(colored("  - Starting bash session...", "cyan"))
-        
+
         # ENHANCED DIAGNOSTICS: Check shell availability and environment
         import shutil
         bash_path = shutil.which('bash') or '/usr/bin/bash' or '/bin/bash'
         if debug_mode:
             logger.debug(f"  - Detected bash path: {bash_path}")
-        
+
         # Check if bash is executable
         if not os.path.isfile(bash_path) or not os.access(bash_path, os.X_OK):
             raise RuntimeError(f"Bash not found or not executable at {bash_path}")
-        
+
         # FALLBACK MODE: Use different parameters for problematic environments
         if fallback_mode:
             if debug_mode:
@@ -97,31 +96,31 @@ class BashSession:
             spawn_command = f'{bash_path} --noprofile --norc'
             spawn_timeout = 60
             spawn_dimensions = (24, 120)
-        
+
         try:
             if debug_mode:
                 logger.debug(f"  - Spawning bash with command: {spawn_command}")
                 logger.debug(f"  - Using prompt: {self.bash_prompt_regex}")
-            
+
             # ENHANCED ERROR CAPTURE: Use selected parameters
-            self.child = pexpect.spawn(spawn_command, 
-                                       encoding='utf-8', 
-                                       timeout=spawn_timeout, 
-                                       dimensions=spawn_dimensions, 
+            self.child = pexpect.spawn(spawn_command,
+                                       encoding='utf-8',
+                                       timeout=spawn_timeout,
+                                       dimensions=spawn_dimensions,
                                        echo=False)
-            
+
             # CRITICAL: Log bash process state immediately after spawn
             if self.child.isalive():
                 if debug_mode:
                     logger.debug(f"  - Bash process started successfully (PID: {self.child.pid})")
             else:
                 raise RuntimeError(f"Bash process died immediately after spawn (exit code: {self.child.exitstatus})")
-            
+
             # Set the custom prompt and wait for it to appear
             if debug_mode:
                 logger.debug(f"  - Setting custom prompt: {self.bash_prompt_regex}")
             self.child.sendline(f'export PS1="{self.bash_prompt_regex}"')
-            
+
             try:
                 self.child.expect_exact(self.bash_prompt_regex, timeout=10)
                 if debug_mode:
@@ -132,15 +131,15 @@ class BashSession:
             except pexpect.EOF:
                 logger.error(f"  - EOF during prompt setup. Before: '{self.child.before}', Exit status: {self.child.exitstatus}")
                 raise
-            
+
             # The problematic 'stty' and 'set +H' commands are now removed.
-            
+
             # Send a final command to flush any startup messages and confirm the session is ready
             dummy_boundary = f"__INIT_BOUNDARY_{uuid.uuid4().hex}__"
             if debug_mode:
                 logger.debug(f"  - Testing session with boundary: {dummy_boundary}")
             self.child.sendline(f'echo "{dummy_boundary}"')
-            
+
             try:
                 self.child.expect_exact(dummy_boundary, timeout=10) # Expect the echo'd boundary
                 if debug_mode:
@@ -154,7 +153,7 @@ class BashSession:
             except pexpect.EOF:
                 logger.error(f"  - EOF during session validation. Before: '{self.child.before}', Exit: {self.child.exitstatus}")
                 raise
-            
+
             # Clear buffers to start clean
             self.child.before = self.child.after = ""
             if debug_mode:
@@ -192,7 +191,7 @@ class BashSession:
 
         async def _read_loop():
             output_capture = io.StringIO()
-            
+
             # COMMAND HEADER: Show execution context before starting
             import getpass
             import socket
@@ -200,52 +199,52 @@ class BashSession:
             current_user = getpass.getuser()
             hostname = socket.gethostname()
             current_dir = os.getcwd()
-            
+
             user_colored = colored(current_user, 'green', attrs=['bold'])
             host_colored = colored(hostname, 'blue', attrs=['bold'])
             dir_colored = colored(current_dir, 'yellow')
             prompt_colored = colored('$', 'white', attrs=['bold'])
             command_colored = colored(clean_command, 'white', attrs=['bold'])
-            
+
             header = f"[{user_colored}@{host_colored}:{dir_colored}]{prompt_colored} {command_colored}"
             self.stdout_callback(f"💻 {header}\n") # MODIFIED: Added newline for better formatting
-            
+
             self.child.sendline(full_command_with_boundary)
-            
+
             loop = asyncio.get_running_loop()
-            
+
             self.displayed_lines.clear()
             self.last_buffer_position = 0
-            
+
             try:
                 await loop.run_in_executor(None, self.child.expect, pexpect.TIMEOUT, 0.1)
                 self.last_buffer_position = 0
             except:
                 pass
-            
+
             while True:
                 try:
                     index = await loop.run_in_executor(
                         None, lambda: self.child.expect([boundary, self.bash_prompt_regex, pexpect.TIMEOUT], timeout=0.5)
                     )
-                    
+
                     current_buffer = self.child.before or ""
                     new_content = current_buffer[self.last_buffer_position:]
                     self.last_buffer_position = len(current_buffer)
-                    
+
                     if new_content:
                         lines_to_filter = [full_command_with_boundary.strip(), clean_command.strip()]
                         filtered_lines = [line for line in new_content.split('\n') if line.strip() not in lines_to_filter]
                         new_content = '\n'.join(filtered_lines)
-                        
+
                         for line in new_content.split('\n'):
                             clean_line = line.strip()
-                            if (clean_line and self.bash_prompt_regex not in clean_line and 
+                            if (clean_line and self.bash_prompt_regex not in clean_line and
                                 clean_line != boundary and clean_line not in self.displayed_lines):
                                 self.displayed_lines.add(clean_line)
                                 self._stream_output(clean_line)
                                 output_capture.write(clean_line + '\n')
-                    
+
                     if index in [0, 1]:  # Boundary or prompt found
                         break
                 except Exception:
@@ -296,13 +295,13 @@ class BashSession:
                 await loop.run_in_executor(None, self.child.expect_exact, clean_command, 0.2)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 pass
-            
+
             while True:
                 try:
                     index = await loop.run_in_executor(
                         None, lambda: self.child.expect([boundary, self.bash_prompt_regex], timeout=timeout)
                     )
-                    
+
                     output = (self.child.before or "").strip()
                     # Filter out command echo
                     if output.startswith(clean_command):
@@ -322,7 +321,7 @@ class BashSession:
                 except pexpect.EOF:
                     output_capture.write((self.child.before or "").strip())
                     raise
-            
+
             # Final prompt clear
             await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, timeout)
             return output_capture.getvalue().strip()
@@ -348,20 +347,20 @@ class BashSession:
             partial_output = ""
             if self.child and self.child.before:
                 partial_output = self.child.before.strip()
-            
+
             bg_child = pexpect.spawn('bash', encoding='utf-8', timeout=None)
             bg_child.sendline(command)
-            
+
             from tools.bash import bash
             process_id = bash._create_background_process(command, bg_child)
-            
+
             try:
                 self.child.sendintr()
                 self.child.expect_exact(self.bash_prompt_regex, timeout=2)
                 self.child.before = self.child.after = ""
             except:
                 pass
-            
+
             response = f"⏳ Command exceeded {timeout}s timeout and was moved to background.\n"
             response += f"📋 Process ID: {process_id}\n"
             response += f"🔧 Command: {command}\n"
@@ -370,9 +369,9 @@ class BashSession:
             response += "\n💡 Use <taskmanager><list/></taskmanager> to see all background processes."
             response += f"\n💡 Use <taskmanager><stdout>{process_id}</stdout></taskmanager> to view output."
             response += f"\n💡 Use <taskmanager><input><pid>{process_id}</pid><data>y\n</data></input></taskmanager> to send input."
-            
+
             return response
-            
+
         except Exception as e:
             logger.error(f"Error converting to background process: {e}")
             error_string = f"\n[Error: TIMEOUT after {timeout} seconds. Failed to convert to background process: {e}]\n"
@@ -419,17 +418,17 @@ class bash:
 
     @staticmethod
     def _get_session() -> BashSession:
-        session_dead = (bash._session is None or 
-                        bash._session.child is None or 
+        session_dead = (bash._session is None or
+                        bash._session.child is None or
                         not bash._session.child.isalive())
-        
+
         if session_dead:
             if bash._session:
                 logger.warning(colored("  - Bash session was found dead. Restarting.", "yellow"))
-            
+
             max_attempts = 3
             session_created = False
-            
+
             for attempt in range(max_attempts):
                 try:
                     with suppress_bash_warnings():
@@ -443,7 +442,7 @@ class bash:
                     if attempt < max_attempts - 1:
                         import time
                         time.sleep(0.5 * (2 ** attempt))
-            
+
             if not session_created:
                 try:
                     with suppress_bash_warnings():
@@ -455,18 +454,18 @@ class bash:
                     session_created = True
                 except Exception:
                     pass
-            
+
             if not session_created:
                 logger.error(colored("  - Bash session creation failed completely", "red"))
                 raise RuntimeError("Unable to create bash session")
-                        
+
         return bash._session
-    
+
     @staticmethod
     def _create_background_process(command: str, child_process: pexpect.spawn) -> str:
         process_id = f"bg_{uuid.uuid4().hex[:8]}"
         output_buffer = io.StringIO()
-        
+
         bash._background_processes[process_id] = {
             'source': 'bash',
             'command': command,
@@ -475,7 +474,7 @@ class bash:
             'created_at': asyncio.get_event_loop().time(),
             'output_buffer': output_buffer
         }
-        
+
         def capture_output():
             try:
                 while child_process.isalive():
@@ -488,22 +487,22 @@ class bash:
                         continue
                     except (pexpect.EOF, OSError):
                         break
-                
+
                 try:
                     remaining = child_process.read()
                     if remaining:
                         output_buffer.write(remaining)
                 except: pass
-                
+
                 bash._background_processes[process_id]['status'] = 'finished'
             except Exception as e:
                 logger.error(f"Error capturing background process output: {e}")
                 if process_id in bash._background_processes:
                     bash._background_processes[process_id]['status'] = 'error'
-        
+
         capture_thread = threading.Thread(target=capture_output, daemon=True)
         capture_thread.start()
-        
+
         return process_id
 
     @staticmethod
@@ -536,7 +535,7 @@ class bash:
 
             session = bash._get_session()
             bash_return = await session.execute(command_content, timeout=timeout)
-            
+
             if not bash_return.strip():
                 bash_return = "The bash tool exited successfully with no output."
             return bash_return
@@ -553,7 +552,7 @@ class bash:
         DEFAULT_TIMEOUT = 30
         try:
             timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
-            
+
             if timeout_match:
                 timeout = int(timeout_match.group(1))
                 if timeout <= 0: timeout = DEFAULT_TIMEOUT

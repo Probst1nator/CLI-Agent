@@ -32,7 +32,7 @@ except ImportError:
 class taskmanager:
     # Threshold for using resource manager for large outputs
     OUTPUT_THRESHOLD = 4096
-    
+
     @staticmethod
     def get_delim() -> str:
         return 'taskmanager'
@@ -43,26 +43,26 @@ class taskmanager:
             "name": "taskmanager",
             "description": (
                 "Manages background processes started with <bash>. Allows listing, killing, and inspecting processes. "
-                "IMPORTANT: If a process's output (`stdout` or `watch`) is large, it is NOT returned directly. "
-                "Instead, a `resource_id` is returned. You MUST then use the `searchtext` tool to inspect the output."
+                "Large process outputs are automatically handled by the system - if content exceeds limits, "
+                "a resource_id is provided and you can use the `searchtext` tool to inspect the output."
             ),
             "example": (
                 "<taskmanager><list/></taskmanager>\n"
-                "<taskmanager><stdout>bg_a1b2c3d4</stdout></taskmanager> <!-- If output is large, this returns a resource_id -->\n"
+                "<taskmanager><stdout>bg_a1b2c3d4</stdout></taskmanager>\n"
                 "<taskmanager><input><pid>bg_a1b2c3d4</pid><data>y\\n</data></input></taskmanager> <!-- Use \\\\n for newlines in data -->"
             )
         }
-    
+
     @staticmethod
     def _validate_bash_process(proc_info: dict) -> bool:
         """
         Validates that a process was started by the bash tool.
         This ensures we only manage processes within our security boundary.
         """
-        return (proc_info.get('source') == 'bash' and 
-                'child' in proc_info and 
+        return (proc_info.get('source') == 'bash' and
+                'child' in proc_info and
                 'command' in proc_info)
-    
+
     @staticmethod
     def _update_process_status(proc_info: dict):
         """
@@ -72,7 +72,7 @@ class taskmanager:
         """
         if not taskmanager._validate_bash_process(proc_info):
             return  # Skip non-bash processes
-            
+
         if proc_info.get('status') == 'running' and not proc_info['child'].isalive():
             proc_info['status'] = 'finished'
 
@@ -187,10 +187,10 @@ class taskmanager:
 
         output = ["Process ID | Status     | Command"]
         output.append("-----------|------------|--------------------------------------------------")
-        
+
         # Filter for only valid bash processes
         bash_procs = {pid: info for pid, info in procs.items() if taskmanager._validate_bash_process(info)}
-        
+
         if not bash_procs:
             return "No active or recently finished background processes."
 
@@ -199,7 +199,7 @@ class taskmanager:
             command = info['command']
             truncated_command = command[:48] + ('...' if len(command) > 48 else '')
             output.append(f"{pid:<10} | {status:<10} | {truncated_command}")
-        
+
         return "\n".join(output)
 
     @staticmethod
@@ -207,20 +207,20 @@ class taskmanager:
         if target.lower() == 'all':
             count = 0
             for pid, info in list(bash._background_processes.items()):
-                if (taskmanager._validate_bash_process(info) and 
+                if (taskmanager._validate_bash_process(info) and
                     info.get('status') == 'running'):
                     info['child'].close(force=True)
                     info['status'] = 'killed'
                     count += 1
             return f"Attempted to kill all {count} running background processes."
-        
+
         proc_info = bash._background_processes.get(target)
         if not proc_info:
             return f"Error: Process with ID '{target}' not found."
-        
+
         if not taskmanager._validate_bash_process(proc_info):
             return f"Error: Process '{target}' is not a bash-managed process."
-        
+
         if proc_info.get('status') != 'running':
             return f"Process {target} is not running (status: {proc_info.get('status')})."
 
@@ -236,10 +236,10 @@ class taskmanager:
         proc_info = bash._background_processes.get(pid)
         if not proc_info:
             return f"Error: Process with ID '{pid}' not found."
-        
+
         if not taskmanager._validate_bash_process(proc_info):
             return f"Error: Process '{pid}' is not a bash-managed process."
-        
+
         if proc_info.get('status') != 'running':
             return f"Error: Process {pid} is not running (status: {proc_info.get('status')}). Cannot send input."
 
@@ -249,7 +249,7 @@ class taskmanager:
             if not child.isalive():
                 proc_info['status'] = 'finished'
                 return f"Error: Process {pid} terminated before input could be sent."
-            
+
             # The 'data' string is sent as-is. Convert common escape sequences.
             # Handle \n, \t, \r escape sequences
             processed_data = data.replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '\r')
@@ -263,40 +263,19 @@ class taskmanager:
         proc_info = bash._background_processes.get(pid)
         if not proc_info:
             return f"Error: Process with ID '{pid}' not found."
-        
+
         if not taskmanager._validate_bash_process(proc_info):
             return f"Error: Process '{pid}' is not a bash-managed process."
-        
+
         output = proc_info['output_buffer'].getvalue()
         status = proc_info.get('status', 'unknown')
         header = f"--- Output for PID {pid} (Status: {status}) [use the bash 'sleep' if you want to wait for it to finish] ---\n"
 
-        # *** CRITICAL WORKFLOW LOGIC ***
-        if len(output) > taskmanager.OUTPUT_THRESHOLD:
-            resource_manager = get_resource_manager()
-            if resource_manager:
-                resource_id = resource_manager.create_resource(
-                    content=output,
-                    source=f"proc_{pid}",
-                    source_type='process'
-                )
-                resource = resource_manager.get_resource(resource_id)
-                return (f"Output for PID {pid} is too large to display directly.\n"
-                        f"Loaded into searchable resource.\n"
-                        f"Resource ID: {resource.metadata.resource_id}\n"
-                        f"Total Lines: {resource.metadata.total_lines}\n"
-                        f"Use <searchtext resource_id=\"{resource.metadata.resource_id}\" pattern=\"...\"/> to inspect.")
-        
-        # Logic for small output
+        # Return full output directly - main.py will create resource if too large
         if not output.strip():
             return header + "[No output captured yet]"
 
-        if len(output) > max_chars:
-            result = f"... (output is {len(output)} chars, showing last {max_chars})\n{output[-max_chars:]}"
-        else:
-            result = output
-
-        return header + result
+        return header + output
 
     @staticmethod
     async def _watch_process(pid: str, duration: int) -> str:
@@ -306,21 +285,21 @@ class taskmanager:
         proc_info = bash._background_processes.get(pid)
         if not proc_info:
             return f"Error: Process with ID '{pid}' not found."
-        
+
         if not taskmanager._validate_bash_process(proc_info):
             return f"Error: Process '{pid}' is not a bash-managed process."
 
         stdout_callback = getattr(g, 'stdout_callback', None) or (lambda text: print(text, end=''))
-        
+
         header = colored(f"\n--- Watching output for PID {pid} for {duration}s (Status: {proc_info.get('status')}) ---", "cyan")
         stdout_callback(header + "\n")
-        
+
         output_buffer = proc_info['output_buffer']
         child_process = proc_info['child']
         last_read_position = 0
-        
+
         start_time = time.time()
-        
+
         while time.time() - start_time < duration:
             if not child_process.isalive():
                 stdout_callback(colored(f"--- Process {pid} finished. ---", "yellow") + "\n")
@@ -341,7 +320,7 @@ class taskmanager:
                 last_read_position = current_size
 
             await asyncio.sleep(0.2) # Sleep to yield control to the event loop
-        
+
         # Perform a final read to catch any output that arrived just before the loop ended
         output_buffer.seek(0, 2)
         current_size = output_buffer.tell()
@@ -352,30 +331,14 @@ class taskmanager:
                 for line in new_data.strip().split('\n'):
                     if line:
                         stdout_callback(f"⚙️  {line}\n")
-        
+
         end_message = colored(f"--- Watch session for PID {pid} ended. ---", "cyan")
         stdout_callback(end_message + "\n")
-        
-        # *** CRITICAL WORKFLOW LOGIC ***
+
+        # Return full output directly - main.py will create resource if too large
         final_output = proc_info['output_buffer'].getvalue()
-        if len(final_output) > taskmanager.OUTPUT_THRESHOLD:
-            resource_manager = get_resource_manager()
-            if resource_manager:
-                resource_id = resource_manager.create_resource(
-                    content=final_output,
-                    source=f"proc_{pid}_watch",
-                    source_type='process'
-                )
-                resource = resource_manager.get_resource(resource_id)
-                return (f"Watch session for PID {pid} completed.\n"
-                        f"Captured {resource.metadata.total_lines} lines ({len(final_output)} chars).\n"
-                        f"Loaded output into searchable resource.\n"
-                        f"Resource ID: {resource.metadata.resource_id}\n"
-                        f"Use <searchtext resource_id=\"{resource.metadata.resource_id}\" pattern=\"...\"/> to inspect.")
-        
-        # Logic for small output
         header = f"--- Final Captured Output for PID {pid} ---\n"
         end_message = colored(f"--- Watch session for PID {pid} ended. ---", "cyan")
         (getattr(g, 'stdout_callback', print))(end_message + "\n") # Print end message to console
-        
+
         return header + (final_output if final_output.strip() else "[No new output captured during watch]")

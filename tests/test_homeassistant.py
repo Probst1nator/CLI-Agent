@@ -39,11 +39,11 @@ mock_modules = {
 with patch.dict('sys.modules', mock_modules):
     # Import the module directly to avoid __init__.py issues
     import importlib.util
-    spec = importlib.util.spec_from_file_location("homeassistant", 
+    spec = importlib.util.spec_from_file_location("homeassistant",
                                                  project_root / "utils" / "homeassistant.py")
     homeassistant_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(homeassistant_module)
-    
+
     HomeAssistant = homeassistant_module.HomeAssistant
 
 # Patch the globals reference
@@ -58,7 +58,7 @@ class TestHomeAssistant(unittest.TestCase):
         """Set up test environment."""
         self.test_entities_file = HomeAssistant._INTERACTED_ENTITIES_FILE
         self.test_backup_dir = HomeAssistant._AUTOMATION_BACKUP_DIR
-        
+
         # Clean up any existing test files
         if os.path.exists(self.test_entities_file):
             os.remove(self.test_entities_file)
@@ -105,10 +105,10 @@ class TestHomeAssistant(unittest.TestCase):
                 }
             ]
         }
-        
+
         HomeAssistant._save_interacted_entities(test_entities)
         loaded_entities = HomeAssistant._load_interacted_entities()
-        
+
         self.assertIn('light.test', loaded_entities)
         self.assertEqual(len(loaded_entities['light.test']), 1)
         self.assertEqual(loaded_entities['light.test'][0]['action'], 'service_call')
@@ -116,12 +116,12 @@ class TestHomeAssistant(unittest.TestCase):
     def test_track_entity_interaction(self):
         """Test entity interaction tracking."""
         entity_id = 'light.living_room'
-        
+
         # Track a service call
         HomeAssistant._track_entity_interaction(
             entity_id, 'service_call', 'light', 'turn_on'
         )
-        
+
         entities = HomeAssistant._load_interacted_entities()
         self.assertIn(entity_id, entities)
         self.assertEqual(len(entities[entity_id]), 1)
@@ -139,7 +139,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._call_service('light', 'turn_on', 'light.living_room')
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
         self.assertEqual(result_data['result']['service'], 'light.turn_on')
@@ -155,7 +155,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._call_service('invalid', 'service', 'entity')
         result_data = json.loads(result)
-        
+
         self.assertIn('error', result_data)
         self.assertIn('Failed to call service', result_data['error'])
 
@@ -174,7 +174,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._get_state('light.living_room')
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
         self.assertEqual(result_data['result']['entity_id'], 'light.living_room')
@@ -201,7 +201,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._get_state()
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
         self.assertEqual(result_data['result']['entity_count'], 2)
@@ -233,7 +233,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._search_entities_by_keyword('light')
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
         self.assertEqual(result_data['result']['matches_found'], 2)
@@ -243,7 +243,7 @@ class TestHomeAssistant(unittest.TestCase):
         """Test getting usage history for entity with no history."""
         result = HomeAssistant._get_entity_usage_history('light.nonexistent')
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'No history found')
 
@@ -251,10 +251,10 @@ class TestHomeAssistant(unittest.TestCase):
         """Test getting usage history for entity with history."""
         # Add some history
         HomeAssistant._track_entity_interaction('light.test', 'service_call', 'light', 'turn_on')
-        
+
         result = HomeAssistant._get_entity_usage_history('light.test')
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
         self.assertEqual(result_data['result']['history_entries'], 1)
@@ -279,7 +279,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._manage_automations('list')
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
         self.assertEqual(result_data['result']['automation_count'], 1)
@@ -302,7 +302,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._manage_automations('create', automation_config=automation_config)
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
 
@@ -317,7 +317,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._control_automation('enable', 'automation.test')
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
         self.assertEqual(result_data['result']['action'], 'enable')
@@ -340,7 +340,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._backup_restore_automations('backup', 'test_backup')
         result_data = json.loads(result)
-        
+
         self.assertIn('result', result_data)
         self.assertEqual(result_data['result']['status'], 'Success')
         self.assertEqual(result_data['result']['backup_name'], 'test_backup')
@@ -349,7 +349,7 @@ class TestHomeAssistant(unittest.TestCase):
         """Test run_logic with invalid action."""
         result = HomeAssistant._run_logic('invalid_action')
         result_data = json.loads(result)
-        
+
         self.assertIn('error', result_data)
         self.assertIn('Invalid action', result_data['error'])
 
@@ -357,7 +357,7 @@ class TestHomeAssistant(unittest.TestCase):
         """Test run_logic call_service with missing parameters."""
         result = HomeAssistant._run_logic('call_service')
         result_data = json.loads(result)
-        
+
         self.assertIn('error', result_data)
         self.assertIn('domain', result_data['error'])
         self.assertIn('service', result_data['error'])
@@ -366,17 +366,17 @@ class TestHomeAssistant(unittest.TestCase):
         """Test run_logic get_state with missing entity_id."""
         result = HomeAssistant._run_logic('get_state')
         result_data = json.loads(result)
-        
+
         self.assertIn('error', result_data)
         self.assertIn('entity_id', result_data['error'])
 
     def test_module_level_run_function(self):
         """Test module-level run function wrapper."""
         run_func = homeassistant_module.run
-        
+
         result = run_func('invalid_action')
         result_data = json.loads(result)
-        
+
         self.assertIn('error', result_data)
         self.assertIn('Invalid action', result_data['error'])
 
@@ -389,7 +389,7 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._call_service('light', 'turn_on', 'light.test')
         result_data = json.loads(result)
-        
+
         self.assertIn('error', result_data)
         self.assertIn('Cannot connect to Home Assistant', result_data['error'])
 
@@ -402,14 +402,14 @@ class TestHomeAssistant(unittest.TestCase):
 
         result = HomeAssistant._call_service('light', 'turn_on', 'light.test')
         result_data = json.loads(result)
-        
+
         self.assertIn('error', result_data)
         self.assertIn('timed out', result_data['error'])
 
 
 class TestHomeAssistantIntegration(unittest.TestCase):
     """Integration tests for HomeAssistant utility (requires actual HA instance)."""
-    
+
     def setUp(self):
         """Check if integration tests should run."""
         self.skip_integration = not (os.environ.get('HASS_URL') and os.environ.get('HASS_TOKEN'))
@@ -420,10 +420,10 @@ class TestHomeAssistantIntegration(unittest.TestCase):
         """Test listing devices from actual Home Assistant instance."""
         if self.skip_integration:
             return
-            
+
         result = HomeAssistant._run_logic('list_devices')
         result_data = json.loads(result)
-        
+
         # Should either succeed or fail with a clear error
         self.assertTrue('result' in result_data or 'error' in result_data)
 
@@ -433,15 +433,15 @@ def run_tests():
     # Create test suite
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
-    
+
     # Add test cases
     suite.addTests(loader.loadTestsFromTestCase(TestHomeAssistant))
     suite.addTests(loader.loadTestsFromTestCase(TestHomeAssistantIntegration))
-    
+
     # Run tests
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
-    
+
     # Return success/failure
     return result.wasSuccessful()
 

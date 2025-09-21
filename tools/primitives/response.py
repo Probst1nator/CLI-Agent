@@ -11,7 +11,7 @@ class response:
     This tool performs no action and adds no content to the agent's context.
     Its presence indicates that the agent's turn is complete.
     """
-    
+
     @staticmethod
     def get_delim() -> str:
         """Provides the delimiter for this tool, used for parsing agent output."""

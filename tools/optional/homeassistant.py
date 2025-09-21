@@ -111,12 +111,12 @@ class _HomeAssistantAPI:
         payload = service_data or {}
         if entity_id: payload['entity_id'] = entity_id
         response = cls._make_request("POST", f"services/{domain}/{service}", payload)
-        
+
         if entity_id:
             details = f"Called service {domain}.{service}"
             if service_data: details += f" with data: {json.dumps(service_data)}"
             cls._track_entity_interaction(entity_id, "service_call", details)
-        
+
         return {"status": "Success", "message": f"Service {domain}.{service} called successfully.", "response": response.json()}
 
     @classmethod

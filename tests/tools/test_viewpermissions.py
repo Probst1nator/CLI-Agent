@@ -43,10 +43,10 @@ class TestViewPermissionsTool:
             "always_allow_commands": {}
         }
         mock_get_manager.return_value = mock_manager
-        
+
         # Test that any input results in the formatted list
         result = viewpermissions.run('anything')
-        
+
         # Assertions updated to match the new, user-friendly output
         assert "PERMISSIONS - Actions I Can Execute Without Asking" in result
         assert "DEVELOPMENT TOOLS" in result
@@ -67,7 +67,7 @@ class TestViewPermissionsTool:
             "always_allow_commands": {}
         }
         mock_get_manager.return_value = mock_manager
-        
+
         result = viewpermissions.run()
         # This assertion is now correct for the new tool's output
         assert "No automatic permissions set" in result
@@ -78,7 +78,7 @@ class TestViewPermissionsTool:
         """Test error handling in permissions operations."""
         # Mock permissions manager that raises an exception
         mock_get_manager.side_effect = Exception("Test error")
-        
+
         result = viewpermissions.run()
         # Updated error message to match the new tool
         assert "Error retrieving permissions" in result

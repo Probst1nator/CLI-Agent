@@ -20,10 +20,10 @@ class HumanAPI(AIProviderInterface):
 
     @staticmethod
     def generate_response(
-        chat: Union['Chat', str], 
-        model_key: str = "human", 
-        temperature: float = 0.0, 
-        silent_reason: str = "", 
+        chat: Union['Chat', str],
+        model_key: str = "human",
+        temperature: float = 0.0,
+        silent_reason: str = "",
         callback: Optional[Callable] = None,
         thinking_budget: Optional[int] = None
     ) -> Optional[str]:
@@ -33,13 +33,13 @@ class HumanAPI(AIProviderInterface):
         Args:
             chat (Union[Chat, str]): The chat object containing messages or a string prompt.
             model_key (str): Unused
-            temperature (float): Unused 
+            temperature (float): Unused
             silent_reason (str): Unused
             callback (Callable, optional): A function to call with each chunk of input data.
-            
+
         Returns:
             Optional[str]: The generated response.
-            
+
         Raises:
             Exception: If an error occurs during response generation, to be handled by the router.
         """
@@ -48,16 +48,16 @@ class HumanAPI(AIProviderInterface):
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
-        
-        # Get the prefix for debug logging 
+
+        # Get the prefix for debug logging
         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-        
+
         # Informational logging (not error handling)
         g.debug_log("Human-Api: User is asked for a response...", "green", force_print=True, prefix=prefix)
         g.debug_log(colored(("# " * 20) + "CHAT BEGIN" + (" #" * 20), "yellow"), force_print=True, prefix=prefix)
         chat.print_chat()
         g.debug_log(colored(("# " * 20) + "CHAT STOP" + (" #" * 21), "yellow"), force_print=True, prefix=prefix)
-        
+
         g.debug_log(colored("# # # Enter your multiline response. Type '--f' on a new line when finished.", "blue"), force_print=True, prefix=prefix)
         lines = []
         full_response = ""
@@ -67,7 +67,7 @@ class HumanAPI(AIProviderInterface):
                 break
             lines.append(line)
             full_response = "\n".join(lines)
-            
+
             # Call the callback function if provided
             if callback is not None:
                 callback(full_response)
@@ -91,7 +91,7 @@ class HumanAPI(AIProviderInterface):
 
         Returns:
             tuple[str,str]: (transcribed text from the audio file, language)
-            
+
         Raises:
             Exception: If an error occurs during transcription.
         """
@@ -114,20 +114,20 @@ class HumanAPI(AIProviderInterface):
                     response_format="verbose_json",
                     language=language
                 )
-            
+
             no_speech_prob = response.segments[0]['no_speech_prob']
             if (no_speech_prob > 0.7):
                 if chat:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                     g.debug_log("No speech detected", force_print=True, prefix=prefix)
                 return "", "english"
-            
+
             language = response.language
-            
+
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Transcription complete. Detected language: {language}", "green", force_print=True, prefix=prefix)
-                
+
             return response.text, language
 
         except Exception as e:

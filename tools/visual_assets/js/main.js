@@ -36,6 +36,9 @@ class VisualResponseApp {
         this.chatForm = null;
         this.messageHistory = [];
 
+        // Initialization protection flag
+        this.isInitializing = true;
+
         // Get logger reference
         this.logger = window.visualLogger;
 
@@ -206,8 +209,9 @@ class VisualResponseApp {
         // Global JS toggle event listener
         this.setupGlobalJSToggle();
 
-        // Clear history button event listener
-        this.setupClearHistoryButton();
+
+        // Reset history button event listener
+        this.setupResetHistoryButton();
 
         // Iframe focus management
         this.setupIframeFocusManagement();
@@ -629,10 +633,10 @@ class VisualResponseApp {
         return null;
     }
 
-    setupClearHistoryButton() {
-        const clearHistoryBtn = document.getElementById('clear-history-btn');
-        if (!clearHistoryBtn) {
-            console.warn('Clear history button not found');
+    setupResetHistoryButton() {
+        const resetHistoryBtn = document.getElementById('reset-history-btn');
+        if (!resetHistoryBtn) {
+            console.warn('Reset history button not found');
             return;
         }
 
@@ -644,21 +648,21 @@ class VisualResponseApp {
             console.warn('Interrupt button not found');
         }
 
-        clearHistoryBtn.addEventListener('click', (e) => {
+        resetHistoryBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
 
             // Show custom reset confirmation dialog with stopwatch
             this.showResetConfirmationDialog().then((confirmed) => {
             if (confirmed) {
-                // Send agent reset command to backend
+                // Send reset command to backend
                 if (this.wsManager && this.wsManager.isConnected()) {
-                    this.wsManager.sendMessage('__AGENT_RESET__');
+                    this.wsManager.sendMessage('/reset');
 
                     // Visual feedback
-                    const originalText = clearHistoryBtn.querySelector('.clear-text').textContent;
-                    clearHistoryBtn.querySelector('.clear-text').textContent = 'Resetting...';
-                    clearHistoryBtn.disabled = true;
+                    const originalText = resetHistoryBtn.querySelector('.reset-text').textContent;
+                    resetHistoryBtn.querySelector('.reset-text').textContent = 'Resetting...';
+                    resetHistoryBtn.disabled = true;
 
                     // Clear UI immediately for instant feedback
                     const contentWrapper = document.getElementById('content-wrapper');
@@ -671,8 +675,8 @@ class VisualResponseApp {
 
                     // Reset button state after delay
                     setTimeout(() => {
-                        clearHistoryBtn.querySelector('.clear-text').textContent = originalText;
-                        clearHistoryBtn.disabled = false;
+                        resetHistoryBtn.querySelector('.reset-text').textContent = originalText;
+                        resetHistoryBtn.disabled = false;
                     }, 2000);
 
                     console.log('Agent reset requested by user');
@@ -687,17 +691,18 @@ class VisualResponseApp {
                     this.clearMessageHistory();
 
                     // Visual feedback for fallback
-                    const originalText = clearHistoryBtn.querySelector('.clear-text').textContent;
-                    clearHistoryBtn.querySelector('.clear-text').textContent = 'Cleared (UI Only)';
+                    const originalText = resetHistoryBtn.querySelector('.reset-text').textContent;
+                    resetHistoryBtn.querySelector('.reset-text').textContent = 'Reset (UI Only)';
 
                     setTimeout(() => {
-                        clearHistoryBtn.querySelector('.clear-text').textContent = originalText;
+                        resetHistoryBtn.querySelector('.reset-text').textContent = originalText;
                     }, 2000);
                 }
             }
             }); // Close the promise callback
         });
     }
+
 
     setupInterruptButton(interruptBtn) {
         // Track agent state to show/hide button appropriately
@@ -811,12 +816,12 @@ class VisualResponseApp {
 
             // Title
             const title = document.createElement('h3');
-            title.textContent = '🔄 Agent Reset Confirmation';
+            title.textContent = '🗑️ Clear Chat History';
             title.className = 'reset-dialog-title';
 
             // Message
             const message = document.createElement('p');
-            message.innerHTML = 'This will completely reset the agent and clear all:<br>• Conversation history<br>• Tool states and context<br>• Images and metadata<br><br><strong>This action cannot be undone.</strong>';
+            message.innerHTML = 'This will clear the conversation history and start fresh.<br><br><strong>This action cannot be undone.</strong>';
             message.className = 'reset-dialog-message';
 
             // Progress area with stopwatch
@@ -975,7 +980,7 @@ class VisualResponseApp {
 
             // Modern / Tech-Humor additions
             'Negotiating with other AIs...',      // The feeling that AI has a mind of its own
-            'Appeasing the algorithm...',      // A nod to the mysterious power of social media/search algorithms
+            'Appeasing the algorithms...',      // A nod to the mysterious power of social media/search algorithms
             'Waking up the servers...',         // A classic, simple and relatable
             'Reticulating splines...',          // A famous, nonsensical loading message from SimCity
             'Synergizing the paradigms...',     // Poking fun at corporate buzzwords
@@ -1668,9 +1673,9 @@ class VisualResponseApp {
             return;
         }
 
-        // Initialize the three LLM selectors
+        // Initialize the LLM selectors (including router and planner)
         this.llmSelectors = {};
-        this.llmSelectorsLoaded = { primary: false, fallback1: false, fallback2: false };
+        this.llmSelectorsLoaded = { router: false, planner: false, primary: false, fallback1: false, fallback2: false };
 
         // Store system configuration for reference
         this.systemConfiguration = null;
@@ -1698,12 +1703,37 @@ class VisualResponseApp {
             }
         };
 
+        // Router LLM selector
+        const routerContainer = document.getElementById('router-llm-selector');
+        if (routerContainer) {
+            this.llmSelectors.router = new SearchableLLMSelectbox(routerContainer, {
+                placeholder: 'Router LLM...',
+                id: 'llm-router',
+                includeNoneOption: true,  // Special flag for router to include None option
+                onSelectionChange: (model) => this.handleRouterLLMSelectionChange(model),
+                onModelsLoaded: onModelsLoaded
+            });
+        }
+
+        // Planner LLM selector
+        const plannerContainer = document.getElementById('planner-llm-selector');
+        if (plannerContainer) {
+            this.llmSelectors.planner = new SearchableLLMSelectbox(plannerContainer, {
+                placeholder: 'Planner LLM...',
+                id: 'llm-planner',
+                includeNoneOption: true,
+                onSelectionChange: (model) => this.handlePlannerLLMSelectionChange(model),
+                onModelsLoaded: onModelsLoaded
+            });
+        }
+
         // Primary LLM selector
         const primaryContainer = document.getElementById('llm-selector-primary');
         if (primaryContainer) {
             this.llmSelectors.primary = new SearchableLLMSelectbox(primaryContainer, {
                 placeholder: 'Primary LLM...',
                 id: 'llm-primary',
+                includeNoneOption: true,
                 onSelectionChange: (model) => this.handleLLMSelectionChange('primary', model),
                 onModelsLoaded: onModelsLoaded
             });
@@ -1715,6 +1745,7 @@ class VisualResponseApp {
             this.llmSelectors.fallback1 = new SearchableLLMSelectbox(fallback1Container, {
                 placeholder: 'Fallback 1...',
                 id: 'llm-fallback1',
+                includeNoneOption: true,
                 onSelectionChange: (model) => this.handleLLMSelectionChange('fallback1', model),
                 onModelsLoaded: onModelsLoaded
             });
@@ -1726,6 +1757,7 @@ class VisualResponseApp {
             this.llmSelectors.fallback2 = new SearchableLLMSelectbox(fallback2Container, {
                 placeholder: 'Fallback 2...',
                 id: 'llm-fallback2',
+                includeNoneOption: true,
                 onSelectionChange: (model) => this.handleLLMSelectionChange('fallback2', model),
                 onModelsLoaded: onModelsLoaded
             });
@@ -1738,22 +1770,55 @@ class VisualResponseApp {
      * Initialize selectors from system configuration
      */
     initializeFromSystemConfiguration() {
+        // DEBUG: Log what we received from the API
+        console.log('🔍 WEB UI PERSISTENCE DEBUG:');
+        console.log('  → systemConfiguration received:', this.systemConfiguration);
+
         if (this.systemConfiguration && this.systemConfiguration.fallback_models) {
             const fallbackModels = this.systemConfiguration.fallback_models;
             console.log(`Initializing UI with ${fallbackModels.length} fallback models:`, fallbackModels);
 
+            // Initialize router LLM from saved configuration, defaults to None
+            const savedRouterLLM = this.systemConfiguration.router_llm;
+            if (this.llmSelectors.router) {
+                if (savedRouterLLM) {
+                    console.log(`🔍 BUG HUNT: Setting router LLM to saved selection: ${savedRouterLLM} (isInitializing=${this.isInitializing})`);
+                    this.llmSelectors.router.setSelectedModel(savedRouterLLM);
+                    console.log(`Set router LLM selector to saved selection: ${savedRouterLLM}`);
+                } else {
+                    console.log(`🔍 BUG HUNT: Setting router LLM to None (default) (isInitializing=${this.isInitializing})`);
+                    this.llmSelectors.router.setSelectedModel(null);
+                    console.log(`Set router LLM selector to None (default)`);
+                }
+            }
+
+            // Initialize planner LLM from saved configuration, or default to first fallback model
+            const savedPlannerLLM = this.systemConfiguration.planner_llm;
+            if (savedPlannerLLM && this.llmSelectors.planner) {
+                console.log(`🔍 BUG HUNT: Setting planner LLM to saved selection: ${savedPlannerLLM} (isInitializing=${this.isInitializing})`);
+                this.llmSelectors.planner.setSelectedModel(savedPlannerLLM);
+                console.log(`Set planner LLM selector to saved selection: ${savedPlannerLLM}`);
+            } else if (fallbackModels.length >= 1 && this.llmSelectors.planner) {
+                console.log(`🔍 BUG HUNT: Setting planner LLM to default: ${fallbackModels[0]} (isInitializing=${this.isInitializing})`);
+                this.llmSelectors.planner.setSelectedModel(fallbackModels[0]);
+                console.log(`Set planner LLM selector to default (first fallback): ${fallbackModels[0]}`);
+            }
+
             // Display first 3 fallback models in the UI
             if (fallbackModels.length >= 1 && this.llmSelectors.primary) {
+                console.log(`🔍 BUG HUNT: Setting primary LLM to: ${fallbackModels[0]} (isInitializing=${this.isInitializing})`);
                 this.llmSelectors.primary.setSelectedModel(fallbackModels[0]);
                 console.log(`Set primary selector to: ${fallbackModels[0]}`);
             }
 
             if (fallbackModels.length >= 2 && this.llmSelectors.fallback1) {
+                console.log(`🔍 BUG HUNT: Setting fallback1 LLM to: ${fallbackModels[1]} (isInitializing=${this.isInitializing})`);
                 this.llmSelectors.fallback1.setSelectedModel(fallbackModels[1]);
                 console.log(`Set fallback1 selector to: ${fallbackModels[1]}`);
             }
 
             if (fallbackModels.length >= 3 && this.llmSelectors.fallback2) {
+                console.log(`🔍 BUG HUNT: Setting fallback2 LLM to: ${fallbackModels[2]} (isInitializing=${this.isInitializing})`);
                 this.llmSelectors.fallback2.setSelectedModel(fallbackModels[2]);
                 console.log(`Set fallback2 selector to: ${fallbackModels[2]}`);
             }
@@ -1769,6 +1834,11 @@ class VisualResponseApp {
             console.log('No system configuration available, falling back to localStorage...');
             this.loadLLMSelections();
         }
+
+        // Initialization is complete - allow selection change events
+        console.log('🔍 BUG HUNT: About to disable initialization flag...');
+        this.isInitializing = false;
+        console.log('🔍 BUG HUNT: VisualResponseApp initialization complete - selection events now enabled');
     }
 
     /**
@@ -1777,7 +1847,14 @@ class VisualResponseApp {
      * @param {Object} model - Selected model object
      */
     handleLLMSelectionChange(position, model) {
-        console.log(`LLM selection changed - ${position}:`, model);
+        console.log(`🔍 BUG HUNT: LLM selection changed - ${position}:`, model);
+        console.log(`🔍 BUG HUNT: isInitializing = ${this.isInitializing}`);
+
+        // Guard against updates during initialization
+        if (this.isInitializing) {
+            console.log(`🚫 BUG HUNT: Blocking LLM selection change during initialization - ${position}`);
+            return;
+        }
 
         // Store current selections
         if (!this.llmSelections) {
@@ -1785,24 +1862,34 @@ class VisualResponseApp {
         }
         this.llmSelections[position] = model;
 
-        // Send the selection change via WebSocket if connected
-        if (this.wsManager && this.wsManager.isConnected()) {
-            const selectionData = {
-                primary: this.llmSelections.primary?.id || null,
-                fallback1: this.llmSelections.fallback1?.id || null,
-                fallback2: this.llmSelections.fallback2?.id || null,
-                // Flag to indicate we should remove any 4th+ fallback models
-                remove_extra_fallbacks: true,
-                // Include system state for context
-                system_had_extra_models: this.systemConfiguration &&
-                    this.systemConfiguration.fallback_models &&
-                    this.systemConfiguration.fallback_models.length > 3
-            };
+        // Ensure we have the current state of all selectboxes before sending command
+        if (!this.llmSelections.primary && this.llmSelectors.primary) {
+            this.llmSelections.primary = this.llmSelectors.primary.getSelectedModel();
+        }
+        if (!this.llmSelections.fallback1 && this.llmSelectors.fallback1) {
+            this.llmSelections.fallback1 = this.llmSelectors.fallback1.getSelectedModel();
+        }
+        if (!this.llmSelections.fallback2 && this.llmSelectors.fallback2) {
+            this.llmSelections.fallback2 = this.llmSelectors.fallback2.getSelectedModel();
+        }
 
-            console.log('Sending LLM selection update:', selectionData);
-            this.wsManager.sendLLMSelectionUpdate(selectionData);
+        // Send fallbacks command as chat message
+        // Handle None option properly: if model exists and has isNoneOption=true, use 'none'
+        // If model exists and has a real id, use that id
+        // If model doesn't exist, use 'none' as fallback
+        const primary = this.llmSelections.primary ?
+            (this.llmSelections.primary.isNoneOption ? 'none' : this.llmSelections.primary.id) : 'none';
+        const fallback1 = this.llmSelections.fallback1 ?
+            (this.llmSelections.fallback1.isNoneOption ? 'none' : this.llmSelections.fallback1.id) : 'none';
+        const fallback2 = this.llmSelections.fallback2 ?
+            (this.llmSelections.fallback2.isNoneOption ? 'none' : this.llmSelections.fallback2.id) : 'none';
+        const command = `/fallbacks ${primary} ${fallback1} ${fallback2}`;
+        console.log('📤 Sending fallbacks change command:', command);
+
+        if (this.wsManager && this.wsManager.isConnected()) {
+            this.wsManager.sendMessage(command);
         } else {
-            console.warn('WebSocket not connected, LLM selection not sent to backend');
+            console.warn('WebSocket not connected, fallbacks command not sent');
         }
 
         // Save to localStorage for persistence
@@ -1817,6 +1904,87 @@ class VisualResponseApp {
             console.log('LLM selections saved to localStorage');
         } catch (e) {
             console.warn('Failed to save LLM selections to localStorage:', e);
+        }
+    }
+
+    /**
+     * Handle router LLM selection changes
+     */
+    handleRouterLLMSelectionChange(model) {
+        console.log('🔍 BUG HUNT: Router LLM selection changed:', model);
+        console.log(`🔍 BUG HUNT: isInitializing = ${this.isInitializing}`);
+
+        // Guard against updates during initialization
+        if (this.isInitializing) {
+            console.log(`🚫 BUG HUNT: Blocking router LLM selection change during initialization`);
+            return;
+        }
+
+        // Send router LLM command as chat message
+        const modelKey = model?.id || 'none';
+        const command = `/router_llm ${modelKey}`;
+        console.log('📤 Sending router LLM change command:', command);
+
+        if (this.wsManager && this.wsManager.isConnected()) {
+            this.wsManager.sendMessage(command);
+        } else {
+            console.warn('WebSocket not connected, router LLM command not sent');
+        }
+
+        // Update local storage
+        try {
+            const routerSelection = {
+                router_llm: model?.id || null,
+                timestamp: Date.now()
+            };
+
+            localStorage.setItem('router-llm-selection', JSON.stringify(routerSelection));
+            console.log('Router LLM selection saved to localStorage');
+        } catch (e) {
+            console.warn('Failed to save router LLM selection to localStorage:', e);
+        }
+    }
+
+    /**
+     * Handle planner LLM selection changes
+     */
+    handlePlannerLLMSelectionChange(model) {
+        console.log('🔍 BUG HUNT: Planner LLM selection changed:', model);
+        console.log(`🔍 BUG HUNT: isInitializing = ${this.isInitializing}`);
+
+        // Guard against updates during initialization
+        if (this.isInitializing) {
+            console.log(`🚫 BUG HUNT: Blocking planner LLM selection change during initialization`);
+            return;
+        }
+
+        // Store current planner selection
+        if (!this.plannerLLMSelection) {
+            this.plannerLLMSelection = null;
+        }
+        this.plannerLLMSelection = model;
+
+        // Send planner LLM command as chat message
+        const modelKey = model?.id || 'none';
+        const command = `/planner_llm ${modelKey}`;
+        console.log('📤 Sending planner LLM change command:', command);
+
+        if (this.wsManager && this.wsManager.isConnected()) {
+            this.wsManager.sendMessage(command);
+        } else {
+            console.warn('WebSocket not connected, planner LLM command not sent');
+        }
+
+        // Save to localStorage for persistence
+        try {
+            const plannerSelection = {
+                planner_llm: model?.id || null,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('planner-llm-selection', JSON.stringify(plannerSelection));
+            console.log('Planner LLM selection saved to localStorage');
+        } catch (e) {
+            console.warn('Failed to save planner LLM selection to localStorage:', e);
         }
     }
 

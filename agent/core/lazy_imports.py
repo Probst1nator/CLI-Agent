@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 def get_prompt_session() -> 'PromptSession':
     """
     Get prompt session with lazy imports.
-    
+
     This avoids loading prompt_toolkit at startup unless interactive
     input is actually needed.
     """
@@ -25,7 +25,7 @@ def get_prompt_session() -> 'PromptSession':
     from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
     from prompt_toolkit.history import FileHistory
     import os
-    
+
     # Create session with lazy-loaded components
     history = FileHistory(os.path.expanduser('~/.cli_agent_history'))
     return PromptSession(
@@ -37,7 +37,7 @@ def get_prompt_session() -> 'PromptSession':
 def get_ml_pipeline(task: str) -> Optional[Any]:
     """
     Get ML pipeline with lazy transformers import.
-    
+
     This is a good example of lazy loading heavy ML libraries
     that are only needed for specific features.
     """

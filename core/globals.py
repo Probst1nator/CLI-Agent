@@ -16,16 +16,44 @@ from pathlib import Path
 from typing import List, Optional, Any, Callable, Dict, Set
 from termcolor import colored
 
-# --- Helper Function for Path Management ---
+# --- Helper Functions for XDG Base Directory Path Management ---
+def _get_xdg_config_dir() -> str:
+    """Get XDG config directory for CLI-Agent configurations."""
+    if os.name == 'nt':  # Windows
+        return os.path.join(os.environ.get('APPDATA', ''), 'cli-agent')
+    else:  # macOS, Linux, and other UNIX-like systems
+        return os.path.join(os.environ.get('XDG_CONFIG_HOME', os.path.join(Path.home(), '.config')), 'cli-agent')
+
+def _get_xdg_data_dir() -> str:
+    """Get XDG data directory for CLI-Agent persistent data."""
+    if os.name == 'nt':  # Windows
+        return os.path.join(os.environ.get('LOCALAPPDATA', ''), 'cli-agent')
+    else:  # macOS, Linux, and other UNIX-like systems
+        return os.path.join(os.environ.get('XDG_DATA_HOME', os.path.join(Path.home(), '.local', 'share')), 'cli-agent')
+
+def _get_xdg_cache_dir() -> str:
+    """Get XDG cache directory for CLI-Agent cache and temporary files."""
+    if os.name == 'nt':  # Windows
+        return os.path.join(os.environ.get('TEMP', ''), 'cli-agent')
+    else:  # macOS, Linux, and other UNIX-like systems
+        return os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.join(Path.home(), '.cache')), 'cli-agent')
+
+def _get_xdg_state_dir() -> str:
+    """Get XDG state directory for CLI-Agent ephemeral state data."""
+    if os.name == 'nt':  # Windows - use same as data dir on Windows
+        return os.path.join(os.environ.get('LOCALAPPDATA', ''), 'cli-agent', 'state')
+    else:  # macOS, Linux, and other UNIX-like systems
+        return os.path.join(os.environ.get('XDG_STATE_HOME', os.path.join(Path.home(), '.local', 'state')), 'cli-agent')
+
 def _get_persistent_storage_path() -> str:
     """
-    Determines the appropriate path for persistent storage based on the OS.
-    This helps in keeping user-specific data and configurations in a conventional location.
+    Legacy function for backward compatibility.
+    Returns the old storage path for migration purposes.
     """
     if os.name == 'nt':  # Windows
         return os.path.join(os.environ.get('APPDATA', ''), 'cli-agent')
     else:  # macOS, Linux, and other UNIX-like systems
-        return os.path.join(Path.home(), 'cli-agent')
+        return os.path.join(Path.home(), '.cli-agent')
 
 # --- Main Globals Class ---
 class Globals:
@@ -34,34 +62,47 @@ class Globals:
     This includes paths, runtime flags, and selected model configurations.
     """
     def __init__(self):
-        # --- Path Configurations ---
+        # --- Path Configurations (XDG Base Directory Compliant) ---
         self.CLIAGENT_ROOT_PATH: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        # XDG Base Directory paths
+        self.CLIAGENT_CONFIG_DIR: str = _get_xdg_config_dir()
+        self.CLIAGENT_DATA_DIR: str = _get_xdg_data_dir()
+        self.CLIAGENT_CACHE_DIR: str = _get_xdg_cache_dir()
+        self.CLIAGENT_STATE_DIR: str = _get_xdg_state_dir()
+
+        # Legacy path for migration
         self.CLIAGENT_PERSISTENT_STORAGE_PATH: str = _get_persistent_storage_path()
-        self.CLIAGENT_TEMP_STORAGE_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "temp")
-        self.AGENTS_SANDBOX_DIR: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "sandbox")
-        
+
+        # Organized directory structure
+        self.CLIAGENT_TEMP_STORAGE_PATH: str = os.path.join(self.CLIAGENT_CACHE_DIR, "temp")
+        self.AGENTS_SANDBOX_DIR: str = os.path.join(self.CLIAGENT_DATA_DIR, "sandbox")
+
         # --- File Path Configurations ---
         self.CLIAGENT_ENV_FILE_PATH: str = os.path.join(self.CLIAGENT_ROOT_PATH, ".env")
-        self.USER_CONFIG_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, 'user_config.json')
-        self.LLM_CONFIG_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, 'llm_config.json')
-        
-        # --- Model Limit Paths with Daily Rotation ---
+        self.USER_CONFIG_PATH: str = os.path.join(self.CLIAGENT_CONFIG_DIR, 'user_config.json')
+        self.LLM_CONFIG_PATH: str = os.path.join(self.CLIAGENT_CONFIG_DIR, 'llm_config.json')
+
+        # --- Model Limit Paths with Daily Rotation (moved to STATE_DIR) ---
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        model_limits_dir = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, 'model_limits')
+        model_limits_dir = os.path.join(self.CLIAGENT_STATE_DIR, 'model_limits')
         os.makedirs(model_limits_dir, exist_ok=True)
         self.MODEL_TOKEN_LIMITS_PATH: str = os.path.join(model_limits_dir, f'{today}_model_token_limits.json')
         self.MODEL_RATE_LIMITS_PATH: str = os.path.join(model_limits_dir, f'{today}_model_rate_limits.json')
-        
-        self.UNCONFIRMED_FINETUNING_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "finetuning_data", "unconfirmed")
-        self.CONFIRMED_FINETUNING_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, "finetuning_data", "confirmed")
+
+        self.UNCONFIRMED_FINETUNING_PATH: str = os.path.join(self.CLIAGENT_DATA_DIR, "finetuning_data", "unconfirmed")
+        self.CONFIRMED_FINETUNING_PATH: str = os.path.join(self.CLIAGENT_DATA_DIR, "finetuning_data", "confirmed")
 
         # --- LLM and Agent Configuration ---
         self.LLM: Optional[str] = None
         self.SELECTED_LLMS: List[str] = []
         self.EVALUATOR_LLMS: List[str] = []
+        self.FALLBACK_MODELS: List[str] = []  # Dynamic fallback models for agent loops
+        self.planner_llm: Optional[str] = None  # Planner LLM for first agent turn
+        self.router_llm: Optional[str] = None  # Router LLM for routing decisions
         self.MCT: int = 1
         self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
-        
+
         # --- Forcing Flags (runtime modifiers) ---
         from core.ai_strengths import AIStrengths # Local import
         self.FORCE_LOCAL: bool = False
@@ -70,7 +111,6 @@ class Globals:
         # --- Debug and UI Flags ---
         self.DEBUG_CHATS: bool = False
         self.DEBUG_MODE: bool = False
-        self.SUMMARY_MODE: bool = False
         self.VERBOSE_DEBUG: bool = False  # Set to True to enable verbose API debugging
         self.GUI_MODE: bool = False  # Set to True when running in GUI mode
 
@@ -80,7 +120,13 @@ class Globals:
         self.autonomous_iteration_count: int = 0  # Counter for autonomous iterations
         self.total_autonomous_count: int = 0  # Total autonomous iterations counter
         self.USER_INTERRUPT_REQUESTED: bool = False  # Set when user requests interrupt
-        
+
+        # --- Mode Flags ---
+        self.auto_execute: bool = False  # Auto-execute mode flag
+        self.voice_mode: bool = False  # Voice mode flag
+        self.local_mode: bool = False  # Local mode flag
+        self.online_mode: bool = False  # Online mode flag
+
         # --- Utility and Tool Management ---
         self.SELECTED_UTILS: List[str] = []
         self.AGENT_IS_COMPACTING: bool = False
@@ -88,7 +134,7 @@ class Globals:
         # --- Output Truncation Settings ---
         self.OUTPUT_TRUNCATE_HEAD_SIZE: int = 2000
         self.OUTPUT_TRUNCATE_TAIL_SIZE: int = 2000
-        
+
         # --- API Timeout Settings ---
         self.GOOGLE_API_TIMEOUT_SECONDS: int = 300  # 5 minutes to respect rate limit delays
 
@@ -101,11 +147,12 @@ class Globals:
 
         # --- Tool and Agent State ---
         self.last_executed_tools_info: Optional[Any] = None  # Stores information about last executed tools
+        self.current_images: List[str] = []  # Current images for vision models
 
         # --- GUI Communication ---
         import queue
         self.visual_input_queue: queue.Queue = queue.Queue()  # Queue for visual input from web interface
-        
+
         # --- TTS Configuration ---
         # Default: Local models first, then remote APIs (prioritize privacy and offline capability)
         self.TTS_ENGINE_PRIORITY: List[str] = ["piper", "coqui", "huggingface", "system", "openai", "elevenlabs"]
@@ -120,13 +167,13 @@ class Globals:
         self.TTS_MAX_RETRIES: int = 2
         self.TTS_FALLBACK_ENABLED: bool = True
         self.TTS_CACHE_ENABLED: bool = True
-        
+
         # --- TTS Voice Mappings ---
         self.TTS_VOICE_MAPPINGS: Dict[str, Dict[str, str]] = {
             "openai": {
                 "default": "nova",
                 "female": "nova",
-                "male": "onyx", 
+                "male": "onyx",
                 "calm": "alloy",
                 "energetic": "echo",
                 "storyteller": "fable",
@@ -142,12 +189,12 @@ class Globals:
             "piper": {
                 "default": "en_GB-alba-medium",
                 "german_male": "de_DE-thorsten-high",
-                "german_female": "de_DE-kerstin-medium", 
+                "german_female": "de_DE-kerstin-medium",
                 "english_male": "en_GB-alan-medium",
                 "english_female": "en_GB-alba-medium"
             }
         }
-        
+
         # --- TTS Context-Specific Settings ---
         self.TTS_CONTEXT_SETTINGS: Dict[str, Dict[str, Any]] = {
             "system_message": {
@@ -181,16 +228,17 @@ class Globals:
                 "voice": "default"
             }
         }
-        
+
 
         # --- Model Discovery Cache ---
         self._model_discovery_cache: Optional[Dict[str, Any]] = None
         self._model_discovery_task: Optional[Any] = None  # Background asyncio task
         self._model_discovery_timestamp: float = 0
-        self.MODEL_CACHE_PATH: str = os.path.join(self.CLIAGENT_PERSISTENT_STORAGE_PATH, 'model_cache.json')
+        self.MODEL_CACHE_PATH: str = os.path.join(self.CLIAGENT_CACHE_DIR, 'model_cache.json')
 
         # --- Initial Setup on Instantation ---
         self._initialize_directories()
+        self._migrate_legacy_files()  # Migrate files from old structure
         self.load_user_config()
         self.load_llm_config() # Load LLM config at startup
         self.load_tts_config_from_user_settings() # Load TTS config at startup
@@ -202,13 +250,158 @@ class Globals:
         atexit.register(self._run_cleanup)
 
     def _initialize_directories(self):
-        """Create necessary directories and clean up temporary ones."""
-        os.makedirs(self.CLIAGENT_PERSISTENT_STORAGE_PATH, exist_ok=True)
+        """Create necessary XDG-compliant directories and clean up temporary ones."""
+        # Create XDG-compliant directory structure
+        os.makedirs(self.CLIAGENT_CONFIG_DIR, exist_ok=True)
+        os.makedirs(self.CLIAGENT_DATA_DIR, exist_ok=True)
+        os.makedirs(self.CLIAGENT_CACHE_DIR, exist_ok=True)
+        os.makedirs(self.CLIAGENT_STATE_DIR, exist_ok=True)
         os.makedirs(self.AGENTS_SANDBOX_DIR, exist_ok=True)
-        
+
+        # Clean up and recreate temp directory
         if os.path.exists(self.CLIAGENT_TEMP_STORAGE_PATH):
             shutil.rmtree(self.CLIAGENT_TEMP_STORAGE_PATH)
         os.makedirs(self.CLIAGENT_TEMP_STORAGE_PATH, exist_ok=True)
+
+    def _migrate_legacy_files(self):
+        """Migrate files from old ~/.cli-agent structure to XDG-compliant directories."""
+        legacy_path = self.CLIAGENT_PERSISTENT_STORAGE_PATH
+
+        # Skip migration if legacy directory doesn't exist
+        if not os.path.exists(legacy_path):
+            return
+
+        # Skip migration if this IS the legacy path (Windows compatibility)
+        if legacy_path == self.CLIAGENT_CONFIG_DIR:
+            return
+
+        migration_log = []
+        migrated_count = 0
+
+        try:
+            # Migration mapping: (old_path, new_path, description)
+            migrations = [
+                # Configuration files
+                (os.path.join(legacy_path, 'user_config.json'),
+                 self.USER_CONFIG_PATH, 'User configuration'),
+                (os.path.join(legacy_path, 'llm_config.json'),
+                 self.LLM_CONFIG_PATH, 'LLM configuration'),
+
+                # Data files
+                (os.path.join(legacy_path, 'finetuning_data'),
+                 os.path.join(self.CLIAGENT_DATA_DIR, 'finetuning_data'), 'Finetuning data'),
+                (os.path.join(legacy_path, 'sandbox'),
+                 os.path.join(self.CLIAGENT_DATA_DIR, 'sandbox'), 'Sandbox directory'),
+
+                # State files (ephemeral application state)
+                (os.path.join(legacy_path, 'model_limits'),
+                 os.path.join(self.CLIAGENT_STATE_DIR, 'model_limits'), 'Model limits state'),
+
+                # Cache files
+                (os.path.join(legacy_path, 'model_cache.json'),
+                 self.MODEL_CACHE_PATH, 'Model cache'),
+                (os.path.join(legacy_path, 'cache'),
+                 os.path.join(self.CLIAGENT_CACHE_DIR, 'legacy_cache'), 'Legacy cache'),
+                (os.path.join(legacy_path, 'temp'),
+                 os.path.join(self.CLIAGENT_CACHE_DIR, 'legacy_temp'), 'Legacy temp files'),
+
+                # Vector databases and search cache
+                (os.path.join(legacy_path, 'searchweb_vectordb'),
+                 os.path.join(self.CLIAGENT_DATA_DIR, 'vector_db', 'searchweb_vectordb'), 'Search vector database'),
+            ]
+
+            for old_path, new_path, description in migrations:
+                if os.path.exists(old_path):
+                    try:
+                        # Ensure target directory exists
+                        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+
+                        # Move the file or directory
+                        if os.path.isdir(old_path):
+                            if os.path.exists(new_path):
+                                # If target exists, merge contents
+                                self._merge_directories(old_path, new_path)
+                                shutil.rmtree(old_path)
+                            else:
+                                shutil.move(old_path, new_path)
+                        else:
+                            if not os.path.exists(new_path):
+                                shutil.move(old_path, new_path)
+
+                        migration_log.append(f"✓ Migrated {description}: {old_path} → {new_path}")
+                        migrated_count += 1
+
+                    except Exception as e:
+                        migration_log.append(f"✗ Failed to migrate {description}: {e}")
+
+            # Move permissions file from home directory to config directory
+            home_permissions_file = os.path.join(Path.home(), 'permissions.json')
+            config_permissions_file = os.path.join(self.CLIAGENT_CONFIG_DIR, 'permissions.json')
+
+            if os.path.exists(home_permissions_file) and not os.path.exists(config_permissions_file):
+                try:
+                    shutil.move(home_permissions_file, config_permissions_file)
+                    migration_log.append(f"✓ Migrated permissions file: {home_permissions_file} → {config_permissions_file}")
+                    migrated_count += 1
+                except Exception as e:
+                    migration_log.append(f"✗ Failed to migrate permissions file: {e}")
+
+            # Log migration results
+            if migrated_count > 0:
+                logging.info(f"🚚 Migrated {migrated_count} items to XDG-compliant structure")
+                for log_entry in migration_log:
+                    logging.debug(log_entry)
+
+                # Create migration marker to avoid re-migration
+                marker_file = os.path.join(self.CLIAGENT_CONFIG_DIR, '.xdg_migration_completed')
+                with open(marker_file, 'w') as f:
+                    f.write(f"Migration completed at {datetime.datetime.now().isoformat()}\n")
+                    f.write(f"Migrated {migrated_count} items\n")
+
+                # Only remove legacy directory if it's now empty (safe cleanup)
+                try:
+                    if os.path.isdir(legacy_path) and not os.listdir(legacy_path):
+                        os.rmdir(legacy_path)
+                        logging.info(f"🗂️ Removed empty legacy directory: {legacy_path}")
+                except OSError:
+                    pass  # Directory not empty or permission issue
+
+            # Secondary migration: Move model_limits from data to state directory (for existing XDG installations)
+            data_model_limits = os.path.join(self.CLIAGENT_DATA_DIR, 'model_limits')
+            state_model_limits = os.path.join(self.CLIAGENT_STATE_DIR, 'model_limits')
+
+            if os.path.exists(data_model_limits) and not os.path.exists(state_model_limits):
+                try:
+                    shutil.move(data_model_limits, state_model_limits)
+                    logging.info(f"🚚 Moved model_limits to state directory: {data_model_limits} → {state_model_limits}")
+                    migrated_count += 1
+                except Exception as e:
+                    logging.warning(f"Failed to move model_limits to state directory: {e}")
+
+        except Exception as e:
+            logging.warning(f"Migration process encountered an error: {e}")
+
+    def _merge_directories(self, src_dir: str, dst_dir: str):
+        """Merge contents of source directory into destination directory."""
+        for item in os.listdir(src_dir):
+            src_item = os.path.join(src_dir, item)
+            dst_item = os.path.join(dst_dir, item)
+
+            if os.path.isdir(src_item):
+                if os.path.exists(dst_item):
+                    self._merge_directories(src_item, dst_item)
+                    shutil.rmtree(src_item)
+                else:
+                    shutil.move(src_item, dst_item)
+            else:
+                if not os.path.exists(dst_item):
+                    shutil.move(src_item, dst_item)
+                else:
+                    # File exists in destination, backup source with timestamp
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_name = f"{item}.backup_{timestamp}"
+                    backup_path = os.path.join(dst_dir, backup_name)
+                    shutil.move(src_item, backup_path)
 
     def _configure_ollama_hosts(self):
         """Load Ollama hosts from environment variables."""
@@ -220,7 +413,7 @@ class Globals:
 
     def _default_debug_log(self, message: str, color: str = None, force_print: bool = False, **kwargs):
         """A simple default logger in case the main one isn't set up yet."""
-        if force_print and not self.SUMMARY_MODE:
+        if force_print:
             if color:
                 print(colored(f"DEBUG: {message}", color))
             else:
@@ -249,7 +442,7 @@ class Globals:
     def get_config_value(self, key: str, default: Any = None) -> Any:
         """Get a configuration value with a fallback default."""
         return self._user_config.get(key, default)
-    
+
     def set_config_value(self, key: str, value: Any) -> None:
         """Set a configuration value and save it to the file immediately."""
         self._user_config[key] = value
@@ -273,6 +466,11 @@ class Globals:
             self.load_llm_config()
         return self._llm_config
 
+    @property
+    def llm_config(self) -> Dict[str, Any]:
+        """Property access to LLM configuration."""
+        return self._llm_config
+
     def save_llm_config(self, config: Dict[str, Any]) -> None:
         """Save LLM configuration to file."""
         self._llm_config = config
@@ -283,26 +481,60 @@ class Globals:
         except Exception as e:
             logging.warning(f"Failed to save LLM config: {e}")
 
+    def update_planner_llm(self, planner_llm_id: Optional[str]) -> None:
+        """Unified method to update planner LLM with automatic persistence."""
+        # Update in-memory state
+        self.planner_llm = planner_llm_id
+
+        # Update config dict
+        config = self.get_llm_config()
+        if planner_llm_id:
+            config['__planner_llm__'] = planner_llm_id
+        else:
+            config.pop('__planner_llm__', None)
+
+        # Auto-save to disk
+        self.save_llm_config(config)
+
+        logging.info(f"🔧 Planner LLM updated to: {planner_llm_id}")
+
+    def update_router_llm(self, router_llm_id: Optional[str]) -> None:
+        """Unified method to update router LLM with automatic persistence."""
+        # Update in-memory state
+        self.router_llm = router_llm_id
+
+        # Update config dict
+        config = self.get_llm_config()
+        if router_llm_id:
+            config['__router_llm__'] = router_llm_id
+        else:
+            config.pop('__router_llm__', None)
+
+        # Auto-save to disk
+        self.save_llm_config(config)
+
+        logging.info(f"🔧 Router LLM updated to: {router_llm_id}")
+
     def cleanup_temp_py_files(self):
         """Remove temporary Python files from previous runs using enhanced file manager."""
         try:
             # Try to use the new file manager for comprehensive cleanup
             from core.file_manager import get_file_manager
-            
+
             file_manager = get_file_manager()
-            
+
             # Clean up tracked Python temp files
             python_stats = file_manager.cleanup_by_category('python_temp', force_all=True)
-            
+
             # Clean up legacy untracked files
             legacy_stats = file_manager.cleanup_legacy_files()
-            
+
             total_removed = python_stats['files_removed'] + legacy_stats['files_removed']
             total_freed = python_stats['bytes_freed'] + legacy_stats['bytes_freed']
-            
+
             if total_removed > 0:
                 logging.info(f"🧹 Cleaned up {total_removed} temporary files ({total_freed / 1024:.1f} KB freed)")
-                
+
         except ImportError:
             # Fallback to original implementation if file manager is not available
             import re
@@ -330,19 +562,19 @@ class Globals:
                 logging.warning(f"Could not clean up temporary files: {e}")
             except Exception as e:
                 logging.error(f"An unexpected error occurred during temp file cleanup: {e}")
-    
+
     def start_background_model_discovery(self, force_refresh: bool = False) -> None:
         """Start background model discovery task."""
         import asyncio
         import time
-        
+
         # First, try to load from persistent cache for immediate availability
         if not force_refresh:
             persistent_cache = self.load_persistent_model_cache()
             if persistent_cache:
                 self._model_discovery_cache = persistent_cache
                 self._model_discovery_timestamp = time.time()
-                
+
                 # Check if cache is fresh enough to skip background refresh
                 cache_age_hours = self.get_persistent_cache_age_hours()
                 if cache_age_hours < 6:  # Cache less than 6 hours old, skip background refresh
@@ -350,12 +582,12 @@ class Globals:
                     return
                 else:
                     logging.debug(f"Loaded persistent cache ({cache_age_hours:.1f}h old), will refresh in background")
-        
+
         async def discover_models():
             """Background task to discover and cache model information."""
             try:
                 from core.providers.cls_ollama_interface import OllamaClient
-                
+
                 # Get ollama hosts
                 ollama_hosts = []
                 for host_url in self.DEFAULT_OLLAMA_HOSTS:
@@ -366,32 +598,32 @@ class Globals:
                     if ":" in host:
                         host = host.split(":")[0]
                     ollama_hosts.append(host)
-                
+
                 # Discover models in background
                 logging.debug("Starting background model discovery...")
                 start_time = time.time()
-                
+
                 model_status = OllamaClient.get_comprehensive_downloadable_models(ollama_hosts)
-                
+
                 discovery_time = time.time() - start_time
                 variant_count = sum(len(info.get('variants', {})) for info in model_status.values())
-                
+
                 # Cache the results
                 self._model_discovery_cache = model_status
                 self._model_discovery_timestamp = time.time()
-                
+
                 # Save to persistent cache
                 self.save_persistent_model_cache(model_status)
-                
+
                 logging.debug(f"Background model discovery completed in {discovery_time:.1f}s: {len(model_status)} model bases, {variant_count} variants")
-                
+
             except Exception as e:
                 logging.debug(f"Background model discovery failed: {e}")
                 # Don't overwrite existing cache on failure
                 if self._model_discovery_cache is None:
                     self._model_discovery_cache = {}
                     self._model_discovery_timestamp = time.time()
-        
+
         # Create and start the background task
         try:
             loop = asyncio.get_event_loop()
@@ -399,26 +631,26 @@ class Globals:
         except RuntimeError:
             # If no event loop is running, we'll do lazy loading instead
             logging.debug("No event loop available for background model discovery")
-    
+
     def get_cached_model_discovery(self) -> Optional[Dict[str, Any]]:
         """Get cached model discovery results."""
         return self._model_discovery_cache
-    
+
     def is_model_discovery_ready(self) -> bool:
         """Check if model discovery cache is ready."""
         return self._model_discovery_cache is not None
-    
+
     def wait_for_model_discovery(self, timeout: float = 10.0) -> bool:
         """Wait for model discovery to complete, with timeout."""
         if self._model_discovery_cache is not None:
             return True
-            
+
         if self._model_discovery_task is None:
             return False
-        
+
         import asyncio
         import time
-        
+
         start_time = time.time()
         try:
             loop = asyncio.get_event_loop()
@@ -443,7 +675,7 @@ class Globals:
         except Exception as e:
             logging.debug(f"Model discovery wait failed: {e}")
             return False
-    
+
     def invalidate_model_discovery_cache(self) -> None:
         """Invalidate the model discovery cache to force refresh."""
         self._model_discovery_cache = None
@@ -455,49 +687,49 @@ class Globals:
                 pass
             self._model_discovery_task = None
         logging.debug("Model discovery cache invalidated")
-    
+
     def refresh_model_discovery(self) -> None:
         """Refresh model discovery cache by starting a new background task."""
         self.invalidate_model_discovery_cache()
         self.start_background_model_discovery()
         logging.debug("Model discovery refresh initiated")
-    
+
     def is_model_cache_stale(self, max_age_minutes: int = 30) -> bool:
         """Check if the model cache is stale and needs refresh."""
         if self._model_discovery_cache is None:
             return True
-        
+
         import time
         age_seconds = time.time() - self._model_discovery_timestamp
         age_minutes = age_seconds / 60
-        
+
         return age_minutes > max_age_minutes
-    
+
     def load_persistent_model_cache(self) -> Optional[Dict[str, Any]]:
         """Load model cache from persistent storage."""
         if not os.path.exists(self.MODEL_CACHE_PATH):
             return None
-        
+
         try:
             with open(self.MODEL_CACHE_PATH, 'r') as f:
                 cache_data = json.load(f)
-            
+
             # Check cache age (default: cache valid for 24 hours)
             cache_timestamp = cache_data.get('timestamp', 0)
             import time
             age_hours = (time.time() - cache_timestamp) / 3600
-            
+
             if age_hours > 24:  # Cache older than 24 hours
                 logging.debug(f"Persistent cache is {age_hours:.1f} hours old, will refresh in background")
                 return cache_data.get('model_data', {})  # Return old data for immediate use
-            
+
             logging.debug(f"Loaded persistent model cache: {len(cache_data.get('model_data', {}))} model bases (age: {age_hours:.1f}h)")
             return cache_data.get('model_data', {})
-            
+
         except (json.JSONDecodeError, Exception) as e:
             logging.warning(f"Failed to load persistent model cache: {e}")
             return None
-    
+
     def save_persistent_model_cache(self, model_data: Dict[str, Any]) -> None:
         """Save model cache to persistent storage."""
         try:
@@ -507,28 +739,28 @@ class Globals:
                 'model_data': model_data,
                 'version': 1  # For future compatibility
             }
-            
+
             # Ensure directory exists
             os.makedirs(os.path.dirname(self.MODEL_CACHE_PATH), exist_ok=True)
-            
+
             # Write to temporary file first, then rename (atomic operation)
             temp_path = self.MODEL_CACHE_PATH + '.tmp'
             with open(temp_path, 'w') as f:
                 json.dump(cache_data, f, indent=2, default=str)  # default=str handles datetime objects
-            
+
             os.rename(temp_path, self.MODEL_CACHE_PATH)
-            
+
             variant_count = sum(len(info.get('variants', {})) for info in model_data.values())
             logging.debug(f"Saved persistent model cache: {len(model_data)} model bases, {variant_count} variants")
-            
+
         except Exception as e:
             logging.error(f"Failed to save persistent model cache: {e}")
-    
+
     def get_persistent_cache_age_hours(self) -> float:
         """Get the age of persistent cache in hours."""
         if not os.path.exists(self.MODEL_CACHE_PATH):
             return float('inf')
-        
+
         try:
             with open(self.MODEL_CACHE_PATH, 'r') as f:
                 cache_data = json.load(f)
@@ -537,42 +769,42 @@ class Globals:
             return (time.time() - cache_timestamp) / 3600
         except:
             return float('inf')
-    
+
     # --- TTS Configuration Methods ---
-    
+
     def get_tts_engine_priority(self) -> List[str]:
         """Get TTS engine priority list, excluding disabled engines."""
         return [engine for engine in self.TTS_ENGINE_PRIORITY if engine not in self.TTS_DISABLED_ENGINES]
-    
+
     def set_tts_engine_priority(self, engines: List[str]) -> None:
         """Set TTS engine priority order and save to config."""
         self.TTS_ENGINE_PRIORITY = engines
         self.set_config_value('tts_engine_priority', engines)
-    
+
     def disable_tts_engine(self, engine: str) -> None:
         """Disable a specific TTS engine."""
         if engine not in self.TTS_DISABLED_ENGINES:
             self.TTS_DISABLED_ENGINES.append(engine)
             self.set_config_value('tts_disabled_engines', self.TTS_DISABLED_ENGINES)
-    
+
     def enable_tts_engine(self, engine: str) -> None:
         """Enable a previously disabled TTS engine."""
         if engine in self.TTS_DISABLED_ENGINES:
             self.TTS_DISABLED_ENGINES.remove(engine)
             self.set_config_value('tts_disabled_engines', self.TTS_DISABLED_ENGINES)
-    
+
     def get_tts_voice_for_engine(self, engine: str, voice_type: str = "default") -> str:
         """Get the appropriate voice ID for a specific engine and voice type."""
         engine_voices = self.TTS_VOICE_MAPPINGS.get(engine, {})
         return engine_voices.get(voice_type, voice_type)  # Fallback to voice_type if not mapped
-    
+
     def get_tts_context_settings(self, context: str) -> Dict[str, Any]:
         """Get TTS settings for a specific context."""
         return self.TTS_CONTEXT_SETTINGS.get(context, {
             "speed": self.TTS_DEFAULT_SPEED,
             "voice": self.TTS_DEFAULT_VOICE
         })
-    
+
     def set_tts_context_settings(self, context: str, settings: Dict[str, Any]) -> None:
         """Set TTS settings for a specific context."""
         self.TTS_CONTEXT_SETTINGS[context] = settings
@@ -580,25 +812,25 @@ class Globals:
         tts_contexts = self.get_config_value('tts_context_settings', {})
         tts_contexts[context] = settings
         self.set_config_value('tts_context_settings', tts_contexts)
-    
-    
+
+
     def load_tts_config_from_user_settings(self) -> None:
         """Load TTS configuration from saved user settings."""
         # Load engine priority
         saved_priority = self.get_config_value('tts_engine_priority')
         if saved_priority:
             self.TTS_ENGINE_PRIORITY = saved_priority
-        
+
         # Load disabled engines
         saved_disabled = self.get_config_value('tts_disabled_engines')
         if saved_disabled:
             self.TTS_DISABLED_ENGINES = saved_disabled
-        
+
         # Load context settings
         saved_contexts = self.get_config_value('tts_context_settings')
         if saved_contexts:
             self.TTS_CONTEXT_SETTINGS.update(saved_contexts)
-        
+
         # Load default settings
         saved_defaults = self.get_config_value('tts_defaults', {})
         self.TTS_DEFAULT_VOICE = saved_defaults.get('voice', self.TTS_DEFAULT_VOICE)
@@ -607,12 +839,12 @@ class Globals:
         self.TTS_DEFAULT_LANGUAGE = saved_defaults.get('language', self.TTS_DEFAULT_LANGUAGE)
         self.TTS_DEFAULT_GENDER = saved_defaults.get('gender', self.TTS_DEFAULT_GENDER)
         self.TTS_DEFAULT_QUALITY = saved_defaults.get('quality', self.TTS_DEFAULT_QUALITY)
-    
+
     def save_tts_defaults(self, voice: str = None, speed: float = None, volume: float = None,
                          language: str = None, gender: str = None, quality: str = None) -> None:
         """Save TTS default settings."""
         defaults = self.get_config_value('tts_defaults', {})
-        
+
         if voice is not None:
             self.TTS_DEFAULT_VOICE = voice
             defaults['voice'] = voice
@@ -631,7 +863,7 @@ class Globals:
         if quality is not None:
             self.TTS_DEFAULT_QUALITY = quality
             defaults['quality'] = quality
-        
+
         self.set_config_value('tts_defaults', defaults)
 
     # --- Cleanup registration and execution ---
@@ -676,18 +908,18 @@ class Globals:
     def _run_cleanup(self, force_all: bool = False) -> None:
         """
         Run registered cleanup callbacks (invoked automatically at exit).
-        
+
         Args:
             force_all: If True, cleanup all services including persistent ones.
                       If False, skip persistent services during normal cleanup.
         """
         if not self._cleanup_callbacks:
             return
-            
+
         logging.info("Running application cleanup...")
         cleaned_count = 0
         skipped_count = 0
-        
+
         # Run in reverse order of registration to respect dependency teardown
         for callback in reversed(self._cleanup_callbacks):
             try:
@@ -697,15 +929,15 @@ class Globals:
                     logging.debug(f"Skipping persistent service cleanup: {cb_name}")
                     skipped_count += 1
                     continue
-                
+
                 # Execute cleanup
                 callback()
                 cleaned_count += 1
-                
+
             except Exception as e:
                 cb_name = getattr(callback, '__qualname__', repr(callback))
                 logging.error(f"Exception during cleanup of {cb_name}: {e}")
-        
+
         if skipped_count > 0:
             logging.info(f"Cleanup complete: {cleaned_count} services cleaned, {skipped_count} persistent services preserved")
         else:

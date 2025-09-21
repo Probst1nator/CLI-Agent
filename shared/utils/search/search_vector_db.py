@@ -40,7 +40,7 @@ class SearchResultsVectorDB:
     """Vector database for storing and retrieving search results and summaries"""
 
     # Database configuration
-    VECTOR_DB_PATH = os.path.expanduser("~/.cli-agent/searchweb_vectordb")
+    VECTOR_DB_PATH = None  # Will be set dynamically from globals
     RESULTS_COLLECTION = "web_search_results"
     SUMMARIES_COLLECTION = "search_summaries"
     EMBEDDING_MODEL = "embeddinggemma:latest"
@@ -51,14 +51,23 @@ class SearchResultsVectorDB:
         self.client = None
         self.results_collection = None
         self.summaries_collection = None
-        
+
+        # Set vector DB path from globals if available
+        try:
+            from core.globals import g
+            self.VECTOR_DB_PATH = os.path.join(g.CLIAGENT_DATA_DIR, "vector_db", "searchweb_vectordb")
+        except ImportError:
+            # Fallback to XDG-compliant path
+            xdg_data_home = os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
+            self.VECTOR_DB_PATH = os.path.join(xdg_data_home, "cli-agent", "vector_db", "searchweb_vectordb")
+
         # --- NEW: BM25 Attributes ---
         self.bm25_index_path = Path(self.VECTOR_DB_PATH) / "bm25_index.pkl"
         self.corpus = {}  # In-memory store for BM25 docs: {doc_id: "text"}
         self.bm25 = None
-        
+
         self._initialize_vector_db()
-        
+
         if self.is_ready and BM25_AVAILABLE:
             self._load_or_build_bm25_index()
 
@@ -84,7 +93,7 @@ class SearchResultsVectorDB:
         except Exception as e:
             logger.warning(f"Failed to initialize search vector DB: {e}")
             self.is_ready = False
-            
+
     # --- NEW: BM25 Index Management Methods ---
     def _load_or_build_bm25_index(self):
         """Loads a pre-computed BM25 index or builds one from ChromaDB."""
@@ -94,7 +103,7 @@ class SearchResultsVectorDB:
                 with open(self.bm25_index_path, 'rb') as f:
                     data = pickle.load(f)
                     self.corpus = data.get('corpus', {})
-                
+
                 if self.corpus:
                     tokenized_corpus = [doc.split(" ") for doc in self.corpus.values()]
                     self.bm25 = BM25Okapi(tokenized_corpus)
@@ -109,7 +118,7 @@ class SearchResultsVectorDB:
             all_docs = self.results_collection.get(include=["documents"])
             if all_docs and all_docs['ids']:
                 self.corpus = {doc_id: doc for doc_id, doc in zip(all_docs['ids'], all_docs['documents'])}
-                
+
                 if self.corpus:
                     tokenized_corpus = [doc.split(" ") for doc in self.corpus.values()]
                     self.bm25 = BM25Okapi(tokenized_corpus)
@@ -160,13 +169,13 @@ class SearchResultsVectorDB:
             return self.search_similar_results(query, search_type, max_results)
 
         logger.debug(f"Performing hybrid search for: '{query}'")
-        
+
         # 1. Vector Search (Semantic)
         try:
             query_embedding = self._generate_embedding(query)
             if not query_embedding:
                 return []
-            
+
             where_clause = {"search_type": search_type} if search_type != "any" else None
             vector_results_data = self.results_collection.query(
                 query_embeddings=[query_embedding],
@@ -183,9 +192,9 @@ class SearchResultsVectorDB:
         try:
             tokenized_query = query.lower().split(" ")
             doc_scores = self.bm25.get_scores(tokenized_query)
-            
+
             corpus_doc_ids = list(self.corpus.keys())
-            
+
             bm25_top_indices = sorted(range(len(doc_scores)), key=lambda i: doc_scores[i], reverse=True)[:max_results * 2]
             bm25_ids = [corpus_doc_ids[i] for i in bm25_top_indices if doc_scores[i] > 0]
         except Exception as e:
@@ -194,7 +203,7 @@ class SearchResultsVectorDB:
 
         # 3. Reciprocal Rank Fusion (RRF)
         rrf_scores = {}
-        
+
         # Process vector results
         for rank, doc_id in enumerate(vector_ids):
             if doc_id not in rrf_scores:
@@ -206,16 +215,16 @@ class SearchResultsVectorDB:
             if doc_id not in rrf_scores:
                 rrf_scores[doc_id] = 0
             rrf_scores[doc_id] += 1 / (k + rank + 1)
-        
+
         if not rrf_scores:
             return []
 
         # 4. Sort by combined RRF score
         sorted_doc_ids = sorted(rrf_scores.keys(), key=lambda id: rrf_scores[id], reverse=True)[:max_results]
-        
+
         # 5. Fetch full metadata for the final ranked list
         final_results_data = self.results_collection.get(ids=sorted_doc_ids, include=["metadatas", "distances"])
-        
+
         # 6. Repackage results into the expected format (metadata, distance)
         final_results = []
         for doc_id, meta, dist in zip(final_results_data['ids'], final_results_data['metadatas'], final_results_data['distances']):
@@ -230,9 +239,9 @@ class SearchResultsVectorDB:
                 result_metadata['properties'] = {'url': meta.get('image_url', '')}
                 result_metadata['thumbnail'] = {'src': meta.get('thumbnail_url', '')}
                 result_metadata['meta_url'] = {'netloc': meta.get('source_page', '')}
-            
+
             final_results.append((result_metadata, dist))
-            
+
         logger.debug(f"Hybrid search returned {len(final_results)} results.")
         return final_results
 
@@ -261,7 +270,7 @@ class SearchResultsVectorDB:
                 title = result.get('title', '')
                 description = result.get('description', '')
                 snippets = result.get('extra_snippets', [])
-                
+
                 content_to_embed = f"{title} {description}".strip()
                 if not content_to_embed:
                     continue
@@ -269,7 +278,7 @@ class SearchResultsVectorDB:
                 full_content_for_hash = f"{title} {' '.join(snippets) if snippets else ''}".strip()
                 content_hash = self._create_content_hash(full_content_for_hash)
                 doc_id = f"result_{content_hash}"
-                
+
                 ids.append(doc_id)
                 documents.append(content_to_embed)
                 # (Metadata creation is the same as your original)
@@ -298,7 +307,7 @@ class SearchResultsVectorDB:
             # --- NEW: Update BM25 Index ---
             for doc_id, doc_text in zip(final_ids, final_docs):
                 self.corpus[doc_id] = doc_text
-            
+
             if self.corpus and BM25_AVAILABLE:
                 logger.debug("🔄 Rebuilding and saving BM25 index...")
                 tokenized_corpus = [doc.split(" ") for doc in self.corpus.values()]

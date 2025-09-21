@@ -50,4 +50,4 @@ try:
 except Exception as e:
     print(f"  Error loading CTranslate2: {e}")
 
-print("\n======= End of CUDA Check =======\n") 
+print("\n======= End of CUDA Check =======\n")

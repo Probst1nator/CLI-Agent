@@ -9,7 +9,7 @@ import asyncio
 import importlib
 import logging
 from pathlib import Path
-from typing import List 
+from typing import List
 
 from core.globals import g
 
@@ -60,10 +60,10 @@ def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
     """
     Dynamically discovers all tools from the tools directory and formats
     their documentation for the system prompt.
-    
+
     Returns:
         Formatted documentation string for all available tools
-        
+
     Side Effects:
         Sets g.tool_classes with discovered tool classes
         Sets g.loaded_tool_info for startup display
@@ -124,7 +124,7 @@ def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
             except Exception as e:
                 failed_tools.append(f"{file.stem} ({str(e)})")
                 logging.debug(f"Could not load tool from {file}: {e}")
-    
+
     # Sort tools to ensure a consistent order in the prompt
     sorted_tool_names = sorted(tool_classes.keys())
 
@@ -139,11 +139,11 @@ def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
             )
         except Exception as e:
             logging.warning(f"Could not generate documentation for tool '{tool_name}': {e}")
-    
+
     # Store tool_classes globally for later use. This is a critical side-effect
     # that makes the tools available to the rest of the application.
     g.tool_classes = tool_classes
-    
+
     # Store tool info for startup display
     tool_info = {
         'loaded_tools': sorted_tool_names,
@@ -152,16 +152,16 @@ def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
         'tool_count': len(tool_classes),
         'gui_tools': []
     }
-    
+
     # Check for GUI tools that are loaded
     for tool_name in sorted_tool_names:
         if tool_name in ['taskmanager']:
             tool_info['gui_tools'].append(tool_name)
-    
+
     # Add skipped GUI tools
     if skipped_tools:
         tool_info['gui_tools'].extend([tool for tool in skipped_tools if 'GUI' in tool])
-    
+
     g.loaded_tool_info = tool_info
     return docs_string
 

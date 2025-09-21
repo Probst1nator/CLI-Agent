@@ -23,17 +23,17 @@ class NvidiaAPI(AIProviderInterface):
     def generate_response(self, chat: Union[Chat, str], model_key: str = "nvidia/llama-3.1-nemotron-70b-instruct", temperature: float = 0.7, silent_reason: str = "", base64_images: List[str] = [], thinking_budget: Optional[int] = None) -> Any:
         """
         Generates a response using the NVIDIA NeMo API.
-        
+
         Args:
             chat (Union[Chat, str]): The chat object containing messages or a string prompt.
             model_key (str): The model identifier.
             temperature (float): The temperature setting for the model.
             silent_reason (str): Whether to suppress print statements.
             base64_images (List[str]): List of base64 encoded images (not used in this implementation).
-            
+
         Returns:
             Any: A stream object that yields response chunks.
-            
+
         Raises:
             Exception: If an error occurs during response generation, to be handled by the router.
         """
@@ -42,7 +42,7 @@ class NvidiaAPI(AIProviderInterface):
             chat_obj = Chat()
             chat_obj.add_message(Role.USER, chat)
             chat = chat_obj
-            
+
         # Informational logging (not error handling)
         if silent_reason:
             temp_str = "" if temperature == 0 else f" at temperature {temperature}"

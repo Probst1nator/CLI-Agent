@@ -24,19 +24,19 @@ class CLIAgentGUILayout:
         self.console_log: Optional[ConsoleLogWidget] = None
         self.sidebar_visible: bool = False
         self._main_container: Optional[VSplit] = None
-        
+
     def create_header(self) -> Window:
         """Create the header area."""
         header_text = HTML(
             '<style fg="white" bg="blue"><b>  CLI-Agent Enhanced GUI - prompt_toolkit Interface  </b></style>'
         )
-        
+
         return Window(
             content=FormattedTextControl(text=header_text),
             height=Dimension.exact(1),
             style='class:title'
         )
-        
+
     def create_footer(self) -> Window:
         """Create the footer area with help text."""
         footer_text = HTML(
@@ -44,12 +44,12 @@ class CLIAgentGUILayout:
             ' Ctrl+C: Exit | Ctrl+L: Clear | F1: Help | F2: Toggle Console | Enter: Send | Shift+Enter: New Line '
             '</style>'
         )
-        
+
         return Window(
             content=FormattedTextControl(text=footer_text),
             height=Dimension.exact(1)
         )
-        
+
     def create_main_area(self, chat_display: ChatDisplay, status_panel: StatusPanel, console_log: ConsoleLogWidget) -> VSplit:
         """Create the main content area with chat, status, and optional console sidebar."""
 
@@ -98,23 +98,23 @@ class CLIAgentGUILayout:
         """Toggle the console sidebar visibility."""
         self.sidebar_visible = not self.sidebar_visible
         return self.sidebar_visible
-        
+
     def create_input_area(self, input_handler: Optional[Callable] = None) -> Frame:
         """Create the input area."""
         self.input_area = InputArea(on_submit=input_handler)
         self.input_handler = input_handler
-        
+
         return Frame(
             body=self.input_area.get_widget(),
             title="Input (Enter to send, Shift+Enter for new line)"
         )
-        
+
     def setup_input_handler(self, handler: Callable):
         """Setup the input handler after layout creation."""
         self.input_handler = handler
         if self.input_area:
             self.input_area.set_submit_handler(handler)
-        
+
     def create_layout(self, chat_display: ChatDisplay, status_panel: StatusPanel, console_log: ConsoleLogWidget) -> HSplit:
         """Create the complete layout structure."""
 
@@ -133,7 +133,7 @@ class CLIAgentGUILayout:
         ])
 
         return layout
-        
+
     def focus_input(self):
         """Focus the input area."""
         if self.input_area:

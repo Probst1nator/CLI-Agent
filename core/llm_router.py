@@ -20,6 +20,7 @@ from core.providers.cls_openai_interface import OpenAIAPI
 from core.providers.cls_google_interface import GoogleAPI
 from core.llm import Llm
 from core.globals import g
+from core.cache.llm_cache_manager import LLMCacheManager
 import logging
 
 # Get a logger for this module. It will inherit its configuration from the root logger set up in main.py.
@@ -47,7 +48,12 @@ class LlmRouter:
     last_used_model: str = ""
     _model_limits: Dict[str, int] = {}
     _model_limits_loaded: bool = False
-    
+
+    @property
+    def discovered_models(self) -> List[Llm]:
+        """Get list of discovered models."""
+        return self.retry_models
+
     def __new__(cls, *args, **kwargs) -> "LlmRouter":
         """
         Create a new instance of LlmRouter if it doesn't exist, otherwise return the existing instance.
@@ -61,11 +67,12 @@ class LlmRouter:
         """
         Initialize the LlmRouter instance.
         """
-        # Set up cache directory and file path
-        self.cache_file_path = f"{g.CLIAGENT_PERSISTENT_STORAGE_PATH}/llm_cache.json"
-        
-        # Load cache and initialize retry models and failed models set
-        self.cache = self._load_cache()
+        # Set up SQLite cache manager
+        cache_db_path = os.path.join(g.CLIAGENT_CACHE_DIR, "llm_cache.db")
+        self.cache_manager = LLMCacheManager(cache_db_path)
+
+        # Legacy cache file path for JSON migration (handled by cache manager)
+        self.cache_file_path = os.path.join(g.CLIAGENT_CACHE_DIR, "llm_cache.json")
         # Start with static models only to avoid startup delays - dynamic discovery happens when needed
         self.retry_models = Llm.get_available_llms(include_dynamic=False)
         self._dynamic_discovery_done = False  # Track if we've done dynamic discovery
@@ -80,15 +87,15 @@ class LlmRouter:
         # Store original error from single model attempts for better reporting
         self._original_single_model_error: str = ""
         self._failed_model_key: str = ""
-    
+
     def _ensure_dynamic_models_loaded(self) -> None:
         """Load dynamic models if not already loaded."""
         if not self._dynamic_discovery_done:
             # Replace static models with full discovery
             self.retry_models = Llm.get_available_llms(include_dynamic=True)
             self._dynamic_discovery_done = True
-    
-    def _load_dynamic_model_limits(self) -> None: 
+
+    def _load_dynamic_model_limits(self) -> None:
         """Load model limits from disk if not already loaded."""
         if not self._model_limits_loaded:
             try:
@@ -104,7 +111,7 @@ class LlmRouter:
     def _generate_hash(self, model_key: str, prompt: str, images: List[str]) -> str:
         """
         Generate a hash for caching based on model, prompt, and images.
-        
+
         Args:
             model_key (str): Model identifier.
             prompt (str): The prompt string.
@@ -117,24 +124,10 @@ class LlmRouter:
         hash_input = f"{model_key}:{prompt}{':'.join(images)}".encode()
         return hashlib.sha256(hash_input).hexdigest()
 
-    def _load_cache(self) -> Dict[str, str]:
-        if not os.path.exists(self.cache_file_path):
-            return {}
-        try:
-            with open(self.cache_file_path, "r") as json_file:
-                return json.load(json_file)
-        except json.JSONDecodeError:
-            print(colored("Failed to load cache file: Invalid JSON format", "red"))
-            print("Creating a new cache file...")
-            return {}
-        except Exception as e:
-            print(colored(f"Unexpected error loading cache: {e}", "red"))
-            return {}
-
     def _get_cached_completion(self, model_key: str, key: str, images: List[str], temperature: float = 0) -> Optional[str]:
         """
         Retrieve a cached completion if available.
-        
+
         Args:
             model_key (str): Model identifier.
             key (str): The chat prompt key.
@@ -144,60 +137,44 @@ class LlmRouter:
         Returns:
             Optional[str]: The cached completion string if available, otherwise None.
         """
-        # Generate cache key and return cached completion if it exists
-        cache_key = self._generate_hash(model_key, key, images)
-        
+        # Use the SQLite cache manager for retrieval
+        cached_result = self.cache_manager.get_cached_completion(
+            model_key=model_key,
+            prompt=key,
+            images=images,
+            temperature=temperature
+        )
+
         # Use lock to prevent race conditions in MCT mode with non-zero temperature
         with self._cache_lock:
-            # For non-zero temperature, check if we've already used this cache key in current runtime
-            if temperature != 0 and cache_key in self.runtime_used_cache_keys:
+            # For non-zero temperature, check if we've already used this prompt in current runtime
+            runtime_key = f"{model_key}:{key}:{temperature}"
+            if temperature != 0 and runtime_key in self.runtime_used_cache_keys:
                 return None  # Skip cache to allow variety in Monte Carlo scenarios
-            
-            cached_result = self.cache.get(cache_key)
-            
-            # If we found a cached result and temperature != 0, mark this cache key as used
+
             if cached_result and temperature != 0:
-                self.runtime_used_cache_keys.add(cache_key)
-            
+                # Track usage for non-zero temperature to ensure variety
+                self.runtime_used_cache_keys.add(runtime_key)
+
             return cached_result
 
-    def _update_cache(self, model_key: str, key: str, images: List[str], completion: str) -> None:
+    def _update_cache(self, model_key: str, key: str, images: List[str], completion: str, temperature: float = 0) -> None:
         """
         Update the cache with a new completion.
         """
-        # Generate cache key
-        cache_key = self._generate_hash(model_key, key, images)
-        
-        # Update the in-memory cache
-        self.cache[cache_key] = completion
-        
-        try:
-            # Read existing cache from file
-            if os.path.exists(self.cache_file_path):
-                with open(self.cache_file_path, "r") as json_file:
-                    existing_cache = json.load(json_file)
-            else:
-                existing_cache = {}
-            
-            # Update the existing cache with the new entry
-            existing_cache.update({cache_key: completion})
-            
-            # Write the updated cache back to the file
-            with open(self.cache_file_path, "w") as json_file:
-                json.dump(existing_cache, json_file, indent=4, ensure_ascii=False)
-        except json.JSONDecodeError as je:
-            print(colored(f"Failed to parse existing cache: {je}", "red"))
-            print("Creating a new cache file...")
-            with open(self.cache_file_path, "w") as json_file:
-                json.dump({cache_key: completion}, json_file, indent=4, ensure_ascii=False)
-        except Exception as e:
-            print(colored(f"Failed to update cache: {e}", "red"))
-            print("Continuing without updating cache file...")
+        # Use the SQLite cache manager for storage
+        self.cache_manager.cache_completion(
+            model_key=model_key,
+            prompt=key,
+            response=completion,
+            images=images,
+            temperature=temperature
+        )
 
     def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, debug_model_key: str = None) -> tuple[bool, str | None]:
         """
         Check if a model is capable of handling the given constraints.
-        
+
         Args:
             model (Llm): The model to check.
             chat (Chat): The chat to process.
@@ -213,7 +190,7 @@ class LlmRouter:
         def debug_log(reason: str):
             if debug_model_key:
                 logger.warning(f"Model '{debug_model_key}' capability check failed: {reason}")
-        
+
         if force_free and model.pricing_in_dollar_per_1M_tokens is not None:
             reason = f"not free (costs ${model.pricing_in_dollar_per_1M_tokens} per 1M tokens)"
             debug_log(reason)
@@ -222,14 +199,14 @@ class LlmRouter:
             reason = "no vision support"
             debug_log(reason)
             return False, reason
-            
+
         if model.model_key in self._model_limits:
             token_limit = self._model_limits[model.model_key]
             if len(chat) >= token_limit:
                 reason = f"exceeds saved token limit ({token_limit} < {len(chat)} tokens)"
                 debug_log(reason)
                 return False, reason
-        
+
         if model.get_context_window() < len(chat):
             reason = f"context window too small ({model.get_context_window()} < {len(chat)} tokens)"
             debug_log(reason)
@@ -251,7 +228,7 @@ class LlmRouter:
     def get_models(cls, preferred_models: List[str] = [], strengths: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> List[Llm]:
         """
         Get a list of available models based on the given constraints.
-        
+
         Args:
             preferred_models (List[str]): List of preferred model keys.
             strengths (List[AIStrengths]): The required strengths of the model.
@@ -265,13 +242,13 @@ class LlmRouter:
             List[Llm]: A list of available Llm instances that meet the specified criteria.
         """
         instance = cls()
-        
+
         # Trigger dynamic discovery for comprehensive model access (e.g., LLM selector)
         # Also trigger when we have preferred models that might need discovery
         if not preferred_models or len(preferred_models) == 0 or force_preferred_model:
             # When no specific models requested OR when forcing preferred models, load all available (including dynamic discovery)
             instance._ensure_dynamic_models_loaded()
-        
+
         available_models: List[Llm] = []
 
         # First try to find models with exact capability matches
@@ -299,7 +276,7 @@ class LlmRouter:
                         available_models.append(model)
                 else:
                     logger.debug(f"No model object found for {model_key}")
-        
+
         # If no preferred models with exact capabilities, check all models
         if not available_models:
             for model in instance.retry_models:
@@ -307,7 +284,7 @@ class LlmRouter:
                     capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision)
                     if (not force_local or model.local) and capable:
                         available_models.append(model)
-        
+
         # If still no models found, fallback to preferred models without strict capability matching
         if not available_models and strengths:
             # First check preferred models
@@ -324,7 +301,7 @@ class LlmRouter:
                     capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision)
                     if model and capable:
                         available_models.append(model)
-            
+
             # Then check all models
             if not available_models:
                 for model in instance.retry_models:
@@ -339,11 +316,11 @@ class LlmRouter:
     def get_provider_info(cls, model_key: str, colored_output: bool = False) -> tuple[str, str]:
         """
         Get provider info and emoji for a model_key.
-        
+
         Args:
             model_key (str): The model key to get provider info for
             colored_output (bool): Whether to return colored provider info
-            
+
         Returns:
             tuple[str, str]: (provider_info, provider_emoji) where provider_info is like " via <Provider>" or " on <host>"
         """
@@ -351,11 +328,11 @@ class LlmRouter:
             models = cls.get_models([model_key])
             if not models:
                 return "", ""
-                
+
             model = models[0]
             provider_info = ""
             provider_emoji = ""
-            
+
             if model.provider.__class__.__name__ == 'OllamaClient':
                 # Get host info - use localhost if current_host is None
                 host = getattr(model.provider.__class__, 'current_host', None) or "localhost:11434"
@@ -373,16 +350,16 @@ class LlmRouter:
                     from termcolor import colored
                     if provider_name == 'Google':
                         # Special Google logo colors: G(blue), o(red), o(yellow), g(green), l(blue), e(red)
-                        google_colored = (colored('G', 'blue', attrs=['bold']) + 
-                                        colored('o', 'red', attrs=['bold']) + 
-                                        colored('o', 'yellow', attrs=['bold']) + 
-                                        colored('g', 'green', attrs=['bold']) + 
-                                        colored('l', 'blue', attrs=['bold']) + 
+                        google_colored = (colored('G', 'blue', attrs=['bold']) +
+                                        colored('o', 'red', attrs=['bold']) +
+                                        colored('o', 'yellow', attrs=['bold']) +
+                                        colored('g', 'green', attrs=['bold']) +
+                                        colored('l', 'blue', attrs=['bold']) +
                                         colored('e', 'red', attrs=['bold']))
                         provider_info = provider_info.replace(f"<{provider_name}>", f"<{google_colored}>")
                     else:
                         provider_info = provider_info.replace(provider_name, colored(provider_name, "light_blue", attrs=["bold"]))
-                        
+
             return provider_info, provider_emoji
         except Exception:
             return "", ""
@@ -391,7 +368,7 @@ class LlmRouter:
     def get_model(cls, preferred_models: List[str] = [], strengths: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
-        
+
         Args:
             preferred_models (List[str]): List of preferred model keys.
             strength (List[AIStrengths]): The required strengths of the model.
@@ -414,10 +391,10 @@ class LlmRouter:
         # Debug print for large token counts
         if (len(chat) > 4000 and not force_free and not force_local):
             print(colored("DEBUG: len(chat) returned: " + str(len(chat)), "yellow"))
-        
+
         # Try models in order of preference
         candidate_models = []
-        
+
         # First try to find preferred model with exact capabilities
         for model_key in preferred_models:
             if (model_key not in instance.failed_models) and model_key:
@@ -451,16 +428,20 @@ class LlmRouter:
                             strengths = [AIStrengths.LOCAL]  # All Ollama models are local
                             if any(x in model_key.lower() for x in ['vision', 'vl', 'visual']):
                                 strengths.append(AIStrengths.VISION)
-                            if any(x in model_key.lower() for x in ['uncensored', 'dolphin', 'wizard']):
+                            if any(x in model_key.lower() for x in ['uncensored', 'abliterated', 'rp', 'roleplay']):
                                 strengths.append(AIStrengths.UNCENSORED)
-                            
+                            if any(x in model_key.lower() for x in ['lite', "2b", "3b", "4b"]):
+                                strengths.append(AIStrengths.LITE)
+                            if any(x in model_key.lower() for x in ['pro', "strong", "24b", "30b", "32b"]):
+                                strengths.append(AIStrengths.PRO)
+
                             dynamic_model = Llm(OllamaClient(), model_key, None, None, strengths)
                             capable, _ = instance.model_capable_check(dynamic_model, chat, strengths, True, False, has_vision)
                             if capable:
                                 candidate_models.append(dynamic_model)
             except ImportError:
                 pass
-        
+
         # Continue gathering candidates from other models if needed
         # Only allow fallback if force_preferred_model is False
         if not candidate_models and not force_preferred_model:
@@ -471,7 +452,7 @@ class LlmRouter:
                         capable, _ = instance.model_capable_check(model, chat, strengths, local=False, force_free=force_free, has_vision=has_vision)
                         if capable:
                             candidate_models.append(model)
-                
+
                 # Add online models as fallback
                 if not candidate_models and strengths:
                     for model in instance.retry_models:
@@ -487,7 +468,7 @@ class LlmRouter:
                         capable, _ = instance.model_capable_check(model, chat, strengths, local=True, force_free=force_free, has_vision=has_vision)
                         if capable:
                             candidate_models.append(model)
-            
+
             # Add local models as fallback
             if not candidate_models and strengths:
                 for model in instance.retry_models:
@@ -495,7 +476,7 @@ class LlmRouter:
                         capable, _ = instance.model_capable_check(model, chat, strengths, local=True, force_free=force_free, has_vision=has_vision)
                         if capable:
                             candidate_models.append(model)
-            
+
             # Last resort: try with empty chat to ignore context length
             if not candidate_models:
                 for model in instance.retry_models:
@@ -503,10 +484,10 @@ class LlmRouter:
                         capable, _ = instance.model_capable_check(model, Chat(), strengths, local=True, force_free=force_free, has_vision=has_vision)
                         if capable:
                             candidate_models.append(model)
-        
+
         # Return the first valid candidate
         return candidate_models[0] if candidate_models else None
-    
+
     @classmethod
     async def _process_stream(
         cls,
@@ -518,34 +499,34 @@ class LlmRouter:
     ) -> str:
         """
         Process a stream of tokens from any provider.
-        
+
         Args:
             stream (Union[Iterator[Dict[str, Any]], Iterator[str], Any]): The stream object from the provider
             provider (AIProviderInterface): The provider interface
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
             existing_prefix (str): Any existing assistant message prefix to include at the beginning
-            
+
         Returns:
             str: The full response string
         """
         full_response = existing_prefix  # Start with any existing prefix
         finished_response = ""
         token_stream_painter = TextStreamPainter()
-        
+
         # If we have an existing prefix, process it first with the callback/display
         if existing_prefix:
             if callback is not None:
                 finished_response = await callback(existing_prefix)
                 if finished_response and isinstance(finished_response, str):
                     return finished_response
-            elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
+            elif (not hidden_reason) or g.DEBUG_MODE:
                 g.print_token(token_stream_painter.apply_color(existing_prefix))
-        
+
         # Handle different stream types
         # ! Anthropic
         if isinstance(provider, AnthropicAPI):
-            if hasattr(stream, 'text_stream'):  
+            if hasattr(stream, 'text_stream'):
                 for token in stream.text_stream:
                     if token:
                         full_response += token
@@ -553,24 +534,24 @@ class LlmRouter:
                             finished_response = await callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
-                        elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
+                        elif (not hidden_reason) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
         # ! OpenAI/NVIDIA
         elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
-            if hasattr(stream, 'choices'):  
+            if hasattr(stream, 'choices'):
                 for chunk in stream:
                     # Safely access delta content
                     token = None
                     if chunk.choices and hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
                         token = chunk.choices[0].delta.content
-                    
+
                     if token is not None:  # Ensure token is not None (can be empty string)
                         full_response += token
                         if callback is not None:
                             finished_response = await callback(token)
                             if finished_response and isinstance(finished_response, str):
                                 break
-                        elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
+                        elif (not hidden_reason) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
         # ! Google Gemini - IMPROVED HANDLING
         elif isinstance(provider, GoogleAPI):
@@ -597,8 +578,8 @@ class LlmRouter:
                     except AttributeError:
                         # This catches if `chunk.parts` itself or `part.text` is missing when expected.
                         # Silently treat as no token for this chunk to prevent crash.
-                        pass 
-                    
+                        pass
+
                     if token_from_this_chunk:
                         full_response += token_from_this_chunk
                         if callback is not None:
@@ -606,10 +587,10 @@ class LlmRouter:
                             result_from_callback = await callback(token_from_this_chunk)
                             if result_from_callback and isinstance(result_from_callback, str):
                                 finished_response = result_from_callback
-                                break 
-                        elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
+                                break
+                        elif (not hidden_reason) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token_from_this_chunk))
-                
+
                 # If callback signaled to finish early
                 if finished_response and isinstance(finished_response, str):
                     return finished_response
@@ -635,18 +616,18 @@ class LlmRouter:
                     elif hasattr(chunk, 'message'):  # Ollama response object
                         if hasattr(chunk.message, 'content'):
                             token = chunk.message.content
-                
+
                 if token is not None:  # Ensure token is not None
                     full_response += token
                     if callback is not None:
                         finished_response = await callback(token)
                         if finished_response and isinstance(finished_response, str):
                             break
-                    elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
+                    elif (not hidden_reason) or g.DEBUG_MODE:
                         g.print_token(token_stream_painter.apply_color(token))
-        
+
         # Fallback for other unknown stream types (original logic)
-        else:  
+        else:
             for chunk_item in stream:  # Renamed to avoid conflict
                 token = str(chunk_item)  # Basic conversion
                 if token:
@@ -655,14 +636,14 @@ class LlmRouter:
                         finished_response = await callback(token)
                         if finished_response and isinstance(finished_response, str):
                             break
-                    elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
+                    elif (not hidden_reason) or g.DEBUG_MODE:
                         g.print_token(token_stream_painter.apply_color(token))
-            
-        
+
+
         # If callback returned a final response string at any point (and broke the loop)
         if finished_response and isinstance(finished_response, str):
             return finished_response
-        
+
         return full_response
 
     @classmethod
@@ -678,7 +659,7 @@ class LlmRouter:
     ) -> str:
         """
         Process a cached response.
-        
+
         Args:
             cached_completion (str): The cached completion string
             model (Llm): The model that generated the response
@@ -686,7 +667,7 @@ class LlmRouter:
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
             branch_context (Optional[Dict]): Branch context for MCT formatting
-            
+
         Returns:
             str: The processed response string
         """
@@ -702,7 +683,7 @@ class LlmRouter:
                     finished_response = await callback(char)
                     if finished_response and isinstance(finished_response, str):
                         return finished_response
-                elif (not hidden_reason and not g.SUMMARY_MODE) or g.DEBUG_MODE:
+                elif (not hidden_reason) or g.DEBUG_MODE:
                     g.print_token(text_stream_painter.apply_color(char))
                 time.sleep(0)  # better observable for the user
             print()  # Add newline at the end
@@ -712,11 +693,11 @@ class LlmRouter:
     def _get_descriptive_error(cls, error_msg: str, model_key: str) -> str:
         """
         Convert generic error messages into more descriptive ones.
-        
+
         Args:
             error_msg (str): The original error message
             model_key (str): The model that failed
-            
+
         Returns:
             str: A more descriptive error message
         """
@@ -743,7 +724,7 @@ class LlmRouter:
     ) -> None:
         """
         Handle errors that occur during model generation.
-        
+
         Args:
             e (Exception): The error that occurred
             model (Optional[Llm]): The model that failed
@@ -759,18 +740,18 @@ class LlmRouter:
                 if model in instance.retry_models:
                     instance.retry_models.remove(model)
             return
-            
+
         error_msg = str(e)
         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
         provider_name = model.provider.__class__.__name__ if model else "Unknown"
         model_key = model.model_key if model else "unknown"
-        
+
         # Handle token limit error
         if "too large" in error_msg:
             # Save the model's maximum token limit
             print(colored(f"Too large request for {model_key}, saving token limit {len(chat)}", "yellow"))
             instance._save_dynamic_token_limit_for_model(model, len(chat))
-        
+
         # Update failed models list
         if model is not None:
             if model.model_key in instance.failed_models:
@@ -778,25 +759,25 @@ class LlmRouter:
             instance.failed_models.add(model.model_key)
             if model in instance.retry_models:
                 instance.retry_models.remove(model)
-        
+
         # Special handling for timeout issues - SHOW USER MESSAGE and allow retries
-        if (isinstance(e, TimeoutException) or 
-            "request timed out" in error_msg.lower() or 
-            "timeout" in error_msg.lower() or 
+        if (isinstance(e, TimeoutException) or
+            "request timed out" in error_msg.lower() or
+            "timeout" in error_msg.lower() or
             "timed out" in error_msg.lower() or
             "inactivity" in error_msg.lower()):
-            
+
             # Show timeout message to user with more context
             if "inactivity" in error_msg.lower():
                 g.debug_log(f"⏱️ Model {model_key} timed out due to inactivity - will retry with extended timeout", "yellow", force_print=True, prefix=prefix)
             else:
                 g.debug_log(f"⏱️ Model {model_key} timed out during processing - will retry with extended timeout", "yellow", force_print=True, prefix=prefix)
-            
+
             # For timeout errors, don't permanently fail the model - just skip this attempt
             # This allows the model to be retried in future requests
             logger.debug(f"Timeout issue with model {model_key}: {e}")
             return
-        
+
         # Special handling for rate limit exceptions - these are already handled by the provider
         if isinstance(e, RateLimitException):
             # Rate limit exceptions are already handled by the provider with appropriate user messages
@@ -804,27 +785,27 @@ class LlmRouter:
             if model is not None:
                 logger.debug(f"Rate limit issue with model {model_key}: {e}")
             return
-        
+
         # Special handling for connection issues
         if ("connection" in error_msg.lower() or
             "rate_limit" in error_msg.lower()):
-            
-            # Show connection message to user  
+
+            # Show connection message to user
             if "connection" in error_msg.lower():
                 g.debug_log(f"🌐 Connection issue with model {model_key} - trying next model", "yellow", force_print=True, prefix=prefix)
             else:
                 g.debug_log(f"⚡ Rate limit reached for model {model_key} - trying next model", "yellow", force_print=True, prefix=prefix)
-            
+
             # Log silently to file for debugging
             if model is not None:
                 logger.info(f"Network/rate-limit issue with model {model_key}: {e}")
             return
-        
+
         # Check if this error has already been logged by the Google API provider
         if "Google API" in error_msg and "error" in error_msg.lower():
             # This error was already logged by the Google API provider, don't log it again
             return
-        
+
         # Provider-specific error handling
         if "OllamaClient" in provider_name:
             # Provide more detailed error messages for common Ollama issues
@@ -862,7 +843,7 @@ class LlmRouter:
             if hasattr(e, 'already_logged') and getattr(e, 'already_logged'):
                 # Error was already logged by the provider, don't log it again
                 return
-            
+
             descriptive_error = cls._get_descriptive_error(error_msg, model_key)
             g.debug_log(f"❌ Google-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "OpenAIAPI" in provider_name:
@@ -886,6 +867,23 @@ class LlmRouter:
             time.sleep(1)
 
     @classmethod
+    async def chat_with_retry(
+        cls,
+        chat: Chat,
+        model_key: Optional[str] = None,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> str:
+        """Alias for generate_completion with simplified parameters for backward compatibility."""
+        preferred_models = [model_key] if model_key else []
+        return await cls.generate_completion(
+            chat=chat,
+            preferred_models=preferred_models,
+            temperature=temperature,
+            **kwargs
+        )
+
+    @classmethod
     async def generate_completion(
         cls,
         chat: Chat|str,
@@ -907,7 +905,7 @@ class LlmRouter:
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
-        
+
         Args:
             chat (Chat|str): The chat prompt or string.
             preferred_models (List[str]): List of preferred model keys.
@@ -919,7 +917,7 @@ class LlmRouter:
             force_preferred_model (bool): Whether to force using only preferred models.
             hidden_reason (str): Reason for hidden mode.
             exclude_reasoning_tokens (bool): Whether to exclude reasoning tokens.
-            thinking_budget (Optional[int]): Token budget for model's internal reasoning process (Gemini models only). 
+            thinking_budget (Optional[int]): Token budget for model's internal reasoning process (Gemini models only).
                                            Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
             generation_stream_callback (Optional[Callable]): A function to call with each chunk of streaming data.
             decision_patterns (Optional[Dict[str, str]]): Patterns to extract decisions from response for logging.
@@ -930,17 +928,17 @@ class LlmRouter:
         """
         instance = cls()
         cls.call_counter += 1
-        
+
         # Check global force flags
         if g.LLM:
             preferred_models = [g.LLM]
         if g.LLM_STRENGTHS:
             strengths.extend(g.LLM_STRENGTHS)
-        
+
         # Local has higher priority than online
         if g.FORCE_LOCAL:
             force_local = True
-        
+
         def exclude_reasoning(response: str) -> str:
             if exclude_reasoning_tokens and ("</think>" in response or "</thinking>" in response):
                 if "</think>" in response:
@@ -953,7 +951,7 @@ class LlmRouter:
                         # This preserves the reasoning for debugging while indicating the issue
                         return response
                 elif "</thinking>" in response:
-                    after_thinking = response.split("</thinking>")[1] 
+                    after_thinking = response.split("</thinking>")[1]
                     # If there's actual content after the reasoning tokens, return it
                     if after_thinking.strip():
                         return after_thinking
@@ -963,19 +961,19 @@ class LlmRouter:
                 elif "</" in response: # Weird fallback, helps for small models
                     return response.split("</")[1].split(">")[1]
             return response
-        
+
         if base64_images:
             chat.base64_images = base64_images
-        
+
         # FIX FOR BREAKING CHANGE: Ensure strength is a list
         if not isinstance(strengths, list):
             strengths = [strengths] if strengths else []
-        
+
         if isinstance(chat, str):
             prompt = chat
             chat = Chat()
             chat.add_message(Role.USER, prompt)
-        
+
         # Find llm and generate response, excepts on user interruption, or total failure
         retry_count = 0
         # Infinite retries with linear backoff (1s, 2s, 3s, etc.)
@@ -990,48 +988,48 @@ class LlmRouter:
                         if preferred_model.model_key not in instance.failed_models:
                             model = preferred_model
                             break
-                
+
                 # If no model is available, all available models have failed.
                 if not model:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    
+
                     # Provide detailed information about what failed
                     failed_count = len(instance.failed_models)
                     available_count = len(instance.retry_models) + failed_count
-                    
+
                     if failed_count > 0:
                         failed_list = ", ".join(list(instance.failed_models)[:3])  # Show first 3 failed models
                         if failed_count > 3:
                             failed_list += f" (and {failed_count - 3} others)"
-                        
+
                         g.debug_log(f"All {available_count} available models failed. Recently failed: {failed_list}", "red", is_error=True, prefix=prefix)
-                        
+
                         # Store the failure reason for the final exception
                         instance._last_failure_reason = f"All {available_count} models failed (including: {failed_list})"
                     else:
                         # For single preferred model, be more specific about why it wasn't found
                         if force_preferred_model and len(preferred_models) == 1:
                             requested_model = preferred_models[0]
-                            
+
                             # Check if the model exists in the full model list but was filtered out
                             all_models = Llm.get_available_llms(include_dynamic=True)
                             model_exists = any(requested_model in model.model_key for model in all_models)
-                            
+
                             if model_exists:
                                 # Model exists but was filtered out due to constraints
                                 # Check what constraint caused the exclusion
                                 exclusion_reasons = []
                                 detailed_diagnostics = []
                                 matching_model = next((model for model in all_models if requested_model in model.model_key), None)
-                                
+
                                 if matching_model:
                                     # Use the actual model_capable_check method to get the real exclusion reason
                                     capable, exclusion_reason = instance.model_capable_check(
-                                        matching_model, chat, strengths, 
-                                        local=force_local, force_free=force_free, 
+                                        matching_model, chat, strengths,
+                                        local=force_local, force_free=force_free,
                                         has_vision=bool(base64_images)
                                     )
-                                    
+
                                     if not capable:
                                         if exclusion_reason:
                                             exclusion_reasons.append(exclusion_reason)
@@ -1040,7 +1038,7 @@ class LlmRouter:
                                             # Check if model is in failed models list
                                             if matching_model.model_key in instance.failed_models:
                                                 detailed_diagnostics.append("model previously failed and is in failed_models list")
-                                            
+
                                             # Check if model is rate limited (enhanced rate limiting)
                                             try:
                                                 from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
@@ -1053,35 +1051,35 @@ class LlmRouter:
                                             except Exception as rate_check_error:
                                                 # If rate limiting check fails, note it but don't fail
                                                 detailed_diagnostics.append(f"rate limiting check failed: {rate_check_error}")
-                                            
+
                                             # Check pricing constraint
                                             if force_free and matching_model.pricing_in_dollar_per_1M_tokens is not None:
                                                 detailed_diagnostics.append(f"not free (costs ${matching_model.pricing_in_dollar_per_1M_tokens} per 1M tokens)")
-                                            
+
                                             # Check vision requirement
                                             if bool(base64_images) and not matching_model.has_vision:
                                                 detailed_diagnostics.append("no vision support required for images")
-                                            
+
                                             # Check local/remote constraint
                                             if force_local != matching_model.local:
                                                 detailed_diagnostics.append(f"local constraint mismatch (required: {force_local}, model: {matching_model.local})")
-                                            
+
                                             # Check token limits
                                             if matching_model.model_key in instance._model_limits:
                                                 token_limit = instance._model_limits[matching_model.model_key]
                                                 if len(chat) >= token_limit:
                                                     detailed_diagnostics.append(f"exceeds saved token limit ({token_limit} < {len(chat)} tokens)")
-                                            
+
                                             # Check context window
                                             if matching_model.get_context_window() < len(chat):
                                                 detailed_diagnostics.append(f"context window too small ({matching_model.get_context_window()} < {len(chat)} tokens)")
-                                            
+
                                             # Check strengths requirement
                                             if strengths and matching_model.strengths:
                                                 if not all(s.value in [ms.value for ms in matching_model.strengths] for s in strengths):
                                                     missing_strengths = [s.name for s in strengths if s.value not in [ms.value for ms in matching_model.strengths]]
                                                     detailed_diagnostics.append(f"missing required strengths: {missing_strengths}")
-                                            
+
                                             # If we still don't know why, check additional factors
                                             if not detailed_diagnostics:
                                                 # Check if it's in the retry_models list at all
@@ -1089,10 +1087,10 @@ class LlmRouter:
                                                     detailed_diagnostics.append("not in available retry_models list")
                                                 else:
                                                     detailed_diagnostics.append("passed all capability checks but still excluded (possible race condition or logic error)")
-                                
+
                                 # Combine all reasons
                                 all_reasons = exclusion_reasons + detailed_diagnostics
-                                
+
                                 if all_reasons:
                                     reason_str = ", ".join(all_reasons)
                                     g.debug_log(f"Model '{requested_model}' available but excluded: {reason_str}", "red", is_error=True, prefix=prefix)
@@ -1118,29 +1116,29 @@ class LlmRouter:
                                     if len(instance.retry_models) > 5:
                                         available_str += f" (and {len(instance.retry_models) - 5} others)"
                                     model_type = ""
-                                
+
                                 g.debug_log(f"Model '{requested_model}' not found in {model_type} models", "red", is_error=True, prefix=prefix)
                                 g.debug_log(f"Available {model_type} models: {available_str}", "yellow", prefix=prefix)
                                 instance._last_failure_reason = f"Model '{requested_model}' not found in {model_type} models."
                         else:
                             g.debug_log("No models found matching the specified criteria", "yellow", prefix=prefix)
                             instance._last_failure_reason = "No models found matching criteria"
-                    
+
                     break # Exit the while loop, the exception below will be raised.
-                
+
                 # Enable caching for all temperatures - behavior differs based on temperature
                 enable_caching = True
                 instance.last_used_model = model.model_key
-                
+
                 # --- FIX: Log BEFORE cache check to ensure all branch attempts are visible ---
                 if not hidden_reason:
                     token_count = math.ceil(len(str(chat)) * 3/4)
                     message_count = len(chat.messages)
                     temp_str = "" if temperature == 0 or temperature is None else f" at temperature <{temperature}>"
-                    
+
                     # Get host/provider information with emojis
                     provider_info, provider_emoji = cls.get_provider_info(model.model_key, colored_output=True)
-                    
+
                     # Create colored version with distinct colors for text in brackets
                     # Add context-specific prefix if provided
                     context_prefix = ""
@@ -1150,14 +1148,14 @@ class LlmRouter:
                     model_colored = colored(f"<{model.model_key}>", "light_blue", attrs=["bold"])
                     temp_colored = temp_str.replace(f"<{temperature}>", colored(f"<{temperature}>", "light_blue", attrs=["bold"])) if temp_str else ""
                     # provider_info is already colored from get_provider_info call above
-                    
+
                     # Add branch context if provided
                     branch_suffix = ""
                     if branch_context:
                         branch_num = branch_context.get('branch_number', '')
                         if branch_num:
                             branch_suffix = f" → branch {branch_num}"
-                    
+
                     full_msg = f"{base_msg}{model_colored}{temp_colored}{provider_info}{branch_suffix}"
                     # If we have decision patterns, print without newline so we can append the decision
                     if decision_patterns:
@@ -1201,15 +1199,15 @@ class LlmRouter:
                         stream = model.provider.generate_response(prefixed_chat, model.model_key, temperature, hidden_reason, thinking_budget)
                     else:
                         raise Exception(f"Provider {model.provider.__class__.__name__} does not support generate_response method")
-                    
+
                     # Check if stream is None before processing
                     if stream is None:
                         raise Exception(f"Model {model.model_key} returned None stream")
-                    
+
                     # Activity-based stream processing timeout
                     import signal
                     import time
-                    
+
                     class StreamActivityMonitor:
                         def __init__(self, timeout_seconds=60, first_token_timeout=10):
                             self.start_time = time.time()
@@ -1218,16 +1216,16 @@ class LlmRouter:
                             self.first_token_timeout = first_token_timeout
                             self.total_chars = 0
                             self.first_token_received = False
-                            
+
                         def reset_activity(self):
                             self.last_activity = time.time()
-                            
+
                         def add_chars(self, char_count):
                             self.total_chars += char_count
                             if not self.first_token_received:
                                 self.first_token_received = True
                             self.reset_activity()
-                            
+
                         def check_timeout(self):
                             current_time = time.time()
                             # Check first token timeout (10 seconds from start)
@@ -1237,11 +1235,11 @@ class LlmRouter:
                             elif self.first_token_received and (current_time - self.last_activity) > self.timeout_seconds:
                                 return "inactivity_timeout"
                             return None
-                    
+
                     # Determine timeouts based on provider type
                     inactivity_timeout = 60
                     first_token_timeout = 10  # Default 10 seconds for cloud providers
-                    
+
                     if model.provider.__class__.__name__ == 'OllamaClient':
                         # Ollama models need longer timeouts
                         first_token_timeout = 180  # 3 minutes for first token
@@ -1253,9 +1251,9 @@ class LlmRouter:
                                     inactivity_timeout = 300
                         except Exception:
                             pass
-                    
+
                     stream_monitor = StreamActivityMonitor(inactivity_timeout, first_token_timeout)
-                    
+
                     def stream_timeout_handler(signum, frame):
                         timeout_type = stream_monitor.check_timeout()
                         if timeout_type:
@@ -1264,43 +1262,43 @@ class LlmRouter:
                             elif timeout_type == "inactivity_timeout":
                                 raise Exception(f"Stream inactivity timeout after {stream_monitor.timeout_seconds} seconds for model {model.model_key} (got {stream_monitor.total_chars} chars)")
                         else:
-                            # Reset the alarm for another check  
+                            # Reset the alarm for another check
                             signal.alarm(5)  # Check every 5 seconds for more responsive first token detection
-                    
+
                     # Enhanced stream callback that monitors activity
                     async def activity_aware_callback(chunk: str) -> str:
                         if chunk:
                             stream_monitor.add_chars(len(chunk))
-                        
+
                         # Call original callback if provided
                         if generation_stream_callback:
                             return await generation_stream_callback(chunk)
                         return None
-                    
+
                     # Set up periodic timeout checking for stream processing
                     signal.signal(signal.SIGALRM, stream_timeout_handler)
                     signal.alarm(5)  # Start checking after 5 seconds for first token timeout
-                    
+
                     try:
                         # Detect existing assistant message prefix before processing stream
                         full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback, assistant_prefix)
-                        
+
                     finally:
                         signal.alarm(0)  # Clear the alarm
-                    
-                    if (not full_response.endswith("\n") and not hidden_reason and not g.SUMMARY_MODE):
+
+                    if (not full_response.endswith("\n") and not hidden_reason):
                         # Don't print newline for branch context - success status will be added inline
                         if not branch_context or not branch_context.get('store_message'):
                             print()
-                    
+
                     if enable_caching:
                         # Cache the response
-                        instance._update_cache(model.model_key, str(prefixed_chat), base64_images, full_response)
-                    
+                        instance._update_cache(model.model_key, str(prefixed_chat), base64_images, full_response, temperature)
+
                     # Save the chat completion pair if requested
                     if not force_local:
                         instance._save_chat_completion_pair(prefixed_chat.to_openai(), full_response, model.model_key)
-                    
+
                     # Extract and log decision if patterns provided
                     if decision_patterns and not hidden_reason:
                         elapsed_time = time.time() - monitor.start_time if 'monitor' in locals() else None
@@ -1310,16 +1308,16 @@ class LlmRouter:
                             # Don't print newline for branch context - success status will be added inline
                             if not branch_context or not branch_context.get('store_message'):
                                 print()
-                    
+
                     # Branch context completion is handled in main.py for MCT branches
                     # No need to print success status here as it's handled at the branch level
-                    
+
                     return exclude_reasoning(full_response)
 
                 except KeyboardInterrupt:
                     # Explicitly catch Ctrl+C during model generation and convert to clean exception
                     raise UserInterruptedException("Model generation interrupted by user (Ctrl+C).")
-                
+
             except (UserInterruptedException, StreamInterruptedException) as e:
                 # Handle stream interruption by cancelling any active generation
                 if isinstance(e, StreamInterruptedException):
@@ -1334,13 +1332,13 @@ class LlmRouter:
                     elif provider:
                         # Provider exists but doesn't support cancellation
                         logger.debug(f"Provider {provider.__class__.__name__} does not support stream cancellation")
-                
+
                 # Re-raise exceptions that are part of the normal control flow
                 # so they can be handled by the caller in main.py.
                 raise
             except Exception as e:
                 # Handle model errors and capture the specific failure reason
-                
+
                 # Debug vision-specific issues
                 if g.VERBOSE_DEBUG:
                     print(f"🔍 ROUTER EXCEPTION: Model {model.model_key if model else 'unknown'}")
@@ -1353,9 +1351,9 @@ class LlmRouter:
                     print(f"🔍 CHAT TYPE: {type(chat).__name__}")
                     if hasattr(chat, 'messages'):
                         print(f"🔍 CHAT MESSAGES: {len(chat.messages)}")
-                
+
                 cls._handle_model_error(e, model, instance, chat)
-                
+
                 # For force_preferred_model with a single model, don't retry indefinitely
                 # Instead, capture the original error and fail fast after a few attempts
                 if force_preferred_model and len(preferred_models) == 1:
@@ -1363,7 +1361,7 @@ class LlmRouter:
                         # Store the original error from the first attempt
                         instance._original_single_model_error = str(e)
                         instance._failed_model_key = model.model_key if model else "unknown"
-                    
+
                     # Limit retries for single preferred model to avoid infinite loops
                     if retry_count >= 2:  # Allow 3 total attempts (0, 1, 2)
                         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
@@ -1371,7 +1369,7 @@ class LlmRouter:
                         failed_model = getattr(instance, '_failed_model_key', 'unknown')
                         g.debug_log(f"Model {failed_model} failed after 3 attempts", "red", is_error=True, prefix=prefix)
                         raise Exception(f"Model {failed_model} failed: {original_error}")
-                
+
                 # For multiple preferred models, try all models before giving up
                 elif force_preferred_model and len(preferred_models) > 1:
                     # Allow more attempts when we have multiple fallback models to try
@@ -1381,10 +1379,10 @@ class LlmRouter:
                         g.debug_log(f"All {len(preferred_models)} fallback models failed after {max_attempts} attempts", "red", is_error=True, prefix=prefix)
                         failure_reason = getattr(instance, '_last_failure_reason', "All fallback models failed")
                         raise Exception(f"Model generation failed: {failure_reason}")
-                
+
                 # Increment retry count and use API-suggested delay or linear backoff
                 retry_count += 1
-                
+
                 # Check if there's a suggested delay from the API (e.g., rate limiting)
                 suggested_delay = 0
                 try:
@@ -1392,23 +1390,23 @@ class LlmRouter:
                     suggested_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(failed_model)
                 except Exception:
                     pass  # Fall back to linear backoff if rate tracker unavailable
-                
+
                 wait_time = max(suggested_delay, retry_count) if suggested_delay > 0 else retry_count
-                
+
                 # Show retry message to user
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 if suggested_delay > retry_count:
                     g.debug_log(f"🔄 Respecting API rate limit: waiting {wait_time}s (attempt #{retry_count})...", "cyan", force_print=True, prefix=prefix)
                 else:
                     g.debug_log(f"🔄 Retrying in {wait_time}s (attempt #{retry_count})...", "cyan", force_print=True, prefix=prefix)
-                
+
                 # Wait with API-suggested delay or linear backoff
                 import asyncio
                 await asyncio.sleep(wait_time)
-                
+
                 # Reset failed models to allow retrying them
                 instance.failed_models.clear()
-                
+
                 # Reset retry_models to the original list of available models
                 # When force_preferred_model is True, only include preferred models in retry list
                 if force_preferred_model and preferred_models:
@@ -1417,7 +1415,7 @@ class LlmRouter:
                 else:
                     # Normal retry behavior - use all available models
                     instance.retry_models = instance.get_models(strengths=strengths, preferred_models=preferred_models, force_local=force_local, force_free=force_free, has_vision=bool(base64_images))
-        
+
         # This should never be reached due to infinite retry loop
         # If we get here, provide the specific failure reason stored earlier
         failure_reason = getattr(instance, '_last_failure_reason', "Unknown reason")
@@ -1426,7 +1424,7 @@ class LlmRouter:
     def _save_dynamic_token_limit_for_model(self, model: Llm, token_count: int) -> None:
         """
         Save or update the token limit for a model that encountered a 'too large' error.
-        
+
         Args:
             model (Llm): The model that encountered the error
             token_count (int): The token count that caused the error
@@ -1434,17 +1432,17 @@ class LlmRouter:
         try:
             # Ensure limits are loaded
             self._load_dynamic_model_limits()
-            
+
             # Update the cached limits
             self._model_limits[model.model_key] = min(
                 token_count,
                 self._model_limits.get(model.model_key, float('inf'))
             )
-            
+
             # Save updated limits to disk
             with open(g.MODEL_TOKEN_LIMITS_PATH, 'w') as f:
                 json.dump(self._model_limits, f, indent=4)
-            
+
             # logger.info(f"Updated token limit for {model.model_key}: {token_count} tokens")
         except Exception as limit_error:
             logger.error(f"Failed to save model token limit: {limit_error}")
@@ -1454,7 +1452,7 @@ class LlmRouter:
     def _save_chat_completion_pair(cls, chat_str: str, response: str, model_key: str) -> None:
         """
         Save a chat completion pair for finetuning.
-        
+
         Args:
             chat (Chat): The input chat context
             response (str): The model's response
@@ -1463,11 +1461,11 @@ class LlmRouter:
         try:
             # Create the finetuning data directory if it doesn't exist
             os.makedirs(g.UNCONFIRMED_FINETUNING_PATH, exist_ok=True)
-            
+
             # Create a filename with timestamp to avoid collisions
             timestamp = int(time.time())
             filename = os.path.join(g.UNCONFIRMED_FINETUNING_PATH, f'{timestamp}_completion_pair.jsonl')
-            
+
             # Create the training example
             training_example = {
                 "input": chat_str,
@@ -1477,21 +1475,21 @@ class LlmRouter:
                     "timestamp": timestamp
                 }
             }
-            
+
             # Save to JSONL file
             with open(filename, 'a') as f:
                 f.write(json.dumps(training_example) + '\n')
-                
+
             logger.debug(f"\nSaved chat completion pair to {filename}")
         except Exception as e:
             logger.error(f"Failed to save chat completion pair: {e}")
             print(colored(f"Failed to save chat completion pair: {e}", "red"))
-    
+
     @classmethod
     def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str, elapsed_time: float = None, branch_context: Dict[str, Any] = None) -> bool:
         """Extract and log decisions from model responses. Returns True if decision found."""
         import re
-        
+
         for decision_type, pattern in decision_patterns.items():
             if decision_type == "guard":
                 # For guard decisions, find ALL matches and take the LAST one (same as voting logic)
@@ -1521,12 +1519,12 @@ class LlmRouter:
                         # Generic decision
                         decision = match.group(1)
                         decision_colored = colored(f" → {decision}{timing_str}", "cyan")
-                    
+
                     # Print the decision on the same line (append to current line) and add newline
                     print(decision_colored)
                     return True
         return False
-    
+
     @classmethod
     def has_unconfirmed_data(cls) -> bool:
         """Check if there are any unconfirmed finetuning data files."""
@@ -1543,14 +1541,14 @@ class LlmRouter:
         os.makedirs(g.CONFIRMED_FINETUNING_PATH, exist_ok=True)
         if not os.path.exists(g.UNCONFIRMED_FINETUNING_PATH):
             return
-        
+
         # move all files from unconfirmed_dir to confirmed_dir
         for file in os.listdir(g.UNCONFIRMED_FINETUNING_PATH):
             shutil.move(
-                os.path.join(g.UNCONFIRMED_FINETUNING_PATH, file), 
+                os.path.join(g.UNCONFIRMED_FINETUNING_PATH, file),
                 os.path.join(g.CONFIRMED_FINETUNING_PATH, file)
             )
-    
+
     @classmethod
     def clear_unconfirmed_finetuning_data(cls) -> None:
         """Delete all unconfirmed finetuning data."""
@@ -1558,35 +1556,35 @@ class LlmRouter:
             return
         for file in os.listdir(g.UNCONFIRMED_FINETUNING_PATH):
             os.remove(os.path.join(g.UNCONFIRMED_FINETUNING_PATH, file))
-        
+
     @staticmethod
     def get_debug_title_prefix(chat: Chat) -> str:
         """
         Get a formatted prefix string for debug messages that includes the chat's debug title if available.
-        
+
         Args:
             chat (Chat): The chat whose debug_title should be included
-            
+
         Returns:
             str: The formatted prefix string
         """
         return chat.get_debug_title_prefix()
-    
+
     @classmethod
     def _detect_assistant_prefix(cls, chat: Chat) -> str:
         """
         Detect if the latest assistant message already contains text that should be included
         as a prefix before processing the generated stream.
-        
+
         Args:
             chat (Chat): The chat context to examine
-            
+
         Returns:
             str: The existing assistant message prefix, or empty string if none
         """
         if not chat.messages:
             return ""
-        
+
         # Check if the last message is from the assistant
         last_role, last_content = chat.messages[-1]
         if last_role.value == "assistant" and last_content:

@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 class WakeWordService:
     """
     Service for detecting wake words in audio data.
-    
+
     This service provides methods for:
     - Loading Vosk models for speech recognition
     - Processing audio data to detect wake words
     """
-    
+
     def __init__(self):
         """Initialize the WakeWordService with a small speech recognition model."""
         try:
@@ -32,24 +32,24 @@ class WakeWordService:
             logger.error(f"Failed to initialize wake word service: {e}")
             self.model = None
             self.ready = False
-            
+
     def is_ready(self) -> bool:
         """
         Check if the service is ready for use.
-        
+
         Returns:
             bool: True if the service is ready
         """
         return self.ready and self.model is not None
-            
+
     def process_audio(self, audio_data_b64: str, sample_rate: int) -> Dict[str, Any]:
         """
         Process audio data to detect wake words.
-        
+
         Args:
             audio_data_b64: Base64 encoded audio data
             sample_rate: Sample rate of the audio data
-            
+
         Returns:
             Dict: Detection results
         """
@@ -58,33 +58,33 @@ class WakeWordService:
                 "detected": False,
                 "error": "Wake word service is not ready"
             }
-            
+
         try:
             # Define the wake words to detect
             wake_words: List[str] = [
                 # Single words
                 "computer", "nova",
-                # Full phrases 
+                # Full phrases
                 "hey computer", "hey nova",
                 "ok computer", "ok nova",
                 "okay computer", "okay nova"
             ]
-            
+
             # Create recognizer with provided sample rate
             rec = KaldiRecognizer(self.model, sample_rate)
             rec.SetWords(True)
-            
+
             # Decode audio data
             audio_bytes = base64.b64decode(audio_data_b64)
-            
+
             # Process the entire audio segment
             if rec.AcceptWaveform(audio_bytes):
                 result = json.loads(rec.Result())
                 text = result.get("text", "").lower().strip()
-                
+
                 if text:
                     logger.info(f"Detected speech: '{text}'")
-                    
+
                     # Check for wake words
                     if text.count(" ") <= 4:  # Skip if too many words
                         for wake_word in wake_words:
@@ -94,14 +94,14 @@ class WakeWordService:
                                     "wake_word": wake_word,
                                     "text": text
                                 }
-            
+
             # Check final result if nothing detected yet
             final_result = json.loads(rec.FinalResult())
             text = final_result.get("text", "").lower().strip()
-            
+
             if text:
                 logger.info(f"Final detected speech: '{text}'")
-                
+
                 # Check for wake words
                 if text.count(" ") <= 4:  # Skip if too many words
                     for wake_word in wake_words:
@@ -111,16 +111,16 @@ class WakeWordService:
                                 "wake_word": wake_word,
                                 "text": text
                             }
-            
+
             # No wake word detected
             return {
                 "detected": False,
                 "text": text if text else None
             }
-                
+
         except Exception as e:
             logger.error(f"Error processing audio for wake word detection: {e}")
             return {
                 "detected": False,
                 "error": str(e)
-            } 
+            }

@@ -7,7 +7,6 @@ Requires: pip install aiohttp
 """
 
 import multiprocessing
-import logging
 import asyncio
 import json
 import time
@@ -77,7 +76,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
     import os
     import signal
     from pathlib import Path
-    
+
     # Setup signal handlers to prevent subprocess crash on interrupt
     def signal_handler(signum, frame):
         """Handle SIGINT/SIGTERM gracefully in subprocess."""
@@ -85,7 +84,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         # Don't raise KeyboardInterrupt, just log and let cleanup happen naturally
         # The main loop will handle cleanup when asyncio.run exits
         return
-    
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     print(f"[DEBUG] Visual server subprocess starting, PID: {os.getpid()}")
@@ -224,21 +223,8 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                             if message_type == 'permission_response':
                                 # For permission responses, put the structured data directly
                                 input_queue.put(message_data)
-                            elif message_type == 'llm_selection_update':
-                                # Handle LLM selection update from web UI
-                                subprocess_logger.info(f"LLM selection update received from web UI: {message_data.get('data', {})}")
 
-                                # Create a command to update LLM configuration
-                                llm_update_command = {
-                                    'type': 'llm_selection_update',
-                                    'source': 'web_ui',
-                                    'timestamp': message_data.get('timestamp', time.time()),
-                                    'data': message_data.get('data', {})
-                                }
 
-                                # Send to the main process via input queue
-                                input_queue.put(llm_update_command)
-                                subprocess_logger.info("LLM selection update sent to main process")
 
                             elif message_type == 'interrupt_signal':
                                 # Handle interrupt signal - trigger the main interrupt system
@@ -273,6 +259,8 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                                     pass
                                 except Exception as e:
                                     subprocess_logger.debug(f"Could not access main interrupt flag: {e}")
+
+
                             else:
                                 # For other JSON messages, put the raw string
                                 input_queue.put(msg.data)
@@ -337,11 +325,24 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             # Sort by provider and then by name for consistent ordering
             llm_data.sort(key=lambda x: (x['provider'], x['name']))
 
-            # Get current system configuration
-            selected_llms = getattr(g, 'SELECTED_LLMS', [])
+            # Get current system configuration from the most recent saved state
+            # The web server subprocess should always read fresh config to get latest changes
+            llm_config = g.get_llm_config(force_reread=True)
+            # Get selected models and sort them by their saved order
+            selected_models_with_order = []
+            for key, data in llm_config.items():
+                if key != '__planner_llm__' and isinstance(data, dict) and data.get('selected'):
+                    order = data.get('order', 999)  # Default high order for models without order
+                    selected_models_with_order.append((order, key))
 
-            # Calculate fallback models (same logic as main.py)
-            llm_config = g.get_llm_config()
+            # Sort by order and extract just the model keys
+            selected_models_with_order.sort(key=lambda x: x[0])
+            selected_llms = [key for order, key in selected_models_with_order]
+
+            # Get planner LLM and router LLM from the fresh config
+            planner_llm = llm_config.get('__planner_llm__')
+            router_llm = llm_config.get('__router_llm__')
+
             selected_configs = []
             for model_key in selected_llms:
                 config = llm_config.get(model_key, {})
@@ -367,6 +368,18 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             logger.info(f"Served LLM data: {len(llm_data)} models from {len(set(m['provider'] for m in llm_data))} providers")
             logger.info(f"Current system state: {len(selected_llms)} selected, {len(fallback_models)} fallback models")
 
+            # DEBUG: Log the final response being sent to UI
+            response_config = {
+                'selected_llms': selected_llms,
+                'fallback_models': fallback_models,
+                'branch_models': branch_models,
+                'eval_models': eval_models,
+                'guard_models': guard_models,
+                'planner_llm': planner_llm,
+                'router_llm': router_llm
+            }
+            subprocess_logger.info(f"🔍 FINAL API RESPONSE current_configuration: {response_config}")
+
             return web.json_response({
                 'status': 'success',
                 'models': llm_data,
@@ -376,7 +389,9 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     'fallback_models': fallback_models,
                     'branch_models': branch_models,
                     'eval_models': eval_models,
-                    'guard_models': guard_models
+                    'guard_models': guard_models,
+                    'planner_llm': planner_llm,
+                    'router_llm': router_llm
                 }
             })
 
@@ -409,7 +424,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     from core.globals import g
                     temp_dir = Path(g.CLIAGENT_TEMP_STORAGE_PATH)
                     temp_dir.mkdir(parents=True, exist_ok=True)
-                    
+
                     # Create unique filename if it already exists
                     counter = 1
                     base_name, ext = safe_filename.rsplit('.', 1) if '.' in safe_filename else (safe_filename, '')
@@ -420,9 +435,9 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                         else:
                             final_filename = f"{safe_filename}_{counter}"
                         counter += 1
-                    
+
                     file_path = temp_dir / final_filename
-                    
+
                     # Save the file
                     with open(file_path, 'wb') as f:
                         while True:
@@ -430,20 +445,20 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                             if not chunk:
                                 break
                             f.write(chunk)
-                    
+
                     uploaded_files.append(str(file_path.absolute()))
                     subprocess_logger.info(f"File uploaded: {final_filename} -> {file_path}")
-            
+
             return web.json_response({
                 'status': 'success',
                 'files': uploaded_files,
                 'message': f'Successfully uploaded {len(uploaded_files)} file(s)'
             })
-            
+
         except Exception as e:
             subprocess_logger.error(f"File upload error: {e}")
             return web.json_response({
-                'status': 'error', 
+                'status': 'error',
                 'message': str(e)
             }, status=500)
     async def main():
@@ -582,7 +597,7 @@ class VisualServerSession:
 
 class visualresponse:
     _session: Optional[VisualServerSession] = None
-    
+
     @staticmethod
     def close_session():
         if visualresponse._session:
@@ -625,8 +640,8 @@ class visualresponse:
 
     @staticmethod
     def _get_session() -> VisualServerSession:
-        session_dead = (visualresponse._session is None or 
-                        visualresponse._session.process is None or 
+        session_dead = (visualresponse._session is None or
+                        visualresponse._session.process is None or
                         not visualresponse._session.process.is_alive())
         if session_dead:
             if visualresponse._session:
@@ -678,19 +693,19 @@ class visualresponse:
                 payload['tool_info'] = g.last_executed_tools_info
                 # Clear the info after using it to avoid reusing stale data
                 g.last_executed_tools_info = None
-            
+
             if action == 'create':
                 viz_type = args.get('type')
                 viz_content_str = args.get('content')
-                
+
                 if not viz_type or viz_content_str is None:
                     return "Error: 'create' action requires <type> and <content> tags."
-                
+
                 viz_type = viz_type.lower()
                 supported_types = ['markdown', 'html']
                 if viz_type not in supported_types:
                     return f"Error: Unsupported type '{viz_type}'. Supported types are: {', '.join(supported_types)}"
-                
+
                 payload['type'] = viz_type
                 payload['content'] = viz_content_str
 
@@ -704,7 +719,7 @@ class visualresponse:
 
             elif action == 'agent_reset':
                 payload['type'] = 'system'
-                payload['reset_agent'] = True
+                payload['clear'] = True  # Use same logic as /clear command
 
             else:
                 return f"Error: Unknown action '{action}'. Supported actions: create, delete, clear, agent_reset."
@@ -713,7 +728,7 @@ class visualresponse:
             if not session.is_healthy():
                 session.close()
                 session = visualresponse._get_session()
-            
+
             session.send_update(payload)
 
             # Set current viz_id in tool context for live tool updates
@@ -721,11 +736,11 @@ class visualresponse:
                 tool_context.set_current_viz_id(viz_id)
 
             return f"Visual response command '{action}' for ID '{viz_id}' sent to the live UI on port {session.port}."
-                
+
         except Exception as e:
             logger.error(f"Fatal error in visualresponse tool: {e}", exc_info=True)
             return f"Fatal error in visualresponse tool: {e}"
-    
+
     @staticmethod
     def _run_diagnostics() -> str:
         # This function remains the same
@@ -775,13 +790,15 @@ class visualresponse:
                 "id": f"user-msg-{int(time.time() * 1000000)}"
             }
 
-            logger.info(f"About to send user message payload: {payload}")
+            print(f"[DEBUG] About to send user message payload: {payload}")
             session.send_update(payload)
-            logger.info(f"Sent user message to visual interface: {message[:50]}...")
+            print(f"[DEBUG] ✅ Sent user message to visual interface: {message[:50]}...")
             return True
 
         except Exception as e:
-            logger.debug(f"Failed to send user message to visual interface: {e}")
+            print(f"[DEBUG] ❌ Failed to send user message to visual interface: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     @staticmethod

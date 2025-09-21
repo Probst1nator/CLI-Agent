@@ -31,7 +31,7 @@ class TestXMLValidation:
                 'run': lambda content: f"Search executed with: {content}"
             })(),
             'editfile': type('MockEditTool', (), {
-                'get_delim': lambda: 'editfile', 
+                'get_delim': lambda: 'editfile',
                 'run': lambda content: f"Edit executed with: {content}"
             })(),
             'bash': type('MockBashTool', (), {
@@ -39,10 +39,9 @@ class TestXMLValidation:
                 'run': lambda content: f"Bash executed with: {content}"
             })()
         }
-        
+
         # Set up global state
         g.tool_classes = self.mock_tools
-        g.SUMMARY_MODE = True  # Suppress printing during tests
         g.DEBUG_MODE = False
 
     def test_valid_xml_blocks(self):
@@ -52,12 +51,12 @@ class TestXMLValidation:
             "<editfile><filepath>test.py</filepath><grepsearch>old</grepsearch><replace>new</replace></editfile>",
             "<bash>echo hello</bash>",
         ]
-        
+
         for xml_block in test_cases:
             response_buffer = [""]
             painter = Mock()
             callback = create_interruption_callback(response_buffer, painter)
-            
+
             # Simulate streaming the complete XML block
             try:
                 asyncio.run(self._simulate_stream(callback, xml_block))
@@ -74,12 +73,12 @@ class TestXMLValidation:
             "<bash>echo hello<nested>",
             "<grepsearch><pattern>test</grepsearch>",  # Wrong closing tag
         ]
-        
+
         for malformed_xml in malformed_cases:
             response_buffer = [""]
             painter = Mock()
             callback = create_interruption_callback(response_buffer, painter)
-            
+
             # Should NOT raise StreamInterruptedException for malformed XML
             try:
                 asyncio.run(self._simulate_stream(callback, malformed_xml))
@@ -95,12 +94,12 @@ class TestXMLValidation:
             "<editfile><filepath>test.py</filepath><grepsearch><inner>nested</inner></grepsearch><replace>new</replace></editfile>",
             "<bash>echo '<tag>content</tag>'</bash>",
         ]
-        
+
         for xml_block in nested_cases:
             response_buffer = [""]
-            painter = Mock() 
+            painter = Mock()
             callback = create_interruption_callback(response_buffer, painter)
-            
+
             try:
                 asyncio.run(self._simulate_stream(callback, xml_block))
                 assert False, f"Expected StreamInterruptedException for nested XML: {xml_block}"
@@ -114,12 +113,12 @@ class TestXMLValidation:
             "<editfile><filepath>test.py</filepath>",  # Partial content
             "<bash>echo hello",  # No closing tag
         ]
-        
+
         for partial_xml in partial_cases:
             response_buffer = [""]
             painter = Mock()
             callback = create_interruption_callback(response_buffer, painter)
-            
+
             # Should not raise exception for partial XML
             asyncio.run(self._simulate_stream(callback, partial_xml))
             assert response_buffer[0] == partial_xml
@@ -131,12 +130,12 @@ class TestXMLValidation:
             "<editfile><filepath>test.py</filepath><grepsearch>if x > 0 && y < 10:</grepsearch><replace>if 0 < x and y < 10:</replace></editfile>",
             "<bash>grep -E '^[0-9]+$' file.txt</bash>",
         ]
-        
+
         for xml_block in special_cases:
             response_buffer = [""]
             painter = Mock()
             callback = create_interruption_callback(response_buffer, painter)
-            
+
             try:
                 asyncio.run(self._simulate_stream(callback, xml_block))
                 assert False, f"Expected StreamInterruptedException for nested XML: {xml_block}"
@@ -150,11 +149,11 @@ class TestXMLValidation:
 Some text in between.
 
 <bash>echo "done"</bash>"""
-        
+
         response_buffer = [""]
         painter = Mock()
         callback = create_interruption_callback(response_buffer, painter)
-        
+
         # Should interrupt on the first complete block
         try:
             asyncio.run(self._simulate_stream(callback, multi_block_text))
@@ -171,14 +170,14 @@ Some text in between.
             {'python': Mock(), 'readfile': Mock()},
             {},  # Empty tools
         ]
-        
+
         for tools in test_tool_configs:
             g.tool_classes = tools
-            
+
             response_buffer = [""]
             painter = Mock()
             callback = create_interruption_callback(response_buffer, painter)
-            
+
             # The callback should be created without errors
             assert callable(callback)
 
@@ -188,9 +187,9 @@ Some text in between.
         painter = Mock()
         lock = asyncio.Lock()
         callback = create_interruption_callback(response_buffer, painter, lock)
-        
+
         xml_block = "<grepsearch><pattern>test</pattern></grepsearch>"
-        
+
         try:
             asyncio.run(self._simulate_stream(callback, xml_block))
             assert False, f"Expected StreamInterruptedException for concurrent test: {xml_block}"
@@ -200,14 +199,14 @@ Some text in between.
     def test_performance_impact(self):
         """Test that XML validation doesn't significantly impact performance."""
         import time
-        
+
         response_buffer = [""]
         painter = Mock()
         callback = create_interruption_callback(response_buffer, painter)
-        
+
         # Test with a large text block containing valid XML at the end
         large_text = "x" * 10000 + "<grepsearch><pattern>test</pattern></grepsearch>"
-        
+
         start_time = time.time()
         try:
             asyncio.run(self._simulate_stream(callback, large_text))
@@ -215,7 +214,7 @@ Some text in between.
         except StreamInterruptedException:
             pass  # Expected
         end_time = time.time()
-        
+
         # Should complete within reasonable time (less than 1 second for this test)
         assert end_time - start_time < 1.0
 
@@ -238,12 +237,12 @@ class TestToolRouting:
         search_tool = Mock()
         search_tool.get_delim.return_value = 'search'
         search_tool.run.return_value = "Search result"
-        
-        # Mock editfile tool that uses <grepsearch> tags  
+
+        # Mock editfile tool that uses <grepsearch> tags
         editfile_tool = Mock()
         editfile_tool.get_delim.return_value = 'editfile'
         editfile_tool.run.return_value = "Edit result"
-        
+
         g.tool_classes = {
             'grepsearch': search_tool,
             'editfile': editfile_tool
@@ -253,37 +252,37 @@ class TestToolRouting:
         """Test that tools are selected based on their XML tag structure."""
         # This would test the actual tool execution after interruption
         # For now, we verify that the interruption mechanism works correctly
-        
+
         # Case 1: Valid search tool XML
         search_xml = "<grepsearch><pattern>test pattern</pattern></grepsearch>"
         response_buffer = [""]
         painter = Mock()
         callback = create_interruption_callback(response_buffer, painter)
-        
+
         with pytest.raises(StreamInterruptedException) as exc_info:
             asyncio.run(self._simulate_stream(callback, search_xml))
-        
+
         assert exc_info.value.response == search_xml
-        
-        # Case 2: Valid editfile tool XML  
+
+        # Case 2: Valid editfile tool XML
         edit_xml = "<editfile><filepath>test.py</filepath><grepsearch>old</grepsearch><replace>new</replace></editfile>"
         response_buffer = [""]
         callback = create_interruption_callback(response_buffer, painter)
-        
+
         with pytest.raises(StreamInterruptedException) as exc_info:
             asyncio.run(self._simulate_stream(callback, edit_xml))
-        
+
         assert exc_info.value.response == edit_xml
 
     def test_malformed_xml_no_routing(self):
         """Test that malformed XML doesn't trigger incorrect tool routing."""
         # The problematic case from the original issue
         malformed_xml = "<grepsearch>for (int i = 0;i<5;i++) {</grepsearch><context>"
-        
+
         response_buffer = [""]
         painter = Mock()
         callback = create_interruption_callback(response_buffer, painter)
-        
+
         # This should NOT trigger an interruption because the XML is malformed
         try:
             asyncio.run(self._simulate_stream(callback, malformed_xml))
@@ -309,23 +308,22 @@ class TestRegressionCases:
             'grepsearch': Mock(get_delim=lambda: 'search'),
             'editfile': Mock(get_delim=lambda: 'editfile'),
         }
-        g.SUMMARY_MODE = True
         g.DEBUG_MODE = False
 
     def test_existing_valid_xml_still_works(self):
         """Ensure that existing valid XML blocks continue to work correctly."""
         existing_cases = [
             "<python>print('hello world')</python>",
-            "<bash>ls -la</bash>", 
+            "<bash>ls -la</bash>",
             "<grepsearch><pattern>function.*main</pattern></grepsearch>",
             "<editfile><filepath>main.py</filepath><grepsearch>old_code</grepsearch><replace>new_code</replace></editfile>",
         ]
-        
+
         for xml_block in existing_cases:
             response_buffer = [""]
             painter = Mock()
             callback = create_interruption_callback(response_buffer, painter)
-            
+
             try:
                 asyncio.run(self._simulate_stream(callback, xml_block))
                 assert False, f"Expected StreamInterruptedException for nested XML: {xml_block}"
@@ -336,11 +334,11 @@ class TestRegressionCases:
         """Test that the original bug case is now handled correctly."""
         # The exact case from the original issue
         problematic_case = "<grepsearch>for (int i = 0;i<5;i++) {</grepsearch><context>"
-        
+
         response_buffer = [""]
         painter = Mock()
         callback = create_interruption_callback(response_buffer, painter)
-        
+
         # This should NOT raise an exception because the XML is malformed
         try:
             asyncio.run(self._simulate_stream(callback, problematic_case))
@@ -359,12 +357,12 @@ class TestRegressionCases:
 def run_all_tests():
     """Run all test methods manually."""
     print("🧪 Running XML Tool Routing Tests...")
-    
+
     # Instantiate test classes
     xml_test = TestXMLValidation()
     routing_test = TestToolRouting()
     regression_test = TestRegressionCases()
-    
+
     tests = [
         ("XML Validation Tests", [
             xml_test.test_valid_xml_blocks,
@@ -386,10 +384,10 @@ def run_all_tests():
             regression_test.test_original_bug_case_fixed,
         ])
     ]
-    
+
     total_tests = 0
     passed_tests = 0
-    
+
     for category, test_methods in tests:
         print(f"\n📋 {category}")
         for test_method in test_methods:
@@ -403,7 +401,7 @@ def run_all_tests():
                 passed_tests += 1
             except Exception as e:
                 print(f"  ❌ {test_method.__name__}: {str(e)}")
-    
+
     print(f"\n📊 Results: {passed_tests}/{total_tests} tests passed")
     return passed_tests == total_tests
 

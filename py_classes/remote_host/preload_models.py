@@ -60,22 +60,22 @@ def optimize_for_gpu():
     try:
         # Set environment variables for better GPU memory management
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128,garbage_collection_threshold:0.8"
-        
+
         # Set memory-efficient PyTorch options
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
-        
+
         # Apply Jetson-specific optimizations
         is_jetson = check_is_jetson()
         if is_jetson:
             logger.info("Applying Jetson-specific optimizations")
             optimize_torch_for_jetson()
-        
+
         # Log GPU info
         gpu_name = torch.cuda.get_device_name(0)
         gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
         logger.info(f"GPU: {gpu_name} with {gpu_mem:.2f}GB memory")
-        
+
         return True
     except Exception as e:
         logger.error(f"Error setting up GPU optimizations: {e}")
@@ -84,10 +84,10 @@ def optimize_for_gpu():
 def preload_whisper_models(model_names: Optional[List[str]] = None) -> Dict[str, bool]:
     """
     Preload specific Whisper models or all models.
-    
+
     Args:
         model_names: List of model names to preload, or None to preload all
-        
+
     Returns:
         Dict: Mapping of model names to load success status
     """
@@ -96,29 +96,29 @@ def preload_whisper_models(model_names: Optional[List[str]] = None) -> Dict[str,
         free_space = check_disk_space()
         if free_space < 8.0:
             logger.warning(f"Low disk space ({free_space:.2f}GB). Model download may fail.")
-        
+
         logger.info("Initializing WhisperService...")
-        
+
         # Apply GPU optimizations first
         is_gpu = optimize_for_gpu()
         if is_gpu:
             logger.info("GPU optimizations applied")
-            
+
             # Set lower memory limits on Jetson
             is_jetson = check_is_jetson()
             if is_jetson:
                 if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
                     torch.cuda.set_per_process_memory_fraction(0.6)
                     logger.info("Set lower memory limits for Jetson")
-        
+
         # Try creating service with more aggressive GC
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        
+
         # Create service without preloading
         service = WhisperService(preload_models=False)
-        
+
         if model_names is None:
             # Load all models
             logger.info("Preloading all Whisper models...")
@@ -128,12 +128,12 @@ def preload_whisper_models(model_names: Optional[List[str]] = None) -> Dict[str,
             results = {}
             for model_name in model_names:
                 logger.info(f"Preloading Whisper model: {model_name}")
-                
+
                 # Clear memory before loading each model
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 gc.collect()
-                
+
                 # Use Jetson-specific loading for medium/large models if available
                 success = False
                 is_jetson = check_is_jetson() and torch.cuda.is_available()
@@ -151,9 +151,9 @@ def preload_whisper_models(model_names: Optional[List[str]] = None) -> Dict[str,
                 else:
                     # Use standard loading
                     success = service._load_model(model_name)
-                
+
                 results[model_name] = success
-                
+
                 # If on GPU and this is not the last model, unload it to save memory
                 if is_gpu and model_name != model_names[-1]:
                     if model_name in service.models:
@@ -161,7 +161,7 @@ def preload_whisper_models(model_names: Optional[List[str]] = None) -> Dict[str,
                         del service.models[model_name]
                         gc.collect()
                         torch.cuda.empty_cache()
-                
+
             return results
     except Exception as e:
         logger.error(f"Error preloading models: {e}")
@@ -171,19 +171,19 @@ def preload_whisper_models(model_names: Optional[List[str]] = None) -> Dict[str,
 
 def main():
     logger.info("Starting Whisper model preloading...")
-    
+
     # For stability, especially in memory-constrained environments,
     # only preload tiny model, which is extremely lightweight
     models_to_preload = ["tiny"]
-    
+
     # Only attempt to add a more capable model if we're confident we have the memory
     is_jetson = check_is_jetson()
-    
+
     if torch.cuda.is_available():
         # Check available memory
         total_memory = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
         logger.info(f"Total GPU memory: {total_memory:.2f}GB")
-        
+
         # Very conservative model selection based on available memory
         if not is_jetson and total_memory >= 16.0:
             # Only on large memory systems, preload small model too
@@ -195,19 +195,19 @@ def main():
         # On CPU, add small model preloading if we're not on a Jetson
         if not is_jetson:
             models_to_preload.append("base")
-    
+
     logger.info(f"Will preload the following models: {', '.join(models_to_preload)}")
-    
+
     start_time = time.time()
     results = preload_whisper_models(models_to_preload)
-    
+
     # Print results
     logger.info("Preload results:")
     for model_name, success in results.items():
         status = "Success" if success else "Failed"
         logger.info(f"  - {model_name}: {status}")
-    
+
     logger.info(f"Whisper model preloading completed in {time.time() - start_time:.2f} seconds.")
 
 if __name__ == "__main__":
-    main() 
+    main()

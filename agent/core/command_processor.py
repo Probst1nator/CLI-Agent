@@ -75,7 +75,7 @@ class CommandInputProcessor(InputProcessor):
         args = argparse.Namespace()
 
         # Set common defaults
-        args.auto = False
+        args.yolo = False
         args.local = False
         args.voice = False
         args.online = True

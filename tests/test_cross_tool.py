@@ -37,10 +37,10 @@ def test_all_tools_can_import_shared():
 def test_path_resolver_consistency():
     """Test that PathResolver gives consistent results"""
     from shared.path_resolver import PathResolver
-    
+
     root1 = PathResolver.find_cli_agent_root()
     root2 = PathResolver.find_cli_agent_root()
-    
+
     return root1 == root2 and root1.exists()
 
 
@@ -50,7 +50,7 @@ if __name__ == "__main__":
         test_all_tools_can_import_shared,
         test_path_resolver_consistency
     ]
-    
+
     results = []
     for test in tests:
         try:
@@ -60,5 +60,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ {test.__name__}: ERROR - {e}")
             results.append(False)
-    
+
     print(f"\nIntegration Tests: {sum(results)}/{len(results)} passed")
