@@ -234,14 +234,8 @@ def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> Lis
     Returns:
         List[str]: A list of the extracted content strings.
     """
-    # This unified pattern finds either a markdown block OR an XML-style tag block.
-    # It uses named groups to distinguish between them and a backreference `(?P=tag)`
-    # to ensure opening and closing tags match.
-    pattern = (
-        r"```(?P<lang>\w*?)\s*\n(?P<content_md>.*?)```|"
-        r"<(?P<tag>[a-zA-Z0-9_]+)[^>]*>\s*(?P<content_xml>.*?)<\/(?P=tag)>"
-    )
-    matches = re.finditer(pattern, text, re.DOTALL)
+    import xml.etree.ElementTree as ET
+
     blocks = []
 
     # Normalize the requested language(s) into a set for efficient lookup.
@@ -251,20 +245,46 @@ def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> Lis
     elif isinstance(language, list):
         requested_languages = {lang.lower() for lang in language}
 
-    for match in matches:
-        block_identifier, content = "", ""
-        # Check if it was a markdown block by seeing if the 'content_md' group was populated.
-        if match.group("content_md") is not None:
-            block_identifier = match.group("lang").strip().lower()
-            content = match.group("content_md").strip()
-        # Otherwise, it was an XML block.
-        else:
-            block_identifier = match.group("tag").strip().lower()
-            content = match.group("content_xml").strip()
+    # Handle markdown code blocks first (unchanged logic)
+    markdown_pattern = r"```(?P<lang>\w*?)\s*\n(?P<content>.*?)```"
+    for match in re.finditer(markdown_pattern, text, re.DOTALL):
+        block_identifier = match.group("lang").strip().lower()
+        content = match.group("content").strip()
 
-        # If no specific languages were requested, or if the block's identifier is in our set.
         if not requested_languages or block_identifier in requested_languages:
             blocks.append(content)
+
+    # Handle XML blocks using proper XML parsing
+    xml_pattern = r"<(?P<tag>[a-zA-Z0-9_]+)[^>]*>.*?</(?P=tag)>"
+    for match in re.finditer(xml_pattern, text, re.DOTALL):
+        xml_block = match.group(0)
+        tag_name = match.group("tag").lower()
+
+        # Skip if we have specific language requirements and this tag doesn't match
+        if requested_languages and tag_name not in requested_languages:
+            continue
+
+        try:
+            # Parse the XML block using ElementTree
+            root = ET.fromstring(xml_block)
+            content = root.text or ""
+
+            # If the element has child elements, get all text content
+            if list(root):
+                content = ET.tostring(root, encoding='unicode', method='text').strip()
+
+            blocks.append(content)
+
+        except ET.ParseError as e:
+            # Detailed error message with line and column information
+            error_msg = f"XML parsing failed for tag '<{tag_name}>' at line {e.lineno}, column {e.offset}: {e.msg}"
+
+            # Log the error for debugging
+            import logging
+            logging.warning(f"{error_msg}\nMalformed XML block: {xml_block[:200]}...")
+
+            # Continue processing other blocks instead of failing completely
+            continue
 
     return blocks
 

@@ -71,10 +71,16 @@ class LLMModelConfig(TypedDict):
     available: NotRequired[bool]
     status: NotRequired[str]
 
+class LLMRoleConfig(TypedDict, total=False):
+    """LLM role configuration structure."""
+    planner: Optional[str]
+    router: Optional[str]
+    fallbacks: List[str]
+    selected: List[str]
+
 class LLMConfig(TypedDict, total=False):
     """Complete LLM configuration structure."""
-    __planner_llm__: Optional[str]
-    __router_llm__: Optional[str]
+    roles: LLMRoleConfig
 
 class UserConfig(TypedDict, total=False):
     """User configuration structure."""
@@ -159,10 +165,12 @@ class Globals:
 
         # --- LLM and Agent Configuration ---
         self.LLM: Optional[str] = None
-        self.SELECTED_LLMS: List[str] = []
-        self.FALLBACK_MODELS: List[str] = []  # Dynamic fallback models for agent loops
-        self.planner_llm: Optional[str] = None  # Planner LLM for first agent turn
-        self.router_llm: Optional[str] = None  # Router LLM for routing decisions
+        self.llm_roles: LLMRoleConfig = {
+            'planner': None,
+            'router': None,
+            'fallbacks': [],
+            'selected': []
+        }
         self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
 
         # --- Forcing Flags (runtime modifiers) ---
@@ -303,6 +311,7 @@ class Globals:
         self._migrate_legacy_files()  # Migrate files from old structure
         self.load_user_config()
         self.load_llm_config() # Load LLM config at startup
+        self.load_llm_roles() # Load LLM role configuration at startup
         self.load_tts_config_from_user_settings() # Load TTS config at startup
         self._configure_ollama_hosts()
 
@@ -543,39 +552,6 @@ class Globals:
         except Exception as e:
             logging.warning(f"Failed to save LLM config: {e}")
 
-    def update_planner_llm(self, planner_llm_id: Optional[str]) -> None:
-        """Unified method to update planner LLM with automatic persistence."""
-        # Update in-memory state
-        self.planner_llm = planner_llm_id
-
-        # Update config dict
-        config = self.get_llm_config()
-        if planner_llm_id:
-            config['__planner_llm__'] = planner_llm_id
-        else:
-            config.pop('__planner_llm__', None)
-
-        # Auto-save to disk
-        self.save_llm_config(config)
-
-        logging.info(f"🔧 Planner LLM updated to: {planner_llm_id}")
-
-    def update_router_llm(self, router_llm_id: Optional[str]) -> None:
-        """Unified method to update router LLM with automatic persistence."""
-        # Update in-memory state
-        self.router_llm = router_llm_id
-
-        # Update config dict
-        config = self.get_llm_config()
-        if router_llm_id:
-            config['__router_llm__'] = router_llm_id
-        else:
-            config.pop('__router_llm__', None)
-
-        # Auto-save to disk
-        self.save_llm_config(config)
-
-        logging.info(f"🔧 Router LLM updated to: {router_llm_id}")
 
     def cleanup_temp_py_files(self):
         """Remove temporary Python files from previous runs using enhanced file manager."""
@@ -936,6 +912,148 @@ class Globals:
 
         self.set_config_value('tts_defaults', defaults)
 
+    # --- LLM Role Management ---
+    @property
+    def planner_llm(self) -> Optional[str]:
+        """Backward compatibility property for planner LLM."""
+        return self.llm_roles.get('planner')
+
+    @property
+    def router_llm(self) -> Optional[str]:
+        """Backward compatibility property for router LLM."""
+        return self.llm_roles.get('router')
+
+    @property
+    def FALLBACK_MODELS(self) -> List[str]:
+        """Backward compatibility property for fallback models."""
+        return self.llm_roles.get('fallbacks', [])
+
+    @FALLBACK_MODELS.setter
+    def FALLBACK_MODELS(self, value: List[str]) -> None:
+        """Setter for fallback models."""
+        self.llm_roles['fallbacks'] = value
+        self.save_llm_roles()
+
+    @property
+    def SELECTED_LLMS(self) -> List[str]:
+        """Backward compatibility property for selected LLMs."""
+        return self.llm_roles.get('selected', [])
+
+    @SELECTED_LLMS.setter
+    def SELECTED_LLMS(self, value: List[str]) -> None:
+        """Setter for selected LLMs."""
+        self.llm_roles['selected'] = value
+        self.save_llm_roles()
+
+    def update_llm_role(self, role: str, model_key: Optional[str] = None, model_keys: Optional[List[str]] = None) -> None:
+        """
+        Unified method to update LLM roles with automatic persistence.
+
+        Args:
+            role: The role to update ('planner', 'router', 'fallbacks', 'selected')
+            model_key: Single model key for planner/router roles
+            model_keys: List of model keys for fallbacks/selected roles
+        """
+        if role in ['planner', 'router']:
+            if model_keys is not None:
+                raise ValueError(f"Role '{role}' expects model_key, not model_keys")
+            self.llm_roles[role] = model_key
+        elif role in ['fallbacks', 'selected']:
+            if model_key is not None:
+                raise ValueError(f"Role '{role}' expects model_keys, not model_key")
+            self.llm_roles[role] = model_keys or []
+        else:
+            raise ValueError(f"Unknown role: {role}. Valid roles: planner, router, fallbacks, selected")
+
+        self.save_llm_roles()
+        logging.info(f"🔧 LLM role '{role}' updated to: {model_key or model_keys}")
+
+    def save_llm_roles(self) -> None:
+        """Save LLM role configuration to disk."""
+        config = self.get_llm_config()
+        config['roles'] = self.llm_roles
+        self.save_llm_config(config)
+
+    def load_llm_roles(self) -> None:
+        """Load LLM role configuration from disk, migrating from old format if needed."""
+        config = self.get_llm_config()
+
+        # Check if we have the new unified format with valid data
+        has_valid_roles = (
+            'roles' in config and
+            isinstance(config['roles'], dict) and
+            # Check if roles has been properly populated (not just empty defaults)
+            (config['roles'].get('planner') or config['roles'].get('router') or
+             config['roles'].get('selected') or config['roles'].get('fallbacks'))
+        )
+
+        if has_valid_roles:
+            # Use new format
+            for key, default_value in [('planner', None), ('router', None), ('fallbacks', []), ('selected', [])]:
+                self.llm_roles[key] = config['roles'].get(key, default_value)
+        else:
+            # Migrate from old format
+            logging.info("🔄 Migrating LLM configuration from old format to unified roles")
+
+            # Migrate planner and router
+            self.llm_roles['planner'] = config.get('__planner_llm__')
+            self.llm_roles['router'] = config.get('__router_llm__')
+
+            # Migrate selected models
+            selected_models = []
+            for model_key, model_config in config.items():
+                if isinstance(model_config, dict) and model_config.get('selected', False):
+                    selected_models.append(model_key)
+
+            # Sort by order if available
+            selected_models.sort(key=lambda m: config.get(m, {}).get('order', 999))
+            self.llm_roles['selected'] = selected_models
+
+            # Initialize empty fallbacks (old format didn't persist fallbacks)
+            self.llm_roles['fallbacks'] = []
+
+            # Save the migrated configuration and clean up old format
+            self.save_llm_roles()
+
+            # Clean up old format keys from config file
+            self._cleanup_old_format_config()
+            logging.info(f"✅ Migrated {len(selected_models)} selected models, planner: {self.llm_roles['planner']}, router: {self.llm_roles['router']}")
+
+    def _cleanup_old_format_config(self) -> None:
+        """Remove old format keys from config file after successful migration."""
+        try:
+            config = self.get_llm_config()
+            cleaned = False
+
+            # Remove old special keys
+            if '__planner_llm__' in config:
+                del config['__planner_llm__']
+                cleaned = True
+            if '__router_llm__' in config:
+                del config['__router_llm__']
+                cleaned = True
+
+            # Remove 'selected' and 'order' from model entries (they're now in roles)
+            for model_key, model_config in list(config.items()):
+                if isinstance(model_config, dict) and model_key != 'roles':
+                    if 'selected' in model_config:
+                        del model_config['selected']
+                        cleaned = True
+                    if 'order' in model_config:
+                        del model_config['order']
+                        cleaned = True
+                    # Remove empty model configs
+                    if not model_config or model_config == {'model_key': model_key}:
+                        del config[model_key]
+                        cleaned = True
+
+            if cleaned:
+                self.save_llm_config(config)
+                logging.info("🧹 Cleaned up old format configuration keys")
+
+        except Exception as e:
+            logging.warning(f"Failed to cleanup old format config: {e}")
+
     # --- Cleanup registration and execution ---
     def register_cleanup(self, callback: Callable) -> None:
         """
@@ -1029,22 +1147,44 @@ def validate_llm_config(config: Dict[str, Any]) -> LLMConfig:
     # Create a validated config with proper typing
     validated_config: LLMConfig = {}
 
-    # Handle special keys
-    if '__planner_llm__' in config:
-        planner_llm = config['__planner_llm__']
-        if planner_llm is not None and not isinstance(planner_llm, str):
-            raise TypeError("__planner_llm__ must be a string or None")
-        validated_config['__planner_llm__'] = planner_llm
+    # Handle roles configuration
+    if 'roles' in config:
+        roles = config['roles']
+        if not isinstance(roles, dict):
+            raise TypeError("roles must be a dictionary")
 
-    if '__router_llm__' in config:
-        router_llm = config['__router_llm__']
-        if router_llm is not None and not isinstance(router_llm, str):
-            raise TypeError("__router_llm__ must be a string or None")
-        validated_config['__router_llm__'] = router_llm
+        validated_roles: LLMRoleConfig = {}
 
-    # Handle dynamic model configurations (they remain as Any for flexibility)
+        # Validate individual role fields
+        if 'planner' in roles:
+            planner = roles['planner']
+            if planner is not None and not isinstance(planner, str):
+                raise TypeError("planner must be a string or None")
+            validated_roles['planner'] = planner
+
+        if 'router' in roles:
+            router = roles['router']
+            if router is not None and not isinstance(router, str):
+                raise TypeError("router must be a string or None")
+            validated_roles['router'] = router
+
+        if 'fallbacks' in roles:
+            fallbacks = roles['fallbacks']
+            if not isinstance(fallbacks, list) or not all(isinstance(x, str) for x in fallbacks):
+                raise TypeError("fallbacks must be a list of strings")
+            validated_roles['fallbacks'] = fallbacks
+
+        if 'selected' in roles:
+            selected = roles['selected']
+            if not isinstance(selected, list) or not all(isinstance(x, str) for x in selected):
+                raise TypeError("selected must be a list of strings")
+            validated_roles['selected'] = selected
+
+        validated_config['roles'] = validated_roles
+
+    # Handle other dynamic model configurations (they remain as Any for flexibility)
     for key, value in config.items():
-        if key not in ['__planner_llm__', '__router_llm__']:
+        if key not in ['roles']:
             validated_config[key] = value  # type: ignore
 
     return validated_config

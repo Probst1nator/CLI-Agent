@@ -1125,8 +1125,38 @@ class LlmRouter:
                                 g.debug_log(f"Available {model_type} models: {available_str}", "yellow", prefix=prefix)
                                 instance._last_failure_reason = f"Model '{requested_model}' not found in {model_type} models."
                         else:
-                            g.debug_log("No models found matching the specified criteria", "yellow", prefix=prefix)
-                            instance._last_failure_reason = "No models found matching criteria"
+                            # Build detailed criteria description
+                            criteria_parts = []
+                            if strengths:
+                                criteria_parts.append(f"strengths: {[s.value for s in strengths]}")
+                            if preferred_models:
+                                criteria_parts.append(f"preferred_models: {preferred_models}")
+                            if force_local:
+                                criteria_parts.append("force_local: True")
+                            if force_free:
+                                criteria_parts.append("force_free: True")
+                            if bool(base64_images):
+                                criteria_parts.append("has_vision: True")
+                            if force_preferred_model:
+                                criteria_parts.append("force_preferred_model: True")
+
+                            criteria_desc = ", ".join(criteria_parts) if criteria_parts else "no specific criteria"
+
+                            # Get total available models for context
+                            from core.llm_collection import get_llm_models
+                            all_models = get_llm_models()
+                            total_models = len(all_models)
+                            available_model_names = [m.model_key for m in all_models[:10]]  # Show first 10
+                            available_str = ", ".join(available_model_names)
+                            if total_models > 10:
+                                available_str += f" (and {total_models - 10} others)"
+
+                            detailed_message = (f"No models found matching criteria: {criteria_desc}. "
+                                              f"Total models available: {total_models} "
+                                              f"({available_str})")
+
+                            g.debug_log(detailed_message, "yellow", prefix=prefix)
+                            instance._last_failure_reason = detailed_message
 
                     break # Exit the while loop, the exception below will be raised.
 

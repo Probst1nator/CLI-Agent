@@ -655,52 +655,92 @@ def auto_correct_html_for_xml(text: str) -> str:
 
 def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
     """
-    Detects malformed XML blocks where opening and closing tags don't match.
+    Detects malformed XML blocks using the standard library XML parser.
 
-    This function specifically looks for tag mismatches that would cause
-    extract_blocks() to fail, such as <type>content</action>.
+    This function uses xml.etree.ElementTree to properly validate XML syntax
+    and provides detailed error messages with line and column information.
 
     Args:
         text (str): The text to analyze for malformed XML
 
     Returns:
-        List[Dict[str, str]]: List of detected malformed XML issues
+        List[Dict[str, str]]: List of detected malformed XML issues with detailed error info
     """
+    import xml.etree.ElementTree as ET
+
     errors = []
 
-    # Simple approach: Look for patterns like <tag1>content</tag2> where tag1 != tag2
-    # This regex finds opening tag, content, and closing tag as separate groups
-    mismatch_pattern = r'<([a-zA-Z0-9_]+)([^>]*?)>(.*?)</([a-zA-Z0-9_]+)>'
+    # Find potential XML blocks using regex
+    xml_pattern = r'<([a-zA-Z0-9_]+)[^>]*>.*?</\1>'
 
-    for match in re.finditer(mismatch_pattern, text, re.DOTALL):
-        opening_tag = match.group(1).strip()
-        _ = match.group(2).strip()
-        content = match.group(3).strip()
-        closing_tag = match.group(4).strip()
-        full_block = match.group(0)
+    for match in re.finditer(xml_pattern, text, re.DOTALL):
+        xml_block = match.group(0)
+        tag_name = match.group(1)
 
-        # Check if opening and closing tags match
-        if opening_tag != closing_tag:
-            # Make sure this isn't a nested structure by checking if content contains complete XML
-            # If content has complete XML blocks, this might be a valid outer structure
-            inner_complete_blocks = len(re.findall(r'<([a-zA-Z0-9_]+)[^>]*>.*?</\1>', content, re.DOTALL))
-            content_tags = len(re.findall(r'<[a-zA-Z0-9_]+[^>]*>', content))
+        try:
+            # Try to parse the XML block with ElementTree
+            ET.fromstring(xml_block)
+            # If we get here, the XML is well-formed
 
-            # If content has tags but no complete blocks, this is likely a real mismatch
-            if content_tags > 0 and inner_complete_blocks == 0:
-                continue  # Skip, this is probably a complex nested case
-            elif content_tags == 0:  # Simple content with no nested tags - likely a real error
-                errors.append({
-                    'type': 'tag_mismatch',
-                    'opening_tag': opening_tag,
-                    'closing_tag': closing_tag,
-                    'error_description': f"Opening tag '<{opening_tag}>' does not match closing tag '</{closing_tag}>'",
-                    'suggested_fix': f"Change '</{closing_tag}>' to '</{opening_tag}>'",
-                    'block_content': full_block,
-                    'line_context': content[:100] + "..." if len(content) > 100 else content
-                })
+        except ET.ParseError as e:
+            # Get the position of the error in the original text
+            match_start = match.start()
+            text_before_match = text[:match_start]
+            line_number = text_before_match.count('\n') + 1
+
+            # Calculate relative position within the XML block
+            xml_lines = xml_block.split('\n')
+            error_line_in_block = getattr(e, 'lineno', 1) or 1
+            error_col_in_block = getattr(e, 'offset', 1) or 1
+
+            # Get context around the error
+            context_start = max(0, error_line_in_block - 2)
+            context_end = min(len(xml_lines), error_line_in_block + 2)
+            context_lines = xml_lines[context_start:context_end]
+
+            # Build detailed error information
+            error_info = {
+                'type': 'xml_parse_error',
+                'tag_name': tag_name,
+                'error_description': f"XML parsing failed: {e.msg}",
+                'line_number': line_number + (error_line_in_block - 1),
+                'column_number': error_col_in_block,
+                'error_line_content': xml_lines[error_line_in_block - 1] if error_line_in_block <= len(xml_lines) else "",
+                'context_lines': context_lines,
+                'full_xml_block': xml_block,
+                'suggested_fix': _get_xml_fix_suggestion(e.msg, xml_block)
+            }
+
+            errors.append(error_info)
 
     return errors
+
+
+def _get_xml_fix_suggestion(error_msg: str, xml_block: str) -> str:
+    """
+    Generate helpful fix suggestions based on common XML parsing errors.
+
+    Args:
+        error_msg (str): The error message from ElementTree
+        xml_block (str): The malformed XML block
+
+    Returns:
+        str: A suggested fix for the XML error
+    """
+    error_lower = error_msg.lower()
+
+    if "mismatched tag" in error_lower or "expected" in error_lower:
+        return "Check that all opening tags have matching closing tags with the same name"
+    elif "not well-formed" in error_lower:
+        return "Ensure all tags are properly closed and nested correctly"
+    elif "unclosed token" in error_lower:
+        return "Add missing closing tag or check for unclosed angle brackets"
+    elif "invalid token" in error_lower:
+        return "Check for invalid characters in tag names or attribute values"
+    elif "unexpected end of data" in error_lower:
+        return "The XML block appears to be incomplete - add missing closing tags"
+    else:
+        return f"Fix the XML syntax error: {error_msg}"
 
 
 def generate_xml_error_context(errors: List[Dict[str, str]]) -> str:
@@ -720,15 +760,31 @@ def generate_xml_error_context(errors: List[Dict[str, str]]) -> str:
     context_lines.append("")
 
     for i, error in enumerate(errors, 1):
-        if error['type'] == 'tag_mismatch':
+        if error['type'] == 'xml_parse_error':
             context_lines.append(f"Error {i}: {error['error_description']}")
-            context_lines.append(f"  Found: <{error['opening_tag']}>...</{error['closing_tag']}>")
+            context_lines.append(f"  Tag: <{error['tag_name']}>")
+            context_lines.append(f"  Location: Line {error['line_number']}, Column {error['column_number']}")
             context_lines.append(f"  Fix: {error['suggested_fix']}")
             context_lines.append("")
 
-            # Show the problematic content with highlighting
-            context_lines.append("Malformed XML:")
-            context_lines.append(f"  {error['block_content']}")
+            # Show the error line with context
+            if error.get('error_line_content'):
+                context_lines.append("Error line:")
+                context_lines.append(f"  {error['error_line_content']}")
+                context_lines.append("")
+
+            # Show context lines around the error
+            if error.get('context_lines'):
+                context_lines.append("Context:")
+                for line in error['context_lines']:
+                    context_lines.append(f"  {line}")
+                context_lines.append("")
+
+        elif error['type'] == 'tag_mismatch':
+            # Keep backward compatibility for any remaining old-style errors
+            context_lines.append(f"Error {i}: {error['error_description']}")
+            context_lines.append(f"  Found: <{error['opening_tag']}>...</{error['closing_tag']}>")
+            context_lines.append(f"  Fix: {error['suggested_fix']}")
             context_lines.append("")
 
         elif error['type'] == 'incomplete_block':
@@ -841,14 +897,10 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
     try:
         config = g.get_llm_config()
 
-        # Load selected fallback models from config
-        previously_selected = [
-            model_key for model_key, model_config in config.items()
-            if model_key != '__planner_llm__' and model_config.get('selected', False)
-        ]
+        # Load selected fallback models from config (using unified roles structure)
+        previously_selected = g.SELECTED_LLMS
 
         if previously_selected:
-            g.SELECTED_LLMS = previously_selected
             args.llm = previously_selected
             logging.info(colored(f"📋 Loaded {len(previously_selected)} selected models from config: {', '.join(previously_selected[:3])}{'...' if len(previously_selected) > 3 else ''}", "cyan"))
 
@@ -1220,35 +1272,12 @@ async def main(  # type: ignore[misc]
         if not args.llm and not args.local and not args.fast:
             apply_default_llm_config()
 
-        # Load planner LLM from saved configuration during startup
-        logging.info("🔍 STARTUP DEBUG: Loading planner LLM from config during startup...")
-        try:
-            config = g.get_llm_config()
-            saved_planner_llm = config.get('__planner_llm__')
-            logging.info(f"🔍 STARTUP DEBUG: Found planner LLM in config: '{saved_planner_llm}'")
-
-            if saved_planner_llm:
-                g.update_planner_llm(saved_planner_llm)
-                logging.info(colored(f"📋 Loaded planner LLM from config: {saved_planner_llm}", "cyan"))
-            else:
-                logging.info("🔧 STARTUP DEBUG: No planner LLM found in config")
-        except Exception as e:
-            logging.warning(colored(f"⚠️  Failed to load planner LLM configuration: {e}", "yellow"))
-
-        # Load router LLM from saved configuration during startup
-        logging.info("🔍 STARTUP DEBUG: Loading router LLM from config during startup...")
-        try:
-            config = g.get_llm_config()
-            saved_router_llm = config.get('__router_llm__')
-            logging.info(f"🔍 STARTUP DEBUG: Found router LLM in config: '{saved_router_llm}'")
-
-            if saved_router_llm:
-                g.update_router_llm(saved_router_llm)
-                logging.info(colored(f"📋 Loaded router LLM from config: {saved_router_llm}", "cyan"))
-            else:
-                logging.info("🔧 STARTUP DEBUG: No router LLM found in config")
-        except Exception as e:
-            logging.warning(colored(f"⚠️  Failed to load router LLM configuration: {e}", "yellow"))
+        # LLM roles are automatically loaded by g.load_llm_roles() during globals initialization
+        logging.info("🔍 STARTUP DEBUG: LLM roles loaded from unified configuration")
+        if g.planner_llm:
+            logging.info(colored(f"📋 Loaded planner LLM from config: {g.planner_llm}", "cyan"))
+        if g.router_llm:
+            logging.info(colored(f"📋 Loaded router LLM from config: {g.router_llm}", "cyan"))
 
         # Configure TTS engine priority based on --remote-tts flag
         if getattr(args, 'online_voice', False):
