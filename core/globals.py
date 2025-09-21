@@ -13,7 +13,8 @@ import json
 import logging
 import datetime
 from pathlib import Path
-from typing import List, Optional, Any, Callable, Dict, Set
+from typing import List, Optional, Any, Callable, Dict, Set, Protocol
+from typing_extensions import TypedDict, NotRequired
 from termcolor import colored
 
 # --- Helper Functions for XDG Base Directory Path Management ---
@@ -54,6 +55,69 @@ def _get_persistent_storage_path() -> str:
         return os.path.join(os.environ.get('APPDATA', ''), 'cli-agent')
     else:  # macOS, Linux, and other UNIX-like systems
         return os.path.join(Path.home(), '.cli-agent')
+
+# --- TypedDict Definitions for Structured Data ---
+
+class LLMModelConfig(TypedDict):
+    """Configuration for an individual LLM model."""
+    selected: NotRequired[bool]
+    host: NotRequired[str]
+    branches: NotRequired[List[str]]
+    eval: NotRequired[bool]
+    guard: NotRequired[bool]
+    router: NotRequired[bool]
+    planner: NotRequired[bool]
+    provider: NotRequired[str]
+    available: NotRequired[bool]
+    status: NotRequired[str]
+
+class LLMConfig(TypedDict, total=False):
+    """Complete LLM configuration structure."""
+    __planner_llm__: Optional[str]
+    __router_llm__: Optional[str]
+
+class UserConfig(TypedDict, total=False):
+    """User configuration structure."""
+    tts_engine_priority: List[str]
+    tts_disabled_engines: List[str]
+    tts_context_settings: Dict[str, Dict[str, Any]]
+    tts_defaults: Dict[str, Any]
+
+class TTSContextSettings(TypedDict):
+    """TTS settings for a specific context."""
+    speed: float
+    volume: float
+    voice: str
+
+class ModelVariant(TypedDict):
+    """Model variant information."""
+    name: str
+    size: NotRequired[str]
+    parameters: NotRequired[str]
+    quantization: NotRequired[str]
+    available: NotRequired[bool]
+
+class ModelInfo(TypedDict):
+    """Model information in discovery cache."""
+    name: str
+    provider: str
+    variants: Dict[str, ModelVariant]
+    description: NotRequired[str]
+    tags: NotRequired[List[str]]
+
+class ModelDiscoveryCache(TypedDict):
+    """Structure for model discovery cache."""
+    timestamp: float
+    model_data: Dict[str, ModelInfo]
+    version: int
+
+class DebugLogProtocol(Protocol):
+    """Protocol for debug logging function."""
+    def __call__(self, message: str, color: Optional[str] = None, force_print: bool = False, **kwargs: Any) -> None: ...
+
+class PrintTokenProtocol(Protocol):
+    """Protocol for print token function."""
+    def __call__(self, token: str) -> None: ...
 
 # --- Main Globals Class ---
 class Globals:
@@ -96,11 +160,9 @@ class Globals:
         # --- LLM and Agent Configuration ---
         self.LLM: Optional[str] = None
         self.SELECTED_LLMS: List[str] = []
-        self.EVALUATOR_LLMS: List[str] = []
         self.FALLBACK_MODELS: List[str] = []  # Dynamic fallback models for agent loops
         self.planner_llm: Optional[str] = None  # Planner LLM for first agent turn
         self.router_llm: Optional[str] = None  # Router LLM for routing decisions
-        self.MCT: int = 1
         self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
 
         # --- Forcing Flags (runtime modifiers) ---
@@ -140,10 +202,10 @@ class Globals:
 
         # --- Cross-module Communication & State ---
         self.web_server: Optional[Any] = None
-        self.print_token: Callable[[str], None] = lambda token: print(token, end="", flush=True)
-        self.debug_log: Callable[..., None] = self._default_debug_log
-        self._user_config: Dict[str, Any] = {}
-        self._llm_config: Dict[str, Any] = {}
+        self.print_token: PrintTokenProtocol = lambda token: print(token, end="", flush=True)
+        self.debug_log: DebugLogProtocol = self._default_debug_log
+        self._user_config: UserConfig = {}
+        self._llm_config: LLMConfig = {}
 
         # --- Tool and Agent State ---
         self.last_executed_tools_info: Optional[Any] = None  # Stores information about last executed tools
@@ -231,7 +293,7 @@ class Globals:
 
 
         # --- Model Discovery Cache ---
-        self._model_discovery_cache: Optional[Dict[str, Any]] = None
+        self._model_discovery_cache: Optional[Dict[str, ModelInfo]] = None
         self._model_discovery_task: Optional[Any] = None  # Background asyncio task
         self._model_discovery_timestamp: float = 0
         self.MODEL_CACHE_PATH: str = os.path.join(self.CLIAGENT_CACHE_DIR, 'model_cache.json')
@@ -460,18 +522,18 @@ class Globals:
         else:
             self._llm_config = {}
 
-    def get_llm_config(self, force_reread: bool = False) -> Dict[str, Any]:
+    def get_llm_config(self, force_reread: bool = False) -> LLMConfig:
         """Get the loaded LLM configuration."""
         if force_reread:
             self.load_llm_config()
         return self._llm_config
 
     @property
-    def llm_config(self) -> Dict[str, Any]:
+    def llm_config(self) -> LLMConfig:
         """Property access to LLM configuration."""
         return self._llm_config
 
-    def save_llm_config(self, config: Dict[str, Any]) -> None:
+    def save_llm_config(self, config: LLMConfig) -> None:
         """Save LLM configuration to file."""
         self._llm_config = config
         try:
@@ -632,7 +694,7 @@ class Globals:
             # If no event loop is running, we'll do lazy loading instead
             logging.debug("No event loop available for background model discovery")
 
-    def get_cached_model_discovery(self) -> Optional[Dict[str, Any]]:
+    def get_cached_model_discovery(self) -> Optional[Dict[str, ModelInfo]]:
         """Get cached model discovery results."""
         return self._model_discovery_cache
 
@@ -705,7 +767,7 @@ class Globals:
 
         return age_minutes > max_age_minutes
 
-    def load_persistent_model_cache(self) -> Optional[Dict[str, Any]]:
+    def load_persistent_model_cache(self) -> Optional[Dict[str, ModelInfo]]:
         """Load model cache from persistent storage."""
         if not os.path.exists(self.MODEL_CACHE_PATH):
             return None
@@ -730,7 +792,7 @@ class Globals:
             logging.warning(f"Failed to load persistent model cache: {e}")
             return None
 
-    def save_persistent_model_cache(self, model_data: Dict[str, Any]) -> None:
+    def save_persistent_model_cache(self, model_data: Dict[str, ModelInfo]) -> None:
         """Save model cache to persistent storage."""
         try:
             import time
@@ -798,14 +860,22 @@ class Globals:
         engine_voices = self.TTS_VOICE_MAPPINGS.get(engine, {})
         return engine_voices.get(voice_type, voice_type)  # Fallback to voice_type if not mapped
 
-    def get_tts_context_settings(self, context: str) -> Dict[str, Any]:
+    def get_tts_context_settings(self, context: str) -> TTSContextSettings:
         """Get TTS settings for a specific context."""
-        return self.TTS_CONTEXT_SETTINGS.get(context, {
+        default_settings: TTSContextSettings = {
             "speed": self.TTS_DEFAULT_SPEED,
+            "volume": self.TTS_DEFAULT_VOLUME,
             "voice": self.TTS_DEFAULT_VOICE
-        })
+        }
+        stored_settings = self.TTS_CONTEXT_SETTINGS.get(context, default_settings)
+        # Ensure all required fields are present
+        return {
+            "speed": stored_settings.get("speed", self.TTS_DEFAULT_SPEED),
+            "volume": stored_settings.get("volume", self.TTS_DEFAULT_VOLUME),
+            "voice": stored_settings.get("voice", self.TTS_DEFAULT_VOICE)
+        }
 
-    def set_tts_context_settings(self, context: str, settings: Dict[str, Any]) -> None:
+    def set_tts_context_settings(self, context: str, settings: TTSContextSettings) -> None:
         """Set TTS settings for a specific context."""
         self.TTS_CONTEXT_SETTINGS[context] = settings
         # Save to user config
@@ -947,5 +1017,88 @@ class Globals:
         """Force cleanup of all services, including persistent ones."""
         logging.warning("Forcing cleanup of all services including persistent ones...")
         self._run_cleanup(force_all=True)
+
+# --- Type Validation Helpers ---
+
+def validate_llm_config(config: Dict[str, Any]) -> LLMConfig:
+    """Validate and convert a dictionary to LLMConfig type."""
+    # Ensure the config is a dict-like object
+    if not isinstance(config, dict):
+        raise TypeError(f"LLM config must be a dictionary, got {type(config)}")
+
+    # Create a validated config with proper typing
+    validated_config: LLMConfig = {}
+
+    # Handle special keys
+    if '__planner_llm__' in config:
+        planner_llm = config['__planner_llm__']
+        if planner_llm is not None and not isinstance(planner_llm, str):
+            raise TypeError("__planner_llm__ must be a string or None")
+        validated_config['__planner_llm__'] = planner_llm
+
+    if '__router_llm__' in config:
+        router_llm = config['__router_llm__']
+        if router_llm is not None and not isinstance(router_llm, str):
+            raise TypeError("__router_llm__ must be a string or None")
+        validated_config['__router_llm__'] = router_llm
+
+    # Handle dynamic model configurations (they remain as Any for flexibility)
+    for key, value in config.items():
+        if key not in ['__planner_llm__', '__router_llm__']:
+            validated_config[key] = value  # type: ignore
+
+    return validated_config
+
+def validate_user_config(config: Dict[str, Any]) -> UserConfig:
+    """Validate and convert a dictionary to UserConfig type."""
+    if not isinstance(config, dict):
+        raise TypeError(f"User config must be a dictionary, got {type(config)}")
+
+    # UserConfig allows arbitrary keys with total=False, so we can return as-is after validation
+    validated_config: UserConfig = {}
+
+    # Validate known keys if they exist
+    if 'tts_engine_priority' in config:
+        tts_priority = config['tts_engine_priority']
+        if not isinstance(tts_priority, list) or not all(isinstance(x, str) for x in tts_priority):
+            raise TypeError("tts_engine_priority must be a list of strings")
+        validated_config['tts_engine_priority'] = tts_priority
+
+    if 'tts_disabled_engines' in config:
+        tts_disabled = config['tts_disabled_engines']
+        if not isinstance(tts_disabled, list) or not all(isinstance(x, str) for x in tts_disabled):
+            raise TypeError("tts_disabled_engines must be a list of strings")
+        validated_config['tts_disabled_engines'] = tts_disabled
+
+    # Copy other fields as-is (they remain flexible)
+    for key, value in config.items():
+        if key not in ['tts_engine_priority', 'tts_disabled_engines']:
+            validated_config[key] = value  # type: ignore
+
+    return validated_config
+
+def validate_tts_context_settings(settings: Dict[str, Any]) -> TTSContextSettings:
+    """Validate and convert a dictionary to TTSContextSettings type."""
+    if not isinstance(settings, dict):
+        raise TypeError(f"TTS context settings must be a dictionary, got {type(settings)}")
+
+    # Validate required fields
+    speed = settings.get('speed')
+    if not isinstance(speed, (int, float)):
+        raise TypeError("TTS speed must be a number")
+
+    volume = settings.get('volume')
+    if not isinstance(volume, (int, float)):
+        raise TypeError("TTS volume must be a number")
+
+    voice = settings.get('voice')
+    if not isinstance(voice, str):
+        raise TypeError("TTS voice must be a string")
+
+    return {
+        'speed': float(speed),
+        'volume': float(volume),
+        'voice': voice
+    }
 
 g = Globals()

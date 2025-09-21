@@ -138,9 +138,6 @@ class LlmSelector:
             'provider': 15,        # "Provider"
             'model': 35,           # "Model" (base)
             'host': 20,           # "Host" (base)
-            'branches': 8,         # "Branches"
-            'eval': 6,            # "Eval"
-            'guard': 6,           # "Guard"
             'router': 7,          # "Router"
             'planner': 8,         # "Planner"
             'pricing': 9,        # "Pricing"
@@ -188,18 +185,15 @@ class LlmSelector:
 
 
     def _update_activation_status(self, row_index: int):
-        """Activates a model if its beams, eval, guard, router, or planner count is positive."""
+        """Activates a model if its router or planner count is positive."""
         row_data = self.data[row_index]
-        if row_data.get('beams', 0) > 0 or row_data.get('eval', 0) > 0 or row_data.get('guard', 0) > 0 or row_data.get('router', 0) > 0 or row_data.get('planner', 0) > 0:
+        if row_data.get('router', 0) > 0 or row_data.get('planner', 0) > 0:
             row_data['selected'] = True
 
     def _reset_deselected_model(self, row_index: int):
         """Resets all counts for a model if it's deselected."""
         row_data = self.data[row_index]
         if not row_data.get('selected'):
-            row_data['beams'] = 0
-            row_data['eval'] = 0
-            row_data['guard'] = 0
             row_data['router'] = 0
             row_data['planner'] = 0
 
@@ -507,9 +501,6 @@ class LlmSelector:
 
                     self.data.append({
                         "selected": model_config.get("selected", False),
-                        "beams": model_config.get("beams", 0),
-                        "eval": model_config.get("eval", 0),
-                        "guard": model_config.get("guard", 0),
                         "planner": model_config.get("planner", 0),
                         "provider": "GoogleAPI",
                         "model_key": model_key,
@@ -532,9 +523,6 @@ class LlmSelector:
 
                     self.data.append({
                         "selected": model_config.get("selected", False),
-                        "beams": model_config.get("beams", 0),
-                        "eval": model_config.get("eval", 0),
-                        "guard": model_config.get("guard", 0),
                         "planner": model_config.get("planner", 0),
                         "provider": "GroqAPI",
                         "model_key": model_key,

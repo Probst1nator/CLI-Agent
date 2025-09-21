@@ -251,9 +251,7 @@ class LlmCommand(BaseCommand):
             # Handle specific model selections
             selected_configs = result.get("selected_configs", [])
 
-            # Identify evaluator models and set them in globals
-            evaluator_models = [config['model_key'] for config in selected_configs if config.get('eval', 0) > 0]
-            g.EVALUATOR_LLMS = evaluator_models
+            # No evaluator models needed in simplified system
 
             selected_llms = [config['model_key'] for config in selected_configs]
 
@@ -278,32 +276,16 @@ class LlmCommand(BaseCommand):
                         seen.add(model)
 
                 provider_counts = {}
-                branches_count = eval_count = guard_count = 0
 
                 for model in unique_models:
                     emoji, provider_name = get_provider_emoji_and_name(model)
                     provider_key = f"{emoji} {provider_name}"
                     provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
 
-                for config in selected_configs:
-                    if config.get('beams', 0) > 0 or config.get('branches', 0) > 0:
-                        branches_count += 1
-                    if config.get('eval', 0) > 0:
-                        eval_count += 1
-                    if config.get('guard', 0) > 0:
-                        guard_count += 1
-
                 # Display summary
-                summary_lines = ["Monte Carlo Action Engine Configuration:"]
+                summary_lines = ["LLM Configuration:"]
                 for provider, count in provider_counts.items():
                     summary_lines.append(f"  {provider}: {count} model{'s' if count > 1 else ''}")
-
-                if branches_count > 0:
-                    summary_lines.append(f"  🔀 Branch Generators: {branches_count}")
-                if eval_count > 0:
-                    summary_lines.append(f"  🗳️  Branch Evaluators: {eval_count}")
-                if guard_count > 0:
-                    summary_lines.append(f"  🛡️  Execution Guards: {guard_count}")
 
                 message = "\n".join(summary_lines)
                 print(colored(message, "cyan"))
@@ -783,7 +765,6 @@ class PlannerLlmCommand(BaseCommand):
 
         try:
             from core.globals import g
-            old_planner = g.planner_llm
             g.update_planner_llm(model_key)
 
             if model_key:
@@ -824,7 +805,6 @@ class RouterLlmCommand(BaseCommand):
 
         try:
             from core.globals import g
-            old_router = g.router_llm
             g.update_router_llm(model_key)
 
             if model_key:
@@ -868,7 +848,6 @@ class FallbacksCommand(BaseCommand):
 
         try:
             from core.globals import g
-            old_fallbacks = g.FALLBACK_MODELS.copy()
             g.FALLBACK_MODELS = model_keys
 
             if model_keys:

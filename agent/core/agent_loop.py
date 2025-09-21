@@ -162,52 +162,12 @@ class AgentLoop:
                 context_chat.add_message(Role.USER, user_input, base64_images)
 
             # Process with AI models
-            if self.context.settings.monte_carlo_mode:
-                await self._process_monte_carlo_interaction(context_chat, args)
-            else:
-                await self._process_single_model_interaction(context_chat, args)
+            await self._process_single_model_interaction(context_chat, args)
 
         except Exception as e:
             self.logger.exception("Error in AI interaction")
             print(colored(f"AI interaction error: {str(e)}", "red"))
 
-    async def _process_monte_carlo_interaction(
-        self,
-        context_chat,
-        args: argparse.Namespace
-    ) -> None:
-        """Process interaction using Monte Carlo engine."""
-        try:
-            from agent.monte_carlo.task_group_engine import MonteCarloEngine
-
-            engine = MonteCarloEngine(self.context)
-
-            # Get configuration from context
-            models_for_tasks = self._get_models_for_monte_carlo()
-            temperature = self.context.llm_config.temperature
-
-            # Generate branches using TaskGroup
-            branches = await engine.generate_branches(
-                models_for_tasks=models_for_tasks,
-                context_chat=context_chat,
-                text_stream_painter=self.context.get_utils_manager().stream_painter,
-                temperature=temperature,
-                base64_images=self.context.base64_images,
-                llm_config=self.context.llm_config.__dict__
-            )
-
-            if branches:
-                # For now, use the first branch - voting logic can be added later
-                best_response = branches[0]
-                from core.chat import Role
-                context_chat.add_message(Role.ASSISTANT, best_response)
-                print(colored(f"Response: {best_response}", "green"))
-            else:
-                print(colored("No valid responses generated", "yellow"))
-
-        except Exception as e:
-            self.logger.exception("Monte Carlo processing failed")
-            print(colored(f"Monte Carlo error: {str(e)}", "red"))
 
     async def _process_single_model_interaction(
         self,
@@ -238,11 +198,6 @@ class AgentLoop:
             self.logger.exception("Single model processing failed")
             print(colored(f"Single model error: {str(e)}", "red"))
 
-    def _get_models_for_monte_carlo(self) -> List[str]:
-        """Get list of models for Monte Carlo processing."""
-        # This would be configured based on context settings
-        # For now, return a simple list
-        return [self.context.llm_config.model_key] * 3  # Use same model 3 times
 
     def stop(self) -> None:
         """Stop the agent loop."""

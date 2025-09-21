@@ -39,7 +39,6 @@ class AgentSettings:
     local_mode: bool = False
     online_mode: bool = False
     full_output_mode: bool = False
-    monte_carlo_mode: bool = False
     fast_mode: bool = False
 
 class AppContext:

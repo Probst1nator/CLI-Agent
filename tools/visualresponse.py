@@ -349,12 +349,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 config['model_key'] = model_key
                 selected_configs.append(config)
 
-            # Categorize models by their roles
-            branch_models = [config['model_key'] for config in selected_configs if config.get('beams', 0) > 0 or config.get('branches', 0) > 0]
-            eval_models = [config['model_key'] for config in selected_configs if config.get('eval', 0) > 0]
-            guard_models = [config['model_key'] for config in selected_configs if config.get('guard', 0) > 0]
-
-            # Calculate fallback models (selected but not specialized)
+            # All selected models are treated equally (no specialized roles)
             unique_models = []
             seen = set()
             for model in selected_llms:
@@ -362,19 +357,12 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     unique_models.append(model)
                     seen.add(model)
 
-            specialized_models = set(branch_models + eval_models + guard_models)
-            fallback_models = [model for model in unique_models if model not in specialized_models]
-
             logger.info(f"Served LLM data: {len(llm_data)} models from {len(set(m['provider'] for m in llm_data))} providers")
-            logger.info(f"Current system state: {len(selected_llms)} selected, {len(fallback_models)} fallback models")
+            logger.info(f"Current system state: {len(selected_llms)} selected models")
 
             # DEBUG: Log the final response being sent to UI
             response_config = {
                 'selected_llms': selected_llms,
-                'fallback_models': fallback_models,
-                'branch_models': branch_models,
-                'eval_models': eval_models,
-                'guard_models': guard_models,
                 'planner_llm': planner_llm,
                 'router_llm': router_llm
             }
@@ -386,10 +374,6 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 'total_count': len(llm_data),
                 'current_configuration': {
                     'selected_llms': selected_llms,
-                    'fallback_models': fallback_models,
-                    'branch_models': branch_models,
-                    'eval_models': eval_models,
-                    'guard_models': guard_models,
                     'planner_llm': planner_llm,
                     'router_llm': router_llm
                 }
@@ -888,7 +872,7 @@ class ConsoleWrapper:
         # Write to original stream first
         self.original_stream.write(text)
 
-        # Forward to visual interface (only non-empty, meaningful lines)
+        # Forward to visual interface (only non-empty lines)
         if text.strip() and not text.isspace():
             # Clean text of ANSI escape sequences (comprehensive pattern)
             import re
@@ -899,28 +883,12 @@ class ConsoleWrapper:
             # Also remove any remaining escape sequences
             clean_text = re.sub(r'\x1b.*?[a-zA-Z]', '', clean_text)
 
-            # Skip very short fragments (likely streaming artifacts)
-            if len(clean_text) < 3:
+            # Only skip completely empty lines after ANSI cleaning
+            if not clean_text:
                 return
 
-            # Skip some noisy patterns
-            skip_patterns = [
-                'debug:', 'loading', 'initializing', 'connection',
-                'browser client', 'sent continue_mode', 'successfully sent',
-                'get /', 'http/1.1', 'mozilla/', 'webkit/',
-                # Skip streaming fragments
-                '<think>', '</think>', 'thinking', 'i should', 'i need to',
-                'the user', 'let me', 'i will', 'i can',
-                # Skip ANSI escape sequence fragments
-                '[97m', '[0m', '[91m', '[92m', '[93m', '[94m', '[95m', '[96m'
-            ]
-
-            if not any(pattern in clean_text.lower() for pattern in skip_patterns):
-                # Only send if it's a substantial line (not streaming fragments)
-                if len(clean_text) > 10 or any(important in clean_text.lower() for important in [
-                    'error', 'warning', 'failed', 'success', 'complete', 'started', 'ready'
-                ]):
-                    visualresponse.send_console_log(clean_text, self.level)
+            # Send everything to console log for maximum verbosity
+            visualresponse.send_console_log(clean_text, self.level)
 
     def flush(self):
         self.original_stream.flush()
