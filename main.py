@@ -125,7 +125,6 @@ if str(project_root) not in sys.path:
 from core.tool_context import tool_context
 from tools.primitives.todos import todos
 from tools.readfile import readfile
-from tools.bash import bash
 
 # Import TextResourceManager for general resource creation
 try:
@@ -708,7 +707,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
 warnings.filterwarnings("ignore", message="Unrecognized FinishReason enum value*", module="proto.marshal.rules.enums", category=UserWarning)
 
 # Removed ComputationalNotebook import - using direct tool calls instead
-from core.ai_strengths import AIStrengths
 from core.permissions.path_detector import PathDetector
 from agent.text_painter import TextStreamPainter
 
