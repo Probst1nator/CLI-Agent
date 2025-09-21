@@ -37,12 +37,12 @@ GUI_CONFIG_FILE = Path('.file_copier_config.json')
 
 class WebSocketDiscovery:
     """Handles dynamic WebSocket endpoint discovery"""
-    
+
     def __init__(self):
         self.cached_uri: Optional[str] = None
         self.cache_timestamp = 0
         self.cache_duration = 5  # Shorter cache for testing, 5 seconds
-    
+
     async def discover_websocket_endpoint(self) -> str:
         """Discover WebSocket endpoint using multi-tier strategy"""
 
@@ -50,14 +50,14 @@ class WebSocketDiscovery:
         if self._is_cache_valid():
             print(colored(f"🔄 Using cached WebSocket endpoint: {self.cached_uri}", "cyan"))
             return self.cached_uri  # type: ignore[return-value]
-        
+
         strategies = [
             self._strategy_environment_variables,
             self._strategy_user_config_file,
             self._strategy_gui_config_file,
             self._strategy_port_scanning
         ]
-        
+
         for i, strategy in enumerate(strategies, 1):
             try:
                 uri = await strategy()
@@ -69,54 +69,54 @@ class WebSocketDiscovery:
                     print(colored(f"⚠️  Strategy {i} found URI {uri} but connection failed", "yellow"))
             except Exception as e:
                 print(colored(f"❌ Strategy {i} error: {e}", "red"))
-        
+
         raise ConnectionError("No accessible WebSocket server found using any discovery strategy")
-    
+
     def _is_cache_valid(self) -> bool:
         """Check if cached URI is still valid"""
         return bool(self.cached_uri and
                    time.time() - self.cache_timestamp < self.cache_duration)
-    
+
     def _cache_uri(self, uri: str):
         """Cache successful URI"""
         self.cached_uri = uri
         self.cache_timestamp = time.time()
-    
+
     async def _strategy_environment_variables(self) -> Optional[str]:
         """Strategy 1: Check environment variables"""
         host = os.getenv('GETUSERFILES_HOST', os.getenv('WEBSOCKET_HOST'))
         port = os.getenv('GETUSERFILES_PORT', os.getenv('WEBSOCKET_PORT'))
-        
+
         if port:
             host = host or DEFAULT_HOST
             uri = f"ws://{host}:{port}"
             print(colored(f"🌍 Found environment config: {uri}", "blue"))
             return uri
-        
+
         return None
-    
+
     async def _strategy_user_config_file(self) -> Optional[str]:
         """Strategy 2: Check user config file"""
         if not USER_CONFIG_FILE.exists():
             return None
-            
+
         try:
             with open(USER_CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            
+
             host = config.get('host', DEFAULT_HOST)
             port = config.get('port')
-            
+
             if port:
                 uri = f"ws://{host}:{port}"
                 print(colored(f"📁 Found user config: {uri}", "blue"))
                 return uri
-                
+
         except (json.JSONDecodeError, IOError) as e:
             print(colored(f"⚠️  Error reading user config: {e}", "yellow"))
-        
+
         return None
-    
+
     async def _strategy_gui_config_file(self) -> Optional[str]:
         """Strategy 3: Check GUI config file for active server"""
         config_paths = [
@@ -124,15 +124,15 @@ class WebSocketDiscovery:
             Path.cwd() / '.file_copier_config.json',
             Path.home() / '.file_copier_config.json'
         ]
-        
+
         for config_path in config_paths:
             if not config_path.exists():
                 continue
-                
+
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                
+
                 # Check for websocket server info in global section
                 websocket_config = config.get('global', {}).get('websocket_server')
                 if websocket_config:
@@ -140,16 +140,16 @@ class WebSocketDiscovery:
                     if uri:
                         print(colored(f"🖥️  Found GUI config: {uri}", "blue"))
                         return uri
-                        
+
             except (json.JSONDecodeError, IOError) as e:
                 print(colored(f"⚠️  Error reading GUI config {config_path}: {e}", "yellow"))
-        
+
         return None
-    
+
     async def _strategy_port_scanning(self) -> Optional[str]:
         """Strategy 4: Port range scanning"""
         print(colored(f"🔍 Scanning ports {PORT_RANGE_START}-{PORT_RANGE_END}...", "cyan"))
-        
+
         for port in range(PORT_RANGE_START, PORT_RANGE_END + 1):
             uri = f"ws://{DEFAULT_HOST}:{port}"
             try:
@@ -158,9 +158,9 @@ class WebSocketDiscovery:
                     return uri
             except Exception:
                 continue  # Try next port
-        
+
         return None
-    
+
     async def _test_connection(self, uri: str, quick_test: bool = False) -> bool:
         """Test if WebSocket server responds correctly"""
         try:
@@ -168,12 +168,12 @@ class WebSocketDiscovery:
             async with websockets.connect(uri, open_timeout=timeout) as websocket:
                 # Try to receive content (basic handshake test)
                 content = await asyncio.wait_for(websocket.recv(), timeout=timeout)
-                
+
                 # Basic validation - should not be an error message
                 if content and not str(content).startswith("Error:"):
                     return True
-                    
-        except (websockets.exceptions.ConnectionClosed, 
+
+        except (websockets.exceptions.ConnectionClosed,
                 websockets.exceptions.WebSocketException,
                 ConnectionRefusedError,
                 asyncio.TimeoutError,
@@ -182,7 +182,7 @@ class WebSocketDiscovery:
         except Exception as e:
             if not quick_test:
                 print(colored(f"⚠️  Connection test error for {uri}: {e}", "yellow"))
-        
+
         return False
 
 
@@ -191,7 +191,7 @@ class getuserfiles:
     A tool to retrieve the current file selection and their contents
     from the File Copier GUI application using dynamic discovery.
     """
-    
+
     _discovery = WebSocketDiscovery()
 
     @staticmethod
@@ -215,12 +215,12 @@ class getuserfiles:
         try:
             # Discover the WebSocket endpoint
             uri = await getuserfiles._discovery.discover_websocket_endpoint()
-            
+
             # Connect and retrieve content
             async with websockets.connect(uri, open_timeout=CONNECTION_TIMEOUT) as websocket:
                 content = await asyncio.wait_for(websocket.recv(), timeout=RECEIVE_TIMEOUT)
                 return content
-                
+
         except ConnectionError as e:
             return f"Error: {e}"
         except (ConnectionRefusedError, asyncio.TimeoutError):
@@ -242,14 +242,14 @@ class getuserfiles:
             The string containing the formatted file paths and contents, or an error message.
         """
         print(colored("🖥️  Requesting file context from GUI via WebSocket discovery...", "cyan"))
-        
+
         # Handle both sync and async contexts
         try:
             # Check if we're already in an event loop
             try:
                 # We're in an async context - create a new thread to run the async code
                 import concurrent.futures
-                
+
                 def sync_wrapper():
                     new_loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(new_loop)
@@ -257,18 +257,18 @@ class getuserfiles:
                         return new_loop.run_until_complete(getuserfiles._fetch_content_from_gui())
                     finally:
                         new_loop.close()
-                
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(sync_wrapper)
                     result = future.result(timeout=30)
-                    
+
             except RuntimeError:
                 # No running event loop - we can use asyncio.run normally
                 result = asyncio.run(getuserfiles._fetch_content_from_gui())
-                
+
         except Exception as e:
             result = f"Error: {e}"
-        
+
         if str(result).startswith("Error:"):
             print(colored(f"   -> {result}", "red"))
         else:
@@ -281,7 +281,7 @@ class getuserfiles:
     def create_user_config(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
         """
         Utility method to create user configuration file
-        
+
         Args:
             host: WebSocket server host
             port: WebSocket server port
@@ -293,14 +293,14 @@ class getuserfiles:
             "timeout": CONNECTION_TIMEOUT,
             "created": time.time()
         }
-        
+
         # Ensure config directory exists
         USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        
+
         # Save configuration
         with open(USER_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2)
-            
+
         print(colored(f"✅ User config created: {USER_CONFIG_FILE}", "green"))
         print(colored(f"   Server: ws://{host}:{port}", "cyan"))
 
@@ -308,15 +308,15 @@ class getuserfiles:
 # CLI interface for testing and configuration
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="File Provider Tool with Dynamic Discovery")
     parser.add_argument('--test', action='store_true', help='Run the tool and print the exact content returned by the run method')
     parser.add_argument('--config', action='store_true', help='Create user config file')
     parser.add_argument('--host', default=DEFAULT_HOST, help='WebSocket host for config')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT, help='WebSocket port for config')
-    
+
     args = parser.parse_args()
-    
+
     if args.config:
         getuserfiles.create_user_config(args.host, args.port)
     elif args.test:
@@ -324,7 +324,7 @@ if __name__ == "__main__":
         # The run method already prints its own progress messages.
         # This will execute the full discovery and fetch process.
         result = getuserfiles.run("")
-        
+
         # After the run method completes, print its exact return value.
         print(colored("\n--- Exact Content Returned by run() Method ---", "yellow", attrs=["bold"]))
         print(result)

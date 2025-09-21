@@ -28,10 +28,10 @@ class CommandResponse:
     """Standardized command response with proper typing."""
     result: CommandResult
     message: str = ""
-    base64_images: List[str] = None
+    base64_images: Optional[List[str]] = None
     user_input: str = ""
     should_regenerate: bool = False
-    
+
     def __post_init__(self) -> None:
         if self.base64_images is None:
             self.base64_images = []
@@ -39,65 +39,65 @@ class CommandResponse:
 class BaseCommand(abc.ABC):
     """
     Abstract base class for all CLI-Agent commands.
-    
+
     All commands must inherit from this class and implement the execute method.
     This ensures consistent interfaces and enables dependency injection.
     """
-    
+
     def __init__(self, context: AppContext) -> None:
         self.context = context
         self.logger = context.logger
-        
+
     @property
     @abc.abstractmethod
     def aliases(self) -> List[str]:
         """List of command aliases (e.g., ['/r', '/regenerate'])."""
         pass
-        
+
     @property
     @abc.abstractmethod
     def description(self) -> str:
         """Command description for help text."""
         pass
-        
+
     @property
     def sub_commands(self) -> Optional[Dict[str, str]]:
         """Optional sub-commands with descriptions."""
         return None
-        
+
     @abc.abstractmethod
     async def execute(
-        self, 
+        self,
         args: argparse.Namespace,
         parts: List[str],
         **kwargs: Any
     ) -> CommandResponse:
         """
         Execute the command.
-        
+
         Args:
             args: Parsed command line arguments
             parts: Command parts (e.g., ['/perms', 'list'])
             **kwargs: Additional command-specific arguments
-            
+
         Returns:
             CommandResponse with result and any data
         """
         pass
-        
+
     def validate_args(self, parts: List[str]) -> bool:
         """Validate command arguments. Override for custom validation."""
         return True
-        
+
     def get_help_text(self) -> str:
         """Get formatted help text for this command."""
         help_text = f"{', '.join(self.aliases)}: {self.description}"
-        
+
         if self.sub_commands:
             help_text += "\n  Sub-commands:"
             for sub_cmd, desc in self.sub_commands.items():
                 help_text += f"\n    {sub_cmd}: {desc}"
-                
+
         return help_text
 
 
@@ -106,7 +106,7 @@ class BaseCommand(abc.ABC):
 CommandRegistry = Dict[str, BaseCommand]
 
 def register_command_aliases(
-    registry: CommandRegistry, 
+    registry: CommandRegistry,
     command: BaseCommand
 ) -> None:
     """Register all aliases for a command in the registry."""

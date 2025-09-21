@@ -42,7 +42,7 @@ show_help() {
     echo ""
     echo "Local Options (passed through to main.py):"
     echo "  -h, --help            Show this help message"
-    echo "  -a, --auto            Automatically execute safe commands"
+    echo "  --yolo                Automatically execute safe commands"
     echo "  -c                    Continue last conversation"
     echo "  -l, --local           Use local Ollama backend"
     echo "  -m, --message         Process messages in sequence"

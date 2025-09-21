@@ -8,16 +8,16 @@ class ImportProfiler:
 
     def __call__(self, name, globals=None, locals=None, fromlist=(), level=0):
         start_time = time.time()
-        
+
         # Use the original __import__ function to maintain correct behavior
         module = original_import(name, globals, locals, fromlist, level)
-        
+
         end_time = time.time()
-        
+
         import_time = end_time - start_time
         if import_time > self.threshold:
             self.import_times[name] = import_time
-        
+
         return module
 
     def print_results(self):

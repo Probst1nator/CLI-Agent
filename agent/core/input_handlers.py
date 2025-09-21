@@ -43,7 +43,7 @@ async def get_user_input_with_bindings(
     args: argparse.Namespace,
     context_chat: Optional[Chat],
     prompt: str = colored(" Enter your request: ", 'blue', attrs=["bold"]),
-    input_override: str = None,
+    input_override: Optional[str] = None,
     force_input: bool = False,
     input_event: Optional[asyncio.Event] = None,
     input_lock: Optional[threading.Lock] = None,
@@ -75,7 +75,7 @@ async def get_user_input_with_bindings(
 
 
 # Initialize the stateful flag for the first call.
-get_user_input_with_bindings.is_first_call = True
+# get_user_input_with_bindings.is_first_call = True  # Cannot assign to function
 
 
 async def handle_screenshot_capture() -> List[str]:
@@ -94,11 +94,11 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
     """Handle permission management flags like /permissions, -p, --p."""
     from tools.permissions import permissions
     from termcolor import colored
-    
+
     # Parse the command
     parts = user_input.split()
     command = parts[0]  # /permissions, -p, or --p
-    
+
     try:
         if len(parts) == 1:
             # Just show the list
@@ -108,23 +108,23 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
             result = permissions._list_permissions()
             print(result)
             return
-        
+
         action = parts[1].lower()
-        
+
         if action == "list":
             result = permissions._list_permissions()
             print(result)
-            
+
         elif action == "remove" and len(parts) >= 3:
             perm_id = parts[2]
             result = permissions._remove_permission(perm_id)
             print(result)
-            
+
         elif action == "clear":
             # Ask for confirmation
             print(colored("\n⚠️  WARNING: This will clear ALL saved permissions!", "red", attrs=['bold']))
             print(colored("Type 'yes' to confirm or anything else to cancel:", "yellow"))
-            
+
             try:
                 if get_user_input_func:
                     confirmation, _ = await get_user_input_func(
@@ -139,17 +139,17 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
                 # User pressed Ctrl+C during clear confirmation - treat as cancel
                 print(colored("\n❌ Clear operation cancelled (Ctrl+C).", "yellow"))
                 return
-            
+
             if confirmation.strip().lower() == 'yes':
                 result = permissions._clear_all_permissions()
                 print(result)
             else:
                 print(colored("❌ Clear operation cancelled.", "green"))
-                
+
         elif action == "interactive" or action == "manage":
             # Open interactive manager
             await interactive_permission_manager(get_user_input_func, args, input_event, input_lock, shared_input)
-            
+
         else:
             print(colored(f"❓ Unknown permission action: {action}", "red"))
             print(colored("Usage:", "cyan"))
@@ -160,7 +160,7 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
             print()
             print(colored("Shortcuts:", "cyan"))
             print(colored("  /p list, etc.                    # Same as /permissions", "white"))
-            
+
     except Exception as e:
         print(colored(f"❌ Error handling permission command: {str(e)}", "red"))
 
@@ -169,16 +169,16 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
     """Interactive permission management interface."""
     from tools.permissions import permissions
     from termcolor import colored
-    
+
     print()
     print(colored("🔧 INTERACTIVE PERMISSION MANAGER", "yellow", attrs=['bold']))
     print(colored("═" * 50, "yellow"))
-    
+
     while True:
         # Show current permissions
         result = permissions._list_permissions()
         print(result)
-        
+
         print()
         print(colored("Commands:", "cyan"))
         print(colored("  list                    # Refresh permission list", "white"))
@@ -186,7 +186,7 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
         print(colored("  clear                   # Clear all permissions", "white"))
         print(colored("  exit, quit, back        # Return to main CLI", "white"))
         print()
-        
+
         try:
             if get_user_input_func:
                 user_cmd, _ = await get_user_input_func(
@@ -197,29 +197,29 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
                 )
             else:
                 user_cmd = input(colored("Permissions> ", "cyan"))
-            
+
             user_cmd = user_cmd.strip().lower()
         except KeyboardInterrupt:
             # User pressed Ctrl+C in interactive permission manager - exit gracefully
             print(colored("\n↩️  Returning to main CLI (Ctrl+C)...", "yellow"))
             break
-        
+
         if user_cmd in ['exit', 'quit', 'back', '']:
             print(colored("↩️  Returning to main CLI...", "green"))
             break
-            
+
         elif user_cmd == 'list':
             continue  # Will refresh at top of loop
-            
+
         elif user_cmd.startswith('remove ') and len(user_cmd.split()) >= 2:
             perm_id = user_cmd.split()[1]
             result = permissions._remove_permission(perm_id)
             print(result)
-            
+
         elif user_cmd == 'clear':
             print(colored("\n⚠️  WARNING: This will clear ALL saved permissions!", "red", attrs=['bold']))
             print(colored("Type 'yes' to confirm or anything else to cancel:", "yellow"))
-            
+
             try:
                 if get_user_input_func:
                     confirmation, _ = await get_user_input_func(
@@ -234,13 +234,13 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
                 # User pressed Ctrl+C during clear confirmation - treat as cancel
                 print(colored("\n❌ Clear operation cancelled (Ctrl+C).", "yellow"))
                 continue
-            
+
             if confirmation.strip().lower() == 'yes':
                 result = permissions._clear_all_permissions()
                 print(result)
                 break  # Exit after clearing
             else:
                 print(colored("❌ Clear operation cancelled.", "green"))
-                
+
         else:
             print(colored("❓ Unknown command. Use: list, remove <id>, clear, or exit", "yellow"))

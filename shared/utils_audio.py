@@ -112,7 +112,7 @@ def detect_language(text: str) -> str:
     try:
         predictions = model.predict(cleaned_text, k=10)
         lang_code = predictions[0][0].replace('__label__', '')
-        
+
         # We are only concerned with German vs. English for Piper/Coqui
         return 'de' if lang_code == 'de' else 'en'
     except Exception:
@@ -121,10 +121,10 @@ def detect_language(text: str) -> str:
 def get_torch_device(force_reset: bool = False) -> str:
     """Determine the most appropriate device (CUDA or CPU) for PyTorch operations."""
     global _device
-    
+
     if force_reset:
         _device = None
-    
+
     if _device is None:
         env_device = os.getenv('CLIAGENT_FORCE_DEVICE')
         if env_device:
@@ -132,14 +132,14 @@ def get_torch_device(force_reset: bool = False) -> str:
             if ENABLE_EXTENDED_LOGGING:
                 print(f"<{colored('System', 'cyan')}> Using environment device override: {_device}")
             return _device
-            
+
         try:
             import torch
             if torch.cuda.is_available():
                 gpu_name = torch.cuda.get_device_name(0)
                 if ENABLE_EXTENDED_LOGGING:
                     print(f"<{colored('System', 'blue')}> Detected GPU: {gpu_name}")
-                
+
                 if "1080" in gpu_name:
                     _device = "cpu"
                     if ENABLE_EXTENDED_LOGGING:
@@ -156,19 +156,19 @@ def get_torch_device(force_reset: bool = False) -> str:
             _device = "cpu"
             if ENABLE_EXTENDED_LOGGING:
                 print(f"<{colored('System', 'yellow')}> PyTorch not available, using CPU")
-    
+
     return _device
 
 
 def initialize_faster_whisper_model(model_size: str = "small", compute_type: str = None, force_reset: bool = False) -> bool:
     """Lazily initialize the Faster-Whisper model, caching it for subsequent uses."""
     global _faster_whisper_model, _faster_whisper_model_key
-    
+
     if force_reset:
         _faster_whisper_model, _faster_whisper_model_key = None, None
         if ENABLE_EXTENDED_LOGGING:
             print(f"<{colored('Faster-Whisper', 'cyan')}> Model cache reset requested")
-    
+
     try:
         from faster_whisper import WhisperModel
         if ENABLE_EXTENDED_LOGGING:
@@ -177,31 +177,31 @@ def initialize_faster_whisper_model(model_size: str = "small", compute_type: str
         print(f"<{colored('Error', 'red')}> Faster-Whisper not installed: {e}")
         print(f"<{colored('Info', 'yellow')}> Install with: pip install faster-whisper")
         return False
-    
+
     device = get_torch_device(force_reset=force_reset)
     if compute_type is None:
         compute_type = "int8" if device == "cpu" else "float32"
-    
+
     model_key = f"{model_size}_{compute_type}_{device}"
-    
+
     if _faster_whisper_model and _faster_whisper_model_key == model_key and not force_reset:
         if ENABLE_EXTENDED_LOGGING:
             print(f"<{colored('Faster-Whisper', 'green')}> Model already loaded: {model_key}")
         return True
-    
+
     print(f"<{colored('Faster-Whisper', 'magenta')}> Loading '{model_size}' model...")
-    
+
     try:
         _faster_whisper_model = WhisperModel(model_size, device=device, compute_type=compute_type)
         _faster_whisper_model_key = model_key
         print(f"<{colored('Faster-Whisper', 'green')}> Model loaded successfully! ({model_key})")
         return True
-        
+
     except Exception as e:
         print(f"<{colored('Faster-Whisper', 'red')}> Failed to load model '{model_key}': {e}")
         if ENABLE_EXTENDED_LOGGING:
             print(f"<{colored('Debug', 'yellow')}> Device: {device}, Compute Type: {compute_type}")
-        
+
         if compute_type != "int8":
             if ENABLE_EXTENDED_LOGGING:
                 print(f"<{colored('Fallback', 'cyan')}> Trying fallback with int8 compute type...")
@@ -212,7 +212,7 @@ def initialize_faster_whisper_model(model_size: str = "small", compute_type: str
                 return True
             except Exception as fallback_e:
                 print(f"<{colored('Faster-Whisper', 'red')}> Fallback also failed: {fallback_e}")
-        
+
         _faster_whisper_model = None
         return False
 
@@ -249,7 +249,7 @@ def _transcribe_with_faster_whisper(
     """Transcribe audio with Faster-Whisper, with optional Google fallback."""
     if ENABLE_EXTENDED_LOGGING:
         print(f"<{colored('Faster-Whisper', 'cyan')}> Starting local transcription...")
-    
+
     if not _faster_whisper_model:
         print(f"<{colored('Faster-Whisper', 'red')}> Local transcription unavailable - model not initialized")
         if fallback_to_google:
@@ -270,39 +270,39 @@ def _transcribe_with_faster_whisper(
 
     if ENABLE_EXTENDED_LOGGING:
         save_debug_audio(audio_array, sample_rate, "faster_whisper_input")
-    
+
     audio_float32 = audio_array.astype(np.float32)
     rms_original = np.sqrt(np.mean(audio_float32**2))
-    
+
     if rms_original > 0 and rms_original < 0.05:
         boost_factor = min(0.15 / rms_original, 15.0)
         audio_float32 *= boost_factor
         if ENABLE_EXTENDED_LOGGING:
             print(f"<{colored('Audio-Boost', 'yellow')}> Quiet audio detected (RMS={rms_original:.4f}), boosting by {boost_factor:.1f}x")
-    
+
     max_val = np.max(np.abs(audio_float32))
     if max_val > 1.0:
         audio_float32 = audio_float32 / max_val
-    
+
     if ENABLE_EXTENDED_LOGGING:
         duration = len(audio_float32) / sample_rate
         rms = np.sqrt(np.mean(audio_float32**2))
         print(f"<{colored('Faster-Whisper', 'blue')}> Audio: {duration:.1f}s, RMS={rms:.3f}")
         print(f"<{colored('Faster-Whisper', 'blue')}> Parameters: {transcription_params}")
-    
+
     try:
         segments, info = _faster_whisper_model.transcribe(
             audio_float32, vad_filter=True, **transcription_params
         )
-        
+
         full_text = " ".join([seg.text.strip() for seg in segments]).strip()
         detected_language = getattr(info, 'language', 'unknown')
-        
+
         if ENABLE_EXTENDED_LOGGING and hasattr(info, 'language_probability'):
             print(f"<{colored('Faster-Whisper', 'blue')}> Detected language: '{detected_language}' with probability {info.language_probability:.2f}")
-        
+
         print(f"<{colored('Whisper', 'green')}> Transcription: '{full_text}'")
-        
+
         if fallback_to_google and (not full_text or full_text in ["...", ". . .", "... ..."]):
             if ENABLE_EXTENDED_LOGGING:
                 print(f"<{colored('Fallback', 'cyan')}> Trying Google Speech Recognition...")
@@ -312,9 +312,9 @@ def _transcribe_with_faster_whisper(
             if google_result and len(google_result.strip()) > 3:
                 print(f"<{colored('Fallback', 'green')}> Using Google result: '{google_result}'")
                 return google_result, detected_language
-        
+
         return full_text, detected_language
-        
+
     except Exception as e:
         print(f"<{colored('Faster-Whisper', 'red')}> Transcription failed: {e}")
         if fallback_to_google:
@@ -330,12 +330,12 @@ def save_debug_audio(audio_array: np.ndarray, sample_rate: int = 16000, prefix: 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     temp_dir = tempfile.gettempdir()
     filepath = os.path.join(temp_dir, f"{prefix}_{timestamp}.wav")
-    
+
     audio_float32 = audio_array.astype(np.float32)
     max_val = np.max(np.abs(audio_float32))
     if max_val > 1.0:
         audio_float32 /= max_val
-    
+
     sf.write(filepath, audio_float32, sample_rate)
     if ENABLE_EXTENDED_LOGGING:
         print(f"<{colored('Debug', 'cyan')}> Audio saved to: {filepath}")
@@ -402,15 +402,15 @@ def play_audio(audio_array: np.ndarray, sample_rate: int, blocking: bool = True,
         max_val = np.max(np.abs(audio_float32))
         if max_val > 0:
             audio_float32 /= max_val
-        
+
         # Apply volume control
         audio_float32 *= volume
-        
+
         # Ensure mono audio is properly formatted
         if len(audio_float32.shape) == 1:
             # Mono audio - reshape to (samples, 1) for sounddevice
             audio_float32 = audio_float32.reshape(-1, 1)
-        
+
         # Play with explicit parameters to avoid channel conflicts
         sd.play(audio_float32, samplerate=sample_rate, blocking=blocking)
         if blocking:
@@ -423,31 +423,31 @@ def play_audio(audio_array: np.ndarray, sample_rate: int, blocking: bool = True,
 
 
 def listen_microphone(
-    max_listening_duration: Optional[int] = 60, 
-    private_remote_wake_detection: bool = False, 
+    max_listening_duration: Optional[int] = 60,
+    private_remote_wake_detection: bool = False,
     remote_voice_enabled: bool = False,
     language: Optional[str] = None
 ) -> Tuple[str, str, bool|str]:
     """High-level function to record audio and transcribe it using Faster-Whisper."""
     audio_data = record_audio(max_duration=float(max_listening_duration or 60))
-    
+
     if audio_data is None:
         return "", "unknown", False
-        
+
     if ENABLE_EXTENDED_LOGGING:
         print(f"<{colored('Debug', 'yellow')}> Original audio array shape: {audio_data.shape}")
-    
+
     audio_data = audio_data.flatten()
-    
+
     if ENABLE_EXTENDED_LOGGING:
         print(f"<{colored('Debug', 'yellow')}> Flattened audio array shape: {audio_data.shape}")
-    
+
     initialize_faster_whisper_model("small")
-    
+
     transcription, detected_language = _transcribe_with_faster_whisper(
         audio_data, 16000, language=language, fallback_to_google=remote_voice_enabled
     )
-    
+
     return transcription, detected_language, False
 
 
@@ -462,7 +462,7 @@ def record_audio(
         threshold = float(os.environ.get('CLIAGENT_AUDIO_THRESHOLD', '0.02'))
     if silence_duration is None:
         silence_duration = float(os.environ.get('CLIAGENT_SILENCE_DURATION', '2.0'))
-    
+
     play_notification()
     time.sleep(1)
     print(f"<{colored('Recording', 'red')}> Listening...")
@@ -517,7 +517,7 @@ def initialize_whisper_model(model_key: str = None) -> None:
 
     if model_key is None:
         model_key = get_optimal_whisper_model()
-    
+
     if _whisper_model and _whisper_model_key == model_key:
         return
 
@@ -532,7 +532,7 @@ def initialize_whisper_model(model_key: str = None) -> None:
                 break
         else:
             model_key = 'tiny'
-    
+
     print(f"<{colored('Whisper', 'magenta')}> Loading '{model_key}' model...")
     _whisper_model = whisper.load_model(model_key, device=get_torch_device())
     _whisper_model_key = model_key
@@ -546,11 +546,11 @@ def get_optimal_whisper_model() -> str:
         if not torch.cuda.is_available():
             if ENABLE_EXTENDED_LOGGING: print(f"<{colored('Whisper', 'yellow')}> No CUDA, using 'base' model")
             return 'base'
-        
+
         torch.cuda.empty_cache()
         free_memory_gb = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)) / (1024**3)
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('System', 'blue')}> Free GPU Memory: {free_memory_gb:.1f}GB")
-        
+
         model = 'large' if free_memory_gb > 4.0 else 'medium' if free_memory_gb > 2.0 else 'small' if free_memory_gb > 1.0 else 'base'
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('Whisper', 'green')}> Selected '{model}' model based on memory")
         return model
@@ -573,7 +573,7 @@ def transcribe_audio(
             return _transcribe_with_faster_whisper(audio_array, sample_rate, language=language)
         except Exception as e:
             print(f"<{colored('System', 'yellow')}> Faster-Whisper failed: {e}. Falling back to OpenAI Whisper...")
-    
+
     initialize_whisper_model(whisper_model_key)
     if not _whisper_model:
         return "Error: Whisper model not initialized.", "unknown"
@@ -581,12 +581,12 @@ def transcribe_audio(
     if ENABLE_EXTENDED_LOGGING:
         print(f"<{colored('Whisper', 'magenta')}> Transcribing audio with OpenAI Whisper...")
         save_debug_audio(audio_array, sample_rate, "whisper_input")
-    
+
     audio_float32 = audio_array.astype(np.float32)
     max_val = np.max(np.abs(audio_float32))
     if max_val > 0:
         audio_float32 /= max_val
-    
+
     text, detected_language = "", "unknown"
     try:
         result = _whisper_model.transcribe(
@@ -623,47 +623,47 @@ def initialize_tts_pipeline(model_id: str) -> bool:
 
 def text_to_speech(
     text: str, voice: str = "default", speed: float = 1.0, volume: float = 0.8,
-    output_path: Optional[str] = None, play: bool = True, use_piper: bool = True, 
-    language: str = "auto", gender: str = "female", quality: str = "medium", 
+    output_path: Optional[str] = None, play: bool = True, use_piper: bool = True,
+    language: str = "auto", gender: str = "female", quality: str = "medium",
     **generation_kwargs: Any
 ) -> bool:
     """
     Convert text to speech using multiple TTS engines.
-    
+
     Tries engines in order: Piper (local) > Coqui > HuggingFace > OpenAI > ElevenLabs > System.
-    
+
     Args:
         text: Text to convert to speech
         voice: Voice model ("default", "en_GB-alba-medium", "alloy", etc.)
         speed: Speech speed multiplier (0.5-2.0)
         volume: Audio volume (0.0-1.0+)
         output_path: File path to save audio (None = don't save)
-        play: Whether to play audio immediately 
+        play: Whether to play audio immediately
         use_piper: Include Piper TTS in engine priority
         language: Language code ("auto", "en", "de")
         gender: Voice gender preference ("female", "male")
         quality: Quality level ("low", "medium", "high")
-        
+
     Returns:
         Success: bool
     """
     if ENABLE_EXTENDED_LOGGING:
         print(f"<{colored('TTS', 'cyan')}> Converting text to speech: '{text[:50]}...'")
-    
+
     # Resolve language if set to 'auto' using our robust detector
     resolved_language = language
     if language == "auto":
         resolved_language = detect_language(text)
         if ENABLE_EXTENDED_LOGGING:
             print(f"<{colored('LangDetect', 'blue')}> Auto-detected language as: {resolved_language}")
-    
+
     # Try engines in priority order
     try:
         from core.globals import g
         engine_priority = g.TTS_ENGINE_PRIORITY
     except:
         engine_priority = ["piper", "coqui", "huggingface", "system", "openai", "elevenlabs"]
-    
+
     # 1. Try Piper TTS first (working, natural, offline)
     if use_piper:
         try:
@@ -682,77 +682,77 @@ def text_to_speech(
             elif ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Piper', 'yellow')}> Piper TTS not available, falling back")
         except (ImportError, Exception) as e:
             if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Piper', 'yellow')}> Piper TTS error: {e}, falling back")
-    
+
     # 2. Try Coqui TTS (XTTS model for natural speech)
     # Pass the already resolved language to avoid re-detecting
     if _try_coqui_tts(text, voice, speed, output_path, play, language=resolved_language, volume=volume, **generation_kwargs):
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'green')}> Coqui TTS synthesis successful")
         return True
-    
+
     # 3. Try improved Hugging Face models
     if _try_modern_hf_tts(text, voice, speed, output_path, play, volume=volume, **generation_kwargs):
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS HF Modern', 'green')}> Modern HF TTS synthesis successful")
         return True
-    
+
     # 4. Try remote APIs if allowed
     if _try_openai_tts(text, voice, speed, output_path, play, volume=volume, **generation_kwargs):
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS OpenAI', 'green')}> OpenAI TTS synthesis successful")
         return True
-    
+
     if _try_elevenlabs_tts(text, voice, speed, output_path, play, volume=volume, **generation_kwargs):
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS ElevenLabs', 'green')}> ElevenLabs TTS synthesis successful")
         return True
-    
+
     # 5. Last resort: System TTS
     if _try_improved_system_tts(text, volume=volume):
         return True
-    
+
     print(f"<{colored('TTS Fallback', 'red')}> All TTS methods failed.")
     return False
 
 def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
-                  output_path: Optional[str] = None, play: bool = True, 
+                  output_path: Optional[str] = None, play: bool = True,
                   language: str = "auto", volume: float = 1.0, **kwargs) -> bool:
     """Try Coqui TTS XTTS model for natural multi-lingual speech."""
     try:
         from TTS.api import TTS
         import tempfile
-        
+
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'magenta')}> Using Coqui XTTS")
-        
+
         model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
         tts = TTS(model_name, progress_bar=False, gpu=get_torch_device() == "cuda")
-        
+
         # Resolve language if it's still 'auto' (though it should be pre-resolved)
         resolved_language = language
         if language == "auto":
             resolved_language = detect_language(text)
-        
+
         temp_output = None
         effective_output_path = output_path
         if not effective_output_path:
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
                 effective_output_path = tmp_file.name
             temp_output = effective_output_path
-        
+
         tts.tts_to_file(
             text=text,
             file_path=effective_output_path,
             language=resolved_language,
             speed=speed
         )
-        
+
         if play:
             _play_audio_file_simple(effective_output_path, volume)
-        
+
         if temp_output:
             try:
                 os.unlink(temp_output)
             except:
                 pass
-        
+
         return True
-        
+
     except ImportError:
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'yellow')}> Coqui TTS library not available")
         return False
@@ -761,38 +761,38 @@ def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
         return False
 
 
-def _try_openai_tts(text: str, voice: str = "default", speed: float = 1.0, 
+def _try_openai_tts(text: str, voice: str = "default", speed: float = 1.0,
                    output_path: Optional[str] = None, play: bool = True, volume: float = 1.0, **kwargs) -> bool:
     """Try OpenAI TTS API for highest quality speech synthesis."""
     try:
         import openai
         import tempfile
-        
+
         # Check for API key
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS OpenAI', 'yellow')}> No API key found")
             return False
-        
+
         client = openai.OpenAI(api_key=api_key)
-        
+
         # Map voice names to OpenAI voices
         voice_map = {
             "default": "nova",
-            "female": "nova", 
+            "female": "nova",
             "male": "onyx",
             "alloy": "alloy",
-            "echo": "echo", 
+            "echo": "echo",
             "fable": "fable",
             "nova": "nova",
             "onyx": "onyx",
             "shimmer": "shimmer"
         }
-        
+
         openai_voice = voice_map.get(voice, "nova")
-        
+
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS OpenAI', 'magenta')}> Using OpenAI TTS with voice: {openai_voice}")
-        
+
         # Create TTS request
         response = client.audio.speech.create(
             model="tts-1-hd",  # Use HD model for better quality
@@ -800,29 +800,29 @@ def _try_openai_tts(text: str, voice: str = "default", speed: float = 1.0,
             input=text,
             speed=max(0.25, min(4.0, speed))  # OpenAI accepts 0.25 to 4.0
         )
-        
+
         # Handle output
         if output_path:
             with open(output_path, 'wb') as f:
                 f.write(response.content)
-        
+
         if play:
             with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp_file:
                 tmp_file.write(response.content)
                 tmp_path = tmp_file.name
-            
+
             # Play the audio with volume control
             _play_audio_file_simple(tmp_path, volume)
-            
+
             # Clean up if no permanent file
             if not output_path:
                 try:
                     os.unlink(tmp_path)
                 except:
                     pass
-        
+
         return True
-        
+
     except ImportError:
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS OpenAI', 'yellow')}> OpenAI library not available")
         return False
@@ -837,13 +837,13 @@ def _try_elevenlabs_tts(text: str, voice: str = "default", speed: float = 1.0,
     try:
         import requests
         import tempfile
-        
+
         # Check for API key
         api_key = os.getenv('ELEVENLABS_API_KEY')
         if not api_key:
             if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS ElevenLabs', 'yellow')}> No API key found")
             return False
-        
+
         # Map voice names to ElevenLabs voice IDs (popular voices)
         voice_map = {
             "default": "21m00Tcm4TlvDq8ikWAM",  # Rachel
@@ -854,11 +854,11 @@ def _try_elevenlabs_tts(text: str, voice: str = "default", speed: float = 1.0,
             "clyde": "2EiwWnXFnvU5JabPnv8n",
             "dave": "CYw3kZ02Hs0563khs1Fj"
         }
-        
+
         voice_id = voice_map.get(voice, voice_map["default"])
-        
+
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS ElevenLabs', 'magenta')}> Using ElevenLabs TTS")
-        
+
         # Create TTS request
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         headers = {
@@ -866,7 +866,7 @@ def _try_elevenlabs_tts(text: str, voice: str = "default", speed: float = 1.0,
             "Content-Type": "application/json",
             "xi-api-key": api_key
         }
-        
+
         data = {
             "text": text,
             "model_id": "eleven_monolingual_v1",
@@ -876,35 +876,35 @@ def _try_elevenlabs_tts(text: str, voice: str = "default", speed: float = 1.0,
                 "speed": max(0.5, min(2.0, speed))  # ElevenLabs accepts 0.5 to 2.0
             }
         }
-        
+
         response = requests.post(url, json=data, headers=headers, timeout=30)
-        
+
         if response.status_code == 200:
             # Handle output
             if output_path:
                 with open(output_path, 'wb') as f:
                     f.write(response.content)
-            
+
             if play:
                 with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp_file:
                     tmp_file.write(response.content)
                     tmp_path = tmp_file.name
-                
+
                 # Play the audio with volume control
                 _play_audio_file_simple(tmp_path, volume)
-                
+
                 # Clean up if no permanent file
                 if not output_path:
                     try:
                         os.unlink(tmp_path)
                     except:
                         pass
-            
+
             return True
         else:
             if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS ElevenLabs', 'yellow')}> API error: {response.status_code}")
             return False
-            
+
     except ImportError:
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS ElevenLabs', 'yellow')}> Requests library not available")
         return False
@@ -914,32 +914,32 @@ def _try_elevenlabs_tts(text: str, voice: str = "default", speed: float = 1.0,
 
 
 def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
-                  output_path: Optional[str] = None, play: bool = True, 
+                  output_path: Optional[str] = None, play: bool = True,
                   language: str = "auto", volume: float = 1.0, **kwargs) -> bool:
     """Try Coqui TTS XTTS model for natural multi-lingual speech."""
     try:
         from TTS.api import TTS
         import tempfile
-        
+
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'magenta')}> Using Coqui XTTS")
-        
+
         # Initialize XTTS model (supports multiple languages and voice cloning)
         model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
         tts = TTS(model_name, progress_bar=False, gpu=get_torch_device() == "cuda")
-        
+
         # Auto-detect language
         if language == "auto":
             german_indicators = ["der", "die", "das", "und", "ist", "können", "wasserstoff"]
             text_lower = text.lower()
             language = "de" if any(word in text_lower for word in german_indicators) else "en"
-        
+
         # Create temporary output if needed
         temp_output = None
         if not output_path:
             temp_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
             output_path = temp_output.name
             temp_output.close()
-        
+
         # Generate speech
         tts.tts_to_file(
             text=text,
@@ -947,19 +947,19 @@ def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
             language=language,
             speed=speed
         )
-        
+
         if play:
             _play_audio_file_simple(output_path, volume)
-        
+
         # Clean up temporary file if created
         if temp_output and not play:
             try:
                 os.unlink(output_path)
             except:
                 pass
-        
+
         return True
-        
+
     except ImportError:
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'yellow')}> Coqui TTS library not available")
         return False
@@ -974,24 +974,24 @@ def _try_modern_hf_tts(text: str, voice: str = "default", speed: float = 1.0,
     try:
         from transformers import pipeline
         import tempfile
-        
+
         # Use better HF models
         modern_models = [
             "microsoft/speecht5_tts",  # Keep as fallback but use better voices
             "facebook/mms-tts-eng",    # Meta's multilingual model
             "espnet/kan-bayashi_ljspeech_vits",  # VITS model
         ]
-        
+
         for model_name in modern_models:
             try:
                 if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS HF Modern', 'magenta')}> Trying {model_name}")
-                
+
                 synthesizer = pipeline("text-to-speech", model=model_name, device=get_torch_device())
-                
+
                 # Generate speech
                 output = synthesizer(text)
                 audio_array, sample_rate = output["audio"], output["sampling_rate"]
-                
+
                 # Handle speed adjustment
                 if speed != 1.0:
                     try:
@@ -1000,22 +1000,22 @@ def _try_modern_hf_tts(text: str, voice: str = "default", speed: float = 1.0,
                         audio_array = scipy.signal.resample(audio_array, new_length)
                     except ImportError:
                         pass  # Skip speed adjustment if scipy not available
-                
+
                 # Save to file if requested
                 if output_path:
                     sf.write(output_path, audio_array, sample_rate)
-                
+
                 if play:
                     play_audio(audio_array, sample_rate, volume=volume)
-                
+
                 return True
-                
+
             except Exception as model_error:
                 if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS HF Modern', 'yellow')}> Model {model_name} failed: {model_error}")
                 continue
-        
+
         return False
-        
+
     except ImportError:
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS HF Modern', 'yellow')}> Transformers library not available")
         return False
@@ -1031,7 +1031,7 @@ def _play_audio_file_simple(audio_path: str, volume: float = 1.0) -> None:
         try:
             import sounddevice as sd
             import soundfile as sf
-            
+
             audio_data, sample_rate = sf.read(audio_path)
             # Apply volume control
             audio_data = audio_data * volume
@@ -1040,20 +1040,20 @@ def _play_audio_file_simple(audio_path: str, volume: float = 1.0) -> None:
             return
         except ImportError:
             pass
-        
+
         # Fallback to system audio players (limited volume control)
         import platform
         import subprocess
-        
+
         system = platform.system().lower()
-        
+
         # Note: System players don't have easy volume control, but at least they work
         if system == "linux":
             # Try multiple Linux audio players
             players = ['aplay', 'paplay', 'sox', 'ffplay']
             for player in players:
                 try:
-                    subprocess.run([player, audio_path], check=True, 
+                    subprocess.run([player, audio_path], check=True,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
                     return
                 except (FileNotFoundError, subprocess.CalledProcessError):
@@ -1064,7 +1064,7 @@ def _play_audio_file_simple(audio_path: str, volume: float = 1.0) -> None:
             subprocess.run(['start', audio_path], shell=True, check=True, timeout=30)
         else:
             logger.warning(f"No audio playback method for {system}")
-            
+
     except Exception as e:
         logger.error(f"Failed to play audio file {audio_path}: {e}")
 
@@ -1080,7 +1080,7 @@ def _try_improved_system_tts(text: str, volume: float = 1.0) -> bool:
         ['espeak-ng', text],     # espeak-ng (improved espeak)
         ['espeak', text]         # espeak (last resort - robotic)
     ]
-    
+
     for cmd in tts_commands:
         try:
             process_args = {'check': True, 'timeout': 10, 'capture_output': True}
@@ -1092,7 +1092,7 @@ def _try_improved_system_tts(text: str, volume: float = 1.0) -> bool:
             return True
         except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             continue
-    
+
     if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS System', 'red')}> No working system TTS found")
     return False
 

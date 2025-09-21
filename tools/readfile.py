@@ -20,7 +20,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 try:
-    from tool_context import tool_context
+    from core.tool_context import tool_context
     TOOL_CONTEXT_AVAILABLE = True
 except ImportError:
     TOOL_CONTEXT_AVAILABLE = False
@@ -42,7 +42,7 @@ class readfile:
     # This helps manage the LLM's context window and reduces token usage.
     CHUNK_LIMIT = 20000
     CONTENT_THRESHOLD = 20000  # Threshold for using resource manager
-    
+
     # State file to track truncated reads
     STATE_FILE = os.path.expanduser("~/.readfile_state.json")
 
@@ -62,7 +62,7 @@ class readfile:
         except OSError:
             # If we can't get mtime, use just the path
             return hashlib.md5(abs_path.encode()).hexdigest()
-    
+
     @staticmethod
     def _load_truncation_state() -> dict:
         """Load the state of previously truncated files."""
@@ -73,7 +73,7 @@ class readfile:
         except (json.JSONDecodeError, IOError):
             pass
         return {}
-    
+
     @staticmethod
     def _save_truncation_state(state: dict):
         """Save the state of truncated files."""
@@ -83,7 +83,7 @@ class readfile:
         except IOError:
             # Silently fail if we can't save state
             pass
-    
+
     @staticmethod
     def _mark_file_truncated(filepath: str):
         """Mark a file as having been truncated in a previous read."""
@@ -94,14 +94,14 @@ class readfile:
             'truncated': True
         }
         readfile._save_truncation_state(state)
-    
+
     @staticmethod
     def _was_file_truncated(filepath: str) -> bool:
         """Check if a file was previously truncated."""
         file_hash = readfile._get_file_hash(filepath)
         state = readfile._load_truncation_state()
         return file_hash in state and state[file_hash].get('truncated', False)
-    
+
     @staticmethod
     def _clear_truncation_state(filepath: str):
         """Clear the truncation state for a file after showing full content."""
@@ -110,58 +110,57 @@ class readfile:
         if file_hash in state:
             del state[file_hash]
             readfile._save_truncation_state(state)
-    
+
     @staticmethod
     def _parse_line_range(line_spec: str) -> tuple:
         """Parse line specification into (start_line, end_line).
-        
+
         Supports:
         - Single line: "15" -> (15, 15)
-        - Range: "10-20" -> (10, 20)  
+        - Range: "10-20" -> (10, 20)
         - Open range: "10-" -> (10, None)
         - From start: "-20" -> (1, 20)
         """
         line_spec = line_spec.strip()
-        
+
         if '-' in line_spec:
             parts = line_spec.split('-', 1)
             start_str, end_str = parts[0].strip(), parts[1].strip()
-            
+
             start_line = int(start_str) if start_str else 1
             end_line = int(end_str) if end_str else None
-            
+
             return (start_line, end_line)
         else:
             # Single line
             line_num = int(line_spec)
             return (line_num, line_num)
-    
+
     @staticmethod
     def _extract_lines(content: str, start_line: int, end_line: int = None) -> str:
         """Extract specific lines from file content."""
         lines = content.splitlines(keepends=True)
         total_lines = len(lines)
-        
+
         # Convert to 0-based indexing
         start_idx = max(0, start_line - 1)
-        
+
         if end_line is None:
             # Read from start_line to end of file
             end_idx = total_lines
         else:
             end_idx = min(total_lines, end_line)
-        
+
         if start_idx >= total_lines:
             return f"Error: Start line {start_line} exceeds file length ({total_lines} lines)"
-        
+
         selected_lines = lines[start_idx:end_idx]
-        
+
         # Add line numbers for clarity
         result_lines = []
         for i, line in enumerate(selected_lines, start=start_line):
             result_lines.append(f"{i:4d}→{line}" if line.endswith('\n') else f"{i:4d}→{line}\n")
-        
-        filename = "file"  # This will be set by caller
+
         header = f"Lines {start_line}-{end_line if end_line else total_lines} ({total_lines} total lines):\n"
         return header + ''.join(result_lines)
 
@@ -171,37 +170,38 @@ class readfile:
         return {
             "name": "readfile",
             "description": (
-                f"Reads the content of a file. Supports text, images, and specific line ranges. "
-                f"IMPORTANT: If a file's content is larger than {readfile.CONTENT_THRESHOLD} characters, it is NOT returned directly. "
-                f"Instead, a `resource_id` is returned. You MUST then use the `searchtext` tool to inspect the content."
+                "Supports text and image files. "
+                "Large text files are automatically handled by the system - if content exceeds limits, "
+                "a resource_id is provided and you can use the `searchtext` tool to inspect the content."
             ),
             "example": (
-                "<readfile>./src/main.py</readfile> <!-- If file is large, this returns a resource_id -->\n"
-                "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>"
+                "<readfile>./src/main.py</readfile>\n"
+                "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>\n"
+                "<readfile>./screenshot.png</readfile>\n"
             )
         }
-    
+
     @staticmethod
     def is_image_file(filepath: str) -> bool:
         """Check if the file is an image based on its extension, MIME type, and magic bytes."""
         # Common image extensions
         image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico', '.tiff', '.tif'}
-        
+
         # Check file extension
         _, ext = os.path.splitext(filepath.lower())
         if ext in image_extensions:
             return True
-        
+
         # Also check MIME type
         mime_type, _ = mimetypes.guess_type(filepath)
         if mime_type and mime_type.startswith('image/'):
             return True
-        
+
         # For files without extensions or unclear MIME types, check magic bytes
         try:
             with open(filepath, 'rb') as f:
                 header = f.read(20)  # Read first 20 bytes
-                
+
             # Check for common image magic bytes
             if header.startswith(b'\x89PNG'):  # PNG
                 return True
@@ -217,21 +217,21 @@ class readfile:
                 return True
             elif header.startswith((b'II*\x00', b'MM\x00*')):  # TIFF
                 return True
-                
+
         except Exception:
             # If we can't read the file, fall back to extension/MIME type only
             pass
-        
+
         return False
-    
+
     @staticmethod
     def process_image_file(filepath: str) -> str:
         """
         Process an image file by encoding it as base64 and registering it with the tool context.
-        
+
         Args:
             filepath: Path to the image file
-            
+
         Returns:
             A description message about the processed image
         """
@@ -239,12 +239,12 @@ class readfile:
             # Get file info
             file_size = os.path.getsize(filepath)
             mime_type, _ = mimetypes.guess_type(filepath)
-            
+
             # Read and encode the image
             with open(filepath, 'rb') as image_file:
                 image_data = image_file.read()
                 base64_data = base64.b64encode(image_data).decode('utf-8')
-            
+
             # If MIME type is unknown, try to detect from magic bytes
             if not mime_type:
                 header = image_data[:20] if len(image_data) >= 20 else image_data
@@ -258,19 +258,19 @@ class readfile:
                     mime_type = 'image/bmp'
                 elif header.startswith(b'RIFF') and b'WEBP' in header:
                     mime_type = 'image/webp'
-            
+
             # Create description
             filename = os.path.basename(filepath)
             size_kb = file_size / 1024
             description = f"Image: {filename} ({mime_type or 'unknown type'}, {size_kb:.1f} KB)"
-            
+
             # Register with tool context if available
             if TOOL_CONTEXT_AVAILABLE:
                 tool_context.add_base64_image(base64_data, description)
                 return f"📸 Image loaded: {description}\n[Image has been processed and is now available for analysis]"
             else:
                 return f"📸 Image detected: {description}\n[Warning: Tool context not available - image analysis may be limited]"
-                
+
         except Exception as e:
             return f"Error processing image file '{filepath}': {str(e)}"
 
@@ -290,11 +290,11 @@ class readfile:
         """
         try:
             import re
-            
+
             # Check if input is XML format with filepath and lines tags
             filepath_match = re.search(r'<filepath>(.*?)</filepath>', content, re.DOTALL)
             lines_match = re.search(r'<lines>(.*?)</lines>', content, re.DOTALL)
-            
+
             if filepath_match:
                 # XML format
                 filepath = filepath_match.group(1).strip()
@@ -303,7 +303,7 @@ class readfile:
                 # Simple format - just filepath
                 filepath = content.strip()
                 line_spec = None
-                
+
             if not filepath:
                 return "Error: No filepath provided."
 
@@ -325,7 +325,7 @@ class readfile:
                     dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'build', 'dist']]
                     if filename_to_find in files:
                         found_files.append(os.path.join(root, filename_to_find))
-                
+
                 if len(found_files) == 1:
                     original_full_path = full_path
                     full_path = found_files[0]  # Update the path to the found file
@@ -366,80 +366,13 @@ class readfile:
 
             # Check if this file was previously truncated and user wants full output
             was_previously_truncated = readfile._was_file_truncated(full_path)
-            
-            # Enhanced: Check if the content exceeds the chunk limit
-            if len(file_content) > readfile.CHUNK_LIMIT and not was_previously_truncated:
-                
-                # Try to use resource manager for large files
-                if RESOURCE_MANAGER_AVAILABLE:
-                    try:
-                        # Create a file hash for consistent resource IDs
-                        file_hash = readfile._get_file_hash(full_path)
-                        resource_id = f"file_{file_hash[:8]}"
-                        
-                        # Create a resource for the large file using lazy access
-                        resource_manager = TextResourceManager._get_manager()
-                        resource_manager.create_resource(
-                            content=file_content,
-                            source=full_path,
-                            source_type="file",
-                            resource_id=resource_id
-                        )
-                        
-                        lines_count = len(file_content.splitlines())
-                        char_count = len(file_content)
-                        filename = os.path.basename(full_path)
-                        
-                        # Clear any previous truncation state since we're using resource manager
-                        readfile._clear_truncation_state(full_path)
-                        
-                        # Return structured information with usage instructions
-                        return search_message + f"""📄 File '{filename}' is large ({lines_count:,} lines, {char_count:,} characters) - loaded into searchable resource.
 
-Resource ID: {resource_id}
-Use <searchtext><resource_id>{resource_id}</resource_id><pattern>YOUR_PATTERN</pattern></searchtext> to search for specific content.
-Use <searchtext><resource_id>{resource_id}</resource_id><lines>1-50</lines></searchtext> to view specific line ranges.
+            # Clear any previous truncation state since general solution handles large files
+            if was_previously_truncated:
+                readfile._clear_truncation_state(full_path)
 
-Examples:
-- Search for functions: <searchtext><resource_id>{resource_id}</resource_id><pattern>def |function |class </pattern><context_lines>2</context_lines></searchtext>
-- View file header: <searchtext><resource_id>{resource_id}</resource_id><lines>1-20</lines></searchtext>
-- View file footer: <searchtext><resource_id>{resource_id}</resource_id><lines>{max(1, lines_count-19)}-{lines_count}</lines></searchtext>"""
-                        
-                    except Exception:
-                        # Fallback to original truncation if resource manager fails
-                        chunk_size = readfile.CHUNK_LIMIT // 4
-                        truncated_message = (
-                            f"\n\n... (File is too large: {len(file_content)} characters. Truncating to show start and end. Run readfile again to show the full output instead.) ...\n\n"
-                        )
-                        truncated_content = (
-                            file_content[:chunk_size] +
-                            truncated_message +
-                            file_content[-chunk_size:]
-                        )
-                        readfile._mark_file_truncated(full_path)
-                        return search_message + truncated_content
-                else:
-                    # Original truncation behavior when resource manager not available
-                    chunk_size = readfile.CHUNK_LIMIT // 4
-                    truncated_message = (
-                        f"\n\n... (File is too large: {len(file_content)} characters. Truncating to show start and end. Run readfile again to show the full output instead.) ...\n\n"
-                    )
-                    truncated_content = (
-                        file_content[:chunk_size] +
-                        truncated_message +
-                        file_content[-chunk_size:]
-                    )
-                    readfile._mark_file_truncated(full_path)
-                    return search_message + truncated_content
-            else:
-                # If file was previously truncated, show full content and clear state
-                if was_previously_truncated:
-                    readfile._clear_truncation_state(full_path)
-                    full_content_message = f"📄 Showing full content of {os.path.basename(full_path)} ({len(file_content)} characters):\n\n{file_content}"
-                    return search_message + full_content_message
-                
-                # If the file is within the limit, return its full content
-                return search_message + file_content
+            # Return full content - main.py will automatically create resource if too large
+            return search_message + file_content
 
         except Exception as e:
             return f"An unexpected error occurred in the readfile tool: {str(e)}"

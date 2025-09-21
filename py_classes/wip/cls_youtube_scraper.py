@@ -79,7 +79,7 @@ class YoutubeScraper:
 if __name__ == "__main__":
     YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
     youtubeScraper = YoutubeScraper(YOUTUBE_API_KEY)
-    
+
     # List of channel handles you want to check
     channel_handles = [
         '@MachineLearningStreetTalk',  # Example Channel Handle

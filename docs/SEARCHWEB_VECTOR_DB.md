@@ -4,7 +4,7 @@
 
 The SearchWeb tool provides semantic search caching with comprehensive provenance tracking and audit trails. Uses ChromaDB + embeddinggemma:latest for local vector storage, reducing API calls while building an auditable knowledge graph.
 
-> **⚠️ Breaking Change (2025)**: The SearchWeb tool is now fully asynchronous. The `run()` method must be called with `await`.
+> **⚠️ Breaking Change**: The SearchWeb tool is now fully asynchronous. The `run()` method must be called with `await`.
 
 ## Architecture
 
@@ -157,8 +157,6 @@ from shared.utils.search.search_vector_db import SearchResultsVectorDB
 stats = SearchResultsVectorDB().get_stats()
 ```
 
-## 2025 Enhancements
-
 ### ✅ Enhanced Provenance Tracking
 - **ISO 8601 Timestamps**: Human-readable, unambiguous time tracking
 - **API Source Tracking**: Explicit `source_api` and `source_api_endpoint` fields
@@ -191,7 +189,7 @@ python -c "from shared.utils.search.search_vector_db import SearchResultsVectorD
 
 **Breaking Change**: SearchWeb is now async:
 ```python
-# NEW: await searchweb.run(content)
+# await searchweb.run(content)
 # OLD: searchweb.run(content)
 ```
 

@@ -57,7 +57,34 @@ Visual Response Interface
 
 ## Key Features
 
-### 1. Comprehensive Logging System
+### 1. Command-Based LLM Selection
+
+The Visual Response System now uses a unified command-based approach for LLM selection instead of WebSocket messages:
+
+- **Planner LLM**: `/planner_llm {model_key}` - Set the planner LLM model
+- **Router LLM**: `/router_llm {model_key}` - Set the router LLM model
+- **Fallback Models**: `/fallbacks {model1} {model2} {model3}` - Set fallback LLM models
+- **Reset**: `/reset` - Complete agent reset (replaces clear button)
+
+#### Implementation Details
+
+The frontend selectboxes now send chat commands instead of WebSocket messages:
+```javascript
+// Example: Router LLM selection
+const command = `/router_llm ${modelKey}`;
+this.wsManager.sendMessage(command);
+```
+
+This provides a unified approach where all LLM configuration changes flow through the same command processing system as regular user input.
+
+### 2. Enhanced UI Layout
+
+- **Vertical Layout**: LLM selector labels now appear above selectboxes instead of to the side
+- **Color-coded Selection**: Router selectbox uses orange theme, planner uses blue theme
+- **None Option**: All selectboxes support "None" selection for flexible configuration
+- **Visual Consistency**: Unified styling across all LLM selection components
+
+### 3. Comprehensive Logging System
 
 The logging system provides detailed insights into system operation:
 

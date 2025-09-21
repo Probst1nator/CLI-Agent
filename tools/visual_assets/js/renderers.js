@@ -93,11 +93,11 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
         iframe.onload = function() {
             try {
                 originalHeight = iframe.contentDocument.body.scrollHeight;
-                iframe.style.height = Math.min(originalHeight, 350) + 'px';
+                iframe.style.height = originalHeight + 'px';
             } catch (e) {
                 // Fallback height if cross-origin issues
                 originalHeight = 350;
-                iframe.style.height = '300px';
+                iframe.style.height = originalHeight + 'px';
             }
         };
 
@@ -116,7 +116,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
             } else {
                 // Collapse to limited height
                 container.classList.remove('expanded');
-                iframe.style.height = Math.min(originalHeight, 350) + 'px';
+                iframe.style.height = originalHeight + 'px';
                 expandBtn.innerHTML = '🔍 Expand';
                 expandBtn.title = 'Expand to show full content height';
                 expandBtn.classList.remove('expanded');
@@ -135,7 +135,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
         'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads' :
         'allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
     iframe.style.width = '100%';
-    iframe.style.height = '400px'; // Initial height
+    iframe.style.height = 'auto'; // Initial height
     iframe.style.border = 'none';
     iframe.style.overflow = 'hidden'; // Prevent scrollbars during resize
     iframe.setAttribute('loading', 'lazy');
@@ -318,7 +318,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
 
         } catch (e) {
             window.visualLogger.warn('Could not resize iframe automatically:', e.message);
-            iframe.style.height = '300px'; // More conservative default
+            iframe.style.height = originalHeight + 'px'; // More conservative default
         }
     }
 

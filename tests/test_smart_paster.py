@@ -50,7 +50,7 @@ class TestSmartPaster(unittest.TestCase):
     def test_direct_path_identification(self):
         message = "Please update api/users.py"
         found_paths, orphan_code = parse_clipboard_for_paths_and_code(message, str(self.project_dir))
-        
+
         expected_abs_path = str(self.project_dir / "api" / "users.py")
         self.assertIn(expected_abs_path, found_paths)
         self.assertEqual(orphan_code, [])
@@ -58,7 +58,7 @@ class TestSmartPaster(unittest.TestCase):
     def test_no_paths_found(self):
         message = "This is a code block without a path:\n\nprint('hello world')"
         found_paths, orphan_code = parse_clipboard_for_paths_and_code(message, str(self.project_dir))
-        
+
         self.assertEqual(found_paths, [])
         self.assertEqual(orphan_code, [message.strip()])
 
@@ -68,7 +68,7 @@ class TestSmartPaster(unittest.TestCase):
 
         expected_abs_path = str(self.project_dir / "src" / "components" / "profile.jsx")
         self.assertIn(expected_abs_path, found_paths)
-        
+
         # We expect the parsing to separate the path, leaving two code blocks
         expected_orphan_code = [
             "Update the profile.jsx with this:",
@@ -79,7 +79,7 @@ class TestSmartPaster(unittest.TestCase):
     def test_multiple_paths_and_duplicates(self):
         message = "I need api/users.py and api/models.py. Also, update api/users.py with new logic."
         found_paths, orphan_code = parse_clipboard_for_paths_and_code(message, str(self.project_dir))
-        
+
         expected_paths = [
             str(self.project_dir / "api" / "users.py"),
             str(self.project_dir / "api" / "models.py")
@@ -96,7 +96,7 @@ class TestSmartPaster(unittest.TestCase):
     def test_non_existent_path_treated_as_code(self):
         message = "This is a fake path: non_existent/file.txt\n\n```python\ncode = 123\n```"
         found_paths, orphan_code = parse_clipboard_for_paths_and_code(message, str(self.project_dir))
-        
+
         self.assertEqual(found_paths, [])
         self.assertEqual(orphan_code, [message.strip()])
 
@@ -106,13 +106,13 @@ class TestSmartPaster(unittest.TestCase):
     def test_smart_request_direct_and_ai_paths(self, mock_handle_missing_filepaths):
         # Mock the AI to find a path for the orphan code
         mock_handle_missing_filepaths.return_value = [("src/utils.js", "function format")]
-        
+
         message = "Please gather api/users.py and add the definition of the format() function."
-        
+
         # Run the async function
         import asyncio
         found_rel_paths = asyncio.run(process_smart_request(message, str(self.project_dir)))
-        
+
         # Expected paths: api/users.py (direct) and src/utils.js (AI inferred)
         expected_paths = sorted(["api/users.py", "src/utils.js"])
         self.assertEqual(found_rel_paths, expected_paths)
@@ -120,7 +120,7 @@ class TestSmartPaster(unittest.TestCase):
 # --- Tests for AIFixPath extraction logic ---
 
 class TestAIFixPathExtraction(unittest.TestCase):
-    
+
     def test_extract_filepath_from_json(self):
         response_text = '{"filepath": "api/users.py", "reason": "found in tree"}'
         path = AIFixPath._extract_filepath_from_response(response_text)

@@ -22,17 +22,17 @@ if TYPE_CHECKING:
 class AgentLoop:
     """
     Main conversation loop for CLI-Agent.
-    
+
     This class manages the primary REPL (Read-Eval-Print Loop) that was
     previously embedded in the main() function.
     """
-    
+
     def __init__(self, context: AppContext) -> None:
         self.context = context
         self.logger = logging.getLogger("agent_loop")
         self.command_handler = CommandHandler(context)
         self._running = False
-        
+
     async def run(
         self,
         args: argparse.Namespace,
@@ -43,7 +43,7 @@ class AgentLoop:
     ) -> None:
         """
         Run the main agent conversation loop.
-        
+
         Args:
             args: Parsed command line arguments
             input_event: Event for TUI mode input coordination
@@ -53,35 +53,35 @@ class AgentLoop:
         """
         self._running = True
         context_chat = None
-        
+
         try:
             # Import here to reduce startup time
             from core.chat import Chat
             context_chat = Chat()
             self.context.current_chat = context_chat
-            
+
             self.logger.info("Agent loop started")
-            
+
             while self._running:
                 try:
                     # Get user input
                     user_input, base64_images = await self._get_user_input(
                         args, context_chat, input_event, input_lock, shared_input
                     )
-                    
+
                     # Handle empty input or exit conditions
                     if not user_input and not base64_images:
                         continue
-                        
+
                     # Handle commands
                     if user_input and user_input.startswith('/'):
                         command_response = await self.command_handler.handle_command(
-                            user_input, 
+                            user_input,
                             args,
                             context_chat=context_chat,
                             command_handler=self.command_handler
                         )
-                        
+
                         # Process command results
                         if command_response.result == CommandResult.EXIT:
                             break
@@ -99,13 +99,13 @@ class AgentLoop:
                         elif command_response.result == CommandResult.ERROR:
                             print(colored(f"Error: {command_response.message}", "red"))
                             continue
-                            
+
                     # Process AI interaction
                     if user_input or base64_images:
                         await self._process_ai_interaction(
                             user_input, base64_images, context_chat, args
                         )
-                        
+
                 except KeyboardInterrupt:
                     print(colored("\n⚠️  Operation interrupted by user (Ctrl+C)", "yellow", attrs=['bold']))
                     continue
@@ -113,14 +113,14 @@ class AgentLoop:
                     self.logger.exception("Error in agent loop")
                     print(colored(f"Error: {str(e)}", "red"))
                     continue
-                    
+
         except Exception as e:
             self.logger.exception("Fatal error in agent loop")
             print(colored(f"Fatal error: {str(e)}", "red"))
         finally:
             self._running = False
             self.logger.info("Agent loop stopped")
-            
+
     async def _get_user_input(
         self,
         args: argparse.Namespace,
@@ -133,7 +133,7 @@ class AgentLoop:
         try:
             # Import here to reduce startup time
             from main import get_user_input_with_bindings
-            
+
             return await get_user_input_with_bindings(
                 args=args,
                 context_chat=context_chat,
@@ -144,7 +144,7 @@ class AgentLoop:
         except Exception as e:
             self.logger.error(f"Error getting user input: {e}")
             return "", []
-            
+
     async def _process_ai_interaction(
         self,
         user_input: str,
@@ -155,37 +155,37 @@ class AgentLoop:
         """Process AI model interaction."""
         try:
             # Import here to reduce startup time
-            
+
             # Add user message to chat
             if user_input:
                 from core.chat import Role
                 context_chat.add_message(Role.USER, user_input, base64_images)
-                
+
             # Process with AI models
             if self.context.settings.monte_carlo_mode:
                 await self._process_monte_carlo_interaction(context_chat, args)
             else:
                 await self._process_single_model_interaction(context_chat, args)
-                
+
         except Exception as e:
             self.logger.exception("Error in AI interaction")
             print(colored(f"AI interaction error: {str(e)}", "red"))
-            
+
     async def _process_monte_carlo_interaction(
-        self, 
+        self,
         context_chat,
         args: argparse.Namespace
     ) -> None:
         """Process interaction using Monte Carlo engine."""
         try:
             from agent.monte_carlo.task_group_engine import MonteCarloEngine
-            
+
             engine = MonteCarloEngine(self.context)
-            
+
             # Get configuration from context
             models_for_tasks = self._get_models_for_monte_carlo()
             temperature = self.context.llm_config.temperature
-            
+
             # Generate branches using TaskGroup
             branches = await engine.generate_branches(
                 models_for_tasks=models_for_tasks,
@@ -195,7 +195,7 @@ class AgentLoop:
                 base64_images=self.context.base64_images,
                 llm_config=self.context.llm_config.__dict__
             )
-            
+
             if branches:
                 # For now, use the first branch - voting logic can be added later
                 best_response = branches[0]
@@ -204,11 +204,11 @@ class AgentLoop:
                 print(colored(f"Response: {best_response}", "green"))
             else:
                 print(colored("No valid responses generated", "yellow"))
-                
+
         except Exception as e:
             self.logger.exception("Monte Carlo processing failed")
             print(colored(f"Monte Carlo error: {str(e)}", "red"))
-            
+
     async def _process_single_model_interaction(
         self,
         context_chat,
@@ -218,7 +218,7 @@ class AgentLoop:
         try:
             # Use LLM router for single model interaction
             llm_router = self.context.get_llm_router()
-            
+
             # Simple single model response
             response = await llm_router.chat_with_retry(
                 chat=context_chat,
@@ -226,24 +226,24 @@ class AgentLoop:
                 temperature=self.context.llm_config.temperature,
                 stream=self.context.llm_config.stream
             )
-            
+
             if response:
                 from core.chat import Role
                 context_chat.add_message(Role.ASSISTANT, response)
                 print(colored(f"Response: {response}", "green"))
             else:
                 print(colored("No response generated", "yellow"))
-                
+
         except Exception as e:
             self.logger.exception("Single model processing failed")
             print(colored(f"Single model error: {str(e)}", "red"))
-            
+
     def _get_models_for_monte_carlo(self) -> List[str]:
         """Get list of models for Monte Carlo processing."""
         # This would be configured based on context settings
         # For now, return a simple list
         return [self.context.llm_config.model_key] * 3  # Use same model 3 times
-        
+
     def stop(self) -> None:
         """Stop the agent loop."""
         self._running = False

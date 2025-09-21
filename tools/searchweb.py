@@ -9,6 +9,7 @@ import sys
 import re
 import html
 import asyncio
+import datetime
 from dotenv import load_dotenv
 from core.llm_router import LlmRouter
 from core.chat import Chat, Role
@@ -68,10 +69,22 @@ class searchweb:
         }
 
     @staticmethod
-    def _clean_snippet(text: str) -> str:
+    def _remove_tool_calls(text: str) -> str:
         decoded_text = html.unescape(text)
         clean_text = re.sub(r'<.*?>', '', decoded_text)
         return clean_text.strip()
+
+    @staticmethod
+    def result_to_source(result, date = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')) -> str:
+        snippets = result.get('extra_snippets', [])
+        title = result.get('title', [])
+        url = result.get('url', [])
+        if not snippets and result.get('description'):
+            snippets = [result.get('description')]
+        if snippets:
+            clean_snippet = searchweb._remove_tool_calls("\n".join(snippets))
+            return f"Source: {url} | Title: {title} | Accessed: {date}\n{clean_snippet}"
+        return ""
 
     @staticmethod
     async def _format_text_summary(results: list, query: str, use_cache: bool = True) -> str:
@@ -91,23 +104,18 @@ class searchweb:
         else:
             print("🤖 Cache disabled: generating fresh LLM summary")
 
-        condensed_snippets = []
+
+        sourced_snippets = []
         for result in results:
-            snippets = result.get('extra_snippets', [])
-            if not snippets and result.get('description'):
-                snippets = [result.get('description')]
+            sourced_snippets.append(searchweb.result_to_source(result))
 
-            if snippets:
-                clean_snippet = searchweb._clean_snippet("\n".join(snippets))
-                condensed_snippets.append(clean_snippet)
-
-        if not condensed_snippets:
+        if not sourced_snippets:
             return "No useful information found."
 
-        joined_text = " ".join(condensed_snippets)
+        joined_text = " ".join(sourced_snippets)
 
         chat = Chat()
-        chat.add_message(Role.USER, f"The search query was: {query}\nProvide a concise summary of the following raw web results: {joined_text}")
+        chat.add_message(Role.USER, f"The search query is: {query}\nProvide a concise summary of the following web results: {joined_text}")
 
         # Use await for async LLM completion
         summary = await LlmRouter.generate_completion(chat)
@@ -148,14 +156,14 @@ class searchweb:
         """ Returns a numbered list with titles, URLs, and snippets. """
         if not results:
             return "No web search results found."
-        
+
         formatted_results = []
         for i, result in enumerate(results, 1):
-            title = searchweb._clean_snippet(result.get('title', 'No Title'))
+            title = searchweb._remove_tool_calls(result.get('title', 'No Title'))
             url = result.get('url', 'No URL')
-            snippet = searchweb._clean_snippet(result.get('description', 'No snippet available.'))
+            snippet = searchweb._remove_tool_calls(result.get('description', 'No snippet available.'))
             formatted_results.append(f"Result {i}:\n  Title: {title}\n  URL: {url}\n  Snippet: {snippet}")
-        
+
         return "\n\n".join(formatted_results)
 
     @staticmethod
@@ -166,7 +174,7 @@ class searchweb:
 
         formatted_results = []
         for i, result in enumerate(results, 1):
-            title = searchweb._clean_snippet(result.get('title', 'No Title'))
+            title = searchweb._remove_tool_calls(result.get('title', 'No Title'))
 
             # Get the actual image URL from properties.url (direct image)
             # The top-level 'url' field contains search page URLs, not image URLs

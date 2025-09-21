@@ -147,12 +147,12 @@ class PlaybookManager:
         try:
             with open(self.db_path, 'r') as f:
                 data = json.load(f).get("playbooks", [])
-            
+
             for s_playbook in data:
                 d_playbook = s_playbook.copy()
                 d_playbook["embedding"] = np.array(d_playbook["embedding"], dtype=np.float32)
                 self.playbooks.append(d_playbook)
-            
+
             from termcolor import colored
             logging.info(colored(f"  - Loaded {len(self.playbooks)} playbooks from persistent storage.", "cyan"))
             return True
@@ -167,16 +167,16 @@ class PlaybookManager:
 
         # Reuse the vector_db's embedding and similarity calculation methods
         query_embedding = self.vector_db._get_embedding(query)
-        
+
         best_match = None
         highest_score = -1.0
 
         all_playbook_embeddings = np.array([p["embedding"] for p in self.playbooks])
-        
+
         # Calculate all similarities in one go
         similarity_matrix = self.vector_db.cos_sim(query_embedding.reshape(1, -1), all_playbook_embeddings)
         scores = similarity_matrix[0]
-        
+
         # Get the index of the best match
         best_index = np.argmax(scores)
         highest_score = scores[best_index]
@@ -185,5 +185,5 @@ class PlaybookManager:
             best_match = self.playbooks[best_index]
             logging.info(colored(f" Playbook matched: '{best_match['name']}' (Score: {highest_score:.2f})", "magenta"))
             return best_match
-        
+
         return None

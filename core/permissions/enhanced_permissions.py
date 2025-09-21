@@ -14,40 +14,40 @@ def format_xml_args(xml_content: str) -> str:
     """Format XML content to show the tool arguments concisely."""
     if not xml_content:
         return ""
-    
+
     # Remove timeout tags first
     content = re.sub(r'<timeout[^>]*>.*?</timeout>', '', xml_content, flags=re.DOTALL).strip()
-    
+
     # Remove outer tool tags (bash, python, etc.) but keep the content
     content = re.sub(r'^<(bash|python|shell)[^>]*>', '', content, flags=re.MULTILINE).strip()
     content = re.sub(r'</(bash|python|shell)>$', '', content, flags=re.MULTILINE).strip()
-    
+
     # Remove any remaining XML tags
     cleaned = re.sub(r'<[^>]+>', '', content).strip()
-    
+
     # If it's multiline, show first meaningful line
     lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
     if lines:
         return lines[0]
-    
+
     return cleaned if cleaned else ""
 
 def get_path_type_info(file_path: str) -> Dict[str, Any]:
     """
     Get information about the path type for better display formatting.
-    
+
     Args:
         file_path: The file path to analyze
-        
+
     Returns:
         Dictionary with path type information
     """
     if not file_path:
         return {"type": "unknown", "icon": "", "description": ""}
-    
+
     import os
     path_lower = file_path.lower()
-    
+
     # Detect different types of paths
     if path_lower.endswith(('.py', '.pyw')):
         return {"type": "python_source", "icon": "🐍", "description": "Python file"}
@@ -72,22 +72,22 @@ def format_file_path_for_display(file_path: str, max_length: int) -> str:
     """
     Format a file path for display with intelligent truncation.
     Shows the most relevant parts of the path to the user.
-    
+
     Args:
         file_path: The full file path
         max_length: Maximum display length
-        
+
     Returns:
         Formatted path string for display
     """
     if not file_path:
         return ""
-        
+
     if len(file_path) <= max_length:
         return file_path
-    
+
     import os
-    
+
     # Try to show relative path from current working directory
     try:
         cwd = os.getcwd()
@@ -97,44 +97,44 @@ def format_file_path_for_display(file_path: str, max_length: int) -> str:
                 return rel_path
     except (ValueError, OSError):
         pass
-    
+
     # If relative path doesn't work, show filename + parent directory
     filename = os.path.basename(file_path)
     parent_dir = os.path.basename(os.path.dirname(file_path))
-    
+
     if parent_dir and parent_dir != '/':
         short_format = f"{parent_dir}/{filename}"
         if len(short_format) <= max_length:
             return short_format
-    
+
     # If still too long, show just the filename with indication of truncation
     if len(filename) <= max_length - 4:
         return f".../{filename}"
-    
+
     # Last resort: truncate filename itself
     if max_length > 6:  # Ensure we have room for "..." on both sides
         mid_point = (max_length - 6) // 2
         return f"{filename[:mid_point]}...{filename[-mid_point:]}"
-    
+
     return filename[:max_length]
 
 def get_enhanced_file_display(file_path: str, max_length: int) -> str:
     """
     Get enhanced file display with type information and smart formatting.
-    
+
     Args:
         file_path: The file path to display
         max_length: Maximum display length
-        
+
     Returns:
         Enhanced formatted path with type info
     """
     if not file_path:
         return ""
-        
+
     path_info = get_path_type_info(file_path)
     formatted_path = format_file_path_for_display(file_path, max_length - 2)  # Leave room for icon
-    
+
     # For cache/temp files, add a subtle indicator
     if path_info["type"] in ["cache", "library"]:
         return f"🔗 {formatted_path}"  # Link icon for indirect/system files
@@ -152,7 +152,7 @@ def get_terminal_width() -> int:
         return 80
 
 async def enhanced_permission_prompt(
-    args, 
+    args,
     tool_name: str,
     action_description: str,
     file_path: str = None,
@@ -169,23 +169,23 @@ async def enhanced_permission_prompt(
     Enhanced permission prompt with always-allow functionality.
     """
     permissions_manager = get_permissions_manager()
-    
+
     # Get dynamic terminal width for all menu boxes
     BOX_WIDTH = get_terminal_width()
     INNER_WIDTH = BOX_WIDTH - 2
-    
+
     # Check if always denied
     if permissions_manager.is_always_denied(tool_name, file_path):
         def create_denied_operation_box(tool_name: str, action_description: str, file_path: str = None):
             tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
-            
+
             title = "─ PERMISSION DENIED "
             remaining_width = INNER_WIDTH - len(title)
             top_border = f"┌{title}{'─' * remaining_width}┐"
             bottom_border = f"└{'─' * INNER_WIDTH}┘"
-            
+
             print()
             print(colored(top_border, "light_red"))
             print(colored("│", "light_red") + f" ❌ {tool_emoji} {tool_name} operation blocked by saved preferences".ljust(INNER_WIDTH) + colored("│", "light_red"))
@@ -202,10 +202,10 @@ async def enhanced_permission_prompt(
             print(colored("│", "light_red") + " 💡 To manage permissions: /permissions list".ljust(INNER_WIDTH) + colored("│", "light_red"))
             print(colored(bottom_border, "light_red"))
             print()
-        
+
         create_denied_operation_box(tool_name, action_description, file_path)
         return False
-    
+
     # Check if always allowed
     permission_result = permissions_manager.is_always_allowed(tool_name, file_path, command_hash, xml_content)
     is_allowed, rule_description = permission_result if isinstance(permission_result, tuple) else (permission_result, None)
@@ -240,19 +240,19 @@ async def enhanced_permission_prompt(
 
         create_granted_operation_box(tool_name, action_description, file_path, rule_description)
         return True
-    
+
     # Get smart quick action
     from .path_detector import PathDetector
     command_pattern = PathDetector.get_command_pattern(tool_name, xml_content or "")
     smart_action = PathDetector.get_smart_quick_action(tool_name, command_pattern, file_path)
-    
+
     def create_tool_operation_box(tool_name: str, action_description: str, file_path: str = None, args_content: str = None):
         top_left, top_right, btm_left, btm_right = "╭", "╮", "╰", "╯"
         horizontal, vertical = "─", "│"
-        
+
         tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
         tool_emoji = tool_emojis.get(tool_name, "⚙️")
-        
+
         display_path, action_display, args_display = "", "", "(no arguments)"
         if file_path:
             max_len = INNER_WIDTH - len(" File: ")
@@ -264,7 +264,7 @@ async def enhanced_permission_prompt(
             cleaned_args = re.sub(r'\s+', ' ', args_content).strip()
             max_len = INNER_WIDTH - len(" Args: ")
             args_display = (cleaned_args[:max_len-3] + "...") if len(cleaned_args) > max_len else cleaned_args
-            
+
         def format_line(line_content):
             return f"{vertical}{line_content.ljust(INNER_WIDTH)}{vertical}"
 
@@ -274,26 +274,26 @@ async def enhanced_permission_prompt(
         current_user = getpass.getuser()
         hostname = socket.gethostname()
         current_dir = os.getcwd()
-        
+
         user_colored = colored(current_user, 'green', attrs=['bold'])
         host_colored = colored(hostname, 'blue', attrs=['bold'])
         dir_colored = colored(current_dir, 'yellow')
         command_colored = colored(f"{args_display}", 'white', attrs=['bold'])
-        
+
         bash_header = f" 💻 {user_colored}@{host_colored}:{dir_colored}$"
         bash_body = f" ▶️  {command_colored}"
 
         # Print the permission box with full terminal width
         print(colored(f"{top_left}{horizontal * INNER_WIDTH}{top_right}", "light_yellow"))
-        
+
         # Title line with emoji and text, properly right-padded
         title_text = f" {tool_emoji} TOOL OPERATION PERMISSION - {tool_name}"
         title_padding = " " * max(0, INNER_WIDTH - len(title_text))
         print(colored(f"{vertical}{title_text}{title_padding}{vertical}", "light_yellow"))
-        
+
         # Horizontal separator
         print(colored(f"{vertical}{horizontal * INNER_WIDTH}{vertical}", "light_yellow"))
-        
+
         # Bash-style header line
         header_visual_len = len(re.sub(r'\x1b\[[0-9;]*m', '', bash_header))
         header_padding = " " * max(0, INNER_WIDTH - header_visual_len)
@@ -303,10 +303,10 @@ async def enhanced_permission_prompt(
         body_padding = " " * max(0, INNER_WIDTH - body_visual_len)
         print(colored(f"{vertical}{bash_body}{body_padding}{vertical}"))
 
-        
+
         # Bottom border
         print(colored(f"{btm_left}{horizontal * INNER_WIDTH}{btm_right}", "light_yellow"))
-    
+
     create_tool_operation_box(tool_name, action_description, file_path, format_xml_args(xml_content))
 
     # Get permission suggestions and options before potential GUI mode handling
@@ -477,29 +477,29 @@ async def enhanced_permission_prompt(
     remaining_width = INNER_WIDTH - len(options_title)
     top_border = f"┌{options_title}{'─' * remaining_width}┐"
     bottom_border = f"└{'─' * INNER_WIDTH}┘"
-    
+
     print(colored(top_border, "blue"))
-    
+
     # Build the options dynamically to avoid duplicates
     options = []
     used_keys = set()
-    
+
     if hasattr(args, 'voice') and args.voice:
         options.append(f" {colored('Enter', 'green')} or {colored('y', 'green')} (say '{colored('yes', 'green')}') → Confirm this operation")
         options.append(f" {colored('n', 'light_red')} (say '{colored('no', 'light_red')}') → Abort this operation")
         used_keys.update(['enter', 'y', 'n'])
-        
+
         # Add read-only option first if available
         if read_only_option:
             options.append(f" {colored('r', 'green')} (say '{colored('readonly', 'green')}') → {read_only_option}")
             used_keys.add('r')
-        
+
         # Add smart action if available, key not used, and not already permitted
         if smart_action and smart_action['quick_key'] not in used_keys:
             if not permissions_manager.is_smart_action_already_permitted(smart_action, tool_name, file_path):
                 options.append(f" {colored(smart_action['quick_key'], 'green')} (say '{colored(smart_action['category'], 'green')}') → Always allow {smart_action['display_name']} for {smart_action['scope_description']}")
                 used_keys.add(smart_action['quick_key'])
-        
+
         # Add specific command suggestion for bash
         if tool_name == "bash" and xml_content:
             from .path_detector import PathDetector
@@ -508,7 +508,7 @@ async def enhanced_permission_prompt(
             if base_command and 'f' not in used_keys:
                 options.append(f" {colored('f', 'green')} (say '{colored('find', 'green')}') → Always allow 'bash: {base_command}' commands")
                 used_keys.add('f')
-        
+
         # Add remaining suggestions with available keys
         option_keys = ['a', 's', 'p', 't', 'c', 'e']
         suggestion_count = 0
@@ -519,7 +519,7 @@ async def enhanced_permission_prompt(
                 options.append(f" {colored(key, 'green')} (say '{colored(f'always{suggestion_count+1}', 'green')}') → {processed_suggestion}")
                 used_keys.add(key)
                 suggestion_count += 1
-        
+
         options.append(f" {colored('d', 'red')} (say '{colored('deny', 'red')}') → Always deny this file")
         options.append(f" {colored('D', 'red')} (say '{colored('denyall', 'red')}') → Always deny all {tool_name} operations")
         options.append(f" {colored('m', 'light_yellow')} (say '{colored('manage', 'light_yellow')}') → Manage all saved permissions")
@@ -528,18 +528,18 @@ async def enhanced_permission_prompt(
         options.append(f" {colored('Enter', 'green')} or {colored('y', 'green')} → Confirm this operation")
         options.append(f" {colored('n', 'light_red')} → Abort this operation")
         used_keys.update(['enter', 'y', 'n'])
-        
+
         # Add read-only option first if available
         if read_only_option:
             options.append(f" {colored('r', 'green')} → {read_only_option}")
             used_keys.add('r')
-        
+
         # Add smart action if available, key not used, and not already permitted
         if smart_action and smart_action['quick_key'] not in used_keys:
             if not permissions_manager.is_smart_action_already_permitted(smart_action, tool_name, file_path):
                 options.append(f" {colored(smart_action['quick_key'], 'green')} → Always allow {smart_action['display_name']} for {smart_action['scope_description']}")
                 used_keys.add(smart_action['quick_key'])
-        
+
         # Add specific command suggestion for bash
         if tool_name == "bash" and xml_content:
             from .path_detector import PathDetector
@@ -548,7 +548,7 @@ async def enhanced_permission_prompt(
             if base_command and 'f' not in used_keys:
                 options.append(f" {colored('f', 'green')} → Always allow 'bash: {base_command}' commands")
                 used_keys.add('f')
-        
+
         # Add remaining suggestions with available keys
         option_keys = ['a', 's', 'p', 't', 'c', 'e']
         suggestion_count = 0
@@ -564,13 +564,13 @@ async def enhanced_permission_prompt(
         options.append(f" {colored('D', 'red')} → Always deny all {tool_name} operations")
         options.append(f" {colored('m', 'light_yellow')} → Manage all saved permissions")
         options.append(f" {colored('?', 'light_yellow')} → Show detailed help")
-    
+
     for line in options:
         formatted_line = format_option_line(line)
         print(colored(f"│ {formatted_line} │", "blue"))
-    
+
     print(colored(bottom_border, "blue"))
-    
+
     while True:
         # Check for main interrupt flag before prompting
         try:
@@ -647,14 +647,14 @@ async def enhanced_permission_prompt(
             except ImportError:
                 pass  # Fallback if main import is not available
             return False
-        
+
         if user_input in ('', 'y', 'yes'):
             return True
         elif user_input in ('n', 'no'):
             tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
-            
+
             title = "─ OPERATION CANCELLED "
             remaining_width = INNER_WIDTH - len(title)
             top_border = f"┌{title}{'─' * remaining_width}┐"
@@ -828,7 +828,7 @@ async def handle_smart_quick_action(smart_action: Dict[str, Any], tool_name: str
     scope_path = smart_action['scope_path']
     scope_description = smart_action['scope_description']
     display_name = smart_action['display_name']
-    
+
     if smart_action['permission_scope'] == 'global':
         permissions_manager.add_always_allow(tool_name, dev_tool_category=category, pattern=category)
         print(colored(f"✅ Always allow {display_name} {scope_description}", "green"))
@@ -840,21 +840,21 @@ async def handle_smart_quick_action(smart_action: Dict[str, Any], tool_name: str
 
 async def handle_permission_management(get_user_input_func, args, input_event, input_lock, shared_input):
     from tools.permissions import permissions
-    
+
     print()
     print(colored("🔧 PERMISSION MANAGEMENT", "yellow", attrs=['bold']))
     print(colored("─" * 50, "yellow"))
-    
+
     result = permissions._list_permissions()
     print(result)
-    
+
     print()
     print(colored("Options:", "cyan"))
     print(colored("  r <id>", "light_blue") + " - Remove permission by ID")
-    print(colored("  clear", "red") + " - Clear all permissions")  
+    print(colored("  clear", "red") + " - Clear all permissions")
     print(colored("  back", "green") + " - Return to permission prompt")
     print()
-    
+
     while True:
         # Check for main interrupt flag before prompting
         try:
@@ -885,7 +885,7 @@ async def handle_permission_management(get_user_input_func, args, input_event, i
             except ImportError:
                 pass  # Fallback if main import is not available
             break
-        
+
         if user_input in ('back', 'exit'):
             print(colored("↩️  Returning to permission prompt...", "green"))
             break
@@ -909,7 +909,7 @@ async def handle_permission_management(get_user_input_func, args, input_event, i
 def show_permission_help(tool_name: str, file_path: str = None):
     print(colored("\n📖 Permission Options Help:", "blue"))
     print(colored("  Enter/y", "light_green") + " - Allow this action once")
-    print(colored("  n", "red") + " - Deny this action once")  
+    print(colored("  n", "red") + " - Deny this action once")
     print(colored("  a,s,p,t", "blue") + " - Always allow with a specific scope")
     print(colored("  d/D", "magenta") + " - Always deny this action (file or tool)")
     print(colored("  m", "yellow") + " - Manage all saved permissions")

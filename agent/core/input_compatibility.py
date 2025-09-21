@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import argparse
 
 # Global instance for compatibility
-_unified_input_manager: Optional[UnifiedInputManager] = None
+_unified_input_manager: Optional['UnifiedInputManager'] = None
 
 
 def initialize_unified_input(context) -> None:
@@ -34,7 +34,7 @@ def initialize_unified_input(context) -> None:
             _unified_input_manager = None
 
 
-async def get_unified_input_manager() -> UnifiedInputManager:
+async def get_unified_input_manager() -> 'UnifiedInputManager':
     """Get the global unified input manager."""
     if _unified_input_manager is None:
         # Auto-initialize with a minimal context if not already initialized
@@ -65,7 +65,7 @@ async def get_user_input_with_bindings_unified(
     args: argparse.Namespace,
     context_chat: Optional[Chat],
     prompt: str = " Enter your request: ",
-    input_override: str = None,
+    input_override: Optional[str] = None,
     force_input: bool = False,
     input_event: Optional[asyncio.Event] = None,
     input_lock: Optional[threading.Lock] = None,
@@ -218,7 +218,7 @@ class InputCompatibilityAdapter:
 
     def __init__(self, context: AppContext):
         self.context = context
-        self._setup_unified_manager()
+        asyncio.create_task(self._setup_unified_manager())
 
     async def _setup_unified_manager(self) -> None:
         """Set up the unified input manager."""
@@ -229,7 +229,7 @@ class InputCompatibilityAdapter:
         await manager.setup_sources(
             enable_cli=True,
             enable_gui=True,  # Always enable GUI support
-            enable_web=hasattr(g, 'GUI_MODE') and g.GUI_MODE,
+            enable_web=getattr(g, 'GUI_MODE', False),
             enable_voice=True,  # Enable voice support
             enable_queue=True
         )

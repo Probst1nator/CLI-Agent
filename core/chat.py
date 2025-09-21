@@ -36,7 +36,7 @@ class Chat:
     def __init__(self, instruction_message: str = "", debug_title: Optional[str] = None):
         """
         Initializes a new Chat instance.
-        
+
         :param instruction_message: The initial system instruction message.
         :param debug_title: Optional title for the debug window.
         """
@@ -50,51 +50,51 @@ class Chat:
         self._window_thread: Optional[threading.Thread] = None
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
-    
+
     def get_debug_title_prefix(self) -> str:
         """
         Get a formatted prefix string for debug messages that includes the chat's debug title if available.
-        
+
         Returns:
             str: The formatted prefix string
         """
         return f"[Tokens: {math.ceil(len(self.__str__())*3/4)} | {self.debug_title}] " if self.debug_title else f"[Tokens: {math.ceil(len(self.__str__())*3/4)} | Messages: {len(self.messages)}] "
-    
+
     def __len__(self) -> int:
         """
         Returns the total length of all string messages in the chat.
-        
+
         :return: The total number of characters across all messages.
         """
         return sum(len(content) for _, content in self.messages)
-    
+
     def _create_debug_window(self):
         """Creates and runs the debug window in a separate thread."""
         def window_thread():
             self._window = tk.Tk()
             self._window.title(self.debug_title)
-            
+
             frame = tk.Frame(self._window)
             frame.pack(expand=True, fill='both')
-            
+
             y_scrollbar = tk.Scrollbar(frame)
             y_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            
+
             x_scrollbar = tk.Scrollbar(frame, orient=tk.HORIZONTAL)
             x_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-            
+
             self._text_widget = tk.Text(frame, wrap=tk.NONE,
                                       yscrollcommand=y_scrollbar.set,
                                       xscrollcommand=x_scrollbar.set)
             self._text_widget.pack(expand=True, fill='both')
-            
+
             y_scrollbar.config(command=self._text_widget.yview)
             x_scrollbar.config(command=self._text_widget.xview)
-            
+
             self._window.geometry("800x600")
             self._window.grid_rowconfigure(0, weight=1)
             self._window.grid_columnconfigure(0, weight=1)
-            
+
             def check_queue():
                 try:
                     while True:  # Process all pending updates
@@ -110,7 +110,7 @@ class Chat:
                 finally:
                     if self._window:  # Check if window still exists
                         self._window.after(100, check_queue)  # Schedule next check
-            
+
             check_queue()
             self._window.protocol("WM_DELETE_WINDOW", self._on_window_close)
             self._window.mainloop()
@@ -134,19 +134,19 @@ class Chat:
 
         if self._window is None and self._window_thread is None:
             self._create_debug_window()
-            
+
         if self._update_queue is not None:
             try:
                 self._update_queue.put_nowait(self.messages)
             except queue.Full:
                 pass  # Skip update if queue is full
-    
+
     def set_instruction_message(self, instruction_message: str) -> "Chat":
         """
         Sets the instruction message for the chat.
         If a system message already exists, it will be replaced.
         If not, the system message will be inserted at the beginning of the chat.
-        
+
         :param instruction_message: The system instruction message.
         :return: The updated Chat instance.
         """
@@ -155,14 +155,14 @@ class Chat:
             self.messages[0] = (Role.SYSTEM, instruction_message)
         else:
             self.messages.insert(0, (Role.SYSTEM, instruction_message))
-        
+
         self._update_window_display()
         return self
-    
+
     def add_message(self, role: Role, content: str) -> "Chat":
         """
         Adds a message to the chat.
-        
+
         :param role: The role of the message sender.
         :param content: The content of the message.
         :return: The updated Chat instance.
@@ -218,11 +218,11 @@ class Chat:
                 # Handle potential malformed messages
                 message_strings.append(str(message))
         return "\n".join(message_strings)
-    
+
     def __getitem__(self, key: Union[int, slice, Tuple[int, ...]]) -> "Chat":
         """
         Retrieves a subset of the chat messages.
-        
+
         :param key: The index, slice, or tuple of indices.
         :return: A new Chat instance with the specified messages.
         """
@@ -243,19 +243,19 @@ class Chat:
             return new_chat
         else:
             raise TypeError("Invalid argument type.")
-    
+
     def __str__(self) -> str:
         """
         Returns a string representation of the chat messages.
-        
+
         :return: A JSON string of the chat messages and metadata.
         """
         return self.to_json()
 
-    def print_chat(self, start_index: Optional[int] = None, end_index: Optional[int] = None):
+    def print_chat(self, start_index: Optional[int] = None, end_index: Optional[int] = None, return_instead: bool = False) -> str:
         """
         Prints the chat messages with colored and bold roles, and similarly colored content using termcolor.
-        
+
         Args:
             start_index (Optional[int]): The starting index of messages to include. Negative indices count from the end.
                                          If None, starts from the first message.
@@ -266,39 +266,43 @@ class Chat:
         # Set default values for start_index and end_index if they are None
         if start_index is None:
             start_index = 0
-            
+
         # Normalize indices
         normalized_start = start_index if start_index >= 0 else len(self.messages) + start_index
         normalized_end = end_index if end_index is None else (
             end_index if end_index >= 0 else len(self.messages) + end_index
         )
-        
+
         # Clamp indices to valid range
         normalized_start = max(0, min(normalized_start, len(self.messages)))
         if normalized_end is not None:
             normalized_end = max(normalized_start, min(normalized_end, len(self.messages)))
         else:
             normalized_end = len(self.messages)
-            
+
         # Get selected messages
         selected_messages = self.messages[normalized_start:normalized_end]
-        
+
+        joined_string = ""
+
         # Print the selected messages with appropriate formatting
         for role, content in selected_messages:
             role_value = role.value if isinstance(role, Role) else role
-            
+
             # Get colors from the mapping
             role_color, content_color = self.ROLE_COLORS.get(role, self.DEFAULT_COLORS)
 
             formatted_role = colored(f"{role_value.upper()}:\n", role_color, attrs=['bold', "underline"])
             formatted_content = colored(content, content_color)
-            
+
             print(f"{formatted_role} {formatted_content}")
+            joined_string += f"{role_value.upper()}:\n {content}\n"
+        return joined_string.strip()
 
     def save_to_json(self, file_name: str = "recent_chat.json", merge: bool = False):
         """
         Saves the chat instance to a JSON file in a .cli-agent folder in the current working directory.
-        
+
         :param file_name: The name of the file to save to.
         :param merge: Whether to merge with existing file content (read-modify-write operation).
                      If True, loads existing file, merges messages, and overwrites the entire file.
@@ -307,10 +311,10 @@ class Chat:
         # Define the storage path in the current working directory
         storage_path = os.path.join(os.getcwd(), ".cli-agent")
         file_path = os.path.join(storage_path, file_name)
-        
+
         # Ensure the directory exists
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        
+
         if merge:
             try:
                 # Load from the same CWD-based path
@@ -330,7 +334,7 @@ class Chat:
     def load_from_json(cls, file_name: str = "recent_chat.json") -> "Chat":
         """
         Loads a Chat instance from a JSON file in a .cli-agent folder in the current working directory.
-        
+
         :param file_name: The name of the file to load from.
         :return: The loaded Chat instance.
         """
@@ -345,7 +349,7 @@ class Chat:
     def _to_dict(self) -> Dict[str, Any]:
         """
         Converts the chat instance to a dictionary.
-        
+
         :return: A dictionary representing the chat instance including messages and metadata.
         """
         return {
@@ -360,12 +364,12 @@ class Chat:
     def from_dict(cls, data_dict: Dict[str, Any]) -> "Chat":
         """
         Creates a Chat instance from a dictionary.
-        
+
         :param data_dict: A dictionary containing chat messages and metadata.
         :return: The created Chat instance.
         """
         chat_instance = cls()
-        
+
         # Add messages
         if "messages" in data_dict:
             messages = data_dict["messages"]
@@ -373,17 +377,17 @@ class Chat:
                 role = Role[message["role"].upper()]
                 content = message["content"]
                 chat_instance.add_message(role, content)
-                
+
         # Add metadata if present
         if "metadata" in data_dict:
             chat_instance.metadata = data_dict["metadata"]
-            
+
         return chat_instance
-    
+
     def to_json(self) -> str:
         """
         Converts the chat instance to a JSON string.
-        
+
         :return: The JSON string representing the chat instance.
         """
         return json.dumps(self._to_dict(), indent=2)
@@ -392,18 +396,18 @@ class Chat:
     def from_json(cls, json_str: str) -> "Chat":
         """
         Creates a Chat instance from a JSON string.
-        
+
         :param json_str: The JSON string containing chat messages.
         :return: The created Chat instance.
         """
         data_dict = json.loads(json_str)
         return cls.from_dict(data_dict)
-    
+
     @staticmethod
     def save_to_jsonl(chats: List["Chat"], file_path: str = "saved_chat.jsonl") -> None:
         """
         Saves a list of Chat instances to a JSONL file.
-        
+
         :param chats: The list of Chat instances to save.
         :param file_path: The path to the JSONL file.
         """
@@ -417,7 +421,7 @@ class Chat:
     def load_from_jsonl(file_path: str) -> List["Chat"]:
         """
         Loads a list of Chat instances from a JSONL file.
-        
+
         :param file_path: The path to the JSONL file.
         :return: A list of loaded Chat instances.
         """
@@ -428,7 +432,7 @@ class Chat:
                 chat = Chat.from_dict(chat_data)
                 chats.append(chat)
         return chats
-    
+
 
 
 
@@ -440,11 +444,11 @@ class Chat:
         # Join only the content (second element) from each message tuple
         # Each message is a tuple of (Role, content)
         return "\n".join(str(message[1]) for message in self.messages)
-    
+
     def count_tokens(self, encoding_name: str = "cl100k_base") -> int:
         """
         Counts the number of tokens in the chat messages.
-        
+
         :param encoding_name: The name of the encoding to use.
         :return: The number of tokens.
         """
@@ -459,7 +463,7 @@ class Chat:
             Message(role=message[0].value, content=message[1])
             for message in self.messages
         ]
-        
+
         # Make sure there are base64_images to decode and assign
         if self.base64_images:
             message = message_sequence[-1]
@@ -472,7 +476,7 @@ class Chat:
     def to_openai(self) -> List[Dict[str, str]]:
         """
         Converts chat messages to OpenAI chat format.
-        
+
         :return: The chat messages in OpenAI chat format.
         """
         result = []
@@ -486,12 +490,12 @@ class Chat:
     def to_groq(self) -> List[Dict[str, str]]:
         """
         Converts the chat to a list of dictionaries for use with the Groq API.
-        
+
         Returns:
             List[Dict[str, str]]: The chat messages formatted for Groq's API.
         """
         groq_messages = []
-        
+
         for role, content in self.messages:
             if role == Role.SYSTEM:
                 groq_messages.append({"role": "system", "content": content})
@@ -502,38 +506,38 @@ class Chat:
             else:
                 # For any other role, treat as a user message
                 groq_messages.append({"role": "user", "content": content})
-                
+
         return groq_messages
-    
+
     def to_gemini(self, base64_images: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Converts the chat to a list of dictionaries for use with the Google Gemini API.
-        
+
         Args:
             base64_images: Optional list of base64-encoded images to include in the message.
-            
+
         Returns:
             List[Dict[str, Any]]: The chat messages formatted for Gemini's API.
         """
         gemini_messages = []
-        
+
         # Use local base64_images if provided, otherwise use self.base64_images
         images_to_include = base64_images if base64_images is not None else self.base64_images
-        
+
         # Handle system prompt separately
         system_prompt = None
         for role, content in self.messages:
             if role == Role.SYSTEM:
                 system_prompt = content
                 break
-                
+
         for role, content in self.messages:
             if role == Role.USER:
                 # Handle user messages, which might contain images
                 if isinstance(content, list):
                     # Multimodal content
                     content_parts = []
-                    
+
                     for item in content:
                         if isinstance(item, dict):
                             if item.get("type") == "text":
@@ -563,12 +567,12 @@ class Chat:
                         else:
                             # Simple text message
                             content_parts.append(str(item))
-                            
+
                     gemini_messages.append({"role": "user", "parts": content_parts})
                 else:
                     # Simple text message
                     gemini_messages.append({"role": "user", "parts": [str(content)]})
-                    
+
                     # Add any images attached to the message
                     if images_to_include:
                         current_message = gemini_messages[-1]
@@ -589,7 +593,7 @@ class Chat:
                                     mime_type = "image/webp"
                             except Exception:
                                 pass  # Keep default
-                            
+
                             current_message["parts"].append({
                                 "inline_data": {
                                     "mime_type": mime_type,
@@ -597,40 +601,40 @@ class Chat:
                                 }
                             })
                         images_to_include = []  # Clear images after adding them
-                    
+
             elif role == Role.ASSISTANT:
                 # Assistant messages are always text
                 gemini_messages.append({"role": "model", "parts": [str(content)]})
-            
+
             # System messages are handled separately (above)
-            
+
         # Add system prompt if present (prepend to the first user message)
         if system_prompt and gemini_messages and gemini_messages[0]["role"] == "user":
             first_message = gemini_messages[0]
             first_message["parts"].insert(0, f"System instruction: {system_prompt}\n\n")
-        
+
         return gemini_messages
 
     def to_gemma(self) -> str:
         """
         Converts chat messages to Gemma format.
-        
+
         Format specification:
         - Each turn begins with <start_of_turn> followed by the role (user or model)
         - Each turn ends with <end_of_turn>
         - The entire conversation begins with <bos>
         - Images are embedded with <img> tags
-        
+
         :return: The chat messages in Gemma format.
         """
         # Start with the <bos> tag
         gemma_format = "<bos>"
-        
+
         for role, content in self.messages:
             # Skip system messages as they don't have a direct equivalent in Gemma format
             if role == Role.SYSTEM:
                 continue
-                
+
             # Map the role to Gemma's expected format
             if role == Role.USER:
                 gemma_role = "user"
@@ -643,10 +647,10 @@ class Chat:
             else:
                 # Skip any unrecognized roles
                 continue
-            
+
             # Start a new turn
             gemma_format += f"<start_of_turn>{gemma_role}\n"
-            
+
             # Process content, handling any possible images
             processed_content = content
             if role == Role.USER and self.base64_images and gemma_role == "user":
@@ -658,19 +662,19 @@ class Chat:
                     if image_placeholder in processed_content:
                         # Replace the placeholder with the image tag
                         processed_content = processed_content.replace(
-                            image_placeholder, 
+                            image_placeholder,
                             f"Image {chr(65+i)}: <img>\n"
                         )
-            
+
             # Add the processed content and end the turn
             gemma_format += f"{processed_content}<end_of_turn>\n"
-        
+
         return gemma_format
 
     def deep_copy(self) -> 'Chat':
         """
         Creates a deep copy of the Chat instance.
-        
+
         :return: A new Chat instance that is a deep copy of the current instance.
         """
         new_chat = Chat("Copy of " + self.debug_title)
@@ -678,11 +682,11 @@ class Chat:
         new_chat.base64_images = copy.deepcopy(self.base64_images)
         new_chat.metadata = copy.deepcopy(self.metadata)
         return new_chat
-    
+
     def join(self, chat: 'Chat') -> 'Chat':
         """
         Joins the messages of another Chat instance to the current instance.
-        
+
         :param chat: The Chat instance to join.
         :return: The updated Chat instance.
         """
@@ -694,21 +698,21 @@ class Chat:
         # Doing it like this will take care of duplicate roles
         for message_to_add in messages_to_add:
             self.add_message(message_to_add[0], message_to_add[1])
-            
+
         self.base64_images.extend(chat.base64_images)
-        
+
         # Merge metadata, prioritizing values from the current chat instance
         if hasattr(chat, 'metadata') and chat.metadata:
             for key, value in chat.metadata.items():
                 if key not in self.metadata:
                     self.metadata[key] = value
-        
+
         return self
 
     def replace_latest_user_message(self, new_content: str) -> "Chat":
         """
         Replaces the content of the most recent user message with new content.
-        
+
         :param new_content: The new content to replace the latest user message with
         :return: The updated Chat instance
         """

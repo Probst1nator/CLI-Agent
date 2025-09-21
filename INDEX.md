@@ -4,38 +4,38 @@
 
 - `agent/` - Modern agent architecture with organized components:
   
-  **NEW: Refactored Core Architecture (2025)**
+  **Refactored Core Architecture**
   - `core/app_context.py` - Application context replacing global state singleton with dependency injection pattern, providing centralized configuration, lazy-loaded components, and proper typing
   - `core/initialization.py` - Clean application initialization logic extracted from monolithic main.py with environment setup, logging configuration, and context creation
   - `core/agent_loop.py` - Main conversation loop extracted from main.py with proper error handling, command processing, and AI interaction management
   - `core/lazy_imports.py` - Startup time optimization through lazy loading of heavy dependencies, demonstrating ~1.5s potential startup time savings
   - `core/cli_args.py` - CLI argument parsing extracted from main.py with exact same logic, enabling reuse across different entry points (main.py, main_refactored.py)
   - `core/config_utils.py` - LLM and Monte Carlo configuration functions extracted from main.py, consolidating apply_default_llm_config() and apply_monte_carlo_config() with preserved logic
-  - `core/command_system.py` - **NEW (2025)**: Unified command definition system and command completion extracted from main.py. Provides centralized command management with aliases, descriptions, and prompt toolkit integration
-  - `core/input_manager.py` - **NEW (2025)**: Unified input management system providing clean abstraction layer for all input sources (CLI, GUI, Web, Voice) with standardized event handling, source registration, and processor routing
-  - `core/input_sources.py` - **NEW (2025)**: Concrete input source implementations for CLI (prompt_toolkit), GUI (event-driven), Web (browser-based), Voice (speech recognition), and Queue (programmatic) input methods
-  - `core/command_processor.py` - **NEW (2025)**: Command processing system integrating with unified input manager, providing specialized processors for commands, text, interrupts, and images with proper error handling
-  - `core/input_compatibility.py` - **NEW (2025)**: Compatibility layer bridging legacy and new input systems, enabling gradual migration while maintaining backwards compatibility with existing get_user_input_with_bindings interface
-  - `core/input_handlers.py` - **MIGRATED (2025)**: Input handling utilities now serving as compatibility wrappers that delegate to the unified input system while preserving original function interfaces for seamless transition
-  - `core/unified_completion.py` - **NEW (2025)**: Unified command completion system working across all interfaces (CLI, GUI, Web) with consistent behavior, real-time command discovery, and JSON serialization for web clients
-  - `core/command_registry.py` - **NEW (2025)**: Single source of truth for command definitions, centralizing command metadata and bridging static definitions with dynamic implementations through categorized command registry
-  - `core/migration_helper.py` - **NEW (2025)**: Migration utilities for transitioning main.py from legacy input handling to unified system, providing drop-in replacements, monkey-patching capabilities, and gradual migration support
+  - `core/command_system.py` - : Unified command definition system and command completion extracted from main.py. Provides centralized command management with aliases, descriptions, and prompt toolkit integration
+  - `core/input_manager.py` - : Unified input management system providing clean abstraction layer for all input sources (CLI, GUI, Web, Voice) with standardized event handling, source registration, and processor routing
+  - `core/input_sources.py` - : Concrete input source implementations for CLI (prompt_toolkit), GUI (event-driven), Web (browser-based), Voice (speech recognition), and Queue (programmatic) input methods
+  - `core/command_processor.py` - : Command processing system integrating with unified input manager, providing specialized processors for commands, text, interrupts, and images with proper error handling
+  - `core/input_compatibility.py` - : Compatibility layer bridging legacy and new input systems, enabling gradual migration while maintaining backwards compatibility with existing get_user_input_with_bindings interface
+  - `core/input_handlers.py` - : Input handling utilities now serving as compatibility wrappers that delegate to the unified input system while preserving original function interfaces for seamless transition
+  - `core/unified_completion.py` - : Unified command completion system working across all interfaces (CLI, GUI, Web) with consistent behavior, real-time command discovery, and JSON serialization for web clients
+  - `core/command_registry.py` - : Single source of truth for command definitions, centralizing command metadata and bridging static definitions with dynamic implementations through categorized command registry. : Added unified LLM selection commands (`/planner_llm`, `/router_llm`, `/fallbacks`) replacing WebSocket-based selection with command-based approach
+  - `core/migration_helper.py` - : Migration utilities for transitioning main.py from legacy input handling to unified system, providing drop-in replacements, monkey-patching capabilities, and gradual migration support
   
-  **NEW: Command System Architecture (2025)**
+  **Command System Architecture**
   - `commands/base_command.py` - Abstract base class and protocols for all CLI commands with proper typing, consistent interfaces, and command registration system
   - `commands/command_handler.py` - Central command dispatcher replacing massive switch-case logic from get_user_input_with_bindings with clean, modular command routing
   - `commands/screenshot_command.py` - Screenshot command implementation demonstrating the new command pattern with proper error handling and response types
   - `commands/help_command.py` - Help command showing integration with command handler for dynamic help generation
   - `commands/regenerate_command.py` - Regenerate command with chat history management and proper state handling
-  - `commands/simple_commands.py` - Collection of simple command implementations (multiline, exit, clear, toggle commands) with consistent interfaces
+  - `commands/simple_commands.py` - Collection of simple command implementations (multiline, exit, reset, toggle commands) with consistent interfaces. : Added unified LLM selection commands (`PlannerLlmCommand`, `RouterLlmCommand`, `FallbacksCommand`) and replaced `ClearCommand` with command-based approach integrating with web UI selectboxes
   
-  **NEW: GUI Components (2025)**
+  **GUI Components**
   - `gui/layouts.py` - Layout definitions and management for prompt_toolkit-based GUI including main layout, debug layout, minimal layout, and compact layout options
-  - `gui/widgets.py` - **ENHANCED (2025)**: Custom GUI widgets with standardized event handling including ChatDisplay for conversation history, StatusPanel for system information, InputArea for user input, and ChatMessage for message formatting
-  - `gui/event_manager.py` - **NEW (2025)**: Standardized GUI event handling and session management system providing unified event types, session lifecycle management, input coordination, and event processing for all GUI interfaces
+  - `gui/widgets.py` - : Custom GUI widgets with standardized event handling including ChatDisplay for conversation history, StatusPanel for system information, InputArea for user input, and ChatMessage for message formatting
+  - `gui/event_manager.py` - : Standardized GUI event handling and session management system providing unified event types, session lifecycle management, input coordination, and event processing for all GUI interfaces
   - `gui/__init__.py` - GUI package initialization providing clean imports for layout and widget components
   
-  **NEW: Monte Carlo Engine (2025)**
+  **Monte Carlo Engine**
   - `monte_carlo/task_group_engine.py` - Enhanced Monte Carlo Action Engine using asyncio.TaskGroup for robust concurrent LLM branch generation, replacing asyncio.gather with proper error handling and cancellation support
   
   **Legacy Components (Pre-Refactor)**
@@ -54,14 +54,14 @@
 - `shared/utils/` - Structured shared utilities organized by domain:
   - `web/web_server.py` - HTTP endpoints and web-based interfaces (migrated from py_classes/utils)
   - `search/brave_search.py` - Web search API integration (migrated from py_classes/utils)
-  - `search/search_vector_db.py` - **NEW (2025)**: SearchResultsVectorDB class for semantic search caching using ChromaDB and embeddinggemma:latest embeddings. Manages two collections (web_search_results + search_summaries) with similarity-based retrieval, automatic result storage, and progressive knowledge building for the SearchWeb tool
+  - `search/search_vector_db.py` - : SearchResultsVectorDB class for semantic search caching using ChromaDB and embeddinggemma:latest embeddings. Manages two collections (web_search_results + search_summaries) with similarity-based retrieval, automatic result storage, and progressive knowledge building for the SearchWeb tool
   
   - `python/python_utils.py` - Code execution and Python environment manipulation (migrated from py_classes/utils)
   - `log_manager.py` - Centralized log retention and cleanup management system with automatic rotation, retention policies, background cleanup scheduling, and comprehensive statistics for all CLI-Agent logging operations
-  - `pdf_utils.py` - **NEW (2025)**: Consolidated PDF processing utilities extracted from duplicated functions in shared/common_utils.py and shared/audio/audio_utils.py. Provides clean_pdf_text(), extract_pdf_content(), get_cache_file_path(), and related functions with caching support
-  - `shutdown_utils.py` - **NEW (2025)**: Graceful shutdown utilities extracted from main.py and main_refactored.py, supporting both legacy and modern architecture patterns with proper log cleanup and context management
-  - `display_utils.py` - **NEW (2025)**: UI and display utilities extracted from main.py including colorize_model_name(), print_startup_summary(), and show_unified_bindings_display() for consistent formatting across the application
-  - `logging_utils.py` - **NEW (2025)**: Logging formatters and configuration extracted from main.py. Provides ConsoleFormatter, SimpleFormatter, FileFormatter classes and setup_logging() function with retention management
+  - `pdf_utils.py` - : Consolidated PDF processing utilities extracted from duplicated functions in shared/common_utils.py and shared/audio/audio_utils.py. Provides clean_pdf_text(), extract_pdf_content(), get_cache_file_path(), and related functions with caching support
+  - `shutdown_utils.py` - : Graceful shutdown utilities extracted from main.py and main_refactored.py, supporting both legacy and modern architecture patterns with proper log cleanup and context management
+  - `display_utils.py` - : UI and display utilities extracted from main.py including colorize_model_name(), print_startup_summary(), and show_unified_bindings_display() for consistent formatting across the application
+  - `logging_utils.py` - : Logging formatters and configuration extracted from main.py. Provides ConsoleFormatter, SimpleFormatter, FileFormatter classes and setup_logging() function with retention management
 
 - `shared/audio/audio_utils.py` - Audio processing, TTS, and speech recognition (migrated from py_methods/utils)
 
@@ -74,7 +74,7 @@
 
 - `test.py` - Unified, user-facing entrypoint for the entire test suite. This script provides a simple command-line interface with modes like `--quick`, `--full`, and `--verbose`, orchestrating the underlying test infrastructure to provide clear, actionable results for developers. This is the primary command to run for validating changes.
 
-- `test_gui_components.py` - **NEW (2025)**: Comprehensive test suite for GUI components validating ChatDisplay, StatusPanel, InputArea widgets, layout systems, command integration, and core CLI-Agent integration without requiring terminal interface. Provides component-level testing for the prompt_toolkit GUI implementation.
+- `test_gui_components.py` - : Comprehensive test suite for GUI components validating ChatDisplay, StatusPanel, InputArea widgets, layout systems, command integration, and core CLI-Agent integration without requiring terminal interface. Provides component-level testing for the prompt_toolkit GUI implementation.
 
 - `run_tests.py` - The core test runner infrastructure that powers `test.py`. This module is responsible for the low-level mechanics of test discovery (scanning for `test_*` functions), hierarchical execution based on defined levels (e.g., unit, integration), and aggregating results. Developers typically don't run this script directly.
 
@@ -90,11 +90,11 @@
 
 - `ARCHITECTURE.md` - Comprehensive analysis of the monorepo structure and detailed strategy for decomposing it into 3 separate projects corresponding to tools/* directories, including dependency mapping, migration complexity assessment, and recommended decomposition approaches.
 
-- `main.py` - **CURRENT/ACTIVE**: The main 3,273-line entrypoint and orchestration script for the CLI-Agent. Contains the complete "Monte Carlo Action Engine," main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. This is the **stable, production entry point** that should be used for all current development and deployment.
+- `main.py` - **CURRENT/ACTIVE**: The main entrypoint and orchestration script for the CLI-Agent. Contains the complete "Monte Carlo Action Engine," main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. : Input system consolidated - removed unused `get_gui_input()` function and added consistent `get_cli_input()` function. All input now flows through the unified input management system. **FIXED**: Added router LLM initialization during startup (lines 1561-1574) to ensure `g.router_llm` is properly loaded from configuration, matching planner LLM initialization pattern. This is the **stable, production entry point** that should be used for all current development and deployment.
 
-- `main_refactored.py` - **⚠️ EXPERIMENTAL (2025)**: Clean, modular main entrypoint demonstrating the future refactored architecture. At only ~188 lines, this showcases the new agent/core components with dependency injection and proper separation of concerns. **Status: Work in progress** - still depends on main.py imports and lacks recent bug fixes. For stable operation, use main.py instead.
+- `main_refactored.py` - **⚠️ EXPERIMENTAL**: Clean, modular main entrypoint demonstrating the future refactored architecture. At only ~188 lines, this showcases the new agent/core components with dependency injection and proper separation of concerns. **Status: Work in progress** - still depends on main.py imports and lacks recent bug fixes. For stable operation, use main.py instead.
 
-- `main_prompt_toolkit_gui.py` - **NEW (2025)**: Enhanced GUI entry point using prompt_toolkit for conversational AI interface. Provides a superior alternative to Textual TUI attempts by building on existing prompt_toolkit infrastructure. Features full-screen chat interface with streaming responses, command processing, browser input monitoring, and integration with the complete CLI-Agent conversation system.
+- `main_prompt_toolkit_gui.py` - : Enhanced GUI entry point using prompt_toolkit for conversational AI interface. Provides a superior alternative to Textual TUI attempts by building on existing prompt_toolkit infrastructure. Features full-screen chat interface with streaming responses, command processing, browser input monitoring, and integration with the complete CLI-Agent conversation system.
 
 - `enhanced_permissions.py` - Enhanced permission system providing interactive prompts with persistent "always allow" functionality. Supports path-specific permissions, directory-based rules, and intelligent permission scoping with options like exact file, directory pattern, project-wide, or tool-wide permissions. Permission prompts now display tool arguments in addition to file paths and actions.
 
@@ -156,7 +156,7 @@
 
 - `docs/CURRENT_AND_IDEAL_ARCHITECTURE.md` - Architecture analysis documenting duplicate files between py_classes and core directories, with findings on AI provider interfaces and proposed monorepo structure improvements.
 
-- `docs/SEARCHWEB_VECTOR_DB.md` - **NEW (2025)**: Comprehensive documentation for SearchWeb vector database integration using ChromaDB and embeddinggemma:latest. Details semantic search architecture, two-collection system (search results + summaries), query flow, performance benefits, configuration, and troubleshooting for the intelligent caching system that reduces API calls and builds progressive knowledge base.
+- `docs/SEARCHWEB_VECTOR_DB.md` - : Comprehensive documentation for SearchWeb vector database integration using ChromaDB and embeddinggemma:latest. Details semantic search architecture, two-collection system (search results + summaries), query flow, performance benefits, configuration, and troubleshooting for the intelligent caching system that reduces API calls and builds progressive knowledge base.
 
 - `docs/OLLAMA_INFO.md` - Documentation for Ollama integration, covering local model hosting, configuration, and offline LLM capabilities.
 
@@ -226,7 +226,7 @@
 
 - `shell_scripts/setup_dia_environment.sh` - Environment setup script for configuring the development and runtime environment for the CLI agent system.
 
-- `scripts/manage_search_cache.py` - **NEW (2025)**: Cache management utility for the SearchWeb Vector Database providing commands for viewing statistics, pruning old entries, listing recent cache entries, and clearing cache data with comprehensive maintenance capabilities.
+- `scripts/manage_search_cache.py` - : Cache management utility for the SearchWeb Vector Database providing commands for viewing statistics, pruning old entries, listing recent cache entries, and clearing cache data with comprehensive maintenance capabilities.
 
 - `tests/README.md` - Testing documentation explaining the test structure, running procedures, and testing methodology for the CLI agent project.
 

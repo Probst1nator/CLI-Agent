@@ -5,9 +5,9 @@ from typing import Any, Type, Dict
 class UtilBase(ABC):
     """
     Abstract base class for implementing utility functionality.
-    
-    This class defines the interface that all utility implementations 
-    must follow. The public `run` method contains a guard to prevent 
+
+    This class defines the interface that all utility implementations
+    must follow. The public `run` method contains a guard to prevent
     re-execution if tasks for the utility are already pending. Subclasses
     must implement the `_run_logic` method for their specific behavior.
     """
@@ -16,7 +16,7 @@ class UtilBase(ABC):
     def run(cls, *args: Any, **kwargs: Any) -> Any:
         """
         Public entry point for executing a utility.
-        
+
         This method contains a guard that checks for pending to-do items
         specific to this utility. If found, it blocks execution and returns
         an error. Otherwise, it calls the utility's specific implementation.
@@ -33,7 +33,7 @@ class UtilBase(ABC):
         TodosUtil = todos_module.TodosUtil
 
         util_name = cls.get_name(cls)
-        
+
         # TodosUtil is foundational and must be exempt from the guard.
         if util_name == "todosutil":
             return cls._run_logic(*args, **kwargs)
@@ -67,7 +67,7 @@ class UtilBase(ABC):
     def _run_logic(*args: Any, **kwargs: Any) -> Any:
         """
         The actual implementation of the utility execution logic.
-        
+
         This method must be overridden by subclasses to provide the
         specific functionality of the utility. Each subclass will
         define its own specific arguments.
@@ -78,14 +78,14 @@ class UtilBase(ABC):
     def get_name(util_cls: Type['UtilBase']) -> str:
         """Get the name of a utility class."""
         return util_cls.__name__.lower()
-    
+
     @staticmethod
     def get_description(util_cls: Type['UtilBase']) -> str:
         """Get the description of a utility class from its docstring."""
         import inspect
         docstring = inspect.getdoc(util_cls)
         return docstring or "No description available"
-    
+
     @staticmethod
     def get_metadata() -> Dict[str, Any]:
         """Get comprehensive metadata for the utility."""

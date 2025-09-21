@@ -37,7 +37,7 @@ def print_subsection(title: str):
 def show_current_settings():
     """Display current TTS configuration."""
     print_section_header("Current TTS Configuration")
-    
+
     print_subsection("Default Settings")
     settings_table = [
         ("Voice", g.TTS_DEFAULT_VOICE),
@@ -47,37 +47,37 @@ def show_current_settings():
         ("Gender", g.TTS_DEFAULT_GENDER),
         ("Quality", g.TTS_DEFAULT_QUALITY)
     ]
-    
+
     for setting, value in settings_table:
         print(f"  {colored(setting + ':', 'yellow'):<12} {colored(str(value), 'white')}")
-    
+
     print_subsection("Engine Priority")
     active_engines = g.get_tts_engine_priority()
     for i, engine in enumerate(active_engines, 1):
         status_color = "green"
         print(f"  {colored(f'{i}.', 'cyan')} {colored(engine, status_color)}")
-    
+
     if g.TTS_DISABLED_ENGINES:
         print_subsection("Disabled Engines")
         for engine in g.TTS_DISABLED_ENGINES:
             print(f"  {colored('✗', 'red')} {colored(engine, 'red')}")
-    
+
     print_subsection("Context Settings")
     for context, settings in g.TTS_CONTEXT_SETTINGS.items():
         voice = settings.get('voice', 'default')
         speed = settings.get('speed', 1.0)
         volume = settings.get('volume', 0.8)
         print(f"  {colored(context + ':', 'yellow'):<20} voice={colored(voice, 'white')}, speed={colored(f'{speed}x', 'white')}, volume={colored(f'{volume:.1f}', 'white')}")
-    
+
     print(f"\n{colored('─' * 60, 'cyan')}")
 
 def interactive_configuration():
     """Interactive TTS configuration."""
     print_section_header("TTS Configuration Wizard")
-    
+
     while True:
         print_subsection("Configuration Menu")
-        
+
         menu_options = [
             ("1", "🔍 Show current settings", "View all TTS configuration"),
             ("2", "🎙️  Set default voice", "Change the default voice"),
@@ -89,15 +89,15 @@ def interactive_configuration():
             ("8", "🧪 Test current settings", "Test your configuration"),
             ("q", "🚪 Quit", "Exit configuration")
         ]
-        
+
         # Print menu with better formatting
         for option, title, description in menu_options:
             print(f"  {colored(option + '.', 'cyan')} {colored(title, 'white', attrs=['bold'])}")
             print(f"      {colored(description, 'white')}")
-        
+
         print(f"\n{colored('─' * 50, 'cyan')}")
         choice = input(f"{colored('Choose option [1-8, q]:', 'yellow')} ").strip().lower()
-        
+
         try:
             if choice == 'q':
                 print(f"\n{colored('👋 Configuration saved! Goodbye!', 'green', attrs=['bold'])}")
@@ -120,10 +120,10 @@ def interactive_configuration():
                 test_current_settings()
             else:
                 print(f"\n{colored('❌ Invalid option. Please choose 1-8 or q.', 'red')}")
-                
+
             if choice != 'q':
                 input(f"\n{colored('Press Enter to continue...', 'cyan')}")
-                
+
         except KeyboardInterrupt:
             print(f"\n\n{colored('👋 Configuration interrupted. Settings saved!', 'yellow')}")
             break
@@ -135,7 +135,7 @@ def configure_default_voice():
     """Configure default voice."""
     print_subsection("🎙️ Configure Default Voice")
     print(f"  {colored('Current:', 'yellow')} {colored(g.TTS_DEFAULT_VOICE, 'white', attrs=['bold'])}")
-    
+
     print(f"\n{colored('Available Voice Options:', 'white', attrs=['bold'])}")
     voice_categories = [
         ("General", ["default", "female", "male"]),
@@ -143,13 +143,13 @@ def configure_default_voice():
         ("ElevenLabs", ["rachel", "drew", "clyde", "dave"]),
         ("Piper", ["german_male", "german_female", "english_male", "english_female"])
     ]
-    
+
     for category, voices in voice_categories:
         print(f"  {colored(category + ':', 'cyan')} {', '.join(colored(v, 'white') for v in voices)}")
-    
+
     print(f"\n{colored('─' * 40, 'cyan')}")
     new_voice = input(f"{colored('Enter new default voice:', 'yellow')} ").strip()
-    
+
     if new_voice:
         g.save_tts_defaults(voice=new_voice)
         print(f"\n{colored('✅ Success!', 'green', attrs=['bold'])} Default voice set to: {colored(new_voice, 'white', attrs=['bold'])}")
@@ -160,7 +160,7 @@ def configure_default_speed():
     """Configure default speech speed."""
     print_subsection("⚡ Configure Default Speed")
     print(f"  {colored('Current:', 'yellow')} {colored(f'{g.TTS_DEFAULT_SPEED}x', 'white', attrs=['bold'])}")
-    
+
     print(f"\n{colored('Speed Guide:', 'white', attrs=['bold'])}")
     speed_guide = [
         ("0.5x", "Very slow (good for learning)"),
@@ -170,13 +170,13 @@ def configure_default_speed():
         ("1.5x", "Fast (quick reading)"),
         ("2.0x", "Very fast (speed reading)")
     ]
-    
+
     for speed, desc in speed_guide:
         print(f"  {colored(speed, 'cyan'):<6} - {colored(desc, 'white')}")
-    
+
     print(f"\n{colored('Valid range: 0.25 to 4.0', 'white')}")
     print(f"{colored('─' * 40, 'cyan')}")
-    
+
     try:
         new_speed_str = input(f"{colored('Enter new speed [0.25-4.0]:', 'yellow')} ").strip()
         if new_speed_str:
@@ -195,7 +195,7 @@ def configure_default_volume():
     """Configure default volume level."""
     print_subsection("🔊 Configure Default Volume")
     print(f"  {colored('Current:', 'yellow')} {colored(f'{g.TTS_DEFAULT_VOLUME:.1f}', 'white', attrs=['bold'])} ({colored(f'{int(g.TTS_DEFAULT_VOLUME * 100)}%', 'white', attrs=['bold'])})")
-    
+
     print(f"\n{colored('Volume Guide:', 'white', attrs=['bold'])}")
     volume_guide = [
         ("0.1", "10%", "Very quiet"),
@@ -204,13 +204,13 @@ def configure_default_volume():
         ("0.8", "80%", "Good (recommended)"),
         ("1.0", "100%", "Maximum volume")
     ]
-    
+
     for vol, percent, desc in volume_guide:
         print(f"  {colored(vol, 'cyan'):<5} ({colored(percent, 'white'):<4}) - {colored(desc, 'white')}")
-    
+
     print(f"\n{colored('Valid range: 0.1 to 1.0', 'white')}")
     print(f"{colored('─' * 40, 'cyan')}")
-    
+
     try:
         new_volume_str = input(f"{colored('Enter new volume [0.1-1.0]:', 'yellow')} ").strip()
         if new_volume_str:
@@ -229,43 +229,43 @@ def configure_default_volume():
 def configure_engine_priority():
     """Configure TTS engine priority order."""
     print_subsection("🔧 Configure Engine Priority")
-    
+
     current_engines = g.get_tts_engine_priority()
     print(f"  {colored('Current Priority Order:', 'yellow')}")
     for i, engine in enumerate(current_engines, 1):
         print(f"    {colored(f'{i}.', 'cyan')} {colored(engine, 'white')}")
-    
+
     print(f"\n{colored('Available Engines:', 'white', attrs=['bold'])}")
     valid_engines = ["openai", "elevenlabs", "piper", "coqui", "huggingface", "system"]
     engine_descriptions = {
         "openai": "Premium quality API (requires key)",
-        "elevenlabs": "Natural voices API (requires key)", 
+        "elevenlabs": "Natural voices API (requires key)",
         "piper": "High-quality offline TTS",
         "coqui": "Advanced multi-lingual TTS",
         "huggingface": "Modern transformer models",
         "system": "System TTS (espeak, say, etc.)"
     }
-    
+
     for engine in valid_engines:
         desc = engine_descriptions.get(engine, "")
         print(f"  {colored(engine, 'cyan'):<12} - {colored(desc, 'white')}")
-    
+
     print(f"\n{colored('Instructions:', 'white', attrs=['bold'])}")
     print("  • Enter engines in order of preference (comma-separated)")
     print("  • You don't need to include all engines")
     print("  • Example: piper,openai,system")
-    
+
     print(f"\n{colored('─' * 50, 'cyan')}")
     new_order = input(f"{colored('Enter new priority order:', 'yellow')} ").strip()
-    
+
     if new_order:
         # Clean up the input
         engines = [engine.strip().lower() for engine in new_order.split(',') if engine.strip()]
-        
+
         # Check for typos and suggest corrections
         corrected_engines = []
         invalid_engines = []
-        
+
         for engine in engines:
             if engine in valid_engines:
                 corrected_engines.append(engine)
@@ -282,23 +282,23 @@ def configure_engine_priority():
                         invalid_engines.append(engine)
                 else:
                     invalid_engines.append(engine)
-        
+
         # Remove duplicates while preserving order
         unique_engines = []
         for engine in corrected_engines:
             if engine not in unique_engines:
                 unique_engines.append(engine)
-        
+
         if invalid_engines:
             print(f"\n{colored('❌ Invalid engines:', 'red')} {', '.join(invalid_engines)}")
             print(f"  Valid options: {', '.join(colored(e, 'cyan') for e in valid_engines)}")
-            
+
         if unique_engines:
             # Add any missing engines to the end to maintain completeness
             for engine in valid_engines:
                 if engine not in unique_engines:
                     unique_engines.append(engine)
-            
+
             g.set_tts_engine_priority(unique_engines)
             print(f"\n{colored('✅ Success!', 'green', attrs=['bold'])} Engine priority updated:")
             for i, engine in enumerate(unique_engines, 1):
@@ -311,22 +311,22 @@ def configure_engine_priority():
 def find_closest_engine(input_engine: str, valid_engines: list) -> str:
     """Find the closest matching engine name for typo correction."""
     input_lower = input_engine.lower()
-    
+
     # Direct substring matches
     for engine in valid_engines:
         if input_lower in engine or engine in input_lower:
             return engine
-    
+
     # Levenshtein-like simple matching
     best_match = None
     min_distance = float('inf')
-    
+
     for engine in valid_engines:
         distance = simple_edit_distance(input_lower, engine)
         if distance < min_distance and distance <= 2:  # Allow up to 2 character differences
             min_distance = distance
             best_match = engine
-    
+
     return best_match
 
 def simple_edit_distance(s1: str, s2: str) -> int:
@@ -335,31 +335,31 @@ def simple_edit_distance(s1: str, s2: str) -> int:
         return len(s2)
     if len(s2) == 0:
         return len(s1)
-    
+
     # Count character differences (simplified)
     diff_count = 0
     min_len = min(len(s1), len(s2))
-    
+
     for i in range(min_len):
         if s1[i] != s2[i]:
             diff_count += 1
-    
+
     diff_count += abs(len(s1) - len(s2))
     return diff_count
 
 def configure_engine_enable_disable():
     """Enable or disable TTS engines."""
     print(f"\n{colored('Enable/Disable Engines', 'yellow')}")
-    
+
     all_engines = ["openai", "elevenlabs", "piper", "coqui", "huggingface", "system"]
     disabled = g.TTS_DISABLED_ENGINES
-    
+
     print("Current status:")
     for engine in all_engines:
         status = "disabled" if engine in disabled else "enabled"
         color = "red" if status == "disabled" else "green"
         print(f"  {engine}: {colored(status, color)}")
-    
+
     action = input("\nEnable (e) or disable (d) an engine? [e/d]: ").strip().lower()
     if action in ['e', 'd']:
         engine = input("Enter engine name: ").strip()
@@ -376,25 +376,25 @@ def configure_engine_enable_disable():
 def configure_context_settings():
     """Configure context-specific TTS settings."""
     print(f"\n{colored('Configure Context Settings', 'yellow')}")
-    
+
     contexts = list(g.TTS_CONTEXT_SETTINGS.keys())
     print("Available contexts:")
     for i, context in enumerate(contexts, 1):
         settings = g.get_tts_context_settings(context)
         print(f"  {i}. {context}: voice={settings.get('voice', 'default')}, speed={settings.get('speed', 1.0)}")
-    
+
     try:
         choice = int(input("Select context to configure (number): ")) - 1
         if 0 <= choice < len(contexts):
             context = contexts[choice]
             current = g.get_tts_context_settings(context)
-            
+
             print(f"\nConfiguring {context}:")
             print(f"Current: voice={current.get('voice', 'default')}, speed={current.get('speed', 1.0)}")
-            
+
             new_voice = input("New voice (or Enter to keep current): ").strip()
             new_speed_str = input("New speed (or Enter to keep current): ").strip()
-            
+
             new_settings = current.copy()
             if new_voice:
                 new_settings['voice'] = new_voice
@@ -403,7 +403,7 @@ def configure_context_settings():
                     new_settings['speed'] = float(new_speed_str)
                 except ValueError:
                     print(f"{colored('Invalid speed, keeping current', 'yellow')}")
-            
+
             g.set_tts_context_settings(context, new_settings)
             print(f"{colored('✓ Context settings updated', 'green')}")
         else:
@@ -414,12 +414,12 @@ def configure_context_settings():
 def test_current_settings():
     """Test current TTS settings."""
     print(f"\n{colored('Testing Current Settings', 'yellow')}")
-    
+
     from shared.utils_audio import text_to_speech
-    
+
     test_text = "This is a test of your current TTS configuration settings."
     print(f"Speaking: '{test_text}'")
-    
+
     try:
         text_to_speech(
             text=test_text,
@@ -441,9 +441,9 @@ def main():
     parser.add_argument("--disable", help="Disable a TTS engine")
     parser.add_argument("--enable", help="Enable a TTS engine")
     parser.add_argument("--test", action="store_true", help="Test current settings")
-    
+
     args = parser.parse_args()
-    
+
     if args.show:
         show_current_settings()
     elif args.set_voice:

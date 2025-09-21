@@ -7,7 +7,6 @@ with dedicated log files separated from the main application logs.
 
 import logging
 import sys
-from pathlib import Path
 
 def setup_tool_logger(tool_name: str, debug_mode: bool = None) -> logging.Logger:
     """

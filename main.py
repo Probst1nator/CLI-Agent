@@ -27,20 +27,20 @@ if '--debug' not in sys.argv:
     os.environ['GRPC_VERBOSITY'] = 'ERROR'
     os.environ['GRPC_TRACE'] = ''
     os.environ['GRPC_PYTHON_LOG_LEVEL'] = 'ERROR'
-    
+
     # Suppress TensorFlow/ML library warnings
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    os.environ['ABSL_MIN_LOG_LEVEL'] = '3' 
+    os.environ['ABSL_MIN_LOG_LEVEL'] = '3'
     os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-    
+
     # Suppress Python warnings system-wide
     os.environ['PYTHONWARNINGS'] = 'ignore'
     warnings.filterwarnings('ignore')
-    
+
     # Additional library-specific suppression
     os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Hugging Face warnings
     os.environ['TRANSFORMERS_VERBOSITY'] = 'error'  # Transformers library
-    
+
     # Create comprehensive stderr suppression context
     @contextlib.contextmanager
     def suppress_stderr_completely():
@@ -53,7 +53,7 @@ if '--debug' not in sys.argv:
         finally:
             sys.stderr = old_stderr
             devnull.close()
-                
+
     @contextlib.contextmanager
     def suppress_warnings_runtime():
         """Suppress warnings during runtime operations"""
@@ -75,13 +75,13 @@ else:
     # Debug mode: show ALL warnings and verbose output
     warnings.filterwarnings('default')
     os.environ['GRPC_VERBOSITY'] = 'DEBUG'
-    
+
     # Dummy context managers for debug mode
     @contextlib.contextmanager
     def suppress_stderr_completely():
         yield
-        
-    @contextlib.contextmanager 
+
+    @contextlib.contextmanager
     def suppress_warnings_runtime():
         yield
 
@@ -126,6 +126,13 @@ from core.tool_context import tool_context
 from tools.primitives.todos import todos
 from tools.readfile import readfile
 from tools.bash import bash
+
+# Import TextResourceManager for general resource creation
+try:
+    from shared.utils.text_resource_manager import TextResourceManager
+    RESOURCE_MANAGER_AVAILABLE = True
+except ImportError:
+    RESOURCE_MANAGER_AVAILABLE = False
 from core.globals import g
 from core.llm_router import LlmRouter, StreamInterruptedException, UserInterruptedException
 from core.chat import Chat, Role
@@ -146,7 +153,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
 # Import display utilities from extracted module
 from shared.utils.display_utils import colorize_model_list, print_startup_summary, show_unified_bindings_display
 
-# Import logging utilities from extracted module  
+# Import logging utilities from extracted module
 from shared.utils.logging_utils import setup_logging, swap_to_simple_logging
 
 # Import tool discovery from extracted module
@@ -159,7 +166,7 @@ from agent.core.input_handlers import (
 
 # Import Monte Carlo engine from extracted module
 from agent.monte_carlo.monte_carlo_engine import (
-    select_best_branch, generate_branch
+    select_best_branch
 )
 
 # Command system functions moved to agent.core.command_system
@@ -172,101 +179,101 @@ class FallbackModelIterator:
     Global iterator to cycle through fallback models across all system components
     (branch generation, voting, guarding) to maximize cognitive diversity.
     """
-    
+
     def __init__(self):
         self._fallback_models = []
         self._current_index = 0
         self._usage_count = {}  # Track how often each model has been used
         self._failure_log = []  # Track (failed_model, reason, replacement) tuples
-        
+
     def update_fallback_models(self, llm_config: Dict):
         """Update the list of available fallback models from current config."""
         from core.llm_router import LlmRouter
-        
+
         new_fallback_models = [
             key for key, data in llm_config.items()
-            if (data.get('selected') and 
+            if (data.get('selected') and
                 key not in LlmRouter().failed_models and
                 data.get('eval', 0) == 0 and
                 data.get('guard', 0) == 0)
         ]
-        
+
         if new_fallback_models != self._fallback_models:
             self._fallback_models = new_fallback_models
             self._current_index = 0  # Reset when models change
             self._usage_count = {model: 0 for model in self._fallback_models}
-            
+
     def get_next_fallback(self, exclude: Optional[List[str]] = None) -> Optional[str]:
         """
         Get the next fallback model in round-robin fashion.
-        
+
         Args:
             exclude: List of models to exclude from selection
-            
+
         Returns:
             Next fallback model, or None if no models available
         """
         if not self._fallback_models:
             return None
-            
+
         exclude = exclude or []
         available_models = [m for m in self._fallback_models if m not in exclude]
-        
+
         if not available_models:
             return None
-            
+
         # Start from current index and find next available model
         attempts = 0
         while attempts < len(self._fallback_models):
             candidate = self._fallback_models[self._current_index % len(self._fallback_models)]
             self._current_index = (self._current_index + 1) % len(self._fallback_models)
-            
+
             if candidate in available_models:
                 self._usage_count[candidate] = self._usage_count.get(candidate, 0) + 1
                 return candidate
-                
+
             attempts += 1
-            
+
         return None
-        
+
     def get_multiple_fallbacks(self, count: int, exclude: Optional[List[str]] = None) -> List[str]:
         """
         Get multiple fallback models, cycling through the list to maximize diversity.
-        
+
         Args:
             count: Number of fallbacks needed
             exclude: List of models to exclude
-            
+
         Returns:
             List of fallback models (may be shorter than count if not enough available)
         """
         exclude = exclude or []
         fallbacks = []
-        
+
         for _ in range(count):
             fallback = self.get_next_fallback(exclude + fallbacks)
             if fallback:
                 fallbacks.append(fallback)
             else:
                 break
-                
+
         return fallbacks
-        
+
     def get_usage_stats(self) -> Dict[str, int]:
         """Get usage statistics for debugging."""
         return self._usage_count.copy()
-    
+
     def record_failure(self, failed_model: str, reason: str, replacement: Optional[str] = None):
         """Record a model failure and its replacement."""
         self._failure_log.append((failed_model, reason, replacement))
-        
+
     def get_failure_log(self) -> List[tuple]:
         """Get the failure log for this session."""
         return self._failure_log.copy()
 
 # Separate iterators for different system components to maximize cognitive diversity
 branch_fallback_iterator = FallbackModelIterator()
-guard_fallback_iterator = FallbackModelIterator() 
+guard_fallback_iterator = FallbackModelIterator()
 evaluation_fallback_iterator = FallbackModelIterator()
 
 # --- Signal Handling for Graceful Interruption ---
@@ -427,15 +434,24 @@ class InputCollector:
         if hasattr(g, 'visual_input_queue') and not g.visual_input_queue.empty():
             try:
                 user_input = g.visual_input_queue.get_nowait()
-                if user_input and user_input.strip():
-                    self.input_queue.put(user_input.strip())
+                if user_input:
+                    # Handle both string and dict inputs
+                    if isinstance(user_input, str):
+                        if user_input.strip():
+                            self.input_queue.put(user_input.strip())
+                    elif isinstance(user_input, dict):
+                        # Dict objects should be handled by permissions system, not regular input
+                        # Put it back for proper handling
+                        g.visual_input_queue.put(user_input)
+                    else:
+                        logging.debug(f"Unexpected input type in visual queue: {type(user_input)}")
             except queue.Empty:
                 pass
 
     def _check_cli_input(self):
         """Check for CLI input using non-blocking method."""
         # Skip CLI input monitoring if we're in GUI mode - it can interfere
-        # The GUI mode will handle input through get_gui_input() which now
+        # The GUI mode will handle input through the unified input system which now
         # checks for queued commands from this collector
         if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
             return
@@ -463,11 +479,11 @@ class InputCollector:
             # Windows doesn't have select, use msvcrt if available
             try:
                 import msvcrt
-                if msvcrt.kbhit():
+                if hasattr(msvcrt, 'kbhit') and msvcrt.kbhit():  # type: ignore
                     # Read characters until we get a complete line
                     line = ""
-                    while msvcrt.kbhit():
-                        char = msvcrt.getch().decode('utf-8', errors='ignore')
+                    while hasattr(msvcrt, 'kbhit') and msvcrt.kbhit():  # type: ignore
+                        char = msvcrt.getch().decode('utf-8', errors='ignore') if hasattr(msvcrt, 'getch') else ''  # type: ignore
                         if char == '\r':  # Enter key
                             if line.strip():
                                 self.input_queue.put(line.strip())
@@ -495,22 +511,11 @@ class InputCollector:
                 if user_input:
                     self.args.message.append(user_input)
 
-                    # Show immediate feedback to user with priority indication
                     queue_size = len(self.args.message)
-                    priority_indicator = ""
-
-                    # Determine priority level for display
-                    if user_input.startswith(('/exit', '/stop')):
-                        priority_indicator = " 🔴"  # Urgent
-                    elif user_input.startswith(('/help', '/save', '/clear', '/reset', '/screenshot')):
-                        priority_indicator = " 🟡"  # High priority
-                    elif user_input.startswith('/'):
-                        priority_indicator = " 🟢"  # Command
-
                     if queue_size == 1:
-                        print(colored(f"\n⚡ Command ready for instant execution: {user_input}{priority_indicator}", "cyan"))
+                        print(colored(f"\n⚡ Command ready for instant execution: {user_input}", "cyan"))
                     else:
-                        print(colored(f"\n⚡ Command ready for instant execution: {user_input}{priority_indicator} (⏳ {queue_size} total queued)", "cyan"))
+                        print(colored(f"\n⚡ Command ready for instant execution: {user_input} (⏳ {queue_size} total queued)", "cyan"))
 
                     # Set interrupt flag to break out of waiting states immediately
                     self._set_command_interrupt()
@@ -586,7 +591,7 @@ def _get_next_priority_message(message_list: List[str]) -> Optional[str]:
 # --- Custom Logging Setup ---
 def parse_cli_args() -> argparse.Namespace:
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
-    
+
     parser = argparse.ArgumentParser(
         description="AI CLI-Agent with backend options and more.",
         add_help=False  # Disable automatic help to manually handle unrecognized args
@@ -594,13 +599,13 @@ def parse_cli_args() -> argparse.Namespace:
 
     parser.add_argument("-h", "--help", action="store_true", default=False,
                         help="Display this help")
-    parser.add_argument("-a", "--auto", action="store_true", default=False,
+    parser.add_argument("--yolo", action="store_true", default=False,
                         help="Automatically execute safe commands...")
     parser.add_argument("-c", action="store_true", default=False,
                         help="Continue the last conversation, retaining its context.")
     parser.add_argument("-l", "--local", action="store_true", default=False,
                         help="Use the local Ollama backend for processing. Sets g.FORCE_LOCAL=True.")
-    parser.add_argument("-m", "--message", type=str, default=[], nargs='*', 
+    parser.add_argument("-m", "--message", type=str, default=[], nargs='*',
                         help="Enter one or more messages to process in sequence. Multiple messages can be passed like: -m 'first message' 'second message'. If no message is provided, multiline input mode will be activated.")
     parser.add_argument("-r", "--regenerate", action="store_true", default=False,
                         help="Regenerate the last response.")
@@ -619,17 +624,17 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Force use of cloud AI.")
     parser.add_argument("-mct", "--monte-carlo", action="store_true", default=False,
                         help="Enable multi-LLM mode with branch generation, council evaluation, and execution guards.")
-    
+
     parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None,
                         help="Specify the LLM model key to use (e.g., 'gemini-2.5-flash', 'gemma3n:e2b'). Use without value to open selection menu.")
-    
+
     parser.add_argument("--gui", action="store_true", default=False,
                         help="Open a web interface for the chat")
     parser.add_argument("--debug-chats", action="store_true", default=False,
                         help="Enable debug windows for chat contexts without full debug logging. Sets g.DEBUG_CHATS=True.")
     parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
                         help="Use private remote wake detection")
-    
+
     # --- Logging Arguments ---
     parser.add_argument("--debug", action="store_true", default=False,
                         help="Enable detailed debug logging to the console.")
@@ -639,7 +644,7 @@ def parse_cli_args() -> argparse.Namespace:
 
     parser.add_argument("-e", "--exit", action="store_true", default=False,
                         help="Exit after all automatic messages have been parsed successfully")
-    
+
     # CORRECTED: Parse directly from sys.argv, as the pre-processing logic was removed.
     args, unknown_args = parser.parse_known_args(sys.argv[1:])
 
@@ -650,7 +655,7 @@ def parse_cli_args() -> argparse.Namespace:
             logging.getLogger().warning(colored(f"Unrecognized arguments {' '.join(unknown_args)}.", "yellow"))
         parser.print_help()
         exit(1)
-    
+
     return args
 
 # ConsoleFormatter moved to shared.utils.logging_utils
@@ -689,7 +694,6 @@ from pathlib import Path
 # and to ensure logging is configured before any modules start logging.
 from dotenv import load_dotenv
 import warnings
-import subprocess
 
 # --- FIX: Import new command system components ---
 from agent.commands.command_handler import CommandHandler
@@ -720,7 +724,7 @@ def get_listen_microphone():
     return listen_microphone
 
 try:
-    from shared.utils_tts import TtsUtil
+    from shared.utils_tts import TtsUtil  # type: ignore
 except ImportError:
     class TtsUtil:
         @staticmethod
@@ -860,17 +864,51 @@ def apply_default_llm_config():
         return # No saved config to apply
 
     # Preserve chronological selection order by using g.SELECTED_LLMS if available
-    if g.SELECTED_LLMS:
-        selected_llms = [key for key in g.SELECTED_LLMS if llm_config.get(key, {}).get('selected')]
-    else:
-        selected_llms = [key for key, data in llm_config.items() if data.get('selected')]
-    
-    # For evaluator LLMs, preserve order by checking g.SELECTED_LLMS first
-    if g.SELECTED_LLMS:
-        evaluator_llms = [key for key in g.SELECTED_LLMS if llm_config.get(key, {}).get('eval', 0) > 0]
-    else:
-        evaluator_llms = [key for key, data in llm_config.items() if data.get('eval', 0) > 0]
-    
+    # Add error handling for corrupted config data
+    try:
+        if g.SELECTED_LLMS:
+            selected_llms = [key for key in g.SELECTED_LLMS if isinstance(llm_config.get(key, {}), dict) and llm_config.get(key, {}).get('selected')]
+        else:
+            # Get selected models and sort them by their saved order
+            selected_models_with_order = []
+            for key, data in llm_config.items():
+                if isinstance(data, dict) and data.get('selected'):
+                    order = data.get('order', 999)  # Default high order for models without order
+                    selected_models_with_order.append((order, key))
+
+            # Sort by order and extract just the model keys
+            selected_models_with_order.sort(key=lambda x: x[0])
+            selected_llms = [key for order, key in selected_models_with_order]
+
+        # For evaluator LLMs, preserve order by checking g.SELECTED_LLMS first
+        if g.SELECTED_LLMS:
+            evaluator_llms = [key for key in g.SELECTED_LLMS if isinstance(llm_config.get(key, {}), dict) and llm_config.get(key, {}).get('eval', 0) > 0]
+        else:
+            # Get evaluator models and sort them by their saved order
+            evaluator_models_with_order = []
+            for key, data in llm_config.items():
+                if isinstance(data, dict) and data.get('eval', 0) > 0:
+                    order = data.get('order', 999)  # Default high order for models without order
+                    evaluator_models_with_order.append((order, key))
+
+            # Sort by order and extract just the model keys
+            evaluator_models_with_order.sort(key=lambda x: x[0])
+            evaluator_llms = [key for order, key in evaluator_models_with_order]
+    except Exception as e:
+        logging.warning(colored(f"⚠️  LLM config appears corrupted, skipping auto-selection: {e}", "yellow"))
+        logging.info(colored(f"🔍 Config content: {llm_config}", "cyan"))
+
+        # Attempt to clean up corrupted config
+        try:
+            logging.info(colored("🔧 Attempting to reset corrupted LLM config...", "cyan"))
+            g.save_llm_config({})  # Reset to empty config
+            logging.info(colored("✅ LLM config reset successfully", "green"))
+        except Exception as reset_error:
+            logging.error(colored(f"❌ Failed to reset LLM config: {reset_error}", "red"))
+
+        selected_llms = []
+        evaluator_llms = []
+
     # Only apply if there are actual selections, to not override command line flags unintentionally
     if selected_llms:
         g.SELECTED_LLMS = selected_llms
@@ -882,7 +920,7 @@ def apply_default_llm_config():
             emoji, provider_name = get_provider_emoji_and_name(model)
             provider_key = f"{emoji} {provider_name}"
             provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
-        
+
         provider_summary = ", ".join([f"{provider}: {count}" for provider, count in provider_counts.items()])
         logging.info(f"📋 Loaded latest LLM configuration. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
 
@@ -892,20 +930,39 @@ def apply_monte_carlo_config():
     If no config exists, creates a default with the first 3 available models.
     """
     import json
-    
+
     llm_config = g.get_llm_config()
-    
+
     # Check if Monte Carlo config already exists (has beams/eval/guard values)
     has_monte_carlo_config = any(
-        data.get('beams', 0) > 0 or data.get('eval', 0) > 0 or data.get('guard', 0) > 0 
+        data.get('beams', 0) > 0 or data.get('eval', 0) > 0 or data.get('guard', 0) > 0
         for data in llm_config.values()
     )
-    
+
     if has_monte_carlo_config:
-        # Load existing Monte Carlo configuration
-        selected_llms = [key for key, data in llm_config.items() if data.get('selected')]
-        evaluator_llms = [key for key, data in llm_config.items() if data.get('eval', 0) > 0]
-        
+        # Load existing Monte Carlo configuration with preserved order
+        # Get selected models and sort them by their saved order
+        selected_models_with_order = []
+        for key, data in llm_config.items():
+            if data.get('selected'):
+                order = data.get('order', 999)  # Default high order for models without order
+                selected_models_with_order.append((order, key))
+
+        # Sort by order and extract just the model keys
+        selected_models_with_order.sort(key=lambda x: x[0])
+        selected_llms = [key for order, key in selected_models_with_order]
+
+        # Get evaluator models and sort them by their saved order
+        evaluator_models_with_order = []
+        for key, data in llm_config.items():
+            if data.get('eval', 0) > 0:
+                order = data.get('order', 999)  # Default high order for models without order
+                evaluator_models_with_order.append((order, key))
+
+        # Sort by order and extract just the model keys
+        evaluator_models_with_order.sort(key=lambda x: x[0])
+        evaluator_llms = [key for order, key in evaluator_models_with_order]
+
         if selected_llms:
             g.SELECTED_LLMS = selected_llms
             g.EVALUATOR_LLMS = evaluator_llms
@@ -915,15 +972,15 @@ def apply_monte_carlo_config():
                 emoji, provider_name = get_provider_emoji_and_name(model)
                 provider_key = f"{emoji} {provider_name}"
                 provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
-            
+
             provider_summary = ", ".join([f"{provider}: {count}" for provider, count in provider_counts.items()])
             logging.info(f"🎯 Loaded Monte Carlo configuration. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
         return
-    
+
     # Create default Monte Carlo configuration with first 3 available models
     from core.llm_router import LlmRouter
     router = LlmRouter()
-    
+
     # Discover available models
     available_models = []
     try:
@@ -933,14 +990,14 @@ def apply_monte_carlo_config():
     except:
         # Fallback to hardcoded reliable models
         available_models = ['gemini-2.5-flash', 'gemini-2.5-flash-preview-05-20', 'gemma3:12b']
-    
+
     # Take first 3 unique models
     selected_models = list(set(available_models))[:3]
-    
+
     if not selected_models:
         logging.warning(colored("⚠️ No models available for Monte Carlo configuration", "yellow"))
         return
-    
+
     # Create default Monte Carlo configuration
     new_config = {}
     for i, model in enumerate(selected_models):
@@ -953,20 +1010,20 @@ def apply_monte_carlo_config():
         else:
             # Third model: guard
             new_config[model] = {"selected": True, "beams": 0, "eval": 0, "guard": 1}
-    
+
     # Save the new configuration
     try:
         os.makedirs(os.path.dirname(g.LLM_CONFIG_PATH), exist_ok=True)
         with open(g.LLM_CONFIG_PATH, 'w') as f:
             json.dump(new_config, f, indent=2)
-        
+
         # Reload the configuration
         g.load_llm_config()
         g.SELECTED_LLMS = selected_models
         g.EVALUATOR_LLMS = [model for model, data in new_config.items() if data.get('eval', 0) > 0]
-        
+
         logging.info(f"🎯 Created default Monte Carlo configuration with {colored(str(len(selected_models)), 'green')} models: {', '.join(selected_models)}")
-        
+
     except Exception as e:
         logging.error(f"❌ Failed to save Monte Carlo configuration: {e}")
         # Continue with in-memory config
@@ -982,7 +1039,7 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
     """
     from agent.llm_selection import LlmSelector
     selector = LlmSelector()
-    
+
     # The selector now handles its own UI, logic, and persistence.
     result = await selector.get_selection(
         preselected_llms=preselected_llms,
@@ -1005,19 +1062,37 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
 
     # Handle specific model selections
     selected_configs = result.get("selected_configs", [])
-    
+
     # Identify evaluator models and set them in globals
     evaluator_models = [config['model_key'] for config in selected_configs if config.get('eval', 0) > 0]
     g.EVALUATOR_LLMS = evaluator_models
-    
+
     selected_llms = [config['model_key'] for config in selected_configs]
-    
+
     # Update globals with the latest selection
     args.llm = selected_llms
     g.SELECTED_LLMS = selected_llms
 
     # Reload the config in `g` so the main loop gets the fresh settings
     g.load_llm_config()
+
+    # Load previously selected models from saved configuration
+    try:
+        config = g.get_llm_config()
+
+        # Load selected fallback models from config
+        previously_selected = [
+            model_key for model_key, model_config in config.items()
+            if model_key != '__planner_llm__' and model_config.get('selected', False)
+        ]
+
+        if previously_selected:
+            g.SELECTED_LLMS = previously_selected
+            args.llm = previously_selected
+            logging.info(colored(f"📋 Loaded {len(previously_selected)} selected models from config: {', '.join(previously_selected[:3])}{'...' if len(previously_selected) > 3 else ''}", "cyan"))
+
+    except Exception as e:
+        logging.warning(colored(f"⚠️  Failed to load saved LLM configuration: {e}", "yellow"))
 
     if not args.llm:
         logging.info(colored("# cli-agent: LLM set to auto, type (-h) for info", "green") )
@@ -1033,12 +1108,12 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
                 seen.add(model)
         provider_counts = {}
         branches_count = eval_count = guard_count = 0
-        
+
         for model in unique_models:
             emoji, provider_name = get_provider_emoji_and_name(model)
             provider_key = f"{emoji} {provider_name}"
             provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
-        
+
         for config in selected_configs:
             if config.get('beams', 0) > 0 or config.get('branches', 0) > 0:  # Support both old and new terminology
                 branches_count += 1
@@ -1046,25 +1121,25 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
                 eval_count += 1
             if config.get('guard', 0) > 0:
                 guard_count += 1
-        
+
         # Display Monte Carlo Action Engine overview instead of simple summary
         def get_count_color(count: int) -> str:
             """Returns a color string based on the model count for at-a-glance status."""
             if count == 1: return 'red'
-            if count == 2: return 'yellow' 
+            if count == 2: return 'yellow'
             if count == 3: return 'green'
             if count > 3: return 'light_green'
             return 'white'
-        
+
         # Categorize models by their roles
         branch_models = [config['model_key'] for config in selected_configs if config.get('beams', 0) > 0 or config.get('branches', 0) > 0]
         eval_models = [config['model_key'] for config in selected_configs if config.get('eval', 0) > 0]
         guard_models = [config['model_key'] for config in selected_configs if config.get('guard', 0) > 0]
-        
+
         # Calculate fallback models (selected but not specialized)
         specialized_models = set(branch_models + eval_models + guard_models)
         fallback_models = [model for model in unique_models if model not in specialized_models]
-        
+
         logging.info(colored("---" + " Monte Carlo Action Engine " + "---", "yellow"))
 
         if branch_models:
@@ -1075,29 +1150,29 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
                     count += config.get('beams', config.get('branches', 1))
             color = get_count_color(count)
             logging.info(colored(f"  🌿 {count} Branch Generators:".ljust(27), color) + " " + colorize_model_list(branch_models))
-        
+
         if eval_models:
             count = len(eval_models)
             color = get_count_color(count)
             logging.info(colored(f"  ⚖️  {count} Branch Evaluators:".ljust(28), color) + " " + colorize_model_list(eval_models))
-        
+
         if guard_models:
             count = len(guard_models)
             color = get_count_color(count)
             logging.info(colored(f"  🛡️  {count} Execution Guards:".ljust(28), color) + " " + colorize_model_list(guard_models))
-        
+
         # Always show fallback models for visibility, even if none are configured
         count = len(fallback_models)
         color = "light_green" if count > 0 else "red"
         logging.info(colored(f"  🔄 {count} Fallback Models:".ljust(27), color) + " " + colorize_model_list(fallback_models))
-        
-        # Auto-sync args.auto with guard LLMs when selection changes
-        if guard_count > 0 and not args.auto:
-            args.auto = True
+
+        # Auto-sync args.yolo with guard LLMs when selection changes
+        if guard_count > 0 and not args.yolo:
+            args.yolo = True
             logging.info(colored(f"🔄 Auto-execution enabled: {guard_count} guard LLMs active", "green"))
-        elif guard_count == 0 and args.auto:
+        elif guard_count == 0 and args.yolo:
             # Inform user that auto is on but no guards are available
-            logging.info(colored("❗ Auto-execution (args.auto) automatically disabled: no guard LLMs configured (manual confirmation will be required)", "red"))
+            logging.info(colored("❗ Auto-execution (args.yolo) automatically disabled: no guard LLMs configured (manual confirmation will be required)", "red"))
 
     return selected_llms
 
@@ -1126,7 +1201,7 @@ def create_interruption_callback(
     """
     # Pre-compile regex for efficiency. re.DOTALL allows '.' to match newlines.
     # CODE_BLOCK_REGEX = re.compile(r"```.*?(```)", re.DOTALL)
-    
+
     # Dynamically build a regex for registered tool blocks. This is more robust
     # and prevents premature interruption on non-tool XML tags like <filepath>.
     # Define tags that should NOT interrupt the stream, allowing the agent to output them fully before pausing.
@@ -1134,23 +1209,22 @@ def create_interruption_callback(
 
     # Get all tool delimiters and add the final <response> tag.
     all_delimiters = list(getattr(g, 'tool_classes', {}).keys()) + ['response']
-    
+
     # In GUI mode, also exclude 'response' from interrupting since we want visualresponse only
     if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
         non_interrupting_tags = non_interrupting_tags.union({'response'})
 
     # Filter this list to get only the tags that SHOULD cause an interruption.
     interrupting_delimiters = [d for d in all_delimiters if d not in non_interrupting_tags]
-    
+
     # Build the regex from the filtered list of interrupting tags.
     tool_tag_pattern = "|".join(re.escape(d) for d in interrupting_delimiters)
     XML_TOOL_BLOCK_REGEX = re.compile(f"<({tool_tag_pattern})[^>]*>.*?</\\1>", re.DOTALL) if tool_tag_pattern else None
-    
+
     async def _callback(chunk: str):
         # Check for user interrupt immediately at start of callback for faster response
         if check_interrupt():
-            if not g.SUMMARY_MODE:
-                print("\n")
+            print("\n")
             raise StreamInterruptedException(response_buffer[0])
 
         # Batch processing for better performance while maintaining interrupt responsiveness
@@ -1160,8 +1234,7 @@ def create_interruption_callback(
         for i, char in enumerate(chunk):
             # Check for user interrupt every 10 characters or at batch boundaries for efficiency
             if i % 10 == 0 and check_interrupt():
-                if not g.SUMMARY_MODE:
-                    print("\n")
+                print("\n")
                 raise StreamInterruptedException(response_buffer[0] + ''.join(char_batch) + char)
 
             char_batch.append(char)
@@ -1177,7 +1250,7 @@ def create_interruption_callback(
                 batch_str = ''.join(char_batch)
 
                 # Print the batch
-                if not g.SUMMARY_MODE or g.DEBUG_MODE:
+                if  g.DEBUG_MODE:
                     if lock:
                         async with lock:
                             print(painter.apply_color(batch_str), end="", flush=True)
@@ -1206,8 +1279,7 @@ def create_interruption_callback(
                         tool_match = XML_TOOL_BLOCK_REGEX.search(current_buffer)
                         if tool_match:
                             full_block = tool_match.group(0).strip()
-                            if not g.SUMMARY_MODE:
-                                print("\n")
+                            print("\n")
                             raise StreamInterruptedException(full_block)
 
     return _callback
@@ -1220,14 +1292,14 @@ def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, s
     # Handle local Ollama models (contain colon)
     if ':' in model_key:
         return "🏠", "Ollama"
-    
+
     # Try to get provider from LLM router if available
     if llm_router:
         try:
             llm_obj = llm_router.get_model([model_key])
             if llm_obj and llm_obj.provider:
                 provider_class_name = llm_obj.provider.__class__.__name__
-                
+
                 # Determine emoji based on provider characteristics
                 if 'Ollama' in provider_class_name:
                     emoji = "🏠"
@@ -1235,14 +1307,14 @@ def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, s
                     emoji = "👤"
                 else:
                     emoji = "☁️  "
-                
+
                 # Clean provider name from class name
                 provider_name = provider_class_name.replace('API', '').replace('Client', '').replace('Interface', '')
-                
+
                 return emoji, provider_name
         except:
             pass
-    
+
     # Fallback: use model name prefix to determine provider
     if model_key.startswith('gemini'):
         return "☁️", "Google"
@@ -1263,131 +1335,34 @@ def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, s
 # are assumed to exist elsewhere in the project.
 
 
-async def get_gui_input() -> Optional[str]:
+async def get_cli_input(prompt: str = " Enter your request: ") -> str:
     """
-    Get input from browser interface instead of terminal.
-    Prioritizes queued commands from the background input collector, then
-    waits for input from the visual_input_queue.
+    Get input from CLI interface using the unified input system.
+
+    This function provides a simple interface for CLI input, delegating
+    to the unified input management system.
     """
-    import queue
-    input_collector = get_input_collector()
+    try:
+        from agent.core.input_compatibility import get_unified_input_manager
+        from agent.core.input_manager import InputSource
 
-    # HIGHEST PRIORITY: Process any commands queued by the background collector
-    if input_collector and input_collector.has_pending_commands():
-        # Let the main loop handle pulling from args.message by returning None
-        # This signals that the input source is the message queue.
-        return None
+        manager = await get_unified_input_manager()
 
-    if not hasattr(g, 'visual_input_queue'):
-        raise Exception("Visual input queue not available for GUI input")
+        # Force CLI input source
+        user_input, images = await manager.get_user_input(
+            prompt=prompt,
+            force_source=InputSource.CLI
+        )
 
-    logging.info(colored("🌐 Waiting for browser input...", "blue"))
+        return user_input
 
-    while True:
-        # Check for newly queued commands during the wait
-        if input_collector and input_collector.has_pending_commands():
-            return None # Prioritize the new command
+    except Exception as e:
+        # Fallback to simple input() if unified system fails
+        import logging
+        logging.warning(f"Unified CLI input failed, using fallback: {e}")
+        return input(prompt)
 
-        try:
-            # Wait for input from the browser with a timeout
-            user_input = g.visual_input_queue.get(timeout=0.1)
 
-            # Handle structured interrupt commands
-            if isinstance(user_input, dict) and user_input.get('type') == 'interrupt_command':
-                logging.info(colored("🛑 Received interrupt command from web UI", "red"))
-                _interrupt_flag.set()
-                # Force exit from autonomous mode
-                if hasattr(g, 'autonomous_iteration_count'):
-                    g.autonomous_iteration_count = 999
-                print(colored("\n🛑 INTERRUPT SIGNAL RECEIVED - Cancelling AI generation...", "red", attrs=['bold']))
-                print(colored("  → Provider cancellation initiated", "yellow"))
-                print(colored("  → Breaking out of autonomous mode and returning to user input...", "yellow"))
-                return None # Signal to main loop that interrupt was processed
-
-            # Handle LLM selection updates from web UI
-            if isinstance(user_input, dict) and user_input.get('type') == 'llm_selection_update':
-                logging.info(colored("🎯 Received LLM selection update from web UI", "blue"))
-                selection_data = user_input.get('data', {})
-
-                # Update the system configuration
-                new_fallback_models = []
-                for key in ['primary', 'fallback1', 'fallback2']:
-                    if selection_data.get(key):
-                        new_fallback_models.append(selection_data[key])
-
-                # Update g.SELECTED_LLMS to match the UI selection
-                if new_fallback_models:
-                    # Replace existing fallback models with the 3 from UI
-                    # Keep any specialized models (branch, eval, guard) intact
-                    llm_config = g.get_llm_config()
-                    specialized_models = []
-
-                    # Find specialized models to preserve
-                    for model_key, config in llm_config.items():
-                        if config.get('beams', 0) > 0 or config.get('eval', 0) > 0 or config.get('guard', 0) > 0:
-                            specialized_models.append(model_key)
-
-                    # Create new selection list: specialized models + UI fallback models
-                    new_selected_llms = specialized_models + new_fallback_models
-
-                    # Remove duplicates while preserving order
-                    unique_selected = []
-                    seen = set()
-                    for model in new_selected_llms:
-                        if model not in seen:
-                            unique_selected.append(model)
-                            seen.add(model)
-
-                    # Update global selection
-                    old_selection = g.SELECTED_LLMS.copy()
-                    g.SELECTED_LLMS = unique_selected
-
-                    logging.info(colored(f"🔄 Updated LLM selection from UI:", "green"))
-                    logging.info(colored(f"  → Old fallback models: {len(old_selection)} total", "yellow"))
-                    logging.info(colored(f"  → New fallback models: {new_fallback_models}", "green"))
-                    logging.info(colored(f"  → Total selected: {len(unique_selected)} models", "cyan"))
-
-                    # If requested, update the persistent configuration
-                    if selection_data.get('remove_extra_fallbacks'):
-                        try:
-                            # Update the LLM config to match the new selection
-                            updated_config = {}
-                            for model in unique_selected:
-                                if model in llm_config:
-                                    updated_config[model] = llm_config[model].copy()
-                                else:
-                                    # New model, add as simple fallback
-                                    updated_config[model] = {"selected": True}
-
-                            # Save the updated configuration
-                            g.save_llm_config(updated_config)
-                            logging.info(colored("💾 Saved updated LLM configuration to disk", "green"))
-
-                        except Exception as e:
-                            logging.error(colored(f"❌ Failed to save LLM configuration: {e}", "red"))
-
-                return None # Continue without treating this as user input
-
-            # Handle string inputs
-            if isinstance(user_input, str):
-                if user_input.strip() == "__AGENT_RESET__":
-                    logging.info(colored("🔄 Received agent reset request from browser", "yellow"))
-                    g.AGENT_RESET_REQUESTED = True
-                    return None # Signal to main loop to handle the reset
-
-                logging.info(colored(f"🌐 Received browser input: {user_input[:50]}...", "green"))
-                return user_input
-            else:
-                # Handle non-string inputs (like dicts)
-                logging.warning(f"Received non-string input: {type(user_input)} - {user_input}")
-                continue
-
-        except queue.Empty:
-            # Timeout occurred, loop again to check for queued commands
-            continue
-        except Exception as e:
-            logging.error(f"Error checking visual input queue: {e}")
-            await asyncio.sleep(0.1)
 
 
 async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False) -> Chat:
@@ -1404,7 +1379,7 @@ You are a sophisticated AI agent capable of thinking and using tools to achieve 
 The following loop is a suggestion of how to behave effectively, you may freely reorder your usage of the xml tools if it fits your needs, you aim for long term stability and progress in your responses.
 1.  **DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
 2.  **PLAN & TRACK**: Display/update your <todos>...</todos> to align your next step(s) with the stated long term goal(s).'''
-    
+
     step_4 = "4.  **OBSERVE & ATTEND**: After executing a tool, ALWAYS use <think> and <todos> to remember and update your plan based on your observations. When you have finished your tasks or need intermittent information from the user, please prompt him with <response>."
 
     # In GUI mode, modify the tool documentation and response behavior
@@ -1416,16 +1391,16 @@ The following loop is a suggestion of how to behave effectively, you may freely 
     else:
         tool_docs = _generate_tool_documentation()
 
-    
 
-    
+
+
     # Combine all parts into the final instruction message
     default_inst = f"{base_instructions}\n{tool_docs}\n{step_4}"
-    
+
     # Create and configure the new Chat object
     context_chat = Chat(debug_title="Main Context Chat")
     context_chat.set_instruction_message(default_inst)
-    
+
     return context_chat
 
 
@@ -1481,27 +1456,26 @@ async def save_current_llm_config_as_default():
     """Saves the current session's LLM selection as the new default."""
     from core.globals import g # Lazy import
     logging.info(colored("💾 Saving current LLM selection as the new default...", "magenta"))
-    
+
     # Get the complete, most recent configuration data for ALL models
-    # force_reread ensures we have the latest base config before modifying.
-    full_config = g.get_llm_config(force_reread=True) 
-    
+    full_config = g.get_llm_config()
+
     # Get the set of models active in THIS session
     currently_selected_models = set(g.SELECTED_LLMS)
-    
+
     # Update the 'selected' status in the full config based on the current session
     for model_key, data in full_config.items():
         data['selected'] = model_key in currently_selected_models
-    
+
     # Save the modified configuration back to the persistent file
     g.save_llm_config(full_config)
-    
+
     logging.info(colored(f"✅ Default configuration updated with {len(currently_selected_models)} selected models.", "green"))
 
 
-async def main(
-    input_event: Optional[asyncio.Event] = None, 
-    input_lock: Optional[threading.Lock] = None, 
+async def main(  # type: ignore[misc]
+    input_event: Optional[asyncio.Event] = None,
+    input_lock: Optional[threading.Lock] = None,
     shared_input: Optional[Dict[str, Any]] = None,
     tui_callback: Optional[Callable] = None
 ) -> None:
@@ -1532,29 +1506,29 @@ async def main(
                 monte_carlo=False,
                 online=False
             )
-            
+
             # Setup logging properly for TUI mode (output goes through print/stdout)
             setup_logging(args.debug, args.log_file, tui_mode=True)
-            
+
             # Setup signal handlers for graceful interruption
             setup_signal_handlers()
-            
+
             # Display header in TUI mode (stdout is redirected before agent starts)
-            header_dashes = colored("# # # # # # # # # # # # # # # # # # # # # # # # # #", "blue") 
+            header_dashes = colored("# # # # # # # # # # # # # # # # # # # # # # # # # #", "blue")
             header = figlet_format("CLI-Agent", font="slant")
             print(header_dashes)
             print(colored(header, "cyan", attrs=["bold"]))
             print(header_dashes)
             logging.info("Starting CLI-Agent...")
-        
+
         # If not in TUI mode, display the header and perform standard logging setup.
         elif not tui_callback:
             setup_logging(args.debug, args.log_file)
             g.DEBUG_MODE = args.debug
-            
+
             # Setup signal handlers for graceful interruption
             setup_signal_handlers()
-            
+
             header_dashes = colored("# # # # # # # # # # # # # # # # # # # # # # # # # #", "blue")
             header = figlet_format("CLI-Agent", font="slant")
             print(header_dashes)
@@ -1563,11 +1537,41 @@ async def main(
             logging.info("Starting CLI-Agent...")
 
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
-        
+
         if args.monte_carlo:
             apply_monte_carlo_config()
         elif not args.llm and not args.local and not args.fast:
             apply_default_llm_config()
+
+        # Load planner LLM from saved configuration during startup
+        logging.info("🔍 STARTUP DEBUG: Loading planner LLM from config during startup...")
+        try:
+            config = g.get_llm_config()
+            saved_planner_llm = config.get('__planner_llm__')
+            logging.info(f"🔍 STARTUP DEBUG: Found planner LLM in config: '{saved_planner_llm}'")
+
+            if saved_planner_llm:
+                g.update_planner_llm(saved_planner_llm)
+                logging.info(colored(f"📋 Loaded planner LLM from config: {saved_planner_llm}", "cyan"))
+            else:
+                logging.info("🔧 STARTUP DEBUG: No planner LLM found in config")
+        except Exception as e:
+            logging.warning(colored(f"⚠️  Failed to load planner LLM configuration: {e}", "yellow"))
+
+        # Load router LLM from saved configuration during startup
+        logging.info("🔍 STARTUP DEBUG: Loading router LLM from config during startup...")
+        try:
+            config = g.get_llm_config()
+            saved_router_llm = config.get('__router_llm__')
+            logging.info(f"🔍 STARTUP DEBUG: Found router LLM in config: '{saved_router_llm}'")
+
+            if saved_router_llm:
+                g.update_router_llm(saved_router_llm)
+                logging.info(colored(f"📋 Loaded router LLM from config: {saved_router_llm}", "cyan"))
+            else:
+                logging.info("🔧 STARTUP DEBUG: No router LLM found in config")
+        except Exception as e:
+            logging.warning(colored(f"⚠️  Failed to load router LLM configuration: {e}", "yellow"))
 
         # Configure TTS engine priority based on --remote-tts flag
         if getattr(args, 'online_voice', False):
@@ -1575,7 +1579,7 @@ async def main(
             remote_priority = ["openai", "elevenlabs", "piper", "coqui", "huggingface", "system"]
             g.set_tts_engine_priority(remote_priority)
             if not tui_callback: logging.info(colored("# cli-agent: Online voice enabled - using cloud TTS and transcription APIs", "green"))
-        
+
         stdout_buffer, stderr_buffer = "", ""
         def stdout_callback(text: str):
             nonlocal stdout_buffer
@@ -1585,12 +1589,12 @@ async def main(
             nonlocal stderr_buffer
             print(colored(text, "red"), end="")
             stderr_buffer += text
-            
+
         web_server = None
         if args.gui:
             # Set GUI mode flag for behavior modifications
             g.GUI_MODE = True
-            
+
             # Auto-start visualresponse server for GUI mode (this opens the main interface)
             try:
                 from tools.visualresponse import visualresponse
@@ -1610,7 +1614,7 @@ async def main(
                 logging.error(colored(f"❌ Could not start visualresponse server: {e}", "red"))
             except Exception as e:
                 logging.error(colored(f"❌ Error starting visualresponse: {e}", "red"))
-        
+
         context_chat: Optional[Chat] = None
         if args.c or args.regenerate:
             try:
@@ -1638,7 +1642,7 @@ async def main(
             if not tui_callback: logging.info(colored("# cli-agent: Taking screenshot due to --img flag...", "green"))
             base64_images.extend(await handle_screenshot_capture())
             args.image = False
-        
+
         if tui_callback:
             tui_callback("Initializing agent...", "system")
 
@@ -1655,7 +1659,7 @@ async def main(
             args.llm = None
         elif args.llm:
             g.SELECTED_LLMS = [args.llm]
-            
+
             # If -mct and -llm are used together, update Monte Carlo config with this model
             if args.monte_carlo:
                 import json
@@ -1663,28 +1667,28 @@ async def main(
                     current_config = g.get_llm_config()
                     # Add the specified model to the Monte Carlo config
                     current_config[args.llm] = {"selected": True, "beams": 2, "eval": 1, "guard": 1}
-                    
+
                     # Save the updated configuration
                     os.makedirs(os.path.dirname(g.LLM_CONFIG_PATH), exist_ok=True)
                     with open(g.LLM_CONFIG_PATH, 'w') as f:
                         json.dump(current_config, f, indent=2)
-                    
+
                     g.load_llm_config()  # Reload to apply changes
                     logging.info(f"🎯 Updated Monte Carlo configuration with {colored(args.llm, 'green')}")
                 except Exception as e:
                     logging.error(f"❌ Failed to update Monte Carlo configuration: {e}")
-        
+
         if not args.monte_carlo:
-            args.auto = False
+            args.yolo = False
         else:
             llm_config = g.get_llm_config()
             guard_count = sum(data.get('guard', 0) for data in llm_config.values() if data.get('selected'))
-            if guard_count > 0 and not args.auto:
-                args.auto = True
+            if guard_count > 0 and not args.yolo:
+                args.yolo = True
 
         is_tui = bool(tui_callback)
         print_startup_summary(args, tui_mode=is_tui)
-        
+
         # Model discovery is now manual-only via 'u' key in LLM selection menu
         # if not tui_callback:
         #     logging.info(colored("  - Starting background model discovery...", "blue"))
@@ -1692,47 +1696,47 @@ async def main(
         #     logging.info(colored("  - Starting background model discovery...", "blue"))
 
         # g.start_background_model_discovery()
-        
+
         # Store the callbacks globally for lazy notebook initialization
         g.stdout_callback = stdout_callback
         g.stderr_callback = stderr_callback
         g.tui_callback = tui_callback  # Store tui_callback as well for consistent logging
-        
+
         if tui_callback: tui_callback("✔ Initialization complete.", "system_ok")
-        else: 
+        else:
             # Display tool loading information
             if hasattr(g, 'loaded_tool_info') and g.loaded_tool_info:
                 tool_info = g.loaded_tool_info
                 core_tools_list = ", ".join(tool_info['loaded_tools'])
                 logging.info(colored("--- Tool Configuration ---", "blue"))
                 logging.info(colored(f"  🔧 {tool_info['tool_count']} Core Tools: {core_tools_list}", "cyan"))
-                
+
                 # Display failed/skipped tools with warnings
                 if tool_info['failed_tools']:
                     failed_list = ", ".join(tool_info['failed_tools'][:3])  # Show first 3
                     if len(tool_info['failed_tools']) > 3:
                         failed_list += f" (and {len(tool_info['failed_tools']) - 3} more)"
                     logging.info(colored(f"  ⚠️  Failed to load: {failed_list}", "yellow"))
-                
+
                 if tool_info['skipped_tools']:
                     skipped_list = ", ".join(tool_info['skipped_tools'])
                     logging.info(colored(f"  ⏭️  Skipped: {skipped_list}", "yellow"))
-                
+
                 # Display GUI tools if any
                 if tool_info['gui_tools']:
                     gui_status = ", ".join(tool_info['gui_tools'])
                     logging.info(colored(f"  📁 GUI Tools: {gui_status}", "cyan"))
-                
+
                 logging.info(colored("--- Ready for User Input ---", "blue"))
-            
+
             logging.info(colored("Tools ready.", "blue"))
 
         if context_chat is None:
             context_chat = await construct_engineered_prompt(args.voice, args.gui)
-            
+
         # Install visual input bridge for browser integration
         try:
-            from agent.visual_input_bridge import install_visual_input_bridge
+            from agent.visual_input_bridge import install_visual_input_bridge  # type: ignore
             install_visual_input_bridge()
         except (ImportError, Exception) as e:
             logging.debug(f"Visual input bridge not available - browser integration disabled: {e}")
@@ -1757,7 +1761,7 @@ async def main(
         if not (args.c or args.regenerate):
             context_chat.add_message(Role.USER, "Please list the 5 most recently modified files of the cwd")
             if (args.gui):
-                bootstrap_message_1 = f"""<think>
+                bootstrap_message_1 = """<think>
 To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
 </think><todos>
 - [ ] List 5 most recently modified files.
@@ -1783,7 +1787,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
   </content>
 </visualresponse>"""
             else:
-                bootstrap_message_1 = f"""<think>
+                bootstrap_message_1 = """<think>
 To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
 </think><todos>
 - [ ] List 5 most recently modified files.
@@ -1799,12 +1803,12 @@ The 5 most recently modified files have been listed. Would you like me to inspec
                 bootstrap_message_2 = """<response>
 I have successfully viewed my permissions. Is there anything else I can assist you with?
 </response>"""
-            
+
             context_chat.add_message(Role.ASSISTANT, bootstrap_message_1)
             permissions_str = viewpermissions.run()
             if ("No automatic permissions set" not in permissions_str):
                 context_chat.add_message(Role.USER, "view your permissions")
-                context_chat.add_message(Role.ASSISTANT, f"""<todos>
+                context_chat.add_message(Role.ASSISTANT, """<todos>
 - [ ] View permissions.
 </todos><viewpermissions>
 </viewpermissions><context>
@@ -1812,7 +1816,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 </context><todos>
 - [x] View permissions.
 </todos>""" + bootstrap_message_2)
-        
+
         assistant_response = ""
 
         # --- FIX: Instantiate CommandHandler once before the loop ---
@@ -1824,41 +1828,40 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                 # Add a settings object to satisfy commands that need it
                 class DummySettings:
                     def __init__(self):
-                        self.auto_execute = args.auto
+                        self.auto_execute = args.yolo
                         self.voice_mode = args.voice
                         self.local_mode = args.local
                         self.online_mode = args.online
                         self.full_output_mode = args.full_output_mode
                 self.settings = DummySettings()
-        
+
         command_handler = CommandHandler(DummyAppContext())
         # --- END FIX ---
 
         initializing: bool = True
-        
+
         # CommandHandler already initialized above - no need to reinitialize
 
         while True:
             LlmRouter().failed_models.clear()
             g.LLM_STRENGTHS = []
             assistant_response = ""
-            
+
             if not args.monte_carlo:
-                args.auto = False
+                args.yolo = False
             else:
                 llm_config = g.get_llm_config()
                 guard_count = sum(
-                    data.get('guard', 0) 
-                    for data in llm_config.values() 
+                    data.get('guard', 0)
+                    for data in llm_config.values()
                     if data.get('selected')
                 )
-                if guard_count > 0 and not args.auto:
-                    args.auto = True
-            
+                if guard_count > 0 and not args.yolo:
+                    args.yolo = True
+
             g.FORCE_LOCAL = args.local
             g.DEBUG_CHATS = args.debug_chats
             g.LLM = args.llm
-            g.SUMMARY_MODE = not args.full_output_mode
 
             # --- UNIFIED INPUT GATHERING ---
             # All input sources are now handled within get_user_input_with_bindings
@@ -1866,7 +1869,10 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                 args, context_chat, force_input=user_interrupt,
                 input_event=input_event, input_lock=input_lock, shared_input=shared_input
             )
-            
+
+            # Reset user_interrupt flag after successful input to allow queue processing
+            user_interrupt = False
+
             # --- UNIFIED COMMAND & IMAGE PROCESSING ---
             if new_images:
                 base64_images.extend(new_images)
@@ -1879,119 +1885,22 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                 if response.result == CommandResult.ERROR: logging.error(colored(f"# cli-agent: {response.message}", "red"))
                 continue # Always get next input after a command
 
-            # If no input was gathered from any source, loop back to wait for input
-            if user_input is None and not base64_images and not args.regenerate:
-                continue
-
-                if base64_images:
-                    transcription_chat = Chat(
-                        instruction_message="You are an image transcription assistant. Your only goal is to describe the provided image in detail.",
-                        debug_title="Image Transcription"
-                    )
-                    transcription_chat.add_message(Role.USER, "Describe the following image.")
-
-                    try:
-                        transcription = await LlmRouter.generate_completion(
-                            transcription_chat,
-                            strengths=[AIStrengths.VISION],
-                            base64_images=base64_images
-                        )
-                        user_input = f"{user_input}\n\n{transcription}" if user_input.strip() else transcription
-                    except Exception:
-                        error_msg = "\n\n[SYSTEM: The attempt to analyze the provided screenshot failed.]"
-                        user_input = f"{user_input}{error_msg}"
-
-                    base64_images = []
-                try:
-                    from utils.viewfiles import ViewFiles
-                    local_paths = [path for path, _ in PathDetector.extract_paths_from_xml(user_input, "viewfiles")]
-                    for path in local_paths:
-                        expanded_path = os.path.expanduser(path)
-                        if os.path.exists(expanded_path) and (os.path.isfile(expanded_path) or os.path.isdir(expanded_path)):
-                            view_result_str = ViewFiles.run(paths=[expanded_path])
-                            view_result = json.loads(view_result_str)
-                            if view_result.get("result"):
-                                user_input += f"\n\n# Content of: {path}\n{view_result['result']}"
-                except (ImportError, FileNotFoundError, subprocess.CalledProcessError, Exception):
-                    pass
-                # Offer intelligent recovery options if we had an interrupt
-                if user_interrupt and hasattr(context_chat, 'metadata') and 'last_interrupt' in context_chat.metadata:
-                    recovery_choice = offer_intelligent_recovery_options(context_chat)
-
-                    # Handle recovery choices
-                    if recovery_choice == 'exit':
-                        user_interrupt = False
-                        continue  # Skip AI generation, go back to user input
-                    elif recovery_choice == 'single':
-                        # Force single-model mode for this request
-                        if hasattr(g, 'FORCE_SINGLE_MODEL'):
-                            g.FORCE_SINGLE_MODEL = True
-                        print(colored("  → Switching to single-model mode for better responsiveness", "cyan"))
-                    elif recovery_choice == 'retry_diff':
-                        # This would be implemented in model selection logic
-                        print(colored("  → Will attempt with different models", "cyan"))
-
-                user_interrupt = False
-
-            if LlmRouter.has_unconfirmed_data():
-                LlmRouter.confirm_finetuning_data()
-
-            text_stream_painter = TextStreamPainter()
-
-            if (user_input):
+            # Skip adding system commands to chat history
+            if (user_input) and not (
+                (isinstance(user_input, dict) and user_input.get('type') == 'llm_selection_update') or
+                (isinstance(user_input, str) and 'llm_selection_update' in user_input and user_input.strip().startswith('{')) or
+                (isinstance(user_input, str) and user_input.strip() == '__AGENT_RESET__')
+            ):
                 context_chat.add_message(Role.USER, user_input)
-                # --- START RE-ADDED HINT/PLAYBOOK LOGIC ---
-                try:
-                    prompt_subfix = ""
-                    # if not code_execution_just_denied:
-                    #     user_context = user_input
-                    #     if user_context:
-                    #         guidance_prompt, score_info = utils_manager.get_relevant_tools_with_scores(user_context, top_k=5)
-                    #         if guidance_prompt:
-                    #             tool_names = re.findall(r'\*\*(.*?)\*\*', guidance_prompt)
-                    #             if tool_names and score_info:
-                    #                 score_dict = {item.split("(")[0]: item.split("(")[1].rstrip(")") for item in score_info.split(", ") if "(" in item}
-                    #                 logging.info(colored("🔧 Suggested utilities based on your request:", "cyan", attrs=["bold"]))
-                    #                 formatted_tools = [f"   - {name} ({score_dict.get(name, '')})" for name in tool_names]
-                    #                 logging.info(colored("\n".join(formatted_tools), "light_blue"))
-                    #             elif tool_names:
-                    #                 logging.info(colored("🔧 Suggested utilities based on your request:", "cyan", attrs=["bold"]))
-                    #                 logging.info(colored("\n".join([f"   - {name}" for name in tool_names]), "light_blue"))
-                    #         if guidance_prompt:
-                    #             prompt_subfix += f"\n\n# RELEVANT TOOLS\n{guidance_prompt}"
-
-                    #         guidance_hints = utils_manager.get_relevant_guidance(user_context, top_k=2)
-                    #         if guidance_hints:
-                    #             logging.info(colored("💡 Relevant guidance hints:", "cyan", attrs=["bold"]))
-                    #             guidance_texts = []
-                    #             for hint in guidance_hints:
-                    #                 guidance_text = hint.get('guidance_text', '')
-                    #                 if guidance_text:
-                    #                     logging.info(colored(f"   • {hint.get('keyword', 'general')} ({hint.get('score', 0):.3f}): {guidance_text[:120]}{'...' if len(guidance_text) > 120 else ''}", "light_blue"))
-                    #                     guidance_texts.append(guidance_text)
-                    #             if guidance_texts:
-                    #                 prompt_subfix += "\n\n# GUIDANCE HINTS (EXAMPLES)\n" + "\n\n".join(guidance_texts)
-
-                    #         playbook = playbook_manager.get_relevant_playbook(user_context, threshold=0.7)
-                    #         if playbook and playbook.get("thoughts"):
-                    #             logging.info(colored("📖 Strategic guidance found:", "magenta", attrs=["bold"]))
-                    #             logging.info(colored(f"   • Strategy: {playbook['name']}", "light_magenta"))
-                    #             prompt_subfix += "\n\n# STRATEGIC HINTS (SUGGESTED PLAN)\n"
-                    #             prompt_subfix += "A relevant strategy was found. Consider this plan:\n" + "".join([f"{i+1}. {thought}\n" for i, thought in enumerate(playbook["thoughts"])])
-                    # else:
-                    #     logging.info(colored("ℹ️  Skipping tool suggestions and hints (code execution was denied)", "yellow"))
-
-                    if prompt_subfix:
-                        context_chat.add_message(Role.USER, prompt_subfix)
-                except Exception as e:
-                    logging.warning(f"Could not generate hints: {e}")
-                # --- END RE-ADDED HINT/PLAYBOOK LOGIC ---
+            else:
+                continue
 
             initializing = False
             last_action_signature: Optional[str] = None
             stall_counter: int = 0
             MAX_STALLS: int = 2
-            
+            text_stream_painter = TextStreamPainter()
+
             # Agent loop
             while True:
                 # Check for interrupt at the start of each loop iteration
@@ -2001,6 +1910,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
                 try:
                     response_branches: List[str] = []
+                    branch_model_map: Dict[int, str] = {}
                     try:
                         if assistant_response:
                             context_chat.add_message(Role.ASSISTANT, assistant_response)
@@ -2026,9 +1936,10 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                             # Replace the original <think> content with only the first line
                                             msg = re.sub(r'<think>(.*?)</think>', f'<think>\n{first_line}\n</think>', msg, flags=re.DOTALL)
                                 context_chat.messages[-i] = (role, msg)
-                        
+
                         llm_config = g.get_llm_config()
-                        models_for_tasks = []
+
+
                         if not args.monte_carlo:
                             # Default mode: single LLM with all available models as fallback
                             # Use g.SELECTED_LLMS to preserve chronological selection order
@@ -2038,20 +1949,32 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             ]
                             if available_models:
                                 # Store all models for fallback, but use only one for branching
-                                g.DEFAULT_FALLBACK_MODELS = available_models
-                                models_for_tasks = [available_models[0]]  # Single model for default mode
+                                g.FALLBACK_MODELS = available_models
+                                # Planner LLM remains empty until explicitly set by user
+                                logging.info("🔍 FALLBACK DEBUG: Checking planner LLM state in main loop...")
+                                logging.info(f"🔍 FALLBACK DEBUG: g.planner_llm = '{g.planner_llm}'")
+                                if g.planner_llm:
+                                    logging.info(f"🔧 DEBUG: Planner LLM already set to: {g.planner_llm}")
+                                else:
+                                    logging.info("🔧 DEBUG: Planner LLM not set - will remain empty until user selection")
                             else:
                                 # Initialize default fallback models when none are selected
                                 default_fallbacks = ['gemini-2.5-flash', 'gemini-2.5-flash-preview-05-20', 'gemma3n:e2b']
-                                g.DEFAULT_FALLBACK_MODELS = default_fallbacks
-                                models_for_tasks = [default_fallbacks[0]]
+                                g.FALLBACK_MODELS = default_fallbacks
+                                # Planner LLM remains empty until explicitly set by user
+                                logging.info("🔍 FALLBACK DEBUG: Checking planner LLM state in main loop...")
+                                logging.info(f"🔍 FALLBACK DEBUG: g.planner_llm = '{g.planner_llm}'")
+                                if g.planner_llm:
+                                    logging.info(f"🔧 DEBUG: Planner LLM already set to: {g.planner_llm}")
+                                else:
+                                    logging.info("🔧 DEBUG: Planner LLM not set - will remain empty until user selection")
                                 logging.debug(colored("🔧 No models configured - using default fallbacks: " + ", ".join(default_fallbacks), "yellow"))
                         else:
                             # Use g.SELECTED_LLMS to preserve chronological selection order for monte_carlo mode too
                             models_for_tasks = [
                                 key for key in g.SELECTED_LLMS
-                                if (llm_config.get(key, {}).get('selected') and 
-                                    key not in LlmRouter().failed_models and 
+                                if (llm_config.get(key, {}).get('selected') and
+                                    key not in LlmRouter().failed_models and
                                     llm_config.get(key, {}).get('beams', 0) > 0)
                                 for _ in range(llm_config.get(key, {}).get('beams', 0))
                             ]
@@ -2061,46 +1984,16 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                 if not models_for_tasks:
                                     logging.error(colored("❌ No available models to process the request. Check LLM selection.", "red"))
                                     break
-                        
-                        num_branches = len(models_for_tasks)
+
+                        num_branches = len(models_for_tasks) if args.monte_carlo else 1
                         g.MCT = num_branches
                         temperature = 0.85 if num_branches > 1 else 0
 
-                        if num_branches > 1:
-                            print_lock = asyncio.Lock()
-                            branch_model_map = {}
-
-                            # Use TaskGroup for better cancellation support in Monte Carlo mode
-                            try:
-                                # Try to use Python 3.11+ TaskGroup for robust branch cancellation
-                                if sys.version_info >= (3, 11):
-                                    from asyncio import TaskGroup
-                                    async with TaskGroup() as tg:
-                                        tasks = [
-                                            tg.create_task(
-                                                generate_branch(model_key, i, print_lock, context_chat, text_stream_painter,
-                                                             temperature, base64_images, llm_config, branch_model_map, num_branches)
-                                            )
-                                            for i, model_key in enumerate(models_for_tasks)
-                                        ]
-                                    branch_results = [task.result() for task in tasks if not task.cancelled()]
-                                else:
-                                    # Fallback to asyncio.gather for older Python versions
-                                    tasks = [generate_branch(model_key, i, print_lock, context_chat, text_stream_painter, temperature, base64_images, llm_config, branch_model_map, num_branches) for i, model_key in enumerate(models_for_tasks)]
-                                    branch_results = await asyncio.gather(*tasks)
-
-                                response_branches = [res for res in branch_results if res and res.strip()]
-
-                            except asyncio.CancelledError:
-                                print(colored("  → Monte Carlo branches cancelled", "yellow"))
-                                response_branches = []
-                                user_interrupt = True
-                                break
-                        else:
-                            response_buffer_list = [""]
-                            interruption_callback = create_interruption_callback(response_buffer_list, text_stream_painter)
-                            current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
-                            # for assistant_prefix in ["<", current_todo, "<think", "<thinking>"]:
+                        response_buffer_list = [""]
+                        interruption_callback = create_interruption_callback(response_buffer_list, text_stream_painter)
+                        current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
+                        # for assistant_prefix in ["<", current_todo, "<think", "<thinking>"]:
+                        for i_branch in range(num_branches if args.monte_carlo else 1):
                             for tool_prefix in ["<think>", "<todos>", "<"]:
                                 if check_interrupt():
                                     user_interrupt = True
@@ -2110,9 +2003,35 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                 # Force thinking after context
                                 # if ("" == tool_prefix and context_chat.messages[-1][1].endswith("</context>")):
                                 #     tool_prefix = "<think>"
-                                
-                                # In default mode, use all available models for fallback
-                                fallback_models = getattr(g, 'DEFAULT_FALLBACK_MODELS', models_for_tasks)
+
+                                if g.router_llm:
+                                    # Use model router
+                                    difficulty_chat = Chat("Act as a complexity assessment assistant. You view the users provided context and respond with a percentage value from 1-100 indicating the difficulty of formulating the next assistant response.")
+                                    difficulty_chat.add_message(Role.USER, "Hi, please think about the following conversation and assess the difficulty of responding:\n" + context_chat.print_chat(-3, None, True))
+                                    response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm], force_preferred_model=True)
+                                    # extract last number found in the response string
+                                    response_complexity: int = 50 # Default fallback
+                                    match = re.findall(r'\d+', response)
+                                    if match:
+                                        try:
+                                            response_complexity = int(match[-1])
+                                        except ValueError:
+                                            logging.warning(f"Could not convert '{match[-1]}' to int for complexity score. Using default.")
+
+                                    if response_complexity > 60:
+                                        selected_models = [g.planner_llm] + getattr(g, 'FALLBACK_MODELS')  if g.planner_llm else getattr(g, 'FALLBACK_MODELS') # use smart model or if unselected fallback
+                                    elif response_complexity > 20:
+                                        selected_models = getattr(g, 'FALLBACK_MODELS') # default case, use fallbacks as needed
+                                    else:
+                                        selected_models = [g.router_llm] + getattr(g, 'FALLBACK_MODELS') # If easy to respond just use the router llm
+
+                                    force_preferred_model=True
+                                else:
+                                    # Default non router case
+                                    selected_models = getattr(g, 'FALLBACK_MODELS')
+                                    force_preferred_model=True
+
+
                                 l_context_chat = context_chat.deep_copy()
                                 l_temperature = context_chat.deep_copy()
                                 generated_text = ""  # Initialize to prevent UnboundLocalError
@@ -2121,8 +2040,8 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                     for i in range(10):
                                         await LlmRouter.generate_completion(
                                             chat=l_context_chat,
-                                            preferred_models=fallback_models,
-                                            force_preferred_model=True,
+                                            preferred_models=selected_models,
+                                            force_preferred_model=force_preferred_model,
                                             temperature=temperature,
                                             base64_images=base64_images,
                                             generation_stream_callback=interruption_callback,
@@ -2137,11 +2056,11 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                             l_context_chat.add_message(Role.ASSISTANT, generated_text[:-i]) # Remove last few chars incrementatlly to force model to be regenerative
                                 except StreamInterruptedException as e: # This exception is called by the tool delimiting mechanism at the end of any xml block
                                     validated_text = e.response
-                                
+
                                 if (validated_text and validated_text != tool_prefix):
                                     response_branches.append(validated_text)
                                     break
-                        
+
                         base64_images = []
 
                     except UserInterruptedException:
@@ -2181,7 +2100,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             assistant_response = response_branches[0]
                     else:
                         break
-                    
+
                     if last_action_signature and assistant_response == last_action_signature:
                         stall_counter += 1
                     else:
@@ -2199,7 +2118,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                     # to properly detect if visualresponse was used
 
                     # Display the response in summary mode (since streaming doesn't show it)
-                    if g.SUMMARY_MODE and assistant_response.strip():
+                    if assistant_response.strip():
                         print(assistant_response)
 
                     # --- INTELLIGENT CORRECTION & VALIDATION ---
@@ -2230,7 +2149,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
                     # If any tool tags are found, process them
                     if tool_tags_found:
-                        
+
                         # --- Enhanced Path-Aware Permission Checking ---
                         # Check permissions using path detection for tools with file operations
                         should_execute = False
@@ -2240,29 +2159,29 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             # Analyze each tool for path-based permissions
                             permission_needed = False
                             tool_analyses = []
-                            
+
                             for tool in tool_tags_found:
                                 delim = tool.get_delim()
                                 blocks = get_extract_blocks()(assistant_response, [delim])
-                                
+
                                 for block in blocks:
                                     analysis = PathDetector.analyze_tool_block(delim, block)
                                     tool_analyses.append(analysis)
-                                    
+
                                     if analysis['needs_permission']:
                                         permission_needed = True
-                            
+
                             if not permission_needed:
                                 # No permission needed for safe tools
                                 should_execute = True
                             else:
                                 # Check permissions for each tool that needs it
                                 should_execute = True  # Start optimistic
-                                
+
                                 for analysis in tool_analyses:
                                     if not analysis['needs_permission']:
                                         continue
-                                        
+
                                     # Use enhanced permission system for path-aware tools
                                     permission_granted = await enhanced_permission_prompt(
                                         args,
@@ -2278,7 +2197,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                         shared_input=shared_input,
                                         get_user_input_func=get_user_input_with_bindings
                                     )
-                                    
+
                                     if not permission_granted:
                                         logging.info(colored("⛔ Code execution denied", "green"))
 
@@ -2293,7 +2212,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                 for tool_class in tool_tags_found:
                                     tool_name = tool_class.get_delim()
                                     blocks = get_extract_blocks()(assistant_response, [tool_name])
-                                    
+
                                     if not blocks:
                                         continue
 
@@ -2301,7 +2220,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                     first_block = blocks[0]
                                     if len(blocks) > 1:
                                         logging.warning(colored(f"⚠️  Duplicate '{tool_name}' blocks detected. Only the first was executed.", "yellow"))
-                                    
+
                                     # Track tool execution timing and status
                                     import time
                                     tool_start_time = time.time()
@@ -2407,12 +2326,80 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                     # Wrap tools returned values as tool_ouput
                                     if tool_name and tool_name not in ["todos"] and tool_result:
                                         tool_results.append(tool_result)
-                                
+
                                 returned_context = ""
-                                for context in tool_results:
+                                for i, context in enumerate(tool_results):
                                     context = re.sub(r'\x1b\[[0-9;]*m', '', context) #  remove ANSI escape codes (also known as terminal escape sequences)
                                     if len(context) > readfile.CHUNK_LIMIT:
-                                        context = context[:readfile.CHUNK_LIMIT//4] + "\n...output truncated...\n" + context[-readfile.CHUNK_LIMIT//4:]
+                                        # Try to create a resource instead of truncating
+                                        if RESOURCE_MANAGER_AVAILABLE:
+                                            try:
+                                                # Get tool name from executed_tools_info
+                                                tool_name = "unknown"
+                                                if i < len(executed_tools_info):
+                                                    tool_name = executed_tools_info[i].get('tool_name', 'unknown')
+
+                                                # Create resource with timestamp for uniqueness
+                                                import time
+                                                timestamp = int(time.time())
+                                                resource_id = f"tool_output_{tool_name}_{timestamp}_{i}"
+
+                                                resource_manager = TextResourceManager._get_manager()
+                                                resource_manager.create_resource(
+                                                    content=context,
+                                                    source=f"{tool_name}_output",
+                                                    source_type="tool_output",
+                                                    resource_id=resource_id
+                                                )
+
+                                                lines_count = len(context.splitlines())
+                                                char_count = len(context)
+
+                                                context = f"""Tool output from '{tool_name}' is large ({lines_count:,} lines, {char_count:,} characters) - stored as searchable resource.
+
+Resource ID: {resource_id}
+
+Use <searchtext><resource_id>{resource_id}</resource_id><pattern>YOUR_PATTERN</pattern></searchtext> to search this content.
+Use <searchtext><resource_id>{resource_id}</resource_id><lines>1-50</lines></searchtext> to view specific line ranges.
+
+Examples:
+- Search for errors: <searchtext><resource_id>{resource_id}</resource_id><pattern>error|failed|exception</pattern><context_lines>2</context_lines></searchtext>
+- View beginning: <searchtext><resource_id>{resource_id}</resource_id><lines>1-20</lines></searchtext>
+- View end: <searchtext><resource_id>{resource_id}</resource_id><lines>{max(1, lines_count-19)}-{lines_count}</lines></searchtext>"""
+                                            except Exception as e:
+                                                # Fallback to truncation if resource creation fails
+                                                chunk_size = readfile.CHUNK_LIMIT//4
+                                                # Find closest newline before chunk_size (exclusive)
+                                                start_pos = context.rfind('\n', 0, chunk_size)
+                                                if start_pos == -1:  # No newline found, use beginning
+                                                    start_pos = 0
+                                                else:
+                                                    start_pos += 1  # Exclude the newline itself
+
+                                                # Find closest newline after -chunk_size (exclusive)
+                                                end_search_pos = len(context) - chunk_size
+                                                end_pos = context.find('\n', end_search_pos)
+                                                if end_pos == -1:  # No newline found, use end
+                                                    end_pos = len(context)
+
+                                                context = context[:start_pos] + f"...output truncated (resource creation failed: {e})...\n" + context[end_pos:]
+                                        else:
+                                            # Fallback to original truncation when resource manager not available
+                                            chunk_size = readfile.CHUNK_LIMIT//4
+                                            # Find closest newline before chunk_size (exclusive)
+                                            start_pos = context.rfind('\n', 0, chunk_size)
+                                            if start_pos == -1:  # No newline found, use beginning
+                                                start_pos = 0
+                                            else:
+                                                start_pos += 1  # Exclude the newline itself
+
+                                            # Find closest newline after -chunk_size (exclusive)
+                                            end_search_pos = len(context) - chunk_size
+                                            end_pos = context.find('\n', end_search_pos)
+                                            if end_pos == -1:  # No newline found, use end
+                                                end_pos = len(context)
+
+                                            context = context[:start_pos] + "...output truncated - TextResourceManager not available...\n" + context[end_pos:]
                                     returned_context += f"<context>\n{context}\n</context>"
 
                                 # Store tool execution info in global context for visual response
@@ -2449,7 +2436,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             context_chat.add_message(Role.ASSISTANT, cancellation_notice)
                             assistant_response = ""
                             continue # Continue the agent loop for the next action
-                    
+
                     else:
                         # No tools or code found, this is a conversational response.
                         break # Ask for user input
@@ -2460,26 +2447,26 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                     if "ctrl+c" not in str(e).lower():
                         # Get detailed traceback information
                         tb = traceback.extract_tb(e.__traceback__)
-                        
+
                         # Enhanced error message with context
                         error_msg = f"An unexpected error occurred in the agent loop: {e}"
-                        
+
                         # Add specific information for NoneType iteration errors
                         if "argument of type 'NoneType' is not iterable" in str(e):
                             error_msg += "\n🔍 NoneType Iteration Error Details:"
-                            
+
                             # Find the exact line that caused the error
                             for frame in tb:
                                 filename = frame.filename
                                 line_number = frame.lineno
                                 function_name = frame.name
                                 line_text = frame.line or linecache.getline(filename, line_number).strip()
-                                
+
                                 if any(op in line_text for op in [' in ', '.startswith(', '.endswith(', ' not in ']):
                                     error_msg += f"\n  📁 File: {filename}"
                                     error_msg += f"\n  📍 Line {line_number} in function '{function_name}'"
                                     error_msg += f"\n  💥 Code: {line_text}"
-                                    
+
                                     # Try to identify which variable is None
                                     if ' in ' in line_text:
                                         parts = line_text.split(' in ')
@@ -2490,7 +2477,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                         var_name = line_text.split('.')[0].strip()
                                         error_msg += f"\n  🎯 Suspected None variable: {var_name}"
                                     break
-                        
+
                         # Always show the full stack trace in debug mode or for critical errors
                         if args.debug or "NoneType" in str(e):
                             error_msg += "\n\n📋 Full Stack Trace:"
@@ -2498,15 +2485,15 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                 error_msg += f"\n  {i+1}. {frame.filename}:{frame.lineno} in {frame.name}()"
                                 if frame.line:
                                     error_msg += f"\n     → {frame.line.strip()}"
-                        
+
                         logging.critical(colored(error_msg, "red"))
-                        
+
                         # Also log with exc_info for complete traceback in debug mode
                         if args.debug:
                             logging.critical("Complete exception details:", exc_info=True)
                     user_interrupt = True
                     break # Ask for user input
-            
+
             else:
                 print("# cli-agent: No conversation to compact.")
 
@@ -2514,29 +2501,29 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                 # Check if there are active visual response servers before exiting
                 try:
                     from tools.visualresponse import visualresponse
-                    if (hasattr(visualresponse, '_session') and 
-                        visualresponse._session and 
-                        visualresponse._session.process and 
+                    if (hasattr(visualresponse, '_session') and
+                        visualresponse._session and
+                        visualresponse._session.process and
                         visualresponse._session.process.is_alive()):
-                        
+
                         # Visual server is active - wait for user to close it
                         server_url = f"http://127.0.0.1:{visualresponse._session.port}"
                         print(colored(f"\n🌐 Visual response server is running at {server_url}", "cyan"))
                         print(colored("Press Ctrl+C to exit when you're done viewing the content.", "yellow"))
-                        
+
                         try:
                             # Keep the process alive until user interrupts
-                            while (visualresponse._session.process and 
+                            while (visualresponse._session.process and
                                    visualresponse._session.process.is_alive()):
                                 import time
                                 time.sleep(1)
                         except KeyboardInterrupt:
                             print(colored("\n🛑 Shutting down visual server...", "yellow"))
                             visualresponse.close_session()
-                            
+
                 except ImportError:
                     pass  # Visual response tool not available
-                    
+
                 exit(0)
 
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -2559,12 +2546,12 @@ def _perform_graceful_shutdown():
         from shared.utils.log_manager import get_log_manager
         log_manager = get_log_manager()
         shutdown_stats = log_manager.shutdown()
-        
+
         if shutdown_stats['log_cleanup']['files_removed'] > 0 or shutdown_stats['audio_cleanup']['files_removed'] > 0:
             total_files = shutdown_stats['log_cleanup']['files_removed'] + shutdown_stats['audio_cleanup']['files_removed']
             total_bytes = shutdown_stats['log_cleanup']['bytes_freed'] + shutdown_stats['audio_cleanup']['bytes_freed']
             logging.info(colored(f"🧹 Final cleanup: {total_files} files removed, {total_bytes / 1024:.1f} KB freed", "cyan"))
-            
+
     except ImportError:
         pass  # Log manager not available
     except Exception as e:

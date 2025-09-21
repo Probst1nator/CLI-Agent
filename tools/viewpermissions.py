@@ -54,7 +54,7 @@ class viewpermissions:
                             'git': 'Git Commands (add, commit, status, etc.)',
                             'grepsearch': 'Search Tools (grep, find, ripgrep, etc.)'
                         }.get(category, f'{category.title()} Tools')
-                        
+
                         output_lines.append(f"   ✓ {category_display}")
                         for pattern in sorted(patterns):
                             if pattern.endswith('/*'):
@@ -68,28 +68,28 @@ class viewpermissions:
             # 2. File Operations (simplified)
             allow_tools = permissions.get("always_allow_tools", {})
             allow_groups = permissions.get("always_allow_groups", {})
-            
+
             if allow_tools or allow_groups:
                 has_rules = True
                 output_lines.append("\n📁 FILE OPERATIONS:")
-                
+
                 # Group similar tools together
                 file_ops = {}
-                
+
                 # Process individual tools
                 for tool, paths in sorted(allow_tools.items()):
                     if paths:
                         tool_display = {
                             'editfile': 'Edit Files',
-                            'readfile': 'Read Files', 
+                            'readfile': 'Read Files',
                             'writefile': 'Write Files',
                             'bash': 'Execute Commands',
                             'python': 'Run Python Code'
                         }.get(tool, tool.title())
-                        
+
                         if tool_display not in file_ops:
                             file_ops[tool_display] = []
-                        
+
                         for path in paths:
                             if path.endswith('/*'):
                                 location = path[:-2].split('/')[-1] if '/' in path else path[:-2]
@@ -99,7 +99,7 @@ class viewpermissions:
                                 file_ops[tool_display].append(f"File: {filename}")
                             else:
                                 file_ops[tool_display].append(f"Pattern: {path}")
-                
+
                 # Process tool groups
                 for group, paths in sorted(allow_groups.items()):
                     if paths:
@@ -108,10 +108,10 @@ class viewpermissions:
                             'file_reading': 'Read Files',
                             'code_execution': 'Execute Code'
                         }.get(group, group.replace('_', ' ').title())
-                        
+
                         if group_display not in file_ops:
                             file_ops[group_display] = []
-                        
+
                         for path in paths:
                             if path == group:  # Global permission
                                 file_ops[group_display].append("Anywhere")
@@ -123,7 +123,7 @@ class viewpermissions:
                                 file_ops[group_display].append(f"File: {filename}")
                             else:
                                 file_ops[group_display].append(f"Pattern: {path}")
-                
+
                 # Display grouped file operations
                 for operation, locations in sorted(file_ops.items()):
                     output_lines.append(f"   ✓ {operation}")

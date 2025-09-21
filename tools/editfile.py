@@ -36,7 +36,7 @@ class editfile:
 
             if not filepath_match:
                 return "Error: Invalid format. Input must contain <filepath> tag."
-            
+
             # Check for line-specific editing mode
             if line_match and replace_match:
                 return editfile._edit_specific_line(filepath_match, line_match, replace_match)
@@ -47,7 +47,7 @@ class editfile:
 
         except Exception as e:
             return f"Error executing editfile tool: {str(e)}"
-    
+
     @staticmethod
     def _find_and_replace(filepath_match, find_match, replace_match):
         """Handle traditional find-and-replace editing."""
@@ -73,12 +73,12 @@ class editfile:
         # Note: str.replace() replaces all occurrences. To replace only the first,
         # use: new_content = original_content.replace(find_str, replace_str, 1)
         new_content = original_content.replace(find_str, replace_str)
-        
+
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
 
         return f"Successfully edited file: {full_path}"
-    
+
     @staticmethod
     def _edit_specific_line(filepath_match, line_match, content_match):
         """Handle line-specific editing."""
@@ -88,7 +88,7 @@ class editfile:
 
         if not filepath:
             return "Error: The <filepath> tag cannot be empty."
-        
+
         try:
             line_number = int(line_str)
             if line_number < 1:

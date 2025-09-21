@@ -20,17 +20,17 @@ from agent.gui.event_manager import GUIEvent, GUIEventType, GUISession
 
 class ChatMessage:
     """Represents a single chat message."""
-    
+
     def __init__(self, sender: str, content: str, msg_type: str = "user", timestamp: Optional[datetime] = None):
         self.sender = sender
         self.content = content
         self.msg_type = msg_type  # user, assistant, system, error
         self.timestamp = timestamp or datetime.now()
-        
+
     def format_for_display(self) -> FormattedText:
         """Format message for display in the GUI."""
         timestamp_str = self.timestamp.strftime("%H:%M:%S")
-        
+
         if self.msg_type == "user":
             return FormattedText([
                 ('class:timestamp', f"[{timestamp_str}] "),
@@ -81,15 +81,15 @@ class ChatDisplay:
             show_cursor=False
         )
         self._refresh_callbacks: List[Callable] = []
-        
+
     def _get_formatted_text(self) -> FormattedText:
         """Get formatted text for all messages."""
         formatted = FormattedText([])
-        
+
         # Add all complete messages
         for message in self.messages:
             formatted.extend(message.format_for_display())
-            
+
         # Add streaming message if active
         if self.streaming_message is not None and self.streaming_sender:
             timestamp_str = datetime.now().strftime("%H:%M:%S")
@@ -100,9 +100,9 @@ class ChatDisplay:
                 ('class:streaming-cursor', '▋'),
                 ('', '\n')
             ]))
-            
+
         return formatted
-        
+
     def add_message(self, sender: str, content: str, msg_type: str = "user") -> None:
         """Add a complete message to the chat."""
         message = ChatMessage(sender, content, msg_type)
@@ -160,7 +160,7 @@ class ChatDisplay:
     def register_refresh_callback(self, callback: Callable) -> None:
         """Register a callback to be called when the display needs refreshing."""
         self._refresh_callbacks.append(callback)
-        
+
     def get_widget(self) -> Window:
         """Get the prompt_toolkit widget for this chat display."""
         return Window(
@@ -172,7 +172,7 @@ class ChatDisplay:
 
 class StatusPanel:
     """Status panel widget for showing system status and information."""
-    
+
     def __init__(self):
         self.status_messages: List[str] = []
         self.max_messages = 50  # Keep last 50 status messages
@@ -180,33 +180,33 @@ class StatusPanel:
             text=self._get_formatted_text,
             focusable=False
         )
-        
+
     def _get_formatted_text(self) -> FormattedText:
         """Get formatted text for status messages."""
         formatted = FormattedText([('class:title', 'Status Panel\n')])
         formatted.extend(FormattedText([('', '─' * 20 + '\n')]))
-        
+
         # Show recent status messages
         for message in self.status_messages[-10:]:  # Show last 10
             formatted.extend(FormattedText([('', f"• {message}\n")]))
-            
+
         return formatted
-        
+
     def add_status(self, message: str) -> None:
         """Add a status message."""
         timestamp = datetime.now().strftime("%H:%M:%S")
         status_msg = f"[{timestamp}] {message}"
-        
+
         self.status_messages.append(status_msg)
-        
+
         # Keep only the most recent messages
         if len(self.status_messages) > self.max_messages:
             self.status_messages = self.status_messages[-self.max_messages:]
-            
+
     def clear_status(self) -> None:
         """Clear all status messages."""
         self.status_messages.clear()
-        
+
     def get_widget(self) -> Window:
         """Get the prompt_toolkit widget for this status panel."""
         return Window(
@@ -218,7 +218,7 @@ class StatusPanel:
 
 class InputArea:
     """Input area widget for user message input."""
-    
+
     def __init__(self, on_submit: Optional[Callable[[str], None]] = None):
         self.on_submit = on_submit
         self.text_area = TextArea(
@@ -228,16 +228,16 @@ class InputArea:
             wrap_lines=True
         )
         self.buffer = self.text_area.buffer
-        
+
         # Setup key bindings for the text area
         self._setup_key_bindings()
-        
+
     def _setup_key_bindings(self):
         """Setup key bindings for input handling."""
         from prompt_toolkit.key_binding import KeyBindings
-        
+
         kb = KeyBindings()
-        
+
         @kb.add('enter')
         def submit_input(event):
             """Submit input on Enter (unless Shift+Enter for multiline)."""
@@ -247,15 +247,15 @@ class InputArea:
                 asyncio.create_task(self._async_submit(text))
                 # Clear the buffer
                 self.buffer.reset()
-                    
+
         @kb.add('c-j')  # Alternative for new line
         def new_line(event):
             """Add new line on Ctrl+J."""
             self.buffer.insert_text('\n')
-            
+
         # Apply key bindings to the text area
         self.text_area.control.key_bindings = kb
-            
+
     async def _async_submit(self, text: str):
         """Handle async submission of input."""
         if self.on_submit:
@@ -263,19 +263,19 @@ class InputArea:
                 await self.on_submit(text)
             else:
                 self.on_submit(text)
-                
+
     def set_submit_handler(self, handler: Callable[[str], None]):
         """Set the submit handler for input."""
         self.on_submit = handler
-        
+
     def get_widget(self) -> TextArea:
         """Get the prompt_toolkit widget for this input area."""
         return self.text_area
-        
+
     def clear(self):
         """Clear the input area."""
         self.buffer.reset()
-        
+
     def focus(self):
         """Focus the input area."""
         # This will be handled by the application layout

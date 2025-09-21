@@ -4,10 +4,8 @@ Test script for verifying browser auto-opening functionality
 """
 
 import subprocess
-import time
 import sys
 import urllib.request
-from pathlib import Path
 
 def print_status(message, color="\033[0;34m"):
     """Print colored status message"""

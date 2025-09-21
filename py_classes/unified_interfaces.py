@@ -12,12 +12,12 @@ logger.addHandler(logging.NullHandler())
 
 class BaseProviderInterface(ABC):
     """Base interface for all service providers with common methods"""
-    
+
     @staticmethod
     def configure_logging(level: int = logging.ERROR):
         """
         Configure logging for all interfaces.
-        
+
         Args:
             level (int): Logging level
         """
@@ -31,15 +31,15 @@ class BaseProviderInterface(ABC):
         console_handler.setLevel(level)
         logger.addHandler(console_handler)
         logger.setLevel(level)
-        
+
     @staticmethod
     def get_debug_title_prefix(chat: Optional['Chat']) -> str:
         """
         Get a formatted prefix string for debug messages that includes the chat's debug title if available.
-        
+
         Args:
             chat (Chat): The chat whose debug_title should be included
-            
+
         Returns:
             str: The formatted prefix string
         """
@@ -53,26 +53,26 @@ class AudioProviderInterface(BaseProviderInterface):
     Interface for audio provider services.
     Defines the contract for speech recognition and synthesis services.
     """
-    
+
     @abstractmethod
-    def transcribe_audio(self, audio_data: Union[sr.AudioData, np.ndarray], 
-                        language: str = "", 
+    def transcribe_audio(self, audio_data: Union[sr.AudioData, np.ndarray],
+                        language: str = "",
                         model: str = "",
                         sample_rate: int = 44100) -> Tuple[str, str]:
         """
         Transcribes audio data to text.
-        
+
         Args:
             audio_data: Audio data to transcribe
             language: Language hint for transcription
             model: Model to use for transcription
             sample_rate: Sample rate of the audio data if provided as numpy array
-            
+
         Returns:
             Tuple[str, str]: (transcribed text, detected language)
         """
         pass
-    
+
     @abstractmethod
     def record_and_transcribe(self,
                              language: str = "",
@@ -85,7 +85,7 @@ class AudioProviderInterface(BaseProviderInterface):
                              use_wake_word: bool = True) -> Tuple[str, str, np.ndarray]:
         """
         Records audio from microphone and transcribes it.
-        
+
         Args:
             language: Language hint for transcription
             model: Model to use for transcription
@@ -95,12 +95,12 @@ class AudioProviderInterface(BaseProviderInterface):
             min_duration: Minimum recording duration (seconds)
             max_duration: Maximum recording duration (seconds)
             use_wake_word: Whether to wait for wake word before recording
-            
+
         Returns:
             Tuple[str, str, np.ndarray]: (transcribed text, detected language, audio data)
         """
         pass
-    
+
     @abstractmethod
     def speak(self,
              text: str,
@@ -110,31 +110,31 @@ class AudioProviderInterface(BaseProviderInterface):
              play: bool = True) -> Union[List[str], None]:
         """
         Converts text to speech.
-        
+
         Args:
             text: Text to convert to speech
             voice: Voice identifier
             speed: Speaking speed
             output_path: Optional path to save audio file
             play: Whether to play the audio
-            
+
         Returns:
             Union[List[str], None]: List of generated audio file paths if output_path is provided, None otherwise
         """
         pass
-    
+
     @abstractmethod
     def play_notification_sound(self) -> None:
         """
         Plays a notification sound.
         """
         pass
-    
+
     @abstractmethod
     def play_audio_data(self, audio_array: np.ndarray, sample_rate: int = 44100, blocking: bool = True) -> None:
         """
         Plays audio data.
-        
+
         Args:
             audio_array: Audio data to play
             sample_rate: Sample rate of the audio data
@@ -148,10 +148,10 @@ class AIProviderInterface(BaseProviderInterface):
     Interface for AI provider services.
     Defines the contract for text generation and other AI services.
     """
-    
+
     @abstractmethod
     def generate_response(self, chat: Union['Chat', str], model_key: str,
-                         temperature: Optional[float] = None, silent_reason: str = "", 
+                         temperature: Optional[float] = None, silent_reason: str = "",
                          thinking_budget: Optional[int] = None) -> Any:
         """
         Generates a response stream based on the provided chat and model.
@@ -161,13 +161,13 @@ class AIProviderInterface(BaseProviderInterface):
             model_key: The model identifier.
             temperature: The temperature setting for the model.
             silent_reason: Reason for suppressing print statements.
-            thinking_budget: Token budget for model's internal reasoning process (Gemini models only). 
+            thinking_budget: Token budget for model's internal reasoning process (Gemini models only).
                            Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
 
         Returns:
             Any: A stream object that yields response chunks.
         """
         pass
-    
-    
-# UnifiedProviderInterface class removed - was unused 
+
+
+# UnifiedProviderInterface class removed - was unused

@@ -189,14 +189,32 @@ class WebInputSource(InputSource_ABC):
             if args and args.message:
                 from main import _get_next_priority_message
                 from termcolor import colored
-                
+
                 user_input = _get_next_priority_message(args.message)
                 if user_input:
                     args.message.remove(user_input)
                     print(colored(f"💬 Processing message: {user_input}" + (f" (⏳ {len(args.message)} more queued)" if args.message else ""), 'blue', attrs=['bold']), flush=True)
-                    
+
+                    # Send user message to Visual Response System if in GUI mode
+                    try:
+                        from core.globals import g
+                        if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+                            print(f"[DEBUG] GUI mode detected, sending user message: {user_input}")
+                            from tools.visualresponse import visualresponse
+                            success = visualresponse.send_user_message(user_input)
+                            if success:
+                                print(f"[DEBUG] ✅ Sent user message to Visual Response System: {user_input[:50]}...")
+                            else:
+                                print("[DEBUG] ❌ Failed to send user message to Visual Response System")
+                        else:
+                            print("[DEBUG] GUI mode not active, not sending user message")
+                    except Exception as e:
+                        print(f"[DEBUG] ❌ Error sending user message to Visual Response System: {e}")
+                        import traceback
+                        traceback.print_exc()
+
                     event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
-                    
+
                     return InputEvent(
                         event_type=event_type,
                         source=InputSource.WEB,
@@ -212,23 +230,202 @@ class WebInputSource(InputSource_ABC):
             if not hasattr(g, 'visual_input_queue'):
                 raise RuntimeError("Visual input queue not available")
 
+            self.logger.info("🌐 Waiting for browser input...")
             start_time = time.time()
+
             while True:
+                # Check for background input collector commands during the wait
+                try:
+                    from main import get_input_collector
+                    input_collector = get_input_collector()
+                    if input_collector and input_collector.has_pending_commands():
+                        # Return special event to signal checking args.message
+                        return InputEvent(
+                            event_type=InputEventType.SYSTEM,
+                            source=InputSource.WEB,
+                            content="",
+                            metadata={'source_queue': 'input_collector', 'action': 'check_args_message'},
+                            timestamp=time.time()
+                        )
+                except ImportError:
+                    pass  # Input collector not available
+
                 try:
                     # Wait for input from the browser with a timeout to remain responsive
                     raw_input = g.visual_input_queue.get(timeout=0.1)
-                    
-                    user_input = str(raw_input).strip()
-                    if user_input:
-                        event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
-                        self.logger.debug(f"Web input processed: {user_input[:50]}...")
+
+                    # Handle structured interrupt commands
+                    if isinstance(raw_input, dict) and raw_input.get('type') == 'interrupt_command':
+                        self.logger.info("🛑 Received interrupt command from web UI")
+                        try:
+                            from main import _interrupt_flag
+                            _interrupt_flag.set()
+                        except ImportError:
+                            pass  # Interrupt flag not available
+
+                        # Force exit from autonomous mode
+                        if hasattr(g, 'autonomous_iteration_count'):
+                            g.autonomous_iteration_count = 999
+
+                        print("🛑 INTERRUPT SIGNAL RECEIVED - Cancelling AI generation...")
+                        print("  → Provider cancellation initiated")
+                        print("  → Breaking out of autonomous mode and returning to user input...")
+
                         return InputEvent(
-                            event_type=event_type,
+                            event_type=InputEventType.INTERRUPT,
                             source=InputSource.WEB,
-                            content=user_input,
-                            metadata={'prompt': prompt},
+                            content="interrupt",
+                            metadata={'type': 'interrupt_command', 'source': 'web_ui'},
                             timestamp=time.time()
                         )
+
+                    # Handle LLM selection updates from web UI
+                    if isinstance(raw_input, dict) and raw_input.get('type') == 'llm_selection_update':
+                        self.logger.info("🎯 Received LLM selection update from web UI")
+                        self.logger.info(f"🔍 Raw input: {raw_input}")
+                        selection_data = raw_input.get('data', {})
+                        self.logger.info(f"🔍 Selection data type: {type(selection_data)}, content: {selection_data}")
+
+
+                        try:
+                            # Ensure selection_data is a dictionary
+                            if not isinstance(selection_data, dict):
+                                # Try to parse as JSON if it's a string
+                                if isinstance(selection_data, str):
+                                    try:
+                                        import json
+                                        selection_data = json.loads(selection_data)
+                                        self.logger.info("🔄 Successfully parsed selection_data from JSON string")
+                                    except json.JSONDecodeError as e:
+                                        self.logger.error(f"❌ Failed to parse selection_data as JSON: {e}")
+                                        continue
+                                else:
+                                    self.logger.error(f"❌ Expected selection_data to be dict, got {type(selection_data)}: {selection_data}")
+                                    continue
+
+                            # Verify it's now a dictionary
+                            if not isinstance(selection_data, dict):
+                                self.logger.error(f"❌ selection_data is still not a dict after processing: {type(selection_data)}")
+                                continue
+
+                            # Update the system configuration
+                            new_fallback_models = []
+                            for key in ['primary', 'fallback1', 'fallback2']:
+                                if selection_data.get(key):
+                                    new_fallback_models.append(selection_data[key])
+
+                            # Update g.SELECTED_LLMS to match the UI selection
+                            if new_fallback_models:
+                                # Keep specialized models and add UI fallback models
+                                llm_config = g.get_llm_config()
+                                self.logger.info(f"🔍 LLM config structure: {type(llm_config)} with {len(llm_config)} items")
+                                specialized_models = []
+
+                                # Find specialized models to preserve
+                                for model_key, config in llm_config.items():
+                                    # Skip special keys that aren't model configs
+                                    if model_key.startswith('__') and model_key.endswith('__'):
+                                        continue
+
+                                    # Debug: Check if config is actually a dict
+                                    if not isinstance(config, dict):
+                                        self.logger.warning(f"⚠️ Model {model_key} has non-dict config: {type(config)} = {config}")
+                                        continue
+
+                                    if config.get('beams', 0) > 0 or config.get('eval', 0) > 0 or config.get('guard', 0) > 0:
+                                        specialized_models.append(model_key)
+
+                                # Create new selection list: specialized models + UI fallback models
+                                new_selected_llms = specialized_models + new_fallback_models
+
+                                # Remove duplicates while preserving order
+                                unique_selected = []
+                                seen = set()
+                                for model in new_selected_llms:
+                                    if model not in seen:
+                                        unique_selected.append(model)
+                                        seen.add(model)
+
+                                # Update global selection
+                                old_selection = g.SELECTED_LLMS.copy()
+                                g.SELECTED_LLMS = unique_selected
+
+                                self.logger.info("🔄 Updated LLM selection from UI:")
+                                self.logger.info(f"  → Old fallback models: {len(old_selection)} total")
+                                self.logger.info(f"  → New fallback models: {new_fallback_models}")
+                                self.logger.info(f"  → Total selected: {len(unique_selected)} models")
+
+                                # Always update the persistent configuration
+                                try:
+                                    # Update the LLM config to match the new selection
+                                    updated_config = g.get_llm_config(force_reread=True)
+
+                                    # Mark all models as unselected first
+                                    for model_key in updated_config:
+                                        # Skip special keys that aren't model configs
+                                        if model_key.startswith('__') and model_key.endswith('__'):
+                                            continue
+                                        # Ensure the config is a dictionary
+                                        if not isinstance(updated_config[model_key], dict):
+                                            self.logger.warning(f"⚠️ Converting non-dict config for {model_key} to dict")
+                                            updated_config[model_key] = {"selected": False}
+                                        else:
+                                            updated_config[model_key]['selected'] = False
+
+                                    # Mark the selected models as selected and save their order
+                                    for i, model in enumerate(unique_selected):
+                                        if model in updated_config:
+                                            updated_config[model]['selected'] = True
+                                            updated_config[model]['order'] = i
+                                        else:
+                                            # New model, add as selected fallback with order
+                                            updated_config[model] = {"selected": True, "order": i}
+
+                                    # Save the updated configuration
+                                    g.save_llm_config(updated_config)
+                                    self.logger.info("💾 Saved updated LLM configuration to disk")
+
+                                except Exception as e:
+                                    self.logger.error(f"❌ Failed to save LLM configuration: {e}")
+
+                        except Exception as e:
+                            import traceback
+                            self.logger.error(f"Error processing LLM selection update: {e}")
+                            self.logger.error(f"Full traceback: {traceback.format_exc()}")
+
+                        # Continue without treating this as user input
+                        continue
+
+                    # Handle string inputs
+                    if isinstance(raw_input, str):
+                        user_input = raw_input.strip()
+
+                        if user_input == "__AGENT_RESET__":
+                            self.logger.info("🔄 Received agent reset request from browser")
+                            g.AGENT_RESET_REQUESTED = True
+                            return InputEvent(
+                                event_type=InputEventType.SYSTEM,
+                                source=InputSource.WEB,
+                                content="reset",
+                                metadata={'type': 'agent_reset', 'source': 'web_ui'},
+                                timestamp=time.time()
+                            )
+
+                        if user_input:
+                            self.logger.info(f"🌐 Received browser input: {user_input[:50]}...")
+                            event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+                            return InputEvent(
+                                event_type=event_type,
+                                source=InputSource.WEB,
+                                content=user_input,
+                                metadata={'prompt': prompt},
+                                timestamp=time.time()
+                            )
+                    else:
+                        # Handle non-string inputs (like dicts)
+                        self.logger.warning(f"Received non-string input: {type(raw_input)} - {raw_input}")
+                        continue
+
                 except Empty:
                     # Timeout occurred, loop again. This allows us to re-check for legacy messages
                     # if they arrive while waiting.
@@ -238,6 +435,9 @@ class WebInputSource(InputSource_ABC):
                     if args and args.message:
                         return await self.get_input(prompt, timeout, **kwargs)
                     continue
+                except Exception as e:
+                    self.logger.error(f"Error checking visual input queue: {e}")
+                    await asyncio.sleep(0.1)
 
         except Exception as e:
             self.logger.error(f"Error getting web input: {e}")
@@ -396,6 +596,47 @@ class QueueInputSource(InputSource_ABC):
 
         self.logger.info(f"📋 Processing queued command: {message}" +
                         (f" (⏳ {remaining} more queued)" if remaining else ""))
+
+        # Send user message to Visual Response System if in GUI mode (but skip system messages)
+        try:
+            from core.globals import g
+            if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+                # Check if this is a system message that shouldn't be displayed as user input
+                is_system_message = False
+                try:
+                    import ast
+                    import json
+                    # Try to parse as Python dict or JSON to check for system message types
+                    if message.strip().startswith('{'):
+                        parsed = None
+                        try:
+                            # First try JSON
+                            parsed = json.loads(message)
+                        except json.JSONDecodeError:
+                            # Then try Python dict syntax
+                            parsed = ast.literal_eval(message)
+
+                        if isinstance(parsed, dict) and parsed.get('type') in ['llm_selection_update']:
+                            is_system_message = True
+                            print(f"[DEBUG] Detected system message type '{parsed.get('type')}', not sending to visual response")
+                except (json.JSONDecodeError, ValueError, SyntaxError):
+                    # Not a valid dict/JSON, treat as regular user message
+                    pass
+
+                if not is_system_message:
+                    print(f"[DEBUG] GUI mode detected, sending queued user message: {message}")
+                    from tools.visualresponse import visualresponse
+                    success = visualresponse.send_user_message(message)
+                    if success:
+                        print(f"[DEBUG] ✅ Sent queued user message to Visual Response System: {message[:50]}...")
+                    else:
+                        print("[DEBUG] ❌ Failed to send queued user message to Visual Response System")
+            else:
+                print("[DEBUG] GUI mode not active, not sending queued user message")
+        except Exception as e:
+            print(f"[DEBUG] ❌ Error sending queued user message to Visual Response System: {e}")
+            import traceback
+            traceback.print_exc()
 
         # Determine event type
         event_type = InputEventType.COMMAND if message.startswith('/') else InputEventType.TEXT

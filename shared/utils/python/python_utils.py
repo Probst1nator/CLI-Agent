@@ -11,20 +11,20 @@ from shared.cmd_execution import select_and_execute_commands
 from core.globals import g
 
 def evaluate_existing_script(
-    script_path: str, 
-    context_chat: Chat, 
+    script_path: str,
+    context_chat: Chat,
     requirements: str,
     args: argparse.Namespace
 ) -> Dict:
     """
     Evaluate if an existing script meets current requirements.
-    
+
     Args:
         script_path: Path to the existing script
         context_chat: Current conversation context
         requirements: New requirements for the script
         args: Command line arguments
-    
+
     Returns:
         Dict containing evaluation results with keys:
         - reasoning: str explaining the evaluation
@@ -33,7 +33,7 @@ def evaluate_existing_script(
     """
     with open(script_path, "r") as f:
         file_content = f.read()
-    
+
     evaluation_chat = context_chat.deep_copy()
     evaluation_chat.add_message(
         Role.USER,
@@ -54,13 +54,13 @@ Respond with ONLY a JSON object containing:
     "modifications_needed": ["list of needed changes"] | null
 }}"""
     )
-    
+
     response = LlmRouter.generate_completion(
-        evaluation_chat, 
-        ["claude-3-5-sonnet-latest"], 
+        evaluation_chat,
+        ["claude-3-5-sonnet-latest"],
         force_local=args.local
     )
-    
+
     try:
         return json.loads(response)
     except json.JSONDecodeError:
@@ -71,18 +71,18 @@ Respond with ONLY a JSON object containing:
         }
 
 def request_implementation(
-    context_chat: Chat, 
-    requirements: str, 
+    context_chat: Chat,
+    requirements: str,
     args: argparse.Namespace
 ) -> str:
     """
     Request a new implementation with clear requirements.
-    
+
     Args:
         context_chat: Current conversation context
         requirements: Requirements for the script
         args: Command line arguments
-    
+
     Returns:
         str containing the Python implementation
     """
@@ -101,31 +101,31 @@ The implementation must:
 
 Respond with ONLY the Python code, no explanations or markdown."""
     )
-    
+
     response = LlmRouter.generate_completion(
         implement_chat,
         ["claude-3-5-sonnet-latest", "gpt-4o", "qwen2.5-coder:7b-instruct"],
         force_local=args.local
     )
-    
+
     # Clean response to ensure we only get code
     if "```python" in response:
         response = response[response.find("```python") + 9:response.rfind("```")]
     return response.strip()
 
 def handle_execution_error(
-    error_details: str, 
-    context_chat: Chat, 
+    error_details: str,
+    context_chat: Chat,
     args: argparse.Namespace
 ) -> Dict:
     """
     Analyze and handle script execution errors.
-    
+
     Args:
         error_details: Error output from script execution
         context_chat: Current conversation context
         args: Command line arguments
-    
+
     Returns:
         Dict containing error analysis with keys:
         - error_type: Classification of the error
@@ -147,13 +147,13 @@ Respond with ONLY a JSON object containing:
     "requires_rewrite": boolean
 }}"""
     )
-    
+
     response = LlmRouter.generate_completion(
         error_chat,
         ["claude-3-5-sonnet-latest"],
         force_local=args.local
     )
-    
+
     try:
         return json.loads(response)
     except json.JSONDecodeError:
@@ -165,18 +165,18 @@ Respond with ONLY a JSON object containing:
         }
 
 def execute_script(
-    script_path: str, 
+    script_path: str,
     context_chat: Chat,
     args: argparse.Namespace
 ) -> Tuple[str, bool]:
     """
     Execute a Python script and handle the results.
-    
+
     Args:
         script_path: Path to the script to execute
         context_chat: Current conversation context
         args: Command line arguments
-    
+
     Returns:
         Tuple of (execution_details: str, success: bool)
     """
@@ -185,19 +185,19 @@ def execute_script(
         auto_execute=True,
         detached=False
     )
-    
+
     if "error" in execution_summary.lower() or "error" in execution_details.lower():
         print(colored("Script execution encountered an error", "yellow"))
         if args.debug:
             print(colored(f"Execution details: {execution_details}", "yellow"))
         return execution_details, False
-    
+
     return execution_details, True
 
 def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace) -> None:
     """
     Handle Python tool execution with improved error handling and script management.
-    
+
     Args:
         tool: Dictionary containing tool details including:
             - title: Script filename
@@ -209,22 +209,22 @@ def handle_python_tool(tool: dict, context_chat: Chat, args: argparse.Namespace)
         script_title = tool.get('title', '')
         script_reasoning = tool.get('reasoning', '')
         script_requirements = tool.get('requirements', '')
-        
+
         script_description = f"""Title: {script_title}
 Reasoning: {script_reasoning}
 Requirements: {script_requirements}"""
-        
+
         if not script_title or not script_reasoning:
             raise ValueError("Python tool requires both title and reasoning")
-        
+
         # Setup script path
         script_dir = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, "python_tool")
         os.makedirs(script_dir, exist_ok=True)
         script_path = os.path.join(script_dir, script_title)
-        
+
         # Track if we're creating a new script or modifying existing
         is_new_script = not os.path.exists(script_path)
-        
+
         # Handle script implementation
         if is_new_script:
             print(colored(f"Creating new script: {script_title}", "green"))
@@ -232,7 +232,7 @@ Requirements: {script_requirements}"""
         else:
             print(colored(f"Evaluating existing script: {script_path}", "yellow"))
             evaluation = evaluate_existing_script(script_path, context_chat, script_description, args)
-            
+
             if evaluation['decision'] == 'keep':
                 print(colored("Using existing script as-is", "green"))
                 with open(script_path, 'r') as f:
@@ -243,15 +243,15 @@ Requirements: {script_requirements}"""
                     "yellow"
                 ))
                 final_script = request_implementation(context_chat, script_description, args)
-        
+
         # Write script
         with open(script_path, "w") as f:
             f.write(final_script)
-        
+
         # Execute script
         print(colored(f"Executing script: {script_title}", "green"))
         execution_details, success = execute_script(script_path, context_chat, args)
-        
+
         if not success:
             error_analysis = handle_execution_error(execution_details, context_chat, args)
             if error_analysis['requires_rewrite']:
@@ -260,7 +260,7 @@ Requirements: {script_requirements}"""
                     print(colored(f"Error analysis: {json.dumps(error_analysis, indent=2)}", "yellow"))
                 # Recursively try again with a fresh implementation
                 return handle_python_tool(tool, context_chat, args)
-        
+
         # Update context
         context_chat.add_message(Role.USER, execution_details)
         context_chat.add_message(

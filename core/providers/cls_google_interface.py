@@ -58,18 +58,18 @@ class GoogleAPI(AIProviderInterface):
     def _configure_api() -> None:
         """
         Configure the Google Generative AI API with the API key.
-        
+
         Raises:
             Exception: If the API key is missing or invalid.
         """
         global _gemini_api_configured
-        
+
         # Only configure if not already done
         if not _gemini_api_configured:
             api_key: Optional[str] = os.getenv('GEMINI_API_KEY')
             if not api_key:
                 raise Exception("Google API key not found. Set the GEMINI_API_KEY environment variable.")
-            
+
             try:
                 genai.configure(api_key=api_key)
                 _gemini_api_configured = True
@@ -79,10 +79,10 @@ class GoogleAPI(AIProviderInterface):
 
     @staticmethod
     def generate_response(
-        chat: Union[Chat, str], 
-        model_key: str = "gemini-1.5-pro-latest", 
-        temperature: float = 0, 
-        silent_reason: str = "", 
+        chat: Union[Chat, str],
+        model_key: str = "gemini-1.5-pro-latest",
+        temperature: float = 0,
+        silent_reason: str = "",
         thinking_budget: Optional[int] = None
     ) -> Any:  # Return type changed to Any to avoid circular imports
         if g.VERBOSE_DEBUG:
@@ -98,7 +98,7 @@ class GoogleAPI(AIProviderInterface):
             print(f"🔍 SILENT REASON: '{silent_reason}'")
         """
         Generates a response using the Google Gemini API.
-        
+
         Args:
             chat (Union[Chat, str]): The chat object containing messages or a string prompt.
             model_key (str): The model identifier (defaults to gemini-1.5-pro-latest).
@@ -106,10 +106,10 @@ class GoogleAPI(AIProviderInterface):
             silent_reason (str): Reason for silence if applicable.
             thinking_budget (Optional[int]): Token budget for model's internal reasoning process.
                                            Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
-            
+
         Returns:
             Iterator[GenerateContentResponse]: A stream of response chunks from the Gemini API.
-            
+
         Raises:
             RateLimitException: If the model is rate limited.
             TimeoutException: If the request times out.
@@ -138,16 +138,16 @@ class GoogleAPI(AIProviderInterface):
             for role, content in chat.messages:
                 if isinstance(content, dict) and 'images' in content:
                     image_count += len(content['images'])
-        
+
         # Check if request can be made with enhanced rate limiting
         can_make_request, reason = enhanced_rate_limit_tracker.can_make_request(
             model_key, token_cost=token_cost, image_count=image_count
         )
-        
+
         if not can_make_request:
             if not silent_reason:
                 g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(f'rate limited ({reason})', 'yellow')}", force_print=True, prefix=prefix)
-            
+
             # Get suggested retry delay
             retry_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(model_key)
             if retry_delay == -1:
@@ -159,14 +159,14 @@ class GoogleAPI(AIProviderInterface):
         if g.VERBOSE_DEBUG:
             print(f"🔍 CONFIGURING API: _gemini_api_configured={_gemini_api_configured}")
         GoogleAPI._configure_api()
-        
+
         # Get the appropriate model
         if g.VERBOSE_DEBUG:
             print(f"🔍 CREATING MODEL: {model_key}")
         model = genai.GenerativeModel(model_key)
         if g.VERBOSE_DEBUG:
             print(f"🔍 MODEL CREATED: {model}")
-        
+
         # Set up the generation config with temperature and thinking budget
         generation_config = genai.GenerationConfig(
             temperature=temperature,
@@ -174,7 +174,7 @@ class GoogleAPI(AIProviderInterface):
             top_k=32,
             max_output_tokens=8192,
         )
-        
+
         # Add thinking config if thinking_budget is specified and model supports it
         if thinking_budget is not None and ("2.5" in model_key or "2.0" in model_key):
             try:
@@ -189,13 +189,13 @@ class GoogleAPI(AIProviderInterface):
             # Warn if thinking budget is requested but model doesn't support it
             if not silent_reason:
                 g.debug_log(f"Google-Api: Warning - thinking budget not supported by model {model_key}", "yellow", prefix=prefix)
-        
+
         # Use the Chat's to_gemini method to create Gemini-compatible messages
         if isinstance(chat, Chat):
             if g.VERBOSE_DEBUG:
                 print("🔍 CONVERTING CHAT TO GEMINI FORMAT")
             gemini_messages = chat.to_gemini()
-            
+
             if g.VERBOSE_DEBUG:
                 print(f"🔍 GEMINI MESSAGES: {len(gemini_messages)} messages")
                 for i, msg in enumerate(gemini_messages):
@@ -209,11 +209,11 @@ class GoogleAPI(AIProviderInterface):
                             print(f"🔍     PART {j}: TEXT ({len(part)} chars)")
                         else:
                             print(f"🔍     PART {j}: OTHER ({type(part).__name__})")
-            
+
             # Debug vision requests
             has_images = any(
-                isinstance(part, dict) and 'inline_data' in part 
-                for msg in gemini_messages 
+                isinstance(part, dict) and 'inline_data' in part
+                for msg in gemini_messages
                 for part in msg.get('parts', [])
             )
             if has_images and not silent_reason:
@@ -223,7 +223,7 @@ class GoogleAPI(AIProviderInterface):
             if g.VERBOSE_DEBUG:
                 print(f"🔍 USING STRING INPUT: {len(str(chat))} chars")
             gemini_messages = [{"role": "user", "parts": [str(chat)]}]
-            
+
         # Print status message with timeout info
         if silent_reason:
             temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
@@ -231,7 +231,7 @@ class GoogleAPI(AIProviderInterface):
         else:
             temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
             g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", "green", force_print=g.VERBOSE_DEBUG, prefix=prefix)
-        
+
         # Generate streaming response with timeout - let errors bubble up to the router
         # except for rate limit errors, which we'll handle here
         try:
@@ -351,11 +351,11 @@ class GoogleAPI(AIProviderInterface):
         except Exception as e:
             # Use enhanced parser for better rate limit handling
             error_str = str(e)
-            
+
             # Check if this is a rate limit error
-            if ("429" in error_str or "quota" in error_str.lower() or 
+            if ("429" in error_str or "quota" in error_str.lower() or
                 "rate" in error_str.lower() or "limit" in error_str.lower()):
-                
+
                 # Parse the error using the Gemini-specific parser
                 parser = RateLimitParserFactory.get_parser("gemini")
                 limit_type, cooldown_seconds, extra_info = parser.parse_error(error_str)
@@ -382,43 +382,43 @@ class GoogleAPI(AIProviderInterface):
                 if not silent_reason:
                     limit_name = limit_type.value.replace('_', ' ').title()
                     g.debug_log(f"⚡ {limit_name} limit reached for {model_key} - retry in {cooldown_seconds:.1f}s", "yellow", force_print=True, prefix=prefix)
-                
+
                 # Mark the exception as already logged and raise as RateLimitException
                 setattr(e, 'already_logged', True)
                 raise RateLimitException(f"Model {model_key} {limit_type.value} limit exceeded. Try again in {cooldown_seconds:.1f} seconds")
-            
+
             # Log other errors here so we don't get duplicate logs
             if not silent_reason:
                 error_msg = f"❌ {model_key}: {str(e).split('.')[0]}"
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
-                
+
                 # Mark the exception as already logged so the router won't log it again
                 setattr(e, 'already_logged', True)
-                
+
             # Re-raise the original exception
             raise
 
     @staticmethod
     def generate_embeddings(
-        text: Union[str, List[str]], 
-        model: str = "embedding-001", 
+        text: Union[str, List[str]],
+        model: str = "embedding-001",
         chat: Optional[Chat] = None
     ) -> Optional[Union[List[float], List[List[float]]]]:
         """
         Generates embeddings for the given text using the Google Gemini API.
-        
+
         Args:
             text (Union[str, List[str]]): The text or list of texts to generate embeddings for.
             model (str): The embedding model to use.
             chat (Optional[Chat]): The chat object for debug printing.
-            
+
         Returns:
             Optional[Union[List[float], List[List[float]]]]: The generated embedding(s) or None if an error occurs.
         """
         try:
             # Configure the API if not already done
             GoogleAPI._configure_api()
-            
+
             # Print status message
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
@@ -426,10 +426,10 @@ class GoogleAPI(AIProviderInterface):
                     g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings...", force_print=True, prefix=prefix)
                 else:
                     g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding...", force_print=True, prefix=prefix)
-                    
+
             # Determine task type for embedding (can influence quality)
             task_type = "RETRIEVAL_DOCUMENT"
-                    
+
             if isinstance(text, str):
                 # Single text case
                 result = genai.embed_content(
@@ -449,7 +449,7 @@ class GoogleAPI(AIProviderInterface):
                     )
                     embeddings.append(result["embedding"])
                 return embeddings
-                
+
         except Exception as e:
             error_msg = f"Google API embedding error: {e}"
             if chat:
@@ -464,15 +464,15 @@ class GoogleAPI(AIProviderInterface):
     def get_available_models(chat: Optional[Chat] = None) -> List[Dict[str, Any]]:
         """
         Discovers and returns available Gemini models.
-        
-        This method queries the Google Generative AI API to get a real-time list of 
+
+        This method queries the Google Generative AI API to get a real-time list of
         available models. Can be used for dynamic model discovery in the future.
-        Currently, the LLM router uses a static list of known Google models for 
+        Currently, the LLM router uses a static list of known Google models for
         performance reasons, but this method provides the foundation for dynamic discovery.
-        
+
         Args:
             chat (Optional[Chat]): The chat object for debug printing.
-            
+
         Returns:
             List[Dict[str, Any]]: List of available model information dictionaries.
                 Each dictionary contains:
@@ -486,14 +486,14 @@ class GoogleAPI(AIProviderInterface):
         try:
             # Configure the API if not already done
             GoogleAPI._configure_api()
-            
+
             # Print status message
             prefix = chat.get_debug_title_prefix() if chat and hasattr(chat, 'get_debug_title_prefix') else ""
             if chat:
                 g.debug_log(f"Google-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} discovering available models...", force_print=True, prefix=prefix)
-            
+
             models = []
-            
+
             # Use genai.list_models() to retrieve available models
             for model in genai.list_models():
                 model_info = {
@@ -509,12 +509,12 @@ class GoogleAPI(AIProviderInterface):
                     'top_k': getattr(model, 'top_k', None)
                 }
                 models.append(model_info)
-            
+
             if chat:
                 g.debug_log(f"Google-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} found {len(models)} available models", force_print=True, prefix=prefix)
-            
+
             return models
-            
+
         except Exception as e:
             error_msg = f"Google API model discovery error: {e}"
             if chat:
@@ -534,7 +534,7 @@ class GoogleAPI(AIProviderInterface):
     ) -> str:
         """
         Generates speech from text using Google's TTS API with multi-speaker support.
-        
+
         Args:
             text (str): The text to convert to speech.
             output_file (str): The name of the output file to save the audio to.
@@ -544,36 +544,36 @@ class GoogleAPI(AIProviderInterface):
             speaker_config (Optional[List[Dict[str, str]]]): List of speaker configurations.
                 Each dictionary should contain 'speaker' and 'voice' keys.
                 If None, default voices will be used.
-                
+
         Returns:
             str: The path to the saved audio file.
-            
+
         Raises:
             Exception: If the API is not configured or if there is an error during generation.
         """
         try:
             # Imports are now at the top of the file
-            
+
             # Configure the API if not already done
             GoogleAPI._configure_api()
-            
+
             # Print status message
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating speech...", force_print=True, prefix=prefix)
-            
+
             # Create the client
             client = genai.Client( # Using genai from top-level import
                 api_key=os.environ.get("GEMINI_API_KEY"),
             )
-            
+
             # Default speaker configuration if none provided
             if not speaker_config:
                 speaker_config = [
                     {"speaker": "Chloe", "voice": "Kore"},
                     {"speaker": "Liam", "voice": "Iapetus"}
                 ]
-            
+
             # Create speaker voice configs
             speaker_voice_configs = []
             for config in speaker_config:
@@ -587,7 +587,7 @@ class GoogleAPI(AIProviderInterface):
                         ),
                     )
                 )
-            
+
             # Set up content for TTS
             contents = [
                 types.Content( # Using types from top-level import
@@ -597,7 +597,7 @@ class GoogleAPI(AIProviderInterface):
                     ],
                 ),
             ]
-            
+
             # Configure TTS generation
             generate_content_config = types.GenerateContentConfig( # Using types from top-level import
                 temperature=temperature,
@@ -608,7 +608,7 @@ class GoogleAPI(AIProviderInterface):
                     ),
                 ),
             )
-            
+
             # Generate speech content
             for chunk in client.models.generate_content_stream(
                 model=model,
@@ -621,21 +621,21 @@ class GoogleAPI(AIProviderInterface):
                     or chunk.candidates[0].content.parts is None
                 ):
                     continue
-                
+
                 if chunk.candidates[0].content.parts[0].inline_data:
                     inline_data = chunk.candidates[0].content.parts[0].inline_data
                     data_buffer = inline_data.data
                     file_extension = mimetypes.guess_extension(inline_data.mime_type)
-                    
+
                     if file_extension is None:
                         file_extension = ".wav"
                         data_buffer = convert_to_wav(inline_data.data, inline_data.mime_type)
-                    
+
                     # Ensure output_file has the correct extension
                     base_name, existing_ext = os.path.splitext(output_file)
                     if not existing_ext:
                         output_file = f"{base_name}{file_extension}"
-                    
+
                     # Save the file
                     return save_binary_file(output_file, data_buffer)
                 else:
@@ -643,10 +643,10 @@ class GoogleAPI(AIProviderInterface):
                     if chunk.text and chat:
                         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                         g.debug_log(f"TTS Response: {chunk.text}", force_print=True, prefix=prefix)
-            
+
             # If we get here without returning a file, raise an exception
             raise Exception("No audio data received from the API")
-            
+
         except Exception as e:
             error_msg = f"Google API speech generation error: {e}"
             if chat:

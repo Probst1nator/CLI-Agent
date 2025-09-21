@@ -6,7 +6,7 @@ from high-level integration tests to detailed unit tests.
 
 Test Levels:
 - Level 0: Integration Tests (tools working together)
-- Level 1: Tool Tests (each tool in isolation)  
+- Level 1: Tool Tests (each tool in isolation)
 - Level 2: Core Infrastructure Tests
 - Level 3: Shared Utility Tests
 - Level 4: Unit Tests (detailed function-level testing)

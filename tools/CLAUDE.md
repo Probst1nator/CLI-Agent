@@ -113,9 +113,9 @@ class k8s:
 ```
 The agent loop continues to call the same three synchronous methods. All complexity of managing credentials, network connections, and API client lifecycles is hidden within the tool.
 
-### d. Async Tools Pattern (2025)
+### d. Async Tools Pattern
 
-Starting in 2025, tools can be fully asynchronous to prevent blocking operations. The calling system must handle async tools appropriately.
+Tools can be fully asynchronous to prevent blocking operations. The calling system must handle async tools appropriately.
 
 `tools/searchweb.py` (simplified example)
 ```python

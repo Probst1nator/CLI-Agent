@@ -40,18 +40,18 @@ def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
         microphone_device_index = default_microphone_info["index"]
         r = Recognizer()
         source = Microphone(device_index=microphone_device_index)
-    
+
     print(
         colored(f"Calibrating microphone for {calibration_duration} seconds", "yellow")
     )
     with source as source:
         r.adjust_for_ambient_noise(source, calibration_duration)
-    
+
     original_threshold = r.energy_threshold
     # Make it much more sensitive for better German speech detection
     r.energy_threshold = max(200, min(400, original_threshold * 0.8))  # Much more sensitive
     print(colored(f"🎤 Microphone calibrated. Energy threshold: {original_threshold:.0f} -> {r.energy_threshold:.0f}", "green"))
-    
+
     return source
 
 def listen_microphone(
@@ -71,7 +71,7 @@ def listen_microphone(
     if not r:
         calibrate_microphone()
     transcription: str = ""
-    
+
     while not transcription or transcription.strip().lower() == "you":
         print(colored("Listening to microphone...", "yellow"))
 
@@ -81,21 +81,21 @@ def listen_microphone(
             used_wake_word = PyAiHost.wait_for_wake_word(private_remote_wake_detection)
             print(colored("Listening closely...", "yellow"))
             PyAiHost.play_notification()
-            
+
             # Listen for speech with automatic end-of-speech detection
             # Longer timeout for German speakers
             start_listen_time = time.time()
             with source:
                 audio = r.listen(
-                    source, 
-                    timeout=max_listening_duration, 
+                    source,
+                    timeout=max_listening_duration,
                     phrase_time_limit=15  # 15 seconds max phrase length for German
                 )
             listen_duration = time.time() - start_listen_time
-            
+
             print(colored(f"⏱️ Recorded for {listen_duration:.1f} seconds", "cyan"))
             PyAiHost.play_notification()
-                
+
 
             print(colored("Processing sounds...", "yellow"))
 
@@ -107,7 +107,7 @@ def listen_microphone(
                 temp_audio_file.write(audio_data)
                 temp_audio_file_path = temp_audio_file.name
                 print(colored(f"📊 Captured {len(audio_data)} bytes of audio data", "cyan"))
-                
+
                 # Check if we have enough audio data
                 if len(audio_data) < 1000:  # Less than ~1KB suggests very short recording
                     print(colored("⚠️ Warning: Very short audio recording detected", "yellow"))
@@ -115,7 +115,7 @@ def listen_microphone(
                 # Transcribe the audio from the temporary file
                 transcription = ""
                 detected_language = ""
-                
+
                 # New transcription logic: use local by default, cloud only if explicitly enabled
                 if g.FORCE_LOCAL or not remote_voice_enabled:
                     # Use local transcription only (default behavior)
@@ -131,7 +131,7 @@ def listen_microphone(
                     # Try cloud-based transcription with multiple fallbacks
                     print(colored("☁️ Using cloud transcription with local fallback", "blue"))
                     cloud_success = False
-                    
+
                     # First try Groq API
                     try:
                         transcription, detected_language = GroqAPI.transcribe_audio(temp_audio_file_path)
@@ -139,7 +139,7 @@ def listen_microphone(
                         cloud_success = True
                     except Exception as groq_error:
                         print(colored(f"⚠️ Groq transcription failed: {str(groq_error)}", "yellow"))
-                    
+
                     # If Groq failed, try OpenAI as secondary cloud option
                     if not cloud_success:
                         try:
@@ -148,14 +148,14 @@ def listen_microphone(
                             r = sr.Recognizer()
                             with sr.AudioFile(temp_audio_file_path) as source:
                                 audio_data = r.record(source)
-                            
+
                             from core.providers.cls_openai_interface import OpenAIAPI
                             transcription, detected_language = OpenAIAPI.transcribe_audio(audio_data)
                             print(colored("✅ OpenAI cloud transcription successful", "green"))
                             cloud_success = True
                         except Exception as openai_error:
                             print(colored(f"⚠️ OpenAI transcription failed: {str(openai_error)}", "yellow"))
-                    
+
                     # If all cloud services failed, fallback to local
                     if not cloud_success:
                         print(colored("🔄 All cloud services failed. Falling back to local Whisper transcription...", "blue"))
@@ -268,7 +268,7 @@ def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> Lis
 
 
 def update_cmd_collection():
-    client = chromadb.PersistentClient(g.CLIAGENT_PERSISTENT_STORAGE_PATH)
+    client = chromadb.PersistentClient(os.path.join(g.CLIAGENT_DATA_DIR, "vector_db"))
     collection = client.get_or_create_collection(name="commands")
     all_commands = get_atuin_history(200)
     if all_commands:
@@ -298,7 +298,7 @@ def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
             retrieved_context += f"### CONTENT:\n{document}\n"
         retrieved_context += "\n"  # Add an extra newline between sources
     retrieved_context = retrieved_context.strip()
-    
+
     prompt = f"""# QUESTION:\n{user_query}
 # CONTEXT:\n{retrieved_context}"""
 
@@ -313,11 +313,11 @@ def take_screenshot(title: str = 'Firefox', verbose: bool = False) -> List[str]:
     """
     Captures screenshots of all windows with the specified title on Linux
     using xwininfo and import, and returns them as a list of base64 encoded strings.
-    
+
     Args:
     title (str): The title of the windows to capture. Defaults to 'Firefox'.
     verbose (bool): If True, print detailed error messages. Defaults to False.
-    
+
     Returns:
     List[str]: A list of base64 encoded strings of the captured screenshots.
     """
@@ -325,7 +325,7 @@ def take_screenshot(title: str = 'Firefox', verbose: bool = False) -> List[str]:
         # Find windows matching the title
         windows_info = subprocess.check_output(['xwininfo', '-root', '-tree'], text=True, stderr=subprocess.DEVNULL)
         window_ids = re.findall(f'(0x[0-9a-f]+).*{re.escape(title)}', windows_info, re.IGNORECASE)
-        
+
         if not window_ids:
             print(f"No windows with title containing '{title}' found.")
             return []
@@ -340,7 +340,7 @@ def take_screenshot(title: str = 'Firefox', verbose: bool = False) -> List[str]:
                     temp_filename = temp_file.name
 
                 # Capture the screenshot using import
-                subprocess.run(['import', '-window', window_id, temp_filename], 
+                subprocess.run(['import', '-window', window_id, temp_filename],
                                check=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
                 # Read the screenshot file
@@ -349,11 +349,11 @@ def take_screenshot(title: str = 'Firefox', verbose: bool = False) -> List[str]:
 
                 # Remove the temporary file
                 os.unlink(temp_filename)
-                
+
                 # Convert to base64 and add to list
                 base64_img = base64.b64encode(png_data).decode('utf-8')
                 base64_images.append(base64_img)
-                
+
                 captured_count += 1
                 if verbose:
                     print(f"Captured screenshot of window: {window_id}")

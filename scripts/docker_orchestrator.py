@@ -8,15 +8,11 @@ import argparse
 import os
 import sys
 import subprocess
-import json
 import time
-import tempfile
-import shutil
-import signal
 import webbrowser
 import threading
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Optional
 import yaml
 
 class Colors:
@@ -66,7 +62,7 @@ class DockerOrchestrator:
                 print_status(Colors.GREEN, f"✅ Successfully built {self.image_name}")
                 return True
             else:
-                print_status(Colors.RED, f"❌ Failed to build image:")
+                print_status(Colors.RED, "❌ Failed to build image:")
                 print(result.stderr)
                 return False
 
@@ -256,7 +252,7 @@ class DockerOrchestrator:
 
                 return True
             else:
-                print_status(Colors.RED, f"❌ Failed to start containers:")
+                print_status(Colors.RED, "❌ Failed to start containers:")
                 print(result.stderr)
                 return False
 
@@ -267,7 +263,7 @@ class DockerOrchestrator:
     def _open_browsers_when_ready(self, urls: List[str], count: int):
         """Open browsers for each container when services are ready"""
         def wait_and_open():
-            print_status(Colors.BLUE, f"🌍 Waiting for services to be ready before opening browsers...")
+            print_status(Colors.BLUE, "🌍 Waiting for services to be ready before opening browsers...")
 
             # Wait a bit for containers to fully start
             time.sleep(5)
@@ -326,7 +322,7 @@ class DockerOrchestrator:
             if opened_count > 0:
                 print_status(Colors.GREEN, f"✅ Opened {opened_count}/{count} browser windows")
             else:
-                print_status(Colors.YELLOW, f"⚠️  Could not open any browsers automatically")
+                print_status(Colors.YELLOW, "⚠️  Could not open any browsers automatically")
                 print_status(Colors.CYAN, "💡 You can manually open the URLs shown above")
 
         # Run browser opening in background thread
@@ -349,7 +345,7 @@ class DockerOrchestrator:
                 print_status(Colors.GREEN, "✅ Successfully stopped containers")
                 return True
             else:
-                print_status(Colors.RED, f"❌ Failed to stop containers:")
+                print_status(Colors.RED, "❌ Failed to stop containers:")
                 print(result.stderr)
                 return False
 
@@ -474,7 +470,7 @@ class DockerOrchestrator:
             # Remove stopped containers
             result = subprocess.run([
                 "docker", "container", "prune", "-f",
-                "--filter", f"label=com.docker.compose.project=cli-agent"
+                "--filter", "label=com.docker.compose.project=cli-agent"
             ], capture_output=True, text=True)
 
             # Remove unused volumes

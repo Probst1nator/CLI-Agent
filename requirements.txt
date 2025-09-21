@@ -20,7 +20,8 @@ pexpect>=4.8.0  # Terminal automation for bash tool
 
 # Vector database and search dependencies
 chromadb>=0.4.0  # Vector database for semantic search
-speechrecognition>=3.8.0  # Speech-to-text functionality
+SpeechRecognition>=3.8.0  # Speech-to-text functionality
+vosk>=0.3.42  # Offline speech recognition
 
 # VibeVoice TTS Dependencies (optional - high-quality speech synthesis)
 transformers>=4.30.0  # Hugging Face transformers for VibeVoice
@@ -33,3 +34,4 @@ pathspec>=0.9.0  # File pattern matching
 rank-bm25>=0.2.0  # BM25 ranking for search
 fasttext>=0.9.0  # FastText word embeddings
 pyfiglet>=0.8.0  # ASCII art for startup banner
+psutil>=5.8.0  # System and process utilities

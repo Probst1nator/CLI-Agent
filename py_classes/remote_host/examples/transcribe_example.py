@@ -22,16 +22,16 @@ from py_classes.remote_host.cls_remote_host_client import RemoteHostClient
 def record_audio(duration: float = 5.0, sample_rate: int = 16000) -> Tuple[np.ndarray, int]:
     """
     Record audio from the microphone.
-    
+
     Args:
         duration: Duration to record in seconds
         sample_rate: Sample rate for recording
-        
+
     Returns:
         Tuple of (audio_data, sample_rate)
     """
     print(f"Recording for {duration} seconds...")
-    
+
     # Record audio
     audio_data = sd.rec(
         int(duration * sample_rate),
@@ -40,24 +40,24 @@ def record_audio(duration: float = 5.0, sample_rate: int = 16000) -> Tuple[np.nd
         dtype='float32',
         blocking=True
     )
-    
+
     print("Recording complete!")
-    
+
     return audio_data, sample_rate
 
 def list_available_models(client: RemoteHostClient) -> None:
     """List available Whisper models on the remote host."""
     result = client.list_whisper_models()
-    
+
     if "error" in result:
         print(f"Error: {result['error']}")
         return
-        
+
     models = result.get("models", {})
     if not models:
         print("No models information available")
         return
-        
+
     print("\nAvailable Whisper Models:")
     print("-----------------------")
     for name, info in models.items():
@@ -68,43 +68,43 @@ def list_available_models(client: RemoteHostClient) -> None:
 def main():
     # Initialize the remote host client
     client = RemoteHostClient()
-    
+
     # Check if server is available
     health = client.check_server_health()
     if not health:
         print("Error: Could not connect to remote host server")
         return
-        
+
     print(f"Connected to remote host server: {health.get('status', 'unknown')}")
-    
+
     # Check if Whisper service is available
     if not client.is_service_available("whisper"):
         print("Error: Whisper service is not available on the remote host")
         return
-        
+
     # List available models
     list_available_models(client)
-    
+
     # Ask user to select a model
     model = input("Enter model to use (default: large-v2): ").strip()
     if not model:
         model = "large-v2"
-        
+
     # Record audio
     audio_data, sample_rate = record_audio(duration=5.0)
-    
+
     # Save audio for debugging
     sf.write('recorded_audio.wav', audio_data, sample_rate)
     print("Saved recording to recorded_audio.wav")
-    
+
     # Send to server for transcription
     print(f"Sending audio to server for transcription with model '{model}'...")
     result = client.transcribe_audio(audio_data, sample_rate, model)
-    
+
     if not result.get("success", False):
         print(f"Error: {result.get('error', 'Unknown error during transcription')}")
         return
-        
+
     # Print results
     print("\nTranscription Results:")
     print("-----------------------")
@@ -112,7 +112,7 @@ def main():
     print(f"Language: {result.get('language', 'unknown')}")
     print(f"Processing Time: {result.get('processing_time', 0):.2f} seconds")
     print(f"Model Used: {result.get('model', 'unknown')}")
-    
+
     # Print segments if available
     segments = result.get("segments", [])
     if segments:
@@ -124,4 +124,4 @@ def main():
             print(f"[{start:.1f}s - {end:.1f}s]: {text}")
 
 if __name__ == "__main__":
-    main() 
+    main()

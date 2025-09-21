@@ -50,13 +50,13 @@ class grepsearch:
         gitignore_patterns = []
         project_root = None
         current_path = os.path.abspath(start_path)
-        
+
         # Walk up to the root of the filesystem
         while True:
             # Check for .git directory to identify the project root
             if os.path.isdir(os.path.join(current_path, '.git')):
                 project_root = current_path
-            
+
             gitignore_path = os.path.join(current_path, '.gitignore')
             if os.path.isfile(gitignore_path):
                 with open(gitignore_path, 'r', encoding='utf-8') as f:
@@ -66,15 +66,15 @@ class grepsearch:
             parent_path = os.path.dirname(current_path)
             if parent_path == current_path: # Reached filesystem root
                 break
-            
+
             current_path = parent_path
             if project_root: # Stop once we're outside the project root
                 break
-        
+
         if gitignore_patterns:
             spec = pathspec.PathSpec.from_lines('gitwildmatch', gitignore_patterns)
             return spec, project_root
-        
+
         return None, project_root
 
     @staticmethod
@@ -94,7 +94,7 @@ class grepsearch:
             pattern = pattern_match.group(1).strip()
             search_path = path_match.group(1).strip() if path_match else '.'
             search_mode = mode_match.group(1).strip().lower() if mode_match else 'all'
-            
+
             if search_mode not in ['all', 'files', 'directories']:
                 return f"Error: Invalid mode '{search_mode}'. Must be one of 'all', 'files', 'directories'."
 
@@ -115,20 +115,20 @@ class grepsearch:
                 print("Warning: 'pathspec' library not found. Running grepsearch without .gitignore filtering.")
 
             matches = []
-            
+
             if os.path.isfile(full_path):
                 is_ignored = False
                 if spec and project_root:
                     rel_path = os.path.relpath(full_path, project_root)
                     if spec.match_file(rel_path):
                         is_ignored = True
-                
+
                 if is_ignored:
                     return "No matches found (file is ignored by .gitignore)."
-                
+
                 if search_mode in ('all', 'files'):
                     grepsearch._search_in_file(full_path, regex, matches)
-            
+
             elif os.path.isdir(full_path):
                 for root, dirs, files in os.walk(full_path, topdown=True):
                     if spec and project_root:
@@ -136,23 +136,23 @@ class grepsearch:
                         # We must use paths relative to the project root for matching
                         paths_to_check_dirs = [os.path.relpath(os.path.join(root, d), project_root) for d in dirs]
                         paths_to_check_files = [os.path.relpath(os.path.join(root, f), project_root) for f in files]
-                        
+
                         ignored_dirs = {os.path.basename(p) for p in spec.match_files(paths_to_check_dirs)}
                         ignored_files = {os.path.basename(p) for p in spec.match_files(paths_to_check_files)}
-                        
+
                         dirs[:] = [d for d in dirs if d not in ignored_dirs and d not in ['.git']]
                         files = [f for f in files if f not in ignored_files]
                     else:
                         dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', 'build', 'dist']]
 
                     if len(matches) >= grepsearch.MAX_RESULTS: break
-                    
+
                     if search_mode in ('all', 'directories'):
                         for d in dirs:
                             if len(matches) >= grepsearch.MAX_RESULTS: break
                             if regex.search(d):
                                 matches.append(f"DIR:  {os.path.join(root, d)}")
-                    
+
                     if search_mode in ('all', 'files'):
                         for f in files:
                             if len(matches) >= grepsearch.MAX_RESULTS: break
@@ -163,16 +163,16 @@ class grepsearch:
 
             if not matches:
                 return "No matches found."
-            
+
             result_str = "\n".join(matches)
             if len(matches) >= grepsearch.MAX_RESULTS:
                 result_str += f"\n... (Search stopped after reaching {grepsearch.MAX_RESULTS} results limit)"
-                
+
             return result_str
 
         except Exception as e:
             return f"Error executing grepsearch tool: {str(e)}"
-            
+
     @staticmethod
     def _search_in_file(file_path: str, regex: re.Pattern, matches: list):
         if len(matches) >= grepsearch.MAX_RESULTS:
@@ -182,7 +182,7 @@ class grepsearch:
         if regex.search(os.path.basename(file_path)):
             matches.append(f"FILE: {file_path}")
             if len(matches) >= grepsearch.MAX_RESULTS: return
-        
+
         try:
             if os.path.getsize(file_path) > 2 * 1024 * 1024:
                 return

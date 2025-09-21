@@ -48,7 +48,7 @@ class BraveSearchAPI:
             print(f"HTTP error occurred: {http_err} - {response.text}")
         except requests.exceptions.RequestException as e:
             print(f"A network error occurred: {e}")
-        
+
         return None
 
 if __name__ == '__main__':
@@ -77,7 +77,7 @@ if __name__ == '__main__':
             web_results = BraveSearchAPI.search(API_KEY, "web", web_params)
             if web_results:
                 print("Web Search Successful. Result keys:", web_results.keys())
-            
+
             time.sleep(1)
 
             # 2. Image Search
@@ -104,9 +104,9 @@ if __name__ == '__main__':
             video_results = BraveSearchAPI.search(API_KEY, "videos", video_params)
             if video_results:
                 print("Video Search Successful. Result keys:", video_results.keys())
-            
+
             time.sleep(1)
-                
+
             # 5. Suggestions (EXPECTED TO FAIL ON FREE PLAN)
             print("\n--- 5. Testing Suggestions ---")
             print("(This test is expected to fail with a 400 error on the Free AI plan)")

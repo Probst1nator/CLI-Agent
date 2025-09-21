@@ -1,7 +1,7 @@
 # tools/readdirectory.py
 """
-This file implements the 'readdirectory' tool. It allows the agent to 
-recursively list the contents of a directory and automatically load all 
+This file implements the 'readdirectory' tool. It allows the agent to
+recursively list the contents of a directory and automatically load all
 readable text files and PDF documents into the searchable resource manager.
 
 NOTE: PDF processing requires the 'pymupdf' package to be installed (`pip install pymupdf`).
@@ -68,15 +68,15 @@ class readdirectory:
         """
         if not pathspec:
             return None, None
-        
+
         gitignore_patterns = []
         project_root = None
         current_path = os.path.abspath(start_path)
-        
+
         while True:
             if os.path.isdir(os.path.join(current_path, '.git')):
                 project_root = current_path
-            
+
             gitignore_path = os.path.join(current_path, '.gitignore')
             if os.path.isfile(gitignore_path):
                 with open(gitignore_path, 'r', encoding='utf-8') as f:
@@ -85,15 +85,15 @@ class readdirectory:
             parent_path = os.path.dirname(current_path)
             if parent_path == current_path:
                 break
-            
+
             current_path = parent_path
             if project_root and not current_path.startswith(project_root):
                 break
-                
+
         if gitignore_patterns:
             spec = pathspec.PathSpec.from_lines('gitwildmatch', gitignore_patterns)
             return spec, project_root
-        
+
         return None, project_root
 
     @staticmethod
@@ -101,7 +101,7 @@ class readdirectory:
         """Extracts all text content from a PDF file using PyMuPDF."""
         if not PYMUPDF_AVAILABLE:
             return None
-        
+
         try:
             doc = fitz.open(file_path)
             full_text = []
@@ -125,7 +125,7 @@ class readdirectory:
         try:
             path_match = re.search(r'<path>(.*?)</path>', content, re.DOTALL)
             search_path = path_match.group(1).strip() if path_match else '.'
-            
+
             full_path = os.path.abspath(search_path)
             if not os.path.isdir(full_path):
                 return f"Error: Path does not exist or is not a directory: '{full_path}'"
@@ -145,24 +145,24 @@ class readdirectory:
                     dirs[:] = [d for d in dirs if d not in ignored_dirs and d != '.git']
                 else:
                     dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv']]
-                
+
                 for d in dirs:
                     all_paths.append(os.path.join(root, d) + os.sep)
 
                 for filename in files:
                     file_path = os.path.join(root, filename)
-                    
+
                     is_ignored = False
                     if spec and project_root:
                         rel_path = os.path.relpath(file_path, project_root).replace('\\', '/')
                         if spec.match_file(rel_path):
                             is_ignored = True
-                    
+
                     if is_ignored:
                         continue
 
                     all_paths.append(file_path)
-                    
+
                     _, ext = os.path.splitext(filename.lower())
                     file_content = None
                     content_source_type = "text"
@@ -177,7 +177,7 @@ class readdirectory:
                                 file_content = f.read()
                         except (IOError, OSError):
                             continue # Skip unreadable files
-                    
+
                     # --- Ingestion Logic ---
                     if file_content and file_content.strip():
                         try:
@@ -194,10 +194,10 @@ class readdirectory:
                             })
                         except Exception:
                             continue
-            
+
             # --- Format the final output ---
             output = [f"Directory scan of '{full_path}' complete."]
-            
+
             if ingested_files:
                 output.append("\n--- Ingested Files ---")
                 output.append("The following files have been loaded into the searchable resource manager:")
@@ -209,16 +209,16 @@ class readdirectory:
                 output.append("\nUse the <searchtext> tool to inspect these resources.")
             else:
                 output.append("\nNo readable text or PDF files were found to ingest.")
-            
+
             tree_output = ["\n--- Directory Tree ---"]
             tree_paths = sorted([os.path.relpath(p, full_path) for p in all_paths])
-            
+
             for path in tree_paths:
                 if path == '.': continue
                 parts = path.split(os.sep)
                 indent = ' ' * 4 * (len(parts) - 1) + '|-- '
                 tree_output.append(f"{indent}{parts[-1]}")
-            
+
             output.extend(tree_output)
 
             return "\n".join(output)

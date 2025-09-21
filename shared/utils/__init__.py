@@ -10,7 +10,7 @@ try:
 except ImportError:
     WebServer = None
 
-# Search utilities  
+# Search utilities
 try:
     from .search.brave_search import BraveSearchAPI
 except ImportError:

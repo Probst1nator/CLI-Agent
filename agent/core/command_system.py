@@ -163,7 +163,7 @@ _prompt_session = None
 def get_prompt_session() -> PromptSession:
     """
     Get the global prompt session for command completion and history.
-    
+
     Returns:
         Initialized PromptSession with command completion and history
     """
@@ -171,7 +171,7 @@ def get_prompt_session() -> PromptSession:
     if _prompt_session is None:
         command_completer = CommandCompleterWithDescriptions()
         history = FileHistory(os.path.expanduser('~/.cli_agent_history'))
-        
+
         _prompt_session = PromptSession(
             completer=command_completer,
             history=history,

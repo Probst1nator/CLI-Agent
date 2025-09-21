@@ -14,7 +14,7 @@ from .utils_manager.util_base import UtilBase
 
 __all__ = [
     'ComputationalNotebook',
-    'PlaybookManager', 
+    'PlaybookManager',
     'UtilsManager',
     'TextStreamPainter',
     'LlmSelector',

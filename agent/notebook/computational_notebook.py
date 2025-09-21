@@ -12,14 +12,14 @@ class ComputationalNotebook:
         # Clean up old temporary files from previous runs
         import logging
         from termcolor import colored
-        
+
         g.cleanup_temp_py_files()
-        
+
         logging.info(colored("  - Computational Notebook coordinator ready.", "cyan"))
 
     async def execute(self, command: str, is_python_code: bool = False, persist_python_state: bool = True):
         """
-        DEPRECATED: Execute method is deprecated. 
+        DEPRECATED: Execute method is deprecated.
         Use the individual bash and python tools instead for lazy loading.
         This method now delegates to the appropriate tool.
         """
@@ -29,7 +29,7 @@ class ComputationalNotebook:
                 self.stdout_callback("[Python execution disabled - tool moved to disabled/]\n")
                 return "Python execution disabled - tool moved to disabled/"
             else:
-                # Import and use the bash tool  
+                # Import and use the bash tool
                 from tools.bash import bash
                 # Properly await the async bash.run() call
                 result = await bash.run(f"<timeout>30</timeout>\n{command}")

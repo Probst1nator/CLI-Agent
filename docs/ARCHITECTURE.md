@@ -6,7 +6,7 @@ This document analyzes the current CLI-Agent monorepo structure to understand ho
 
 ## Current Project Structure
 
-### 🎯 **NEW: Unified Input Architecture (2025)**
+### 🎯 **Unified Input Architecture**
 
 **MAJOR REFACTORING COMPLETED**: The CLI-Agent has undergone a comprehensive refactoring to eliminate scattered input handling mechanisms and establish a single, unified input management system.
 
@@ -63,10 +63,10 @@ Used by all 3 projects:
 - `core.llm_router` - LLM routing and provider management
 - `core.ai_strengths` - AI capability definitions
 - `core.providers.*` - AI provider implementations (Anthropic, Google, Groq, etc.)
-- **`core.input_manager`** - **NEW (2025)**: Unified input management system providing clean abstraction for all input sources
-- **`core.input_sources`** - **NEW (2025)**: Concrete implementations for CLI, GUI, Web, Voice, and Queue input methods
-- **`core.command_processor`** - **NEW (2025)**: Unified command processing with specialized processors for different input types
-- **`core.command_registry`** - **NEW (2025)**: Single source of truth for command definitions across all interfaces
+- **`core.input_manager`** - : Unified input management system providing clean abstraction for all input sources
+- **`core.input_sources`** - : Concrete implementations for CLI, GUI, Web, Voice, and Queue input methods
+- **`core.command_processor`** - : Unified command processing with specialized processors for different input types
+- **`core.command_registry`** - : Single source of truth for command definitions across all interfaces
 
 #### Shared Package (`shared/`)
 Used by projects:
@@ -88,7 +88,7 @@ Heavy usage in Main CLI Agent:
 
 #### Main CLI Agent
 - **High Coupling**: Extensively uses `py_classes/` and `core/` infrastructure
-- **NEW: Unified Input Architecture**: Uses single-mechanism input system eliminating legacy scattered input handling
+- **Unified Input Architecture**: Uses single-mechanism input system eliminating legacy scattered input handling
 - **External Dependencies**: prompt-toolkit, pyperclip, pydub, soundfile, PyMuPDF, numpy
 - **Test Infrastructure**: Uses `test.py` from monorepo root
 

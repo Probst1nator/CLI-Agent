@@ -53,14 +53,14 @@ class OpenAIAPI(AIProviderInterface):
 
         Returns:
             Any: A stream object that yields response chunks.
-            
+
         Raises:
             Exception: If there's an error generating the response, to be handled by the router.
         """
-            
+
         # Configure the client (let any error here bubble up to the router)
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-        
+
         # Informational logging (not error handling)
         if silent_reason:
             temp_str = "" if temperature == 0 else f" at temperature {temperature}"
@@ -98,7 +98,7 @@ class OpenAIAPI(AIProviderInterface):
 
         Returns:
             tuple[str,str]: (transcribed text from the audio file, language)
-            
+
         Raises:
             Exception: If an error occurs during transcription.
         """
@@ -121,20 +121,20 @@ class OpenAIAPI(AIProviderInterface):
                     response_format="verbose_json",
                     language=language
                 )
-            
+
             no_speech_prob = response.segments[0]['no_speech_prob']
             if (no_speech_prob > 0.7):
                 if chat:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                     g.debug_log("No speech detected", force_print=True, prefix=prefix)
                 return "", "english"
-            
+
             language = response.language
-            
+
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 g.debug_log(f"Transcription complete. Detected language: {language}", "green", force_print=True, prefix=prefix)
-                
+
             return response.text, language
 
         except Exception as e:

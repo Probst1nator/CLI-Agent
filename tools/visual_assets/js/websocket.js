@@ -211,6 +211,21 @@ class WebSocketManager {
         }
     }
 
+    handleAssistantMessage(data) {
+        console.log('[DEBUG] handleAssistantMessage called with data:', data);
+        this.logger.info('Received assistant message', { message: data.message });
+
+        // Use the app's displayAssistantMessage function if available
+        if (this.app && typeof this.app.displayAssistantMessage === 'function') {
+            console.log('[DEBUG] Using app.displayAssistantMessage');
+            this.app.displayAssistantMessage(data.message);
+        } else {
+            console.log('[DEBUG] Using fallback assistant message display');
+            // Fallback: create assistant message directly
+            this.createAssistantMessageFallback(data.message);
+        }
+    }
+
     handleConsoleLog(data) {
         this.logger.debug('Received console log message', { line: data.line, level: data.level });
 
@@ -222,6 +237,7 @@ class WebSocketManager {
             console.log(`[CLI-Agent Console] ${data.line}`);
         }
     }
+
 
     createUserMessageFallback(message) {
         // Fallback implementation in case app.displayUserMessage is not available
@@ -257,7 +273,47 @@ class WebSocketManager {
         this.logger.debug('User message displayed via fallback method');
     }
 
+    createAssistantMessageFallback(message) {
+        // Fallback implementation for assistant messages
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper) return;
+
+        const currentTimestamp = Date.now();
+
+        // Create message block
+        const messageBlock = document.createElement('div');
+        messageBlock.className = 'message-block assistant-message';
+
+        // Create timestamp
+        const timestamp = document.createElement('div');
+        timestamp.className = 'agent-msg-head';
+        timestamp.textContent = new Date(currentTimestamp).toLocaleTimeString();
+
+        // Create content
+        const content = document.createElement('div');
+        content.className = 'message-content';
+
+        // For assistant messages, preserve formatting and show XML tags properly
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'white-space: pre-wrap; font-family: monospace; background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 0;';
+        pre.textContent = message;
+        content.appendChild(pre);
+
+        // Assemble message
+        messageBlock.appendChild(timestamp);
+        messageBlock.appendChild(content);
+
+        // Add to content wrapper
+        contentWrapper.appendChild(messageBlock);
+
+        // Scroll to bottom
+        this.scrollToBottom();
+
+        this.logger.debug('Assistant message displayed via fallback method');
+    }
+
     async handleMessage(data) {
+        console.log('[DEBUG] handleMessage received:', data);
         this.logger.debug('Received WebSocket message', { type: data.type, action: data.action, id: data.id });
 
         // Handle configuration messages
@@ -278,11 +334,18 @@ class WebSocketManager {
             return;
         }
 
+        // Handle assistant messages
+        if (data.type === 'assistant_message' && data.action === 'display') {
+            this.handleAssistantMessage(data);
+            return;
+        }
+
         // Handle console log messages
         if (data.type === 'console_log') {
             this.handleConsoleLog(data);
             return;
         }
+
 
         // Handle live tool notifications (legacy)
         if (data.action === 'tool_start') {
@@ -566,22 +629,6 @@ class WebSocketManager {
         }
     }
 
-    sendLLMSelectionUpdate(selectionData) {
-        const message = {
-            type: 'llm_selection_update',
-            data: selectionData,
-            timestamp: Date.now(),
-            source: 'web_ui'
-        };
-
-        if (this.sendMessage(JSON.stringify(message))) {
-            this.logger.info('Sent LLM selection update', { selections: selectionData });
-            return true;
-        } else {
-            this.logger.error('Failed to send LLM selection update - WebSocket not connected');
-            return false;
-        }
-    }
 
     handleLiveToolStart(data) {
         this.logger.info('Live tool started', { tool_name: data.tool_name });

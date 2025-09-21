@@ -26,7 +26,7 @@ class PythonSession:
 
         self.stdout_callback = stdout_callback or (lambda text: print(text, end=''))
         self.stderr_callback = stderr_callback or (lambda text: print(colored(f"STDERR: {text}", "red"), end=''))
-        
+
         g.cleanup_temp_py_files()
         logging.info(colored("  - Setting up persistent Python environment...", "cyan"))
         self.python_child = None
@@ -38,10 +38,10 @@ class PythonSession:
         try:
             if self.python_child and self.python_child.isalive():
                 self.python_child.close()
-            
+
             self.python_child = pexpect.spawn('python3 -i -u', encoding='utf-8', timeout=60)
             self.python_child.expect('>>> ', timeout=10)
-            
+
             init_code = self.get_initialization_code()
             for line in init_code.strip().split('\n'):
                 if line.strip():
@@ -67,13 +67,13 @@ class PythonSession:
                     # Basic dedent logic for common keywords
                     if stripped.startswith(('elif', 'else', 'except', 'finally')):
                         indent_level = max(0, indent_level - 1)
-                    
+
                     fixed_lines.append('    ' * indent_level + stripped)
-                    
+
                     # Basic indent logic
                     if stripped.endswith(':'):
                         indent_level += 1
-                
+
                 fixed_code = '\n'.join(fixed_lines)
                 ast.parse(fixed_code)
                 return fixed_code
@@ -84,29 +84,29 @@ class PythonSession:
         """Executes Python code in the persistent session."""
         if not self.python_child or not self.python_child.isalive():
             self._initialize_persistent_python()
-        
+
         if not self.python_child:
             self.stderr_callback("[Error: Python session is not available.]\n")
             return
 
         try:
             cleaned_command = self._fix_python_indentation(command)
-            
+
             # For multi-line code, wrap it to ensure it executes as a single block.
             # Using base64 encoding avoids issues with quotes and special characters.
             encoded_command = base64.b64encode(cleaned_command.encode('utf-8')).decode('ascii')
             exec_command = f"import base64; exec(base64.b64decode('{encoded_command}').decode('utf-8'))"
-            
+
             self.python_child.sendline(exec_command)
-            
+
             # Expect the prompt, which signals the end of output for this command.
             self.python_child.expect('>>> ', timeout=300)
             output = (self.python_child.before or "").strip()
-            
+
             # Clean up the output by removing the exec command echo and prompt artifacts.
             if exec_command in output:
                 output = output.replace(exec_command, '').lstrip('\r\n')
-            
+
             if output:
                 self.stdout_callback("🐍  " + output.replace('\n', '\n🐍  ') + '\n')
 
@@ -142,7 +142,7 @@ from core.globals import g
 
 class python:
     _session: Optional[PythonSession] = None
-    
+
     @staticmethod
     def get_delim() -> str:
         return 'python'

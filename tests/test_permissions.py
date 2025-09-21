@@ -13,20 +13,20 @@ from core.permissions.path_detector import PathDetector
 
 def test_bash_find_permission():
     """Test permission prompt for bash find command"""
-    
+
     # Mock args object
     class MockArgs:
         def __init__(self):
             self.voice = False
-    
+
     args = MockArgs()
-    
+
     # Test XML content for find command
     xml_content = """<bash>find . -maxdepth 3 -type d</bash>"""
-    
+
     # Analyze the command
     analysis = PathDetector.analyze_tool_block("bash", xml_content)
-    
+
     print("=== PERMISSION SYSTEM ANALYSIS ===")
     print(f"Tool: {analysis['tool_name']}")
     print(f"Command Pattern: {analysis['command_pattern']}")
@@ -35,33 +35,33 @@ def test_bash_find_permission():
     print(f"Needs Permission: {analysis['needs_permission']}")
     print(f"Primary Path: {analysis['primary_path']}")
     print()
-    
+
     # Test the safe command detection
     actual_command = analysis['command_pattern'].replace("bash: ", "")
     is_safe = PathDetector._is_safe_command(actual_command.lower())
     print(f"Is Safe Command: {is_safe}")
-    
+
     # Test permission suggestions
     permissions_manager = get_permissions_manager()
     suggestions = permissions_manager.get_permission_suggestions(
-        "bash", 
-        analysis['primary_path'], 
-        analysis['command_pattern'], 
+        "bash",
+        analysis['primary_path'],
+        analysis['command_pattern'],
         analysis['has_paths']
     )
-    
+
     print("Permission Suggestions:")
     for i, suggestion in enumerate(suggestions):
         print(f"  {i+1}. {suggestion}")
     print()
-    
+
     # Test dev tool detection
     category, config = PathDetector.detect_dev_tool_category(actual_command)
     print(f"Dev Tool Category: {category}")
     if config:
         print(f"Config: {config}")
     print()
-    
+
     print("=== IMPROVEMENTS IMPLEMENTED ===")
     print("✅ Fixed duplicate 's' options in menu")
     print("✅ Added command-specific suggestions (e.g., 'bash: find')")
@@ -70,7 +70,7 @@ def test_bash_find_permission():
     print("✅ Added 'f' option for specific bash command patterns")
     print("✅ Dynamic option key assignment to avoid conflicts")
     print()
-    
+
     print("Expected new permission menu for 'find . -maxdepth 3 -type d':")
     print("┌─ Permission Options ─────────────────────────────────────────────────────────┐")
     print("│ Enter or y → Confirm this operation                                          │")

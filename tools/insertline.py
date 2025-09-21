@@ -1,7 +1,7 @@
 # tools/insertline.py
 """
 This file implements the 'insertline' tool. It allows the agent to insert
-new lines at specific positions in a file, resolving paths relative to the 
+new lines at specific positions in a file, resolving paths relative to the
 current working directory.
 """
 import os
@@ -66,7 +66,7 @@ class insertline:
                     position_description = f"after line {after_line}"
                 except ValueError:
                     return "Error: Invalid 'after' line number. Must be an integer."
-            
+
             elif before_match:
                 try:
                     before_line = int(before_match.group(1).strip())
@@ -78,7 +78,7 @@ class insertline:
                     position_description = f"before line {before_line}"
                 except ValueError:
                     return "Error: Invalid 'before' line number. Must be an integer."
-            
+
             else:
                 # Default: insert at the end of the file
                 insert_position = total_lines
