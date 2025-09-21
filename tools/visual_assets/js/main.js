@@ -2203,12 +2203,12 @@ class ConsoleLogManager {
     addLogLine(line, level = 'info') {
         const timestamp = new Date().toLocaleTimeString();
 
-        // Clean ANSI escape sequences from the line
-        const cleanLine = this.cleanAnsiCodes(line.trim());
+        // Store the raw unfiltered line (just trimmed)
+        const rawLine = line.trim();
 
         const logEntry = {
             timestamp,
-            line: cleanLine,
+            line: rawLine,
             level
         };
 
