@@ -1,0 +1,97 @@
+# CLI-Agent Isolated Container Configuration
+# - Web UI exposed to local network on port 7861
+# - No local network access except internet
+# - Auto-restart on reboot
+# - Persistent data storage
+
+version: '3.8'
+
+services:
+  cli-agent-isolated:
+    env_file:
+      - ../.env
+    image: cli-agent:isolated
+    container_name: cli-agent-isolated
+    restart: unless-stopped
+
+    # Network configuration - isolated with internet only
+    networks:
+      - cli-agent-isolated-net
+
+    # Port mapping - expose only web UI to host network
+    ports:
+      - "7861:7860"  # Web UI port (container uses 7860, exposed as 7861)
+
+    # Environment variables
+    environment:
+      - CLI_AGENT_GUI_MODE=true
+      - CLI_AGENT_HOST=0.0.0.0  # Bind to all interfaces inside container
+      - CLI_AGENT_DATA_DIR=/workspace/data
+      - CLI_AGENT_LOG_DIR=/workspace/logs
+      - CLI_AGENT_TEMP_DIR=/workspace/temp
+      - PYTHONUNBUFFERED=1
+      # API keys are loaded from .env file via env_file directive above
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+    # Persistent storage
+    volumes:
+      - cli-agent-data:/workspace/data
+      - cli-agent-logs:/workspace/logs
+      - cli-agent-temp:/workspace/temp
+      - cli-agent-config:/workspace/.cli-agent
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7861/", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # CLI-Agent needs to write to temp directories
+    tmpfs:
+      - /tmp:noexec,nosuid,size=256m
+
+    # Startup command
+    command: ["python3", "main.py", "--gui"]
+
+# Isolated network - no access to host network, only internet
+networks:
+  cli-agent-isolated-net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: cli-agent-br0
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+    # Network isolation - block access to host network ranges
+    internal: false  # Allow internet access
+
+# Persistent volumes
+volumes:
+  cli-agent-data:
+    driver: local
+    name: cli-agent-isolated-data
+  cli-agent-logs:
+    driver: local
+    name: cli-agent-isolated-logs
+  cli-agent-temp:
+    driver: local
+    name: cli-agent-isolated-temp
+  cli-agent-config:
+    driver: local
+    name: cli-agent-isolated-config

@@ -2,6 +2,12 @@
 
 A powerful command-line AI agent framework for autonomous task execution and coding assistance.
 
+# CLI Interface
+![CLI Interface](assets/agent_demo.png)
+
+# Web Interface
+![CLI Interface](assets/agent_gui_demo.png)
+
 ## Overview
 
 CLI-Agent is a comprehensive framework that provides:
@@ -65,11 +71,6 @@ python tui_main.py
 python test.py --quick
 python test.py --full
 ```
-
-## Daily Celebration 🎉
-
-![Daily Celebration](docs/daily-celebration.png)
-*Auto-generated daily by CLI-Agent based on current date and celebrations*
 
 ## Architecture
 
