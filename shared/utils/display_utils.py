@@ -117,24 +117,12 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
     # Use g.SELECTED_LLMS to preserve user selection order instead of iterating through config
     selected_models = g.SELECTED_LLMS if g.SELECTED_LLMS else [key for key, data in llm_config.items() if data.get('selected')]
 
-    # Categorize models by their roles, preserving selection order
-    branch_models = [key for key in selected_models if llm_config.get(key, {}).get('beams', 0) > 0]
-    eval_models = [key for key in selected_models if llm_config.get(key, {}).get('eval', 0) > 0]
-    guard_models = [key for key in selected_models if llm_config.get(key, {}).get('guard', 0) > 0]
-
-    # Calculate fallback models (selected but not specialized)
-    specialized_models = set(branch_models + eval_models + guard_models)
-    fallback_models = [model for model in selected_models if model not in specialized_models]
-
-    # Count totals for quick reference
-    guard_count = len(guard_models)
+    # All selected models are now treated equally (no specialized roles)
+    fallback_models = selected_models
 
     # Auto Execution status
     if args.yolo:
-        if guard_count > 0:
-            auto_status = f'ON ({guard_count} guards)'
-        else:
-            auto_status = 'ON (manual confirmation)'
+        auto_status = 'ON (manual confirmation)'
     else:
         auto_status = 'OFF'
     auto_color = 'green' if args.yolo else 'red'
@@ -149,14 +137,6 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
     # Online voice status
     online_voice_status = get_status_str(args.online_voice, 'Cloud TTS', 'Local TTS')
 
-    # Monte Carlo mode detection
-    has_monte_carlo = any(
-        llm_config.get(key, {}).get('beams', 0) > 0 or
-        llm_config.get(key, {}).get('eval', 0) > 0 or
-        llm_config.get(key, {}).get('guard', 0) > 0
-        for key in selected_models
-    ) or args.monte_carlo
-    monte_carlo_status = get_status_str(has_monte_carlo)
 
     # Display configuration summary with proper alignment
     if tui_mode:
@@ -164,56 +144,22 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
         logging.info("Force Local:".ljust(CMD_WIDTH) + f" {local_status}")
         logging.info("Voice Mode:".ljust(CMD_WIDTH) + f" {voice_status}")
         logging.info("TTS Mode:".ljust(CMD_WIDTH) + f" {online_voice_status}")
-        logging.info("Monte Carlo:".ljust(CMD_WIDTH) + f" {monte_carlo_status}")
     else:
         logging.info("Auto-execution:".ljust(CMD_WIDTH) + " " + colored(auto_status, auto_color))
         logging.info("Force Local:".ljust(CMD_WIDTH) + f" {local_status}")
         logging.info("Voice Mode:".ljust(CMD_WIDTH) + f" {voice_status}")
         logging.info("TTS Mode:".ljust(CMD_WIDTH) + f" {online_voice_status}")
-        logging.info("Monte Carlo:".ljust(CMD_WIDTH) + f" {monte_carlo_status}")
 
     # Display model configuration if any models are selected
     if selected_models:
         models_header = "[yellow]--- Model Configuration ---[/yellow]" if tui_mode else colored("--- Model Configuration ---", "yellow")
         logging.info(models_header)
 
-        # Calculate total branches based on 'beams'
-        total_branches = sum(llm_config.get(key, {}).get('beams', 0) for key in branch_models)
-
-        if branch_models:
-            count_color = get_count_color(total_branches)
-            label = f"  🌿 {total_branches} Branch Generators:".ljust(DESC_WIDTH)
-            models_str = colorize_model_list(branch_models, tui_mode)
-            if tui_mode:
-                logging.info(f"[{count_color}]{label}[/{count_color}] {models_str}")
-            else:
-                logging.info(colored(label, count_color) + " " + models_str)
-
-        if eval_models:
-            count = len(eval_models)
-            count_color = get_count_color(count)
-            label = f"  ⚖️  {count} Branch Evaluators:".ljust(DESC_WIDTH)
-            models_str = colorize_model_list(eval_models, tui_mode)
-            if tui_mode:
-                logging.info(f"[{count_color}]{label}[/{count_color}] {models_str}")
-            else:
-                logging.info(colored(label, count_color) + " " + models_str)
-
-        if guard_models:
-            count = len(guard_models)
-            count_color = get_count_color(count)
-            label = f"  🛡️  {count} Execution Guards:".ljust(DESC_WIDTH)
-            models_str = colorize_model_list(guard_models, tui_mode)
-            if tui_mode:
-                logging.info(f"[{count_color}]{label}[/{count_color}] {models_str}")
-            else:
-                logging.info(colored(label, count_color) + " " + models_str)
-
-        # Always show fallback models for visibility, even if none are configured
-        count = len(fallback_models)
+        # Display selected models
+        count = len(selected_models)
         count_color = "light_green" if count > 0 else "red"
-        label = f"  🔄 {count} Fallback Models:".ljust(DESC_WIDTH)
-        models_str = colorize_model_list(fallback_models, tui_mode) if fallback_models else "None"
+        label = f"  🤖 {count} Selected Models:".ljust(DESC_WIDTH)
+        models_str = colorize_model_list(selected_models, tui_mode) if selected_models else "None"
         if tui_mode:
             logging.info(f"[{count_color}]{label}[/{count_color}] {models_str}")
         else:

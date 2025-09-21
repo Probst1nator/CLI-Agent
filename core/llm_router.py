@@ -33,10 +33,14 @@ class UserInterruptedException(Exception):
 
 # PASTE THE EXCEPTION DEFINITION HERE
 class StreamInterruptedException(Exception):
-    """Exception raised by a callback to signal that a stream is complete (e.g., a full code block was received)."""
+    """
+    Control flow exception (not an error) raised by stream callback to signal that a complete
+    tool block has been detected and should be executed immediately rather than waiting for
+    the full response. This is normal, intended behavior for interactive tool execution.
+    """
     def __init__(self, response):
         self.response = response
-        super().__init__("Stream interrupted by callback to signal completion.")
+        super().__init__("Stream completion signal: complete tool block detected")
 
 class LlmRouter:
     """

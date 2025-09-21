@@ -10,7 +10,7 @@
   - `core/agent_loop.py` - Main conversation loop extracted from main.py with proper error handling, command processing, and AI interaction management
   - `core/lazy_imports.py` - Startup time optimization through lazy loading of heavy dependencies, demonstrating ~1.5s potential startup time savings
   - `core/cli_args.py` - CLI argument parsing extracted from main.py with exact same logic, enabling reuse across different entry points (main.py, main_refactored.py)
-  - `core/config_utils.py` - LLM and Monte Carlo configuration functions extracted from main.py, consolidating apply_default_llm_config() and apply_monte_carlo_config() with preserved logic
+  - `core/config_utils.py` - LLM configuration functions extracted from main.py, consolidating apply_default_llm_config() with preserved logic
   - `core/command_system.py` - : Unified command definition system and command completion extracted from main.py. Provides centralized command management with aliases, descriptions, and prompt toolkit integration
   - `core/input_manager.py` - : Unified input management system providing clean abstraction layer for all input sources (CLI, GUI, Web, Voice) with standardized event handling, source registration, and processor routing
   - `core/input_sources.py` - : Concrete input source implementations for CLI (prompt_toolkit), GUI (event-driven), Web (browser-based), Voice (speech recognition), and Queue (programmatic) input methods
@@ -35,8 +35,6 @@
   - `gui/event_manager.py` - : Standardized GUI event handling and session management system providing unified event types, session lifecycle management, input coordination, and event processing for all GUI interfaces
   - `gui/__init__.py` - GUI package initialization providing clean imports for layout and widget components
   
-  **Monte Carlo Engine**
-  - `monte_carlo/task_group_engine.py` - Enhanced Monte Carlo Action Engine using asyncio.TaskGroup for robust concurrent LLM branch generation, replacing asyncio.gather with proper error handling and cancellation support
   
   **Legacy Components (Pre-Refactor)**
   - `notebook/computational_notebook.py` - Jupyter-style code execution and cell management (migrated from py_classes)
@@ -90,7 +88,7 @@
 
 - `ARCHITECTURE.md` - Comprehensive analysis of the monorepo structure and detailed strategy for decomposing it into 3 separate projects corresponding to tools/* directories, including dependency mapping, migration complexity assessment, and recommended decomposition approaches.
 
-- `main.py` - **CURRENT/ACTIVE**: The main entrypoint and orchestration script for the CLI-Agent. Contains the complete "Monte Carlo Action Engine," main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. : Input system consolidated - removed unused `get_gui_input()` function and added consistent `get_cli_input()` function. All input now flows through the unified input management system. **FIXED**: Added router LLM initialization during startup (lines 1561-1574) to ensure `g.router_llm` is properly loaded from configuration, matching planner LLM initialization pattern. This is the **stable, production entry point** that should be used for all current development and deployment.
+- `main.py` - **CURRENT/ACTIVE**: The main entrypoint and orchestration script for the CLI-Agent. Contains the main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. : Input system consolidated - removed unused `get_gui_input()` function and added consistent `get_cli_input()` function. All input now flows through the unified input management system. **FIXED**: Added router LLM initialization during startup (lines 1561-1574) to ensure `g.router_llm` is properly loaded from configuration, matching planner LLM initialization pattern. This is the **stable, production entry point** that should be used for all current development and deployment.
 
 - `main_refactored.py` - **⚠️ EXPERIMENTAL**: Clean, modular main entrypoint demonstrating the future refactored architecture. At only ~188 lines, this showcases the new agent/core components with dependency injection and proper separation of concerns. **Status: Work in progress** - still depends on main.py imports and lacks recent bug fixes. For stable operation, use main.py instead.
 

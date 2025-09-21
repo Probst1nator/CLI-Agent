@@ -4,7 +4,6 @@ CLI-Agent Main Entry Point - CURRENT/ACTIVE VERSION
 
 This is the stable, production entry point for CLI-Agent (3,273 lines).
 Contains all recent bug fixes and active development, including:
-- Complete Monte Carlo Action Engine implementation
 - Fixed ComputationalNotebook architecture (now uses direct tool calls)
 - Full user interaction loop and tool invocation system
 - All production features and stability improvements
@@ -125,6 +124,7 @@ if str(project_root) not in sys.path:
 from core.tool_context import tool_context
 from tools.primitives.todos import todos
 from tools.readfile import readfile
+from tools.bash import bash
 
 # Import TextResourceManager for general resource creation
 try:
@@ -163,117 +163,11 @@ from agent.core.input_handlers import (
     handle_multiline_input, get_user_input_with_bindings, handle_screenshot_capture
 )
 
-# Import Monte Carlo engine from extracted module
-from agent.monte_carlo.monte_carlo_engine import (
-    select_best_branch
-)
 
 # Command system functions moved to agent.core.command_system
 
 # Command completion and prompt session moved to agent.core.command_system
 
-# --- Global Fallback Iterator for Cognitive Diversity ---
-class FallbackModelIterator:
-    """
-    Global iterator to cycle through fallback models across all system components
-    (branch generation, voting, guarding) to maximize cognitive diversity.
-    """
-
-    def __init__(self):
-        self._fallback_models = []
-        self._current_index = 0
-        self._usage_count = {}  # Track how often each model has been used
-        self._failure_log = []  # Track (failed_model, reason, replacement) tuples
-
-    def update_fallback_models(self, llm_config: Dict):
-        """Update the list of available fallback models from current config."""
-        from core.llm_router import LlmRouter
-
-        new_fallback_models = [
-            key for key, data in llm_config.items()
-            if (data.get('selected') and
-                key not in LlmRouter().failed_models and
-                data.get('eval', 0) == 0 and
-                data.get('guard', 0) == 0)
-        ]
-
-        if new_fallback_models != self._fallback_models:
-            self._fallback_models = new_fallback_models
-            self._current_index = 0  # Reset when models change
-            self._usage_count = {model: 0 for model in self._fallback_models}
-
-    def get_next_fallback(self, exclude: Optional[List[str]] = None) -> Optional[str]:
-        """
-        Get the next fallback model in round-robin fashion.
-
-        Args:
-            exclude: List of models to exclude from selection
-
-        Returns:
-            Next fallback model, or None if no models available
-        """
-        if not self._fallback_models:
-            return None
-
-        exclude = exclude or []
-        available_models = [m for m in self._fallback_models if m not in exclude]
-
-        if not available_models:
-            return None
-
-        # Start from current index and find next available model
-        attempts = 0
-        while attempts < len(self._fallback_models):
-            candidate = self._fallback_models[self._current_index % len(self._fallback_models)]
-            self._current_index = (self._current_index + 1) % len(self._fallback_models)
-
-            if candidate in available_models:
-                self._usage_count[candidate] = self._usage_count.get(candidate, 0) + 1
-                return candidate
-
-            attempts += 1
-
-        return None
-
-    def get_multiple_fallbacks(self, count: int, exclude: Optional[List[str]] = None) -> List[str]:
-        """
-        Get multiple fallback models, cycling through the list to maximize diversity.
-
-        Args:
-            count: Number of fallbacks needed
-            exclude: List of models to exclude
-
-        Returns:
-            List of fallback models (may be shorter than count if not enough available)
-        """
-        exclude = exclude or []
-        fallbacks = []
-
-        for _ in range(count):
-            fallback = self.get_next_fallback(exclude + fallbacks)
-            if fallback:
-                fallbacks.append(fallback)
-            else:
-                break
-
-        return fallbacks
-
-    def get_usage_stats(self) -> Dict[str, int]:
-        """Get usage statistics for debugging."""
-        return self._usage_count.copy()
-
-    def record_failure(self, failed_model: str, reason: str, replacement: Optional[str] = None):
-        """Record a model failure and its replacement."""
-        self._failure_log.append((failed_model, reason, replacement))
-
-    def get_failure_log(self) -> List[tuple]:
-        """Get the failure log for this session."""
-        return self._failure_log.copy()
-
-# Separate iterators for different system components to maximize cognitive diversity
-branch_fallback_iterator = FallbackModelIterator()
-guard_fallback_iterator = FallbackModelIterator()
-evaluation_fallback_iterator = FallbackModelIterator()
 
 # --- Signal Handling for Graceful Interruption ---
 def setup_signal_handlers():
@@ -336,8 +230,6 @@ def offer_intelligent_recovery_options(context_chat):
     if interrupt_info.get('had_partial_response', False):
         options.append(("partial", "Continue with partial response (if meaningful content was generated)"))
 
-    if interrupt_info.get('monte_carlo_mode', False):
-        options.append(("single", "Switch to single-model mode (faster, no branching)"))
 
     if interrupt_info.get('models_attempted', []):
         failed_models = interrupt_info['models_attempted']
@@ -621,8 +513,6 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
     parser.add_argument("-o", "--online", action="store_true", default=False,
                         help="Force use of cloud AI.")
-    parser.add_argument("-mct", "--monte-carlo", action="store_true", default=False,
-                        help="Enable multi-LLM mode with branch generation, council evaluation, and execution guards.")
 
     parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None,
                         help="Specify the LLM model key to use (e.g., 'gemini-2.5-flash', 'gemma3n:e2b'). Use without value to open selection menu.")
@@ -877,21 +767,6 @@ def apply_default_llm_config():
             # Sort by order and extract just the model keys
             selected_models_with_order.sort(key=lambda x: x[0])
             selected_llms = [key for order, key in selected_models_with_order]
-
-        # For evaluator LLMs, preserve order by checking g.SELECTED_LLMS first
-        if g.SELECTED_LLMS:
-            evaluator_llms = [key for key in g.SELECTED_LLMS if isinstance(llm_config.get(key, {}), dict) and llm_config.get(key, {}).get('eval', 0) > 0]
-        else:
-            # Get evaluator models and sort them by their saved order
-            evaluator_models_with_order = []
-            for key, data in llm_config.items():
-                if isinstance(data, dict) and data.get('eval', 0) > 0:
-                    order = data.get('order', 999)  # Default high order for models without order
-                    evaluator_models_with_order.append((order, key))
-
-            # Sort by order and extract just the model keys
-            evaluator_models_with_order.sort(key=lambda x: x[0])
-            evaluator_llms = [key for order, key in evaluator_models_with_order]
     except Exception as e:
         logging.warning(colored(f"⚠️  LLM config appears corrupted, skipping auto-selection: {e}", "yellow"))
         logging.info(colored(f"🔍 Config content: {llm_config}", "cyan"))
@@ -905,12 +780,10 @@ def apply_default_llm_config():
             logging.error(colored(f"❌ Failed to reset LLM config: {reset_error}", "red"))
 
         selected_llms = []
-        evaluator_llms = []
 
     # Only apply if there are actual selections, to not override command line flags unintentionally
     if selected_llms:
         g.SELECTED_LLMS = selected_llms
-        g.EVALUATOR_LLMS = evaluator_llms
         # Count unique models by provider
         unique_models = list(set(selected_llms))  # Deduplicate
         provider_counts = {}
@@ -922,112 +795,6 @@ def apply_default_llm_config():
         provider_summary = ", ".join([f"{provider}: {count}" for provider, count in provider_counts.items()])
         logging.info(f"📋 Loaded latest LLM configuration. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
 
-def apply_monte_carlo_config():
-    """
-    Loads or creates a Monte Carlo configuration with branching, evaluation, and guarding.
-    If no config exists, creates a default with the first 3 available models.
-    """
-    import json
-
-    llm_config = g.get_llm_config()
-
-    # Check if Monte Carlo config already exists (has beams/eval/guard values)
-    has_monte_carlo_config = any(
-        data.get('beams', 0) > 0 or data.get('eval', 0) > 0 or data.get('guard', 0) > 0
-        for data in llm_config.values()
-    )
-
-    if has_monte_carlo_config:
-        # Load existing Monte Carlo configuration with preserved order
-        # Get selected models and sort them by their saved order
-        selected_models_with_order = []
-        for key, data in llm_config.items():
-            if data.get('selected'):
-                order = data.get('order', 999)  # Default high order for models without order
-                selected_models_with_order.append((order, key))
-
-        # Sort by order and extract just the model keys
-        selected_models_with_order.sort(key=lambda x: x[0])
-        selected_llms = [key for order, key in selected_models_with_order]
-
-        # Get evaluator models and sort them by their saved order
-        evaluator_models_with_order = []
-        for key, data in llm_config.items():
-            if data.get('eval', 0) > 0:
-                order = data.get('order', 999)  # Default high order for models without order
-                evaluator_models_with_order.append((order, key))
-
-        # Sort by order and extract just the model keys
-        evaluator_models_with_order.sort(key=lambda x: x[0])
-        evaluator_llms = [key for order, key in evaluator_models_with_order]
-
-        if selected_llms:
-            g.SELECTED_LLMS = selected_llms
-            g.EVALUATOR_LLMS = evaluator_llms
-            unique_models = list(set(selected_llms))
-            provider_counts = {}
-            for model in unique_models:
-                emoji, provider_name = get_provider_emoji_and_name(model)
-                provider_key = f"{emoji} {provider_name}"
-                provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
-
-            provider_summary = ", ".join([f"{provider}: {count}" for provider, count in provider_counts.items()])
-            logging.info(f"🎯 Loaded Monte Carlo configuration. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
-        return
-
-    # Create default Monte Carlo configuration with first 3 available models
-    from core.llm_router import LlmRouter
-    router = LlmRouter()
-
-    # Discover available models
-    available_models = []
-    try:
-        # Get all available models
-        all_models = router.get_models()
-        available_models.extend([model.model_key for model in all_models])
-    except:
-        # Fallback to hardcoded reliable models
-        available_models = ['gemini-2.5-flash', 'gemini-2.5-flash-preview-05-20', 'gemma3:12b']
-
-    # Take first 3 unique models
-    selected_models = list(set(available_models))[:3]
-
-    if not selected_models:
-        logging.warning(colored("⚠️ No models available for Monte Carlo configuration", "yellow"))
-        return
-
-    # Create default Monte Carlo configuration
-    new_config = {}
-    for i, model in enumerate(selected_models):
-        if i == 0:
-            # First model: main branching model
-            new_config[model] = {"selected": True, "beams": 2, "eval": 0, "guard": 1}
-        elif i == 1:
-            # Second model: evaluator
-            new_config[model] = {"selected": True, "beams": 1, "eval": 2, "guard": 0}
-        else:
-            # Third model: guard
-            new_config[model] = {"selected": True, "beams": 0, "eval": 0, "guard": 1}
-
-    # Save the new configuration
-    try:
-        os.makedirs(os.path.dirname(g.LLM_CONFIG_PATH), exist_ok=True)
-        with open(g.LLM_CONFIG_PATH, 'w') as f:
-            json.dump(new_config, f, indent=2)
-
-        # Reload the configuration
-        g.load_llm_config()
-        g.SELECTED_LLMS = selected_models
-        g.EVALUATOR_LLMS = [model for model, data in new_config.items() if data.get('eval', 0) > 0]
-
-        logging.info(f"🎯 Created default Monte Carlo configuration with {colored(str(len(selected_models)), 'green')} models: {', '.join(selected_models)}")
-
-    except Exception as e:
-        logging.error(f"❌ Failed to save Monte Carlo configuration: {e}")
-        # Continue with in-memory config
-        g._llm_config.update(new_config)
-        g.SELECTED_LLMS = selected_models
-        g.EVALUATOR_LLMS = [model for model, data in new_config.items() if data.get('eval', 0) > 0]
 
 async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[List[str]] = None) -> List[str]:
     """
@@ -1060,10 +827,6 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
 
     # Handle specific model selections
     selected_configs = result.get("selected_configs", [])
-
-    # Identify evaluator models and set them in globals
-    evaluator_models = [config['model_key'] for config in selected_configs if config.get('eval', 0) > 0]
-    g.EVALUATOR_LLMS = evaluator_models
 
     selected_llms = [config['model_key'] for config in selected_configs]
 
@@ -1098,79 +861,17 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
         # Count unique models by provider and configuration
         # Use selected_llms directly to preserve the exact selection order from LLM selector
         # Deduplicate while preserving order (maintain user's selection order)
-        unique_models = []
-        seen = set()
-        for model in selected_llms:  # Use selected_llms instead of args.llm
-            if model not in seen:
-                unique_models.append(model)
-                seen.add(model)
         provider_counts = {}
-        branches_count = eval_count = guard_count = 0
 
-        for model in unique_models:
+        for model in selected_llms:
             emoji, provider_name = get_provider_emoji_and_name(model)
             provider_key = f"{emoji} {provider_name}"
             provider_counts[provider_key] = provider_counts.get(provider_key, 0) + 1
 
-        for config in selected_configs:
-            if config.get('beams', 0) > 0 or config.get('branches', 0) > 0:  # Support both old and new terminology
-                branches_count += 1
-            if config.get('eval', 0) > 0:
-                eval_count += 1
-            if config.get('guard', 0) > 0:
-                guard_count += 1
-
-        # Display Monte Carlo Action Engine overview instead of simple summary
-        def get_count_color(count: int) -> str:
-            """Returns a color string based on the model count for at-a-glance status."""
-            if count == 1: return 'red'
-            if count == 2: return 'yellow'
-            if count == 3: return 'green'
-            if count > 3: return 'light_green'
-            return 'white'
-
-        # Categorize models by their roles
-        branch_models = [config['model_key'] for config in selected_configs if config.get('beams', 0) > 0 or config.get('branches', 0) > 0]
-        eval_models = [config['model_key'] for config in selected_configs if config.get('eval', 0) > 0]
-        guard_models = [config['model_key'] for config in selected_configs if config.get('guard', 0) > 0]
-
-        # Calculate fallback models (selected but not specialized)
-        specialized_models = set(branch_models + eval_models + guard_models)
-        fallback_models = [model for model in unique_models if model not in specialized_models]
-
-        logging.info(colored("---" + " Monte Carlo Action Engine " + "---", "yellow"))
-
-        if branch_models:
-            count = 0
-            # Count branches based on 'beams'
-            for config in selected_configs:
-                if config.get('beams', 0) > 0 or config.get('branches', 0) > 0:
-                    count += config.get('beams', config.get('branches', 1))
-            color = get_count_color(count)
-            logging.info(colored(f"  🌿 {count} Branch Generators:".ljust(27), color) + " " + colorize_model_list(branch_models))
-
-        if eval_models:
-            count = len(eval_models)
-            color = get_count_color(count)
-            logging.info(colored(f"  ⚖️  {count} Branch Evaluators:".ljust(28), color) + " " + colorize_model_list(eval_models))
-
-        if guard_models:
-            count = len(guard_models)
-            color = get_count_color(count)
-            logging.info(colored(f"  🛡️  {count} Execution Guards:".ljust(28), color) + " " + colorize_model_list(guard_models))
-
         # Always show fallback models for visibility, even if none are configured
-        count = len(fallback_models)
+        count = len(selected_llms)
         color = "light_green" if count > 0 else "red"
-        logging.info(colored(f"  🔄 {count} Fallback Models:".ljust(27), color) + " " + colorize_model_list(fallback_models))
-
-        # Auto-sync args.yolo with guard LLMs when selection changes
-        if guard_count > 0 and not args.yolo:
-            args.yolo = True
-            logging.info(colored(f"🔄 Auto-execution enabled: {guard_count} guard LLMs active", "green"))
-        elif guard_count == 0 and args.yolo:
-            # Inform user that auto is on but no guards are available
-            logging.info(colored("❗ Auto-execution (args.yolo) automatically disabled: no guard LLMs configured (manual confirmation will be required)", "red"))
+        logging.info(colored(f"  🔄 {count} Fallback Models:".ljust(27), color) + " " + colorize_model_list(selected_llms))
 
     return selected_llms
 
@@ -1282,7 +983,7 @@ def create_interruption_callback(
 
     return _callback
 
-def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, str]:
+def get_provider_emoji_and_name(model_key: str) -> tuple[str, str]:
     """
     Get the emoji and provider name for a model based on its provider class.
     Returns a tuple of (emoji, provider_name)
@@ -1292,40 +993,21 @@ def get_provider_emoji_and_name(model_key: str, llm_router=None) -> tuple[str, s
         return "🏠", "Ollama"
 
     # Try to get provider from LLM router if available
-    if llm_router:
-        try:
-            llm_obj = llm_router.get_model([model_key])
-            if llm_obj and llm_obj.provider:
-                provider_class_name = llm_obj.provider.__class__.__name__
-
-                # Determine emoji based on provider characteristics
-                if 'Ollama' in provider_class_name:
-                    emoji = "🏠"
-                elif 'Human' in provider_class_name:
-                    emoji = "👤"
-                else:
-                    emoji = "☁️  "
-
-                # Clean provider name from class name
-                provider_name = provider_class_name.replace('API', '').replace('Client', '').replace('Interface', '')
-
-                return emoji, provider_name
-        except:
-            pass
-
-    # Fallback: use model name prefix to determine provider
-    if model_key.startswith('gemini'):
-        return "☁️", "Google"
-    elif model_key.startswith('gpt') or model_key.startswith('o1'):
-        return "☁️", "OpenAI"
-    elif model_key.startswith('claude'):
-        return "☁️", "Anthropic"
-    elif any(model_key.startswith(prefix) for prefix in ['llama', 'qwen', 'moonshotai']):
-        return "☁️", "Groq"
+    llm_obj = LlmRouter.get_model([model_key])
+    if llm_obj and llm_obj.provider:
+        provider_class_name = llm_obj.provider.__class__.__name__
+        # Determine emoji based on provider characteristics
+        if 'Ollama' in provider_class_name:
+            emoji = "🏠"
+        elif 'Human' in provider_class_name:
+            emoji = "👤"
+        else:
+            emoji = "☁️  "
+        # Clean provider name from class name
+        provider_name = provider_class_name.replace('API', '').replace('Client', '').replace('Interface', '')
+        return emoji, provider_name
     else:
-        # Generic cloud provider
-        provider_name = model_key.split('-')[0].title()
-        return "☁️", provider_name
+        return "⚠️", "Not found"
 
 
 # Note: The type hint for 'UtilsManager' is a string to avoid circular dependency issues.
@@ -1481,7 +1163,7 @@ async def main(  # type: ignore[misc]
         # In TUI mode, create default args instead of parsing CLI
         if input_event:  # TUI mode
             # Create default args for TUI mode
-            global args
+            global args, g
             args = argparse.Namespace(
                 debug=False,
                 log_file=None,
@@ -1501,7 +1183,6 @@ async def main(  # type: ignore[misc]
                 full_output_mode=False,
                 exit=False,
                 debug_chats=False,
-                monte_carlo=False,
                 online=False
             )
 
@@ -1536,9 +1217,7 @@ async def main(  # type: ignore[misc]
 
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
 
-        if args.monte_carlo:
-            apply_monte_carlo_config()
-        elif not args.llm and not args.local and not args.fast:
+        if not args.llm and not args.local and not args.fast:
             apply_default_llm_config()
 
         # Load planner LLM from saved configuration during startup
@@ -1658,31 +1337,6 @@ async def main(  # type: ignore[misc]
         elif args.llm:
             g.SELECTED_LLMS = [args.llm]
 
-            # If -mct and -llm are used together, update Monte Carlo config with this model
-            if args.monte_carlo:
-                import json
-                try:
-                    current_config = g.get_llm_config()
-                    # Add the specified model to the Monte Carlo config
-                    current_config[args.llm] = {"selected": True, "beams": 2, "eval": 1, "guard": 1}
-
-                    # Save the updated configuration
-                    os.makedirs(os.path.dirname(g.LLM_CONFIG_PATH), exist_ok=True)
-                    with open(g.LLM_CONFIG_PATH, 'w') as f:
-                        json.dump(current_config, f, indent=2)
-
-                    g.load_llm_config()  # Reload to apply changes
-                    logging.info(f"🎯 Updated Monte Carlo configuration with {colored(args.llm, 'green')}")
-                except Exception as e:
-                    logging.error(f"❌ Failed to update Monte Carlo configuration: {e}")
-
-        if not args.monte_carlo:
-            args.yolo = False
-        else:
-            llm_config = g.get_llm_config()
-            guard_count = sum(data.get('guard', 0) for data in llm_config.values() if data.get('selected'))
-            if guard_count > 0 and not args.yolo:
-                args.yolo = True
 
         is_tui = bool(tui_callback)
         print_startup_summary(args, tui_mode=is_tui)
@@ -1759,7 +1413,7 @@ async def main(  # type: ignore[misc]
         if not (args.c or args.regenerate):
             context_chat.add_message(Role.USER, "Please list the 5 most recently modified files of the cwd")
             if (args.gui):
-                bootstrap_message_1 = """<think>
+                bootstrap_message_1 = f"""<think>
 To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
 </think><todos>
 - [ ] List 5 most recently modified files.
@@ -1785,7 +1439,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
   </content>
 </visualresponse>"""
             else:
-                bootstrap_message_1 = """<think>
+                bootstrap_message_1 = f"""<think>
 To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
 </think><todos>
 - [ ] List 5 most recently modified files.
@@ -1806,7 +1460,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
             permissions_str = viewpermissions.run()
             if ("No automatic permissions set" not in permissions_str):
                 context_chat.add_message(Role.USER, "view your permissions")
-                context_chat.add_message(Role.ASSISTANT, """<todos>
+                context_chat.add_message(Role.ASSISTANT, f"""<todos>
 - [ ] View permissions.
 </todos><viewpermissions>
 </viewpermissions><context>
@@ -1844,18 +1498,6 @@ I have successfully viewed my permissions. Is there anything else I can assist y
             LlmRouter().failed_models.clear()
             g.LLM_STRENGTHS = []
             assistant_response = ""
-
-            if not args.monte_carlo:
-                args.yolo = False
-            else:
-                llm_config = g.get_llm_config()
-                guard_count = sum(
-                    data.get('guard', 0)
-                    for data in llm_config.values()
-                    if data.get('selected')
-                )
-                if guard_count > 0 and not args.yolo:
-                    args.yolo = True
 
             g.FORCE_LOCAL = args.local
             g.DEBUG_CHATS = args.debug_chats
@@ -1907,157 +1549,75 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                     break
 
                 try:
-                    response_branches: List[str] = []
-                    branch_model_map: Dict[int, str] = {}
+                    if assistant_response:
+                        context_chat.add_message(Role.ASSISTANT, assistant_response)
+                        assistant_response = ""
+
+                    if context_chat:
+                        context_chat.save_to_json()
+
+                    UNCOMPRESSED_HISTORY = 4 # Compresses reasoning traces after x messages
+                    if (len(context_chat.messages) > UNCOMPRESSED_HISTORY):
+                        for i in range(UNCOMPRESSED_HISTORY,UNCOMPRESSED_HISTORY+1): # do prompt engineering to the 7th and 8th messages automatically
+                            role = context_chat.messages[-i][0]
+                            msg = context_chat.messages[-i][1]
+                            if "<think>" in msg:
+                                # Extract content within <think> tags
+                                think_content_match = re.search(r'<think>(.*?)</think>', msg, re.DOTALL)
+                                if think_content_match:
+                                    think_content = think_content_match.group(1).strip()
+                                    # Find the first line until a newline
+                                    first_line_match = re.match(r'^([^\n]*)', think_content)
+                                    if first_line_match:
+                                        first_line = first_line_match.group(1).strip()
+                                        # Replace the original <think> content with only the first line
+                                        msg = re.sub(r'<think>(.*?)</think>', f'<think>\n{first_line}\n</think>', msg, flags=re.DOTALL)
+                            context_chat.messages[-i] = (role, msg)
+
+                    llm_config = g.get_llm_config()
+
+                    response_buffer_list = [""]
+                    interruption_callback = create_interruption_callback(response_buffer_list, text_stream_painter)
+                    current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
+                    # Simple single model execution
                     try:
-                        if assistant_response:
-                            context_chat.add_message(Role.ASSISTANT, assistant_response)
-                            assistant_response = ""
+                        if check_interrupt():
+                            user_interrupt = True
+                            break
 
-                        if context_chat:
-                            context_chat.save_to_json()
-
-                        UNCOMPRESSED_HISTORY = 4 # Compresses reasoning traces after x messages
-                        if (len(context_chat.messages) > UNCOMPRESSED_HISTORY):
-                            for i in range(UNCOMPRESSED_HISTORY,UNCOMPRESSED_HISTORY+1): # do prompt engineering to the 7th and 8th messages automatically
-                                role = context_chat.messages[-i][0]
-                                msg = context_chat.messages[-i][1]
-                                if "<think>" in msg:
-                                    # Extract content within <think> tags
-                                    think_content_match = re.search(r'<think>(.*?)</think>', msg, re.DOTALL)
-                                    if think_content_match:
-                                        think_content = think_content_match.group(1).strip()
-                                        # Find the first line until a newline
-                                        first_line_match = re.match(r'^([^\n]*)', think_content)
-                                        if first_line_match:
-                                            first_line = first_line_match.group(1).strip()
-                                            # Replace the original <think> content with only the first line
-                                            msg = re.sub(r'<think>(.*?)</think>', f'<think>\n{first_line}\n</think>', msg, flags=re.DOTALL)
-                                context_chat.messages[-i] = (role, msg)
-
-                        llm_config = g.get_llm_config()
-
-
-                        if not args.monte_carlo:
-                            # Default mode: single LLM with all available models as fallback
-                            # Use g.SELECTED_LLMS to preserve chronological selection order
-                            available_models = [
-                                key for key in g.SELECTED_LLMS
-                                if llm_config.get(key, {}).get('selected') and key not in LlmRouter().failed_models
-                            ]
-                            if available_models:
-                                # Store all models for fallback, but use only one for branching
-                                g.FALLBACK_MODELS = available_models
-                                # Planner LLM remains empty until explicitly set by user
-                                logging.info("🔍 FALLBACK DEBUG: Checking planner LLM state in main loop...")
-                                logging.info(f"🔍 FALLBACK DEBUG: g.planner_llm = '{g.planner_llm}'")
-                                if g.planner_llm:
-                                    logging.info(f"🔧 DEBUG: Planner LLM already set to: {g.planner_llm}")
-                                else:
-                                    logging.info("🔧 DEBUG: Planner LLM not set - will remain empty until user selection")
-                            else:
-                                # Initialize default fallback models when none are selected
-                                default_fallbacks = ['gemini-2.5-flash', 'gemini-2.5-flash-preview-05-20', 'gemma3n:e2b']
-                                g.FALLBACK_MODELS = default_fallbacks
-                                # Planner LLM remains empty until explicitly set by user
-                                logging.info("🔍 FALLBACK DEBUG: Checking planner LLM state in main loop...")
-                                logging.info(f"🔍 FALLBACK DEBUG: g.planner_llm = '{g.planner_llm}'")
-                                if g.planner_llm:
-                                    logging.info(f"🔧 DEBUG: Planner LLM already set to: {g.planner_llm}")
-                                else:
-                                    logging.info("🔧 DEBUG: Planner LLM not set - will remain empty until user selection")
-                                logging.debug(colored("🔧 No models configured - using default fallbacks: " + ", ".join(default_fallbacks), "yellow"))
-                        else:
-                            # Use g.SELECTED_LLMS to preserve chronological selection order for monte_carlo mode too
-                            models_for_tasks = [
-                                key for key in g.SELECTED_LLMS
-                                if (llm_config.get(key, {}).get('selected') and
-                                    key not in LlmRouter().failed_models and
-                                    llm_config.get(key, {}).get('beams', 0) > 0)
-                                for _ in range(llm_config.get(key, {}).get('beams', 0))
-                            ]
-                            if not models_for_tasks:
-                                branch_fallback_iterator.update_fallback_models(llm_config)
-                                models_for_tasks = branch_fallback_iterator.get_multiple_fallbacks(count=3) or [key for key in g.SELECTED_LLMS if llm_config.get(key, {}).get('selected') and key not in LlmRouter().failed_models]
-                                if not models_for_tasks:
-                                    logging.error(colored("❌ No available models to process the request. Check LLM selection.", "red"))
-                                    break
-
-                        num_branches = len(models_for_tasks) if args.monte_carlo else 1
-                        g.MCT = num_branches
-                        temperature = 0.85 if num_branches > 1 else 0
-
-                        response_buffer_list = [""]
-                        interruption_callback = create_interruption_callback(response_buffer_list, text_stream_painter)
-                        current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
-                        # for assistant_prefix in ["<", current_todo, "<think", "<thinking>"]:
-                        for i_branch in range(num_branches if args.monte_carlo else 1):
-                            for tool_prefix in ["<think>", "<todos>", "<"]:
-                                if check_interrupt():
-                                    user_interrupt = True
-                                    break
-                                if ("<think>" != tool_prefix):
-                                    print(colored(f"Model did not generate text, attempting generation with prefix: {tool_prefix}", "yellow"))
-                                # Force thinking after context
-                                # if ("" == tool_prefix and context_chat.messages[-1][1].endswith("</context>")):
-                                #     tool_prefix = "<think>"
-
-                                if g.router_llm:
-                                    # Use model router
-                                    difficulty_chat = Chat("Act as a complexity assessment assistant. You view the users provided context and respond with a percentage value from 1-100 indicating the difficulty of formulating the next assistant response.")
-                                    difficulty_chat.add_message(Role.USER, "Hi, please think about the following conversation and assess the difficulty of responding:\n" + context_chat.print_chat(-3, None, True))
-                                    response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm], force_preferred_model=True)
-                                    # extract last number found in the response string
-                                    response_complexity: int = 50 # Default fallback
-                                    match = re.findall(r'\d+', response)
-                                    if match:
-                                        try:
-                                            response_complexity = int(match[-1])
-                                        except ValueError:
-                                            logging.warning(f"Could not convert '{match[-1]}' to int for complexity score. Using default.")
-
-                                    if response_complexity > 60:
-                                        selected_models = [g.planner_llm] + getattr(g, 'FALLBACK_MODELS')  if g.planner_llm else getattr(g, 'FALLBACK_MODELS') # use smart model or if unselected fallback
-                                    elif response_complexity > 20:
-                                        selected_models = getattr(g, 'FALLBACK_MODELS') # default case, use fallbacks as needed
-                                    else:
-                                        selected_models = [g.router_llm] + getattr(g, 'FALLBACK_MODELS') # If easy to respond just use the router llm
-
-                                    force_preferred_model=True
-                                else:
-                                    # Default non router case
-                                    selected_models = getattr(g, 'FALLBACK_MODELS')
-                                    force_preferred_model=True
-
-
-                                l_context_chat = context_chat.deep_copy()
-                                l_temperature = context_chat.deep_copy()
-                                generated_text = ""  # Initialize to prevent UnboundLocalError
-                                validated_text = ""  # Initialize to prevent UnboundLocalError
+                        # Use router for complexity assessment if available
+                        if g.router_llm:
+                            difficulty_chat = Chat("Act as a complexity assessment assistant. You view the users provided context and respond with a percentage value from 1-100 indicating the difficulty of formulating the next assistant response.")
+                            difficulty_chat.add_message(Role.USER, "Hi, please think about the following conversation and assess the difficulty of responding:\n" + context_chat.print_chat(-3, None, True))
+                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm], force_preferred_model=True)
+                            # extract last number found in the response string
+                            response_complexity: int = 50 # Default fallback
+                            match = re.findall(r'\d+', response)
+                            if match:
                                 try:
-                                    for i in range(10):
-                                        await LlmRouter.generate_completion(
-                                            chat=l_context_chat,
-                                            preferred_models=selected_models,
-                                            force_preferred_model=force_preferred_model,
-                                            temperature=temperature,
-                                            base64_images=base64_images,
-                                            generation_stream_callback=interruption_callback,
-                                            assistant_prefix=tool_prefix
-                                        )
-                                        generated_text = response_buffer_list[0]
-                                        # If response did not end with '>' then it should be forcibly kept generating
-                                        if generated_text.endswith(">"):
-                                            validated_text = generated_text
-                                            break
-                                        else:
-                                            l_context_chat.add_message(Role.ASSISTANT, generated_text[:-i]) # Remove last few chars incrementatlly to force model to be regenerative
-                                except StreamInterruptedException as e: # This exception is called by the tool delimiting mechanism at the end of any xml block
-                                    validated_text = e.response
+                                    response_complexity = int(match[-1])
+                                except ValueError:
+                                    logging.warning(f"Could not convert '{match[-1]}' to int for complexity score. Using default.")
 
-                                if (validated_text and validated_text != tool_prefix):
-                                    response_branches.append(validated_text)
-                                    break
+                            if response_complexity > 60:
+                                selected_models = [g.planner_llm] + g.FALLBACK_MODELS if g.planner_llm else g.FALLBACK_MODELS
+                            elif response_complexity > 20:
+                                selected_models = g.FALLBACK_MODELS
+                            else:
+                                selected_models = [g.router_llm] + g.FALLBACK_MODELS
+                        else:
+                            selected_models = g.FALLBACK_MODELS
+
+                        # Generate single response
+                        assistant_response = await LlmRouter.generate_completion(
+                            chat=context_chat,
+                            preferred_models=selected_models,
+                            force_preferred_model=True,
+                            temperature=0.7,
+                            base64_images=base64_images,
+                            generation_stream_callback=interruption_callback,
+                            assistant_prefix="<think>"
+                        )
 
                         base64_images = []
 
@@ -2075,28 +1635,28 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         # Store interrupt metadata for intelligent recovery
                         if hasattr(context_chat, 'metadata'):
                             import time
+                            # Get the model used for the attempt
+                            model_attempted = selected_models[0] if 'selected_models' in locals() and selected_models else "unknown"
                             context_chat.metadata['last_interrupt'] = {
                                 'timestamp': time.time(),
-                                'branch_count': len(response_branches) if 'response_branches' in locals() else 0,
-                                'had_partial_response': len(response_branches) > 0 if 'response_branches' in locals() else False,
-                                'models_attempted': list(branch_model_map.keys()) if 'branch_model_map' in locals() else [],
-                                'monte_carlo_mode': num_branches > 1 if 'num_branches' in locals() else False
+                                'had_partial_response': bool(assistant_response),
+                                'models_attempted': [model_attempted]
                             }
 
                         user_interrupt = True
                         break
+                    except StreamInterruptedException as e:
+                        # Normal tool block detection - continue processing with the detected block
+                        if g.DEBUG_MODE:
+                            print(colored(f"\n🔧 Tool block detected: {e.response[:50]}{'...' if len(e.response) > 50 else ''}", "cyan"))
+                        assistant_response = e.response
+                        # Continue normal flow with the extracted tool block
                     except Exception as e:
                         print(colored(f"An Exception was raised, e: {e}", "red"))
                         traceback.print_exc()
                         break
 
-                    if response_branches:
-                        if len(response_branches) > 1:
-                            selected_branch_index, _ = await select_best_branch(context_chat, response_branches, branch_model_map)
-                            assistant_response = response_branches[selected_branch_index]
-                        else:
-                            assistant_response = response_branches[0]
-                    else:
+                    if not assistant_response:
                         break
 
                     if last_action_signature and assistant_response == last_action_signature:
@@ -2111,7 +1671,6 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         break
 
                     context_chat.add_message(Role.ASSISTANT, assistant_response)
-
                     # Note: AI response to visual interface will be sent after tool execution
                     # to properly detect if visualresponse was used
 

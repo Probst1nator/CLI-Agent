@@ -52,8 +52,6 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
     parser.add_argument("-o", "--online", action="store_true", default=False,
                         help="Force use of cloud AI.")
-    parser.add_argument("-mct", "--monte-carlo", action="store_true", default=False,
-                        help="Enable multi-LLM mode with branch generation, council evaluation, and execution guards.")
 
     parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None,
                         help="Specify the LLM model key to use (e.g., 'gemini-2.5-flash', 'gemma3n:e2b'). Use without value to open selection menu.")
@@ -118,6 +116,5 @@ def create_tui_args() -> argparse.Namespace:
         full_output_mode=False,
         exit=False,
         debug_chats=False,
-        monte_carlo=False,
         online=False
     )

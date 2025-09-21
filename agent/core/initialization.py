@@ -62,13 +62,12 @@ def display_startup_header(tui_mode: bool = False) -> None:
         logging.info("Starting CLI-Agent...")
 
 def apply_default_configurations(context: AppContext) -> None:
-    """Apply default LLM and Monte Carlo configurations."""
+    """Apply default LLM configuration."""
     try:
         # Import here to avoid startup overhead
-        from agent.core.config_utils import apply_default_llm_config, apply_monte_carlo_config
+        from agent.core.config_utils import apply_default_llm_config
 
         apply_default_llm_config()
-        apply_monte_carlo_config()
 
         # Sync with context
         from core.globals import g
@@ -106,7 +105,6 @@ def create_tui_args() -> argparse.Namespace:
         full_output_mode=False,
         exit=False,
         debug_chats=False,
-        monte_carlo=False,
         online=False
     )
 
@@ -161,8 +159,6 @@ def initialize_app(
         context.settings.online_mode = args.online
     if hasattr(args, 'full_output_mode'):
         context.settings.full_output_mode = args.full_output_mode
-    if hasattr(args, 'monte_carlo'):
-        context.settings.monte_carlo_mode = args.monte_carlo
 
     logging.info("CLI-Agent initialization complete")
     return context

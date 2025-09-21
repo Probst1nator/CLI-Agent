@@ -24,22 +24,169 @@
  * @author CLI-Agent Development Team
  * @version 1.0.0
  */
+
+// ===== TYPE DEFINITIONS =====
+
+/**
+ * System configuration object matching API response structure
+ * @typedef {Object} SystemConfiguration
+ * @property {string[]} selected_llms - Array of selected LLM model IDs (sent from API)
+ * @property {string[]} [fallback_models] - Array of fallback model IDs (computed from selected_llms)
+ * @property {string|null} router_llm - Router LLM model ID or null
+ * @property {string|null} planner_llm - Planner LLM model ID or null
+ * @property {Object.<string, any>} [additionalConfig] - Additional dynamic configuration
+ */
+
+/**
+ * LLM model information structure
+ * @typedef {Object} LLMModel
+ * @property {string} id - Unique model identifier
+ * @property {string} name - Human-readable model name
+ * @property {string} provider - Model provider (e.g., 'google', 'ollama', 'groq')
+ * @property {string[]} [capabilities] - Model capabilities array
+ * @property {number} [context_window] - Context window size
+ * @property {boolean} [isNoneOption] - Whether this represents a "None" option
+ */
+
+/**
+ * Message history entry for localStorage persistence
+ * @typedef {Object} MessageHistoryEntry
+ * @property {'user'|'agent'} type - Type of message
+ * @property {number} timestamp - Unix timestamp
+ * @property {UserMessageData|AgentMessageData} data - Message data
+ */
+
+/**
+ * User message data structure
+ * @typedef {Object} UserMessageData
+ * @property {string} message - User's message content
+ * @property {number} timestamp - Message timestamp
+ */
+
+/**
+ * Agent message data structure
+ * @typedef {Object} AgentMessageData
+ * @property {Object} messageData - The actual message content/data
+ * @property {string} messageData.type - Message type (e.g., 'html', 'markdown', 'text')
+ * @property {string} messageData.content - Message content
+ * @property {ToolInfo[]} [messageData.tool_info] - Tool execution information
+ * @property {string} [originalId] - Original message ID
+ * @property {number} timestamp - Message timestamp
+ */
+
+/**
+ * Tool execution information
+ * @typedef {Object} ToolInfo
+ * @property {string} name - Tool name
+ * @property {'success'|'error'} status - Execution status
+ * @property {number} duration_ms - Execution duration in milliseconds
+ * @property {string} [error] - Error message if status is 'error'
+ * @property {string} [args] - Tool arguments
+ * @property {string} [context_returned] - Tool output/context
+ */
+
+/**
+ * Permission request data structure
+ * @typedef {Object} PermissionData
+ * @property {string} id - Permission request ID
+ * @property {string} tool_name - Name of the tool requesting permission
+ * @property {string} description - Description of what the tool wants to do
+ * @property {Object} [details] - Additional permission details
+ */
+
+/**
+ * LLM selector options configuration
+ * @typedef {Object} LLMSelectorOptions
+ * @property {string} placeholder - Placeholder text
+ * @property {string} id - Unique selector ID
+ * @property {boolean} [includeNoneOption] - Whether to include "None" option
+ * @property {function(LLMModel): void} onSelectionChange - Selection change callback
+ * @property {function(SearchableLLMSelectbox, LLMModel[], SystemConfiguration): void} onModelsLoaded - Models loaded callback
+ */
+
+/**
+ * Console log entry structure
+ * @typedef {Object} ConsoleLogEntry
+ * @property {string} timestamp - Formatted timestamp
+ * @property {string} line - Log line content
+ * @property {'info'|'warning'|'error'|'debug'} level - Log level
+ */
+
+/**
+ * Upload response structure
+ * @typedef {Object} UploadResponse
+ * @property {'success'|'error'} status - Upload status
+ * @property {string} message - Status message
+ * @property {string[]} [files] - Array of uploaded file paths
+ */
+
+/**
+ * File upload status types
+ * @typedef {'uploading'|'success'|'error'} UploadStatusType
+ */
+
+/**
+ * Theme type
+ * @typedef {'light'|'dark'} ThemeType
+ */
 class VisualResponseApp {
     /**
      * Initialize the Visual Response Application
      * Sets up all components and establishes the application state
      */
     constructor() {
+        /** @type {ContentRenderer|null} */
         this.renderer = null;
+
+        /** @type {WebSocketManager|null} */
         this.wsManager = null;
+
+        /** @type {HTMLInputElement|null} */
         this.chatInput = null;
+
+        /** @type {HTMLFormElement|null} */
         this.chatForm = null;
+
+        /** @type {MessageHistoryEntry[]} */
         this.messageHistory = [];
 
-        // Initialization protection flag
+        /** @type {HTMLInputElement|null} */
+        this.fileInput = null;
+
+        /** @type {HTMLButtonElement|null} */
+        this.fileUploadBtn = null;
+
+        /** @type {HTMLButtonElement|null} */
+        this.interruptBtn = null;
+
+        /** @type {Object.<string, SearchableLLMSelectbox>} */
+        this.llmSelectors = {};
+
+        /** @type {Object.<string, boolean>} */
+        this.llmSelectorsLoaded = { router: false, planner: false, primary: false, fallback1: false, fallback2: false };
+
+        /** @type {SystemConfiguration|null} */
+        this.systemConfiguration = null;
+
+        /** @type {Object.<string, LLMModel|null>} */
+        this.llmSelections = {};
+
+        /** @type {LLMModel|null} */
+        this.plannerLLMSelection = null;
+
+        /** @type {boolean} */
         this.isInitializing = true;
 
-        // Get logger reference
+        /** @type {boolean} */
+        this.initializedFromSystem = false;
+
+        /** @type {boolean} */
+        this.isRestoring = false;
+
+        /** @type {boolean} */
+        this.agentGenerating = false;
+
+        /** @type {Logger} */
         this.logger = window.visualLogger;
 
         this.logger.info('VisualResponseApp starting initialization');
@@ -159,6 +306,12 @@ class VisualResponseApp {
         console.log('Marked renderer configured');
     }
 
+    /**
+     * Apply basic syntax highlighting to code
+     * @param {string} code - Code to highlight
+     * @param {string} language - Programming language
+     * @returns {string} Highlighted code HTML
+     */
     highlightCode(code, language) {
         if (!language || language === 'text') return code;
 
@@ -248,6 +401,10 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Display a user message in the chat
+     * @param {string} message - User's message text
+     */
     displayUserMessage(message) {
         const contentWrapper = document.getElementById('content-wrapper');
         if (!contentWrapper) return;
@@ -409,6 +566,11 @@ class VisualResponseApp {
         });
     }
 
+    /**
+     * Handle uploaded files
+     * @param {FileList} files - Files to upload
+     * @returns {Promise<void>}
+     */
     async handleFiles(files) {
         if (!files || files.length === 0) {
             return;
@@ -463,6 +625,10 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Add file paths to the chat input field
+     * @param {string[]} filePaths - Array of file paths to add
+     */
     addFilesToInput(filePaths) {
         const currentValue = this.chatInput.value;
         const pathsText = filePaths.join(' ');
@@ -477,6 +643,11 @@ class VisualResponseApp {
         this.chatInput.focus();
     }
 
+    /**
+     * Show upload status message
+     * @param {string} message - Status message to display
+     * @param {UploadStatusType} type - Status type
+     */
     showUploadStatus(message, type) {
         const statusDiv = document.getElementById('upload-status');
         if (statusDiv) {
@@ -1043,8 +1214,8 @@ class VisualResponseApp {
 
     /**
      * Save message to history and localStorage
-     * @param {string} type - 'user' or 'agent'
-     * @param {object} data - Message data
+     * @param {'user'|'agent'} type - 'user' or 'agent'
+     * @param {UserMessageData|AgentMessageData} data - Message data
      */
     saveMessageToHistory(type, data) {
         // Enhanced validation and debugging
@@ -1264,7 +1435,7 @@ class VisualResponseApp {
 
     /**
      * Restore a user message to the UI
-     * @param {object} data - User message data
+     * @param {UserMessageData} data - User message data
      */
     restoreUserMessage(data) {
         console.log('👤 Restoring user message:', data);
@@ -1319,7 +1490,7 @@ class VisualResponseApp {
 
     /**
      * Restore an agent message to the UI
-     * @param {object} data - Agent message data
+     * @param {AgentMessageData} data - Agent message data
      */
     async restoreAgentMessage(data) {
         const contentWrapper = document.getElementById('content-wrapper');
@@ -1774,8 +1945,8 @@ class VisualResponseApp {
         console.log('🔍 WEB UI PERSISTENCE DEBUG:');
         console.log('  → systemConfiguration received:', this.systemConfiguration);
 
-        if (this.systemConfiguration && this.systemConfiguration.fallback_models) {
-            const fallbackModels = this.systemConfiguration.fallback_models;
+        if (this.systemConfiguration && this.systemConfiguration.selected_llms) {
+            const fallbackModels = this.systemConfiguration.selected_llms;
             console.log(`Initializing UI with ${fallbackModels.length} fallback models:`, fallbackModels);
 
             // Initialize router LLM from saved configuration, defaults to None
@@ -1844,7 +2015,7 @@ class VisualResponseApp {
     /**
      * Handle LLM selection changes
      * @param {string} position - 'primary', 'fallback1', or 'fallback2'
-     * @param {Object} model - Selected model object
+     * @param {LLMModel|null} model - Selected model object
      */
     handleLLMSelectionChange(position, model) {
         console.log(`🔍 BUG HUNT: LLM selection changed - ${position}:`, model);
@@ -1909,6 +2080,7 @@ class VisualResponseApp {
 
     /**
      * Handle router LLM selection changes
+     * @param {LLMModel|null} model - Selected router LLM model
      */
     handleRouterLLMSelectionChange(model) {
         console.log('🔍 BUG HUNT: Router LLM selection changed:', model);
@@ -1947,6 +2119,7 @@ class VisualResponseApp {
 
     /**
      * Handle planner LLM selection changes
+     * @param {LLMModel|null} model - Selected planner LLM model
      */
     handlePlannerLLMSelectionChange(model) {
         console.log('🔍 BUG HUNT: Planner LLM selection changed:', model);
@@ -2028,7 +2201,9 @@ class VisualResponseApp {
 
 }
 
-// Initialize the application when DOM is ready and all dependencies are loaded
+/**
+ * Initialize the application when DOM is ready and all dependencies are loaded
+ */
 function initializeApp() {
     // Check if all required classes are available
     if (typeof ContentRenderer === 'undefined') {
@@ -2047,7 +2222,13 @@ function initializeApp() {
     new VisualResponseApp();
 }
 
-// Global permission response function
+/**
+ * Global permission response function
+ * @param {string} permissionId - Permission request ID
+ * @param {'allow'|'deny'|'always_allow'|'always_deny'} result - Permission result
+ * @param {Object} action - Additional action parameters
+ * @returns {boolean} Whether the response was sent successfully
+ */
 window.sendPermissionResponse = function(permissionId, result, action = {}) {
     console.log('sendPermissionResponse called', { permissionId, result, action });
 
@@ -2059,7 +2240,10 @@ window.sendPermissionResponse = function(permissionId, result, action = {}) {
     }
 };
 
-// Global interrupt signal function
+/**
+ * Global interrupt signal function
+ * @returns {boolean} Whether the interrupt signal was sent successfully
+ */
 window.sendInterruptSignal = function() {
     console.log('sendInterruptSignal called');
 
@@ -2071,7 +2255,10 @@ window.sendInterruptSignal = function() {
     }
 };
 
-// Global tool detail toggle function
+/**
+ * Global tool detail toggle function
+ * @param {string} toolDetailId - ID of the tool detail element to toggle
+ */
 window.toggleToolDetail = function(toolDetailId) {
     const element = document.getElementById(toolDetailId);
     if (!element) return;
@@ -2092,11 +2279,21 @@ window.toggleToolDetail = function(toolDetailId) {
  */
 class ConsoleLogManager {
     constructor() {
+        /** @type {boolean} */
         this.consoleVisible = false;
+
+        /** @type {ConsoleLogEntry[]} */
         this.consoleLog = [];
+
+        /** @type {number} */
         this.maxLogLines = 1000;
+
+        /** @type {number} */
         this.consoleWidth = 350; // Default width
+
+        /** @type {boolean} */
         this.isResizing = false;
+
         this.init();
     }
 
@@ -2200,6 +2397,11 @@ class ConsoleLogManager {
         }
     }
 
+    /**
+     * Add a log line to the console
+     * @param {string} line - Log line content
+     * @param {'info'|'warning'|'error'|'debug'} level - Log level
+     */
     addLogLine(line, level = 'info') {
         const timestamp = new Date().toLocaleTimeString();
 
@@ -2251,6 +2453,11 @@ class ConsoleLogManager {
         }).join('');
     }
 
+    /**
+     * Get CSS class for log level
+     * @param {string} level - Log level
+     * @returns {string} CSS class name
+     */
     getLevelClass(level) {
         const normalizedLevel = level.toLowerCase();
         if (normalizedLevel.includes('error') || normalizedLevel.includes('exception')) {
@@ -2265,6 +2472,11 @@ class ConsoleLogManager {
         return '';
     }
 
+    /**
+     * Remove ANSI escape codes from text
+     * @param {string} text - Text with ANSI codes
+     * @returns {string} Cleaned text
+     */
     cleanAnsiCodes(text) {
         // Remove ANSI escape sequences for colors, cursor control, etc.
         return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
@@ -2273,6 +2485,11 @@ class ConsoleLogManager {
                   .replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '');
     }
 
+    /**
+     * Escape HTML entities in text
+     * @param {string} text - Text to escape
+     * @returns {string} HTML-escaped text
+     */
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;

@@ -332,8 +332,7 @@ class WebInputSource(InputSource_ABC):
                                         self.logger.warning(f"⚠️ Model {model_key} has non-dict config: {type(config)} = {config}")
                                         continue
 
-                                    if config.get('beams', 0) > 0 or config.get('eval', 0) > 0 or config.get('guard', 0) > 0:
-                                        specialized_models.append(model_key)
+                                    # No specialized roles in simplified system
 
                                 # Create new selection list: specialized models + UI fallback models
                                 new_selected_llms = specialized_models + new_fallback_models
