@@ -259,6 +259,7 @@ class VisualResponseApp {
         // File upload elements
         this.fileInput = document.getElementById('file-input');
         this.fileUploadBtn = document.getElementById('file-upload-btn');
+        this.screenshotBtn = document.getElementById('screenshot-btn');
 
         // Initialize LLM selectors
         this.initializeLLMSelectors();
@@ -358,6 +359,9 @@ class VisualResponseApp {
 
         // File upload event listeners
         this.setupFileUpload();
+
+        // Screenshot button event listener
+        this.setupScreenshot();
 
         // Global JS toggle event listener
         this.setupGlobalJSToggle();
@@ -563,6 +567,48 @@ class VisualResponseApp {
 
         document.addEventListener('drop', (event) => {
             event.preventDefault();
+        });
+    }
+
+    setupScreenshot() {
+        if (!this.screenshotBtn) {
+            console.error('Screenshot button not found');
+            return;
+        }
+
+        // Screenshot button click
+        this.screenshotBtn.addEventListener('click', () => {
+            console.log('📸 Screenshot button clicked');
+
+            // Send screenshot command to agent
+            if (this.wsManager && this.wsManager.isConnected()) {
+                this.wsManager.sendMessage('/screenshot');
+
+                // Visual feedback
+                const originalIcon = this.screenshotBtn.innerHTML;
+                this.screenshotBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M12 1v6m0 6v6m-6-6h6m6 0h-6" stroke="currentColor" stroke-width="2"/></svg>';
+                this.screenshotBtn.style.opacity = '0.7';
+                this.screenshotBtn.disabled = true;
+
+                // Reset button after a delay
+                setTimeout(() => {
+                    this.screenshotBtn.innerHTML = originalIcon;
+                    this.screenshotBtn.style.opacity = '';
+                    this.screenshotBtn.disabled = false;
+                }, 2000);
+            } else {
+                console.warn('WebSocket not connected, screenshot command not sent');
+
+                // Visual feedback for connection error
+                const originalIcon = this.screenshotBtn.innerHTML;
+                this.screenshotBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2"/></svg>';
+                this.screenshotBtn.style.borderColor = '#dc3545';
+
+                setTimeout(() => {
+                    this.screenshotBtn.innerHTML = originalIcon;
+                    this.screenshotBtn.style.borderColor = '';
+                }, 1500);
+            }
         });
     }
 

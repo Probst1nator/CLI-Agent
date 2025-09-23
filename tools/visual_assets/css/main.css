@@ -959,6 +959,26 @@ code:not(pre > code) {
     opacity: 0.9;
 }
 
+.screenshot-button {
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: background-color 0.2s, opacity 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+}
+
+.screenshot-button:hover {
+    background-color: var(--button-hover-bg);
+    opacity: 0.9;
+}
+
 #chat-form button[type="submit"] {
     padding: 10px 20px;
     border: none;

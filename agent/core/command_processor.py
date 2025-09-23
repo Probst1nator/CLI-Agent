@@ -42,6 +42,9 @@ class CommandInputProcessor(InputProcessor):
             kwargs = {'event': event}
             if hasattr(event, 'metadata') and event.metadata and 'context_chat' in event.metadata:
                 kwargs['context_chat'] = event.metadata['context_chat']
+                print(f"Debug: Command processor passing context_chat with {len(event.metadata['context_chat'].messages)} messages")
+            else:
+                print("Debug: Command processor - no context_chat in event metadata")
 
             response = await self.command_handler.handle_command(
                 event.content,
