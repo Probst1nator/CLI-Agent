@@ -143,20 +143,22 @@ echo -e "${BLUE}👀 Watching for Python file changes...${NC}"
 
 # Watch for Python file changes
 inotifywait -m -r -e modify,create,delete,move \
-    --include='.*\.py$' \
     --exclude='__pycache__' \
     --exclude='\.pyc$' \
     --exclude='tests/' \
     --exclude='\.git/' \
     "$PROJECT_DIR" |
 while read -r directory events filename; do
-    # Debounce rapid changes (wait 1 second for more changes)
-    sleep 1
-    
-    # Check if there are more pending events
-    if read -t 0; then
-        continue  # Skip this event, more are coming
+    # Only process Python files
+    if [[ "$filename" =~ \.py$ ]]; then
+        # Debounce rapid changes (wait 1 second for more changes)
+        sleep 1
+        
+        # Check if there are more pending events
+        if read -t 0; then
+            continue  # Skip this event, more are coming
+        fi
+        
+        restart_container "$directory$filename"
     fi
-    
-    restart_container "$directory$filename"
 done

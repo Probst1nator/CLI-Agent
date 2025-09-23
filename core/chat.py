@@ -252,7 +252,7 @@ class Chat:
         """
         return self.to_json()
 
-    def print_chat(self, start_index: Optional[int] = None, end_index: Optional[int] = None, return_instead: bool = False) -> str:
+    def print_chat(self, start_index: Optional[int] = None, end_index: Optional[int] = None, return_only: bool = False) -> str:
         """
         Prints the chat messages with colored and bold roles, and similarly colored content using termcolor.
 
@@ -295,7 +295,8 @@ class Chat:
             formatted_role = colored(f"{role_value.upper()}:\n", role_color, attrs=['bold', "underline"])
             formatted_content = colored(content, content_color)
 
-            print(f"{formatted_role} {formatted_content}")
+            if not return_only:
+                print(f"{formatted_role} {formatted_content}")
             joined_string += f"{role_value.upper()}:\n {content}\n"
         return joined_string.strip()
 

@@ -7,7 +7,7 @@ from termcolor import colored
 from agent.commands.base_command import BaseCommand, CommandResponse, CommandResult
 
 if TYPE_CHECKING:
-    import argparse
+    pass
 
 class ScreenshotCommand(BaseCommand):
     """Command to take screenshots for visual analysis."""
@@ -22,7 +22,6 @@ class ScreenshotCommand(BaseCommand):
 
     async def execute(
         self,
-        args: argparse.Namespace,
         parts: List[str],
         **kwargs: Any
     ) -> CommandResponse:

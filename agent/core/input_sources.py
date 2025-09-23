@@ -66,14 +66,19 @@ class CLIInputSource(InputSource_ABC):
             # Determine event type
             event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
 
+            # Include context_chat in metadata if available
+            metadata = {
+                'prompt': prompt,
+                'has_context': context_chat is not None
+            }
+            if context_chat:
+                metadata['context_chat'] = context_chat
+
             return InputEvent(
                 event_type=event_type,
                 source=InputSource.CLI,
                 content=user_input,
-                metadata={
-                    'prompt': prompt,
-                    'has_context': context_chat is not None
-                },
+                metadata=metadata,
                 timestamp=time.time()
             )
 
@@ -82,11 +87,16 @@ class CLIInputSource(InputSource_ABC):
             user_input = input(prompt)
             event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
 
+            # Include context_chat in metadata if available
+            metadata = {'prompt': prompt, 'fallback': True}
+            if context_chat:
+                metadata['context_chat'] = context_chat
+
             return InputEvent(
                 event_type=event_type,
                 source=InputSource.CLI,
                 content=user_input,
-                metadata={'prompt': prompt, 'fallback': True},
+                metadata=metadata,
                 timestamp=time.time()
             )
 
@@ -215,11 +225,17 @@ class WebInputSource(InputSource_ABC):
 
                     event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
 
+                    # Include context_chat in metadata if available
+                    metadata = {'prompt': prompt, 'source_queue': 'args.message'}
+                    context_chat = kwargs.get('context_chat')
+                    if context_chat:
+                        metadata['context_chat'] = context_chat
+
                     return InputEvent(
                         event_type=event_type,
                         source=InputSource.WEB,
                         content=user_input.strip(),
-                        metadata={'prompt': prompt, 'source_queue': 'args.message'},
+                        metadata=metadata,
                         timestamp=time.time()
                     )
 
@@ -413,11 +429,18 @@ class WebInputSource(InputSource_ABC):
                         if user_input:
                             self.logger.info(f"🌐 Received browser input: {user_input[:50]}...")
                             event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+
+                            # Include context_chat in metadata if available
+                            metadata = {'prompt': prompt}
+                            context_chat = kwargs.get('context_chat')
+                            if context_chat:
+                                metadata['context_chat'] = context_chat
+
                             return InputEvent(
                                 event_type=event_type,
                                 source=InputSource.WEB,
                                 content=user_input,
-                                metadata={'prompt': prompt},
+                                metadata=metadata,
                                 timestamp=time.time()
                             )
                     else:
@@ -472,7 +495,8 @@ class VoiceInputSource(InputSource_ABC):
         """Get input via voice recognition."""
         try:
             # Import voice functions
-            from main import get_listen_microphone, text_to_speech
+            from main import get_listen_microphone
+            from shared.utils_audio import text_to_speech
 
             listen_microphone = get_listen_microphone()
 

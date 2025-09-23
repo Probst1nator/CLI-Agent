@@ -212,15 +212,12 @@ class WebSocketManager {
     }
 
     handleAssistantMessage(data) {
-        console.log('[DEBUG] handleAssistantMessage called with data:', data);
-        this.logger.info('Received assistant message', { message: data.message });
+        this.logger.debug('Received assistant message', { message: data.message });
 
         // Use the app's displayAssistantMessage function if available
         if (this.app && typeof this.app.displayAssistantMessage === 'function') {
-            console.log('[DEBUG] Using app.displayAssistantMessage');
             this.app.displayAssistantMessage(data.message);
         } else {
-            console.log('[DEBUG] Using fallback assistant message display');
             // Fallback: create assistant message directly
             this.createAssistantMessageFallback(data.message);
         }
@@ -233,8 +230,12 @@ class WebSocketManager {
         if (window.consoleLogManager) {
             window.consoleLogManager.addLogLine(data.line, data.level || 'info');
         } else {
-            // Fallback: log to browser console
-            console.log(`[CLI-Agent Console] ${data.line}`);
+            // Fallback: log to browser console with rate limiting
+            if (!this._lastConsoleLog || this._lastConsoleLog !== data.line || Date.now() - this._lastConsoleTime > 1000) {
+                console.log(`[CLI-Agent Console] ${data.line}`);
+                this._lastConsoleLog = data.line;
+                this._lastConsoleTime = Date.now();
+            }
         }
     }
 
@@ -313,7 +314,6 @@ class WebSocketManager {
     }
 
     async handleMessage(data) {
-        console.log('[DEBUG] handleMessage received:', data);
         this.logger.debug('Received WebSocket message', { type: data.type, action: data.action, id: data.id });
 
         // Handle configuration messages

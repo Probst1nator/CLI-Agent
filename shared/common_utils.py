@@ -267,11 +267,21 @@ def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> Lis
         try:
             # Parse the XML block using ElementTree
             root = ET.fromstring(xml_block)
-            content = root.text or ""
 
-            # If the element has child elements, get all text content
+            # Extract the inner XML content (everything between opening and closing tags)
+            # This preserves the XML structure for tools that expect XML content
             if list(root):
-                content = ET.tostring(root, encoding='unicode', method='text').strip()
+                # If there are child elements, reconstruct the inner XML
+                inner_content = ""
+                for child in root:
+                    inner_content += ET.tostring(child, encoding='unicode').strip()
+                # Also include any text content directly in the root
+                if root.text and root.text.strip():
+                    inner_content = root.text.strip() + inner_content
+                content = inner_content
+            else:
+                # If no child elements, just get the text content
+                content = root.text or ""
 
             blocks.append(content)
 

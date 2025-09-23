@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 if TYPE_CHECKING:
     from agent.core.app_context import AppContext
     from core.chat import Chat
+    from agent.core.command_processor import UnifiedInputManager
     import argparse
 
 # Global instance for compatibility
@@ -229,7 +230,7 @@ class InputCompatibilityAdapter:
         await manager.setup_sources(
             enable_cli=True,
             enable_gui=True,  # Always enable GUI support
-            enable_web=getattr(g, 'GUI_MODE', False),
+            enable_web=getattr(__import__('core.globals', fromlist=['g']).g, 'GUI_MODE', False),
             enable_voice=True,  # Enable voice support
             enable_queue=True
         )

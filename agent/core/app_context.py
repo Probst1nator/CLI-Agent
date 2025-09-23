@@ -6,6 +6,7 @@ state singleton pattern, enabling dependency injection and better testability.
 """
 
 from __future__ import annotations
+import argparse
 import asyncio
 import logging
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
@@ -39,7 +40,18 @@ class AgentSettings:
     local_mode: bool = False
     online_mode: bool = False
     full_output_mode: bool = False
-    fast_mode: bool = False
+    online_voice: bool = False
+
+    def load_from_args(self, args: argparse.Namespace) -> None:
+        """Populate settings from command-line arguments."""
+        self.auto_execute = getattr(args, 'yolo', self.auto_execute)
+        self.voice_mode = getattr(args, 'voice', self.voice_mode)
+        self.local_mode = getattr(args, 'local', self.local_mode)
+        self.online_mode = getattr(args, 'online', self.online_mode)
+        self.full_output_mode = getattr(args, 'full_output_mode', self.full_output_mode)
+        self.online_voice = getattr(args, 'online_voice', self.online_voice)
+        self.debug_mode = getattr(args, 'debug', self.debug_mode)
+        self.verbose_debug = getattr(args, 'verbose_debug', self.verbose_debug)
 
 class AppContext:
     """

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 import logging
@@ -46,11 +46,7 @@ class InputEvent:
     content: str
     metadata: Dict[str, Any]
     timestamp: float
-    images: List[str] = None  # Base64 encoded images
-
-    def __post_init__(self):
-        if self.images is None:
-            self.images = []
+    images: List[str] = field(default_factory=list)  # Base64 encoded images
 
 
 @dataclass
@@ -58,12 +54,8 @@ class InputResponse:
     """Response from input processing."""
     success: bool
     message: str = ""
-    data: Dict[str, Any] = None
+    data: Dict[str, Any] = field(default_factory=dict)
     should_continue: bool = True
-
-    def __post_init__(self):
-        if self.data is None:
-            self.data = {}
 
 
 class InputSource_ABC(ABC):
@@ -147,13 +139,13 @@ class InputManager:
         self._default_source = InputSource.CLI
         self._fallback_sources = [InputSource.CLI]
 
-        self.logger.info("InputManager initialized")
+        self.logger.debug("InputManager initialized")
 
     def register_source(self, source: InputSource_ABC) -> None:
         """Register an input source."""
         with self._lock:
             self._sources[source.source_type] = source
-            self.logger.info(f"Registered input source: {source.source_type.value}")
+            self.logger.debug(f"Registered input source: {source.source_type.value}")
 
     def unregister_source(self, source_type: InputSource) -> None:
         """Unregister an input source."""
@@ -170,7 +162,7 @@ class InputManager:
     def set_default_source(self, source_type: InputSource) -> None:
         """Set the default input source."""
         self._default_source = source_type
-        self.logger.info(f"Default input source set to: {source_type.value}")
+        self.logger.debug(f"Default input source set to: {source_type.value}")
 
     def set_fallback_sources(self, sources: List[InputSource]) -> None:
         """Set fallback input sources in order of preference."""

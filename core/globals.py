@@ -174,7 +174,13 @@ class Globals:
         self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
 
         # --- Forcing Flags (runtime modifiers) ---
+        import time
+        import_start = time.time()
         from core.ai_strengths import AIStrengths # Local import
+        import_time = (time.time() - import_start) * 1000
+        if import_time > 1:  # Only log if > 1ms
+            logging.info(f"🚀 GLOBALS: AIStrengths import took {import_time:.1f}ms")
+
         self.FORCE_LOCAL: bool = False
         self.LLM_STRENGTHS: List[AIStrengths] = []
 
@@ -307,13 +313,40 @@ class Globals:
         self.MODEL_CACHE_PATH: str = os.path.join(self.CLIAGENT_CACHE_DIR, 'model_cache.json')
 
         # --- Initial Setup on Instantation ---
+        import time
+        startup_start = time.time()
+        logging.info("🚀 GLOBALS INIT: Starting initialization...")
+
+        step_start = time.time()
         self._initialize_directories()
+        logging.info(f"🚀 GLOBALS INIT: _initialize_directories took {(time.time() - step_start)*1000:.1f}ms")
+
+        step_start = time.time()
         self._migrate_legacy_files()  # Migrate files from old structure
+        logging.info(f"🚀 GLOBALS INIT: _migrate_legacy_files took {(time.time() - step_start)*1000:.1f}ms")
+
+        step_start = time.time()
         self.load_user_config()
+        logging.info(f"🚀 GLOBALS INIT: load_user_config took {(time.time() - step_start)*1000:.1f}ms")
+
+        step_start = time.time()
         self.load_llm_config() # Load LLM config at startup
+        logging.info(f"🚀 GLOBALS INIT: load_llm_config took {(time.time() - step_start)*1000:.1f}ms")
+
+        step_start = time.time()
         self.load_llm_roles() # Load LLM role configuration at startup
+        logging.info(f"🚀 GLOBALS INIT: load_llm_roles took {(time.time() - step_start)*1000:.1f}ms")
+
+        step_start = time.time()
         self.load_tts_config_from_user_settings() # Load TTS config at startup
+        logging.info(f"🚀 GLOBALS INIT: load_tts_config_from_user_settings took {(time.time() - step_start)*1000:.1f}ms")
+
+        step_start = time.time()
         self._configure_ollama_hosts()
+        logging.info(f"🚀 GLOBALS INIT: _configure_ollama_hosts took {(time.time() - step_start)*1000:.1f}ms")
+
+        total_time = time.time() - startup_start
+        logging.info(f"🚀 GLOBALS INIT: Total initialization took {total_time*1000:.1f}ms")
 
         # --- Cleanup callbacks ---
         self._cleanup_callbacks: List[Callable] = []
@@ -976,7 +1009,12 @@ class Globals:
 
     def load_llm_roles(self) -> None:
         """Load LLM role configuration from disk, migrating from old format if needed."""
+        import time
+        load_start = time.time()
+
+        step_start = time.time()
         config = self.get_llm_config()
+        logging.info(f"🚀 ROLES: get_llm_config took {(time.time() - step_start)*1000:.1f}ms")
 
         # Check if we have the new unified format with valid data
         has_valid_roles = (
@@ -989,10 +1027,13 @@ class Globals:
 
         if has_valid_roles:
             # Use new format
+            step_start = time.time()
             for key, default_value in [('planner', None), ('router', None), ('fallbacks', []), ('selected', [])]:
                 self.llm_roles[key] = config['roles'].get(key, default_value)
+            logging.info(f"🚀 ROLES: Loading existing roles took {(time.time() - step_start)*1000:.1f}ms")
         else:
             # Migrate from old format
+            step_start = time.time()
             logging.info("🔄 Migrating LLM configuration from old format to unified roles")
 
             # Migrate planner and router
@@ -1016,8 +1057,15 @@ class Globals:
             self.save_llm_roles()
 
             # Clean up old format keys from config file
+            cleanup_start = time.time()
             self._cleanup_old_format_config()
-            logging.info(f"✅ Migrated {len(selected_models)} selected models, planner: {self.llm_roles['planner']}, router: {self.llm_roles['router']}")
+            logging.info(f"🚀 ROLES: Cleanup took {(time.time() - cleanup_start)*1000:.1f}ms")
+
+            migration_time = time.time() - step_start
+            logging.info(f"✅ Migration completed in {migration_time*1000:.1f}ms: {len(selected_models)} selected models, planner: {self.llm_roles['planner']}, router: {self.llm_roles['router']}")
+
+        total_roles_time = time.time() - load_start
+        logging.info(f"🚀 ROLES: Total load_llm_roles took {total_roles_time*1000:.1f}ms")
 
     def _cleanup_old_format_config(self) -> None:
         """Remove old format keys from config file after successful migration."""

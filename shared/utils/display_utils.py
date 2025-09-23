@@ -169,16 +169,26 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
     status_line = "[yellow]--- Ready for User Input ---[/yellow]" if tui_mode else colored("--- Ready for User Input ---", "yellow")
     logging.info(status_line)
 
-def show_unified_bindings_display() -> None:
+def show_unified_bindings_display(gui_mode: bool = False) -> None:
     """
-    Shows a simple display of available commands.
+    Shows a colorful display of available commands.
+
+    Args:
+        gui_mode: If True, hides commands that are not relevant in GUI mode (like /llm)
     """
     # Import command definitions from the refactored module
     from agent.core.command_system import _COMMAND_DEFINITIONS
 
-    print(colored("\n--- Available Commands ---", "yellow"))
+    print(colored("\n--- Available Commands ---", "yellow", attrs=["bold"]))
     CMD_WIDTH = 28
     for cmd_info in _COMMAND_DEFINITIONS:
+        # Skip /llm command in GUI mode since GUI has its own LLM selector
+        if gui_mode and '/llm' in cmd_info['aliases']:
+            continue
+
         aliases = ', '.join(cmd_info['aliases'])
-        line = f"  {colored(aliases.ljust(CMD_WIDTH), 'white')}{cmd_info['description']}"
+        # Color the aliases in green and descriptions in white for better readability
+        aliases_colored = colored(aliases.ljust(CMD_WIDTH), 'green', attrs=['bold'])
+        description_colored = colored(cmd_info['description'], 'white')
+        line = f"  {aliases_colored}{description_colored}"
         print(line)

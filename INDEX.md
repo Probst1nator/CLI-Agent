@@ -2,10 +2,27 @@
 
 ## 🏗️ Modern Architecture (Post-Migration & Refactoring)
 
+### 🎯 **RECENT MAJOR ARCHITECTURAL ACHIEVEMENT**: AppContext as Single Source of Truth
+
+**Completed**: Full transition from argparse-dependent command system to AppContext-based architecture:
+- ✅ **AgentSettings dataclass**: Centralized configuration with `load_from_args()` method
+- ✅ **Command decoupling**: All commands now use `self.context.settings` instead of args parameter
+- ✅ **BaseCommand refactor**: Execute signature simplified, removing argparse dependency
+- ✅ **CommandHandler cleanup**: Eliminated args parameter from handle_command method
+- ✅ **Processor cleanup**: Removed `_create_dummy_args` function from CommandInputProcessor
+- ✅ **Main.py integration**: AppContext populated from args at startup, single initialization point
+
+**Benefits Achieved**:
+- Commands are now completely testable in isolation (no argparse mocking needed)
+- Clear separation of concerns: CLI parsing vs runtime configuration
+- Eliminated dual command processing pipelines that caused duplicate execution bugs
+- Foundation for configuration from multiple sources (CLI, config files, GUI, environment)
+- Removed "dummy args" hack and transitional code patterns
+
 - `agent/` - Modern agent architecture with organized components:
   
   **Refactored Core Architecture**
-  - `core/app_context.py` - Application context replacing global state singleton with dependency injection pattern, providing centralized configuration, lazy-loaded components, and proper typing
+  - `core/app_context.py` - Application context replacing global state singleton with dependency injection pattern, providing centralized configuration, lazy-loaded components, and proper typing. **MAJOR REFACTOR**: Now includes `AgentSettings` dataclass as single source of truth for all runtime configuration, eliminating command dependency on argparse and enabling clean command isolation
   - `core/initialization.py` - Clean application initialization logic extracted from monolithic main.py with environment setup, logging configuration, and context creation
   - `core/agent_loop.py` - Main conversation loop extracted from main.py with proper error handling, command processing, and AI interaction management
   - `core/lazy_imports.py` - Startup time optimization through lazy loading of heavy dependencies, demonstrating ~1.5s potential startup time savings
@@ -14,20 +31,20 @@
   - `core/command_system.py` - : Unified command definition system and command completion extracted from main.py. Provides centralized command management with aliases, descriptions, and prompt toolkit integration
   - `core/input_manager.py` - : Unified input management system providing clean abstraction layer for all input sources (CLI, GUI, Web, Voice) with standardized event handling, source registration, and processor routing
   - `core/input_sources.py` - : Concrete input source implementations for CLI (prompt_toolkit), GUI (event-driven), Web (browser-based), Voice (speech recognition), and Queue (programmatic) input methods
-  - `core/command_processor.py` - : Command processing system integrating with unified input manager, providing specialized processors for commands, text, interrupts, and images with proper error handling
+  - `core/command_processor.py` - : Command processing system integrating with unified input manager, providing specialized processors for commands, text, interrupts, and images with proper error handling. **MAJOR REFACTOR**: Removed `_create_dummy_args` function, eliminated argparse dependency from command processing pipeline
   - `core/input_compatibility.py` - : Compatibility layer bridging legacy and new input systems, enabling gradual migration while maintaining backwards compatibility with existing get_user_input_with_bindings interface
   - `core/input_handlers.py` - : Input handling utilities now serving as compatibility wrappers that delegate to the unified input system while preserving original function interfaces for seamless transition
   - `core/unified_completion.py` - : Unified command completion system working across all interfaces (CLI, GUI, Web) with consistent behavior, real-time command discovery, and JSON serialization for web clients
-  - `core/command_registry.py` - : Single source of truth for command definitions, centralizing command metadata and bridging static definitions with dynamic implementations through categorized command registry. : Added unified LLM selection commands (`/planner_llm`, `/router_llm`, `/fallbacks`) replacing WebSocket-based selection with command-based approach
+  - `core/command_registry.py` - : Single source of truth for command definitions, centralizing command metadata and bridging static definitions with dynamic implementations through categorized command registry. : Added unified LLM selection commands (`/planner_llm`, `/router_llm`, `/fallbacks`) and configuration display command (`/config`) replacing WebSocket-based selection with command-based approach
   - `core/migration_helper.py` - : Migration utilities for transitioning main.py from legacy input handling to unified system, providing drop-in replacements, monkey-patching capabilities, and gradual migration support
   
   **Command System Architecture**
-  - `commands/base_command.py` - Abstract base class and protocols for all CLI commands with proper typing, consistent interfaces, and command registration system
-  - `commands/command_handler.py` - Central command dispatcher replacing massive switch-case logic from get_user_input_with_bindings with clean, modular command routing
+  - `commands/base_command.py` - Abstract base class and protocols for all CLI commands with proper typing, consistent interfaces, and command registration system. **MAJOR REFACTOR**: Execute method signature simplified to remove argparse dependency, commands now access configuration via `self.context.settings`
+  - `commands/command_handler.py` - Central command dispatcher replacing massive switch-case logic from get_user_input_with_bindings with clean, modular command routing. **MAJOR REFACTOR**: Eliminated args parameter from handle_command, now uses context-based configuration exclusively
   - `commands/screenshot_command.py` - Screenshot command implementation demonstrating the new command pattern with proper error handling and response types
   - `commands/help_command.py` - Help command showing integration with command handler for dynamic help generation
   - `commands/regenerate_command.py` - Regenerate command with chat history management and proper state handling
-  - `commands/simple_commands.py` - Collection of simple command implementations (multiline, exit, reset, toggle commands) with consistent interfaces. : Added unified LLM selection commands (`PlannerLlmCommand`, `RouterLlmCommand`, `FallbacksCommand`) and replaced `ClearCommand` with command-based approach integrating with web UI selectboxes
+  - `commands/simple_commands.py` - Collection of simple command implementations (multiline, exit, reset, toggle commands) with consistent interfaces. : Added unified LLM selection commands (`PlannerLlmCommand`, `RouterLlmCommand`, `FallbacksCommand`), configuration display command (`ConfigCommand`), and replaced `ClearCommand` with command-based approach integrating with web UI selectboxes. **NEW**: Enhanced `PermissionCommand` with simple command-based permission management supporting direct actions like `/perms add dev grepsearch` and guided wizards
   
   **GUI Components**
   - `gui/layouts.py` - Layout definitions and management for prompt_toolkit-based GUI including main layout, debug layout, minimal layout, and compact layout options
