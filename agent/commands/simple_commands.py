@@ -841,7 +841,11 @@ class ResetCommand(BaseCommand):
 
         # Clear chat history
         if context_chat:
+            print(f"🔧 Debug: Chat before clear has {len(context_chat.messages)} messages")
+            print(f"🔧 Debug: Chat object ID: {id(context_chat)}")
             context_chat.messages.clear()
+            print(f"🔧 Debug: Chat after clear has {len(context_chat.messages)} messages")
+            print(f"🔧 Debug: Chat object after clear - type: {type(context_chat)}, bool: {bool(context_chat)}")
 
         # Clear any cached images or context
         from core.globals import g
@@ -850,13 +854,32 @@ class ResetCommand(BaseCommand):
 
         # Reset to default state
         try:
+            print("🔧 Debug: Starting engineered prompt reconstruction")
             # Re-initialize chat with engineered prompt
             from main import construct_engineered_prompt
+            print("🔧 Debug: Successfully imported construct_engineered_prompt")
+            print(f"🔧 Debug: context_chat type: {type(context_chat)}, bool: {bool(context_chat)}")
+            if context_chat is not None:
+                print("🔧 Debug: Attempting to construct engineered prompt")
+                # Create new chat with engineered prompt
+                gui_mode = hasattr(g, 'GUI_MODE') and g.GUI_MODE
+                print(f"🔧 Debug: GUI mode is {gui_mode}")
+                new_chat = await construct_engineered_prompt("", gui_mode)
+                print(f"🔧 Debug: New chat has {len(new_chat.messages)} messages")
+                # Copy messages from new chat to existing chat object
+                context_chat.messages.extend(new_chat.messages)
+                print(f"🔧 Debug: Context chat now has {len(context_chat.messages)} messages")
+            else:
+                print("🔧 Debug: context_chat is None for restoration")
+        except Exception as e:
+            # Fallback if not available - add a basic instruction message
+            print(f"⚠️  Warning: Could not construct engineered prompt: {e}")
+            import traceback
+            traceback.print_exc()
             if context_chat:
-                context_chat = await construct_engineered_prompt("voice" if getattr(args, 'voice', False) else "")
-        except ImportError:
-            # Fallback if not available
-            pass
+                from core.chat import Role
+                context_chat.add_message(Role.SYSTEM, "You are a helpful AI assistant.")
+                print("🔧 Debug: Added fallback system message")
 
         print(colored("# cli-agent: Complete reset performed.", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)
