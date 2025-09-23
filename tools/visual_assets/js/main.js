@@ -196,27 +196,29 @@ class VisualResponseApp {
     }
 
     init() {
-        console.log('Initializing Visual Response App...');
+        console.group('🚀 Visual Response App Initialization');
         this.checkLibraries();
         this.initializeComponents();
         this.setupEventListeners();
         this.setupThemeSwitcher();
         this.loadMessageHistory();
-        console.log('Visual Response App initialized successfully');
+        console.log('✅ Visual Response App initialized successfully');
+        console.groupEnd();
     }
 
     checkLibraries() {
-        console.log('Library status check:');
-        console.log('- jQuery:', typeof $ !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- Marked:', typeof marked !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- Mermaid:', typeof mermaid !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- Plotly:', typeof Plotly !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- 3Dmol:', typeof $3Dmol !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- svgPanZoom:', typeof svgPanZoom !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- React:', typeof React !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- ReactDOM:', typeof ReactDOM !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- Vue:', typeof Vue !== 'undefined' ? 'loaded' : 'MISSING');
-        console.log('- Babel:', typeof Babel !== 'undefined' ? 'loaded' : 'MISSING');
+        console.groupCollapsed('📚 Library Dependencies');
+        console.log('jQuery:', typeof $ !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('Marked:', typeof marked !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('Mermaid:', typeof mermaid !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('Plotly:', typeof Plotly !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('3Dmol:', typeof $3Dmol !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('svgPanZoom:', typeof svgPanZoom !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('React:', typeof React !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('ReactDOM:', typeof ReactDOM !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('Vue:', typeof Vue !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.log('Babel:', typeof Babel !== 'undefined' ? '✅ loaded' : '❌ MISSING');
+        console.groupEnd();
     }
 
     initializeComponents() {
@@ -228,7 +230,7 @@ class VisualResponseApp {
                 securityLevel: 'loose',
                 htmlLabels: true
             });
-            console.log('Mermaid initialized successfully');
+            window.visualLogger.debug('Mermaid initialized successfully');
         } else {
             console.error('Mermaid library not loaded!');
         }
@@ -277,8 +279,7 @@ class VisualResponseApp {
                 codeStr = String(code || '');
             }
 
-            console.log('Marked renderer called with code: "' + codeStr.substring(0, 50) + '...", language: "' + language + '", escaped: ' + escaped);
-            console.log('Full code object:', code);
+            window.visualLogger.debug('Marked renderer processing code block', { language, escaped, codeLength: codeStr.length });
 
             // Handle both 'mermaid' and undefined/null language cases by checking code content
             const isMermaidCode = language === 'mermaid' ||
@@ -290,10 +291,9 @@ class VisualResponseApp {
                                    codeStr.trim().startsWith('erDiagram')));
 
             if (isMermaidCode) {
-                console.log('Mermaid code block detected!');
+                window.visualLogger.debug('Mermaid code block detected');
                 const uniqueId = 'mermaid-embedded-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
                 const placeholder = '<div class="mermaid-placeholder" data-mermaid-id="' + uniqueId + '" data-mermaid-definition="' + encodeURIComponent(codeStr) + '" style="text-align:center;"></div>';
-                console.log('Generated placeholder:', placeholder);
                 return placeholder;
             }
 
@@ -694,7 +694,7 @@ class VisualResponseApp {
             // Apply to all current messages with staggered timing
             this.applyGlobalJSStateToMessages(newState);
 
-            console.log(`Global JS ${newState ? 'enabled' : 'disabled'}`);
+            window.visualLogger.debug(`Global JS ${newState ? 'enabled' : 'disabled'}`);
         });
     }
 
@@ -732,7 +732,7 @@ class VisualResponseApp {
             }
         });
 
-        console.log(`Applying global JS ${enabled ? 'enable' : 'disable'} to ${jsMessages.length} messages`);
+        window.visualLogger.debug(`Applying global JS ${enabled ? 'enable' : 'disable'} to ${jsMessages.length} messages`);
 
         // Apply changes with 200ms intervals
         jsMessages.forEach((msgData, index) => {
@@ -768,16 +768,16 @@ class VisualResponseApp {
                 if (originalContent) {
                     const data = { type: 'html', content: originalContent };
                     this.renderer.reRenderMessage(container.querySelector('.message-content') || container, data, messageId, enabled);
-                    console.log(`Re-rendered message ${messageId} with JS ${enabled ? 'enabled' : 'disabled'}`);
+                    window.visualLogger.debug(`Re-rendered message ${messageId} with JS ${enabled ? 'enabled' : 'disabled'}`);
                 } else {
-                    console.log(`Could not retrieve original content for message ${messageId}`);
+                    window.visualLogger.warn(`Could not retrieve original content for message ${messageId}`);
                 }
             } catch (error) {
                 console.warn(`Failed to re-render message ${messageId}:`, error);
             }
         }
 
-        console.log(`Applied JS ${enabled ? 'enable' : 'disable'} to message ${messageId}`);
+        window.visualLogger.debug(`Applied JS ${enabled ? 'enable' : 'disable'} to message ${messageId}`);
     }
 
     getOriginalContentForMessage(messageId, iframe) {
@@ -1229,7 +1229,7 @@ class VisualResponseApp {
             // FIXED: Removed 'user_message' from transient types - this was incorrectly filtering user messages
             const transientTypes = ['permission_request', 'config'];
             if (transientTypes.includes(data.messageData.type)) {
-                console.log(`Skipping storage of transient message type: ${data.messageData.type}`);
+                window.visualLogger.debug(`Skipping storage of transient message type: ${data.messageData.type}`);
                 return;
             }
         }
@@ -1240,7 +1240,7 @@ class VisualResponseApp {
                 console.error('❌ Invalid user message structure - missing or invalid message field:', data);
                 return;
             }
-            console.log(`💾 Saving user message to history: "${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}"`);
+            window.visualLogger.debug(`Saving user message to history: "${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}"`);
         }
 
         // Validate agent message structure
@@ -1249,7 +1249,7 @@ class VisualResponseApp {
                 console.error('❌ Invalid agent message structure - missing messageData field:', data);
                 return;
             }
-            console.log(`💾 Saving agent message to history: type=${data.messageData.type}, id=${data.originalId || 'unknown'}`);
+            window.visualLogger.debug(`Saving agent message to history: type=${data.messageData.type}, id=${data.originalId || 'unknown'}`);
         }
 
         const messageEntry = {
@@ -1264,12 +1264,12 @@ class VisualResponseApp {
         if (this.messageHistory.length > 50) {
             const removedCount = this.messageHistory.length - 50;
             this.messageHistory = this.messageHistory.slice(-50);
-            console.log(`🧹 Trimmed ${removedCount} old messages from history to maintain 50 message limit`);
+            window.visualLogger.debug(`Trimmed ${removedCount} old messages from history to maintain 50 message limit`);
         }
 
         try {
             localStorage.setItem('agent-message-history', JSON.stringify(this.messageHistory));
-            console.log(`📊 Message history saved: ${this.messageHistory.length} total messages`);
+            window.visualLogger.debug(`Message history saved: ${this.messageHistory.length} total messages`);
         } catch (e) {
             console.error('❌ Failed to save message history to localStorage:', e);
 
@@ -1290,8 +1290,7 @@ class VisualResponseApp {
     loadMessageHistory() {
         try {
             const stored = localStorage.getItem('agent-message-history');
-            console.log('🔍 Checking localStorage for message history...');
-            console.log('Raw stored data:', stored);
+            window.visualLogger.debug('Checking localStorage for message history', { hasData: !!stored });
 
             if (stored) {
                 this.messageHistory = JSON.parse(stored);
@@ -1301,7 +1300,7 @@ class VisualResponseApp {
                 this.messageHistory = this.messageHistory.filter(entry => {
                     // CRITICAL FIX: Never filter out actual user messages (type: 'user')
                     if (entry.type === 'user') {
-                        console.log('✅ Preserving user message during history cleanup:', entry.data?.message?.substring(0, 50) + '...');
+                        window.visualLogger.debug('Preserving user message during history cleanup:', entry.data?.message?.substring(0, 50) + '...');
                         return true; // Always keep user messages
                     }
 
@@ -1310,7 +1309,7 @@ class VisualResponseApp {
                         // Removed 'user_message' from transient types - this was incorrectly filtering user messages
                         const transientTypes = ['permission_request', 'config'];
                         if (transientTypes.includes(entry.data.messageData.type)) {
-                            console.log(`Removing legacy transient message: ${entry.data.messageData.type}`);
+                            window.visualLogger.debug(`Removing legacy transient message: ${entry.data.messageData.type}`);
                             return false;
                         }
                     }
@@ -1319,7 +1318,7 @@ class VisualResponseApp {
 
                 // Save cleaned history back to localStorage if we removed anything
                 if (this.messageHistory.length < originalLength) {
-                    console.log(`Cleaned ${originalLength - this.messageHistory.length} transient messages from history`);
+                    window.visualLogger.debug(`Cleaned ${originalLength - this.messageHistory.length} transient messages from history`);
                     try {
                         localStorage.setItem('agent-message-history', JSON.stringify(this.messageHistory));
                     } catch (e) {
@@ -1327,24 +1326,23 @@ class VisualResponseApp {
                     }
                 }
 
-                console.log('📋 Parsed message history:', this.messageHistory);
-                console.log(`🔄 Continue mode: Loading ${this.messageHistory.length} messages from previous session`);
+                window.visualLogger.info(`Continue mode: Loading ${this.messageHistory.length} messages from previous session`);
 
                 // Count user vs agent messages with detailed breakdown
                 const userMessages = this.messageHistory.filter(m => m.type === 'user');
                 const agentMessages = this.messageHistory.filter(m => m.type === 'agent');
-                console.log(`📊 Message breakdown: ${userMessages.length} user, ${agentMessages.length} agent`);
+                window.visualLogger.debug(`Message breakdown: ${userMessages.length} user, ${agentMessages.length} agent`);
 
                 // Debug: Log first few characters of each user message to verify content
                 if (userMessages.length > 0) {
-                    console.log('👤 User messages found for restoration:');
+                    window.visualLogger.debug('User messages found for restoration:');
                     userMessages.forEach((msg, i) => {
                         const preview = msg.data?.message?.substring(0, 50) || 'No message content';
                         const timestamp = new Date(msg.data?.timestamp || msg.timestamp).toLocaleTimeString();
-                        console.log(`  ${i + 1}. [${timestamp}] "${preview}${msg.data?.message?.length > 50 ? '...' : ''}"`);
+                        window.visualLogger.debug(`  ${i + 1}. [${timestamp}] "${preview}${msg.data?.message?.length > 50 ? '...' : ''}"`);
                     });
                 } else {
-                    console.log('⚠️ No user messages found in history - this may indicate the bug');
+                    window.visualLogger.warn('No user messages found in history - this may indicate the bug');
                 }
 
                 // Add flag to indicate we're in restoration mode
@@ -1356,10 +1354,10 @@ class VisualResponseApp {
                 // Show a temporary restoration indicator
                 this.showRestorationFeedback(this.messageHistory.length);
             } else {
-                console.log('🔄 Continue mode: No previous session history found in localStorage');
+                window.visualLogger.info('Continue mode: No previous session history found in localStorage');
             }
         } catch (e) {
-            console.warn('❌ Failed to load message history from localStorage:', e);
+            window.visualLogger.error('Failed to load message history from localStorage:', {}, e);
             this.messageHistory = [];
         }
     }
@@ -1856,19 +1854,19 @@ class VisualResponseApp {
             // Store the system configuration from the first selector that loads
             if (systemConfig && !this.systemConfiguration) {
                 this.systemConfiguration = systemConfig;
-                console.log('System configuration received:', systemConfig);
+                window.visualLogger.debug('System configuration received:', systemConfig);
             }
 
             // Find which selector this is
             const selectorName = Object.keys(this.llmSelectors).find(key => this.llmSelectors[key] === selector);
             if (selectorName) {
                 this.llmSelectorsLoaded[selectorName] = true;
-                console.log(`Models loaded for ${selectorName} selector: ${models.length} models`);
+                window.visualLogger.debug(`Models loaded for ${selectorName} selector: ${models.length} models`);
 
                 // Check if all selectors have loaded their models
                 const allLoaded = Object.values(this.llmSelectorsLoaded).every(loaded => loaded);
                 if (allLoaded) {
-                    console.log('All LLM selectors have loaded their models...');
+                    window.visualLogger.info('All LLM selectors have loaded their models');
                     this.initializeFromSystemConfiguration();
                 }
             }
@@ -1934,7 +1932,7 @@ class VisualResponseApp {
             });
         }
 
-        console.log('LLM selectors initialized successfully');
+        window.visualLogger.info('LLM selectors initialized successfully');
     }
 
     /**
@@ -1953,11 +1951,9 @@ class VisualResponseApp {
             const savedRouterLLM = this.systemConfiguration.router_llm;
             if (this.llmSelectors.router) {
                 if (savedRouterLLM) {
-                    console.log(`🔍 BUG HUNT: Setting router LLM to saved selection: ${savedRouterLLM} (isInitializing=${this.isInitializing})`);
                     this.llmSelectors.router.setSelectedModel(savedRouterLLM);
                     console.log(`Set router LLM selector to saved selection: ${savedRouterLLM}`);
                 } else {
-                    console.log(`🔍 BUG HUNT: Setting router LLM to None (default) (isInitializing=${this.isInitializing})`);
                     this.llmSelectors.router.setSelectedModel(null);
                     console.log(`Set router LLM selector to None (default)`);
                 }
@@ -1966,30 +1962,25 @@ class VisualResponseApp {
             // Initialize planner LLM from saved configuration, or default to first fallback model
             const savedPlannerLLM = this.systemConfiguration.planner_llm;
             if (savedPlannerLLM && this.llmSelectors.planner) {
-                console.log(`🔍 BUG HUNT: Setting planner LLM to saved selection: ${savedPlannerLLM} (isInitializing=${this.isInitializing})`);
                 this.llmSelectors.planner.setSelectedModel(savedPlannerLLM);
                 console.log(`Set planner LLM selector to saved selection: ${savedPlannerLLM}`);
             } else if (fallbackModels.length >= 1 && this.llmSelectors.planner) {
-                console.log(`🔍 BUG HUNT: Setting planner LLM to default: ${fallbackModels[0]} (isInitializing=${this.isInitializing})`);
                 this.llmSelectors.planner.setSelectedModel(fallbackModels[0]);
                 console.log(`Set planner LLM selector to default (first fallback): ${fallbackModels[0]}`);
             }
 
             // Display first 3 fallback models in the UI
             if (fallbackModels.length >= 1 && this.llmSelectors.primary) {
-                console.log(`🔍 BUG HUNT: Setting primary LLM to: ${fallbackModels[0]} (isInitializing=${this.isInitializing})`);
                 this.llmSelectors.primary.setSelectedModel(fallbackModels[0]);
                 console.log(`Set primary selector to: ${fallbackModels[0]}`);
             }
 
             if (fallbackModels.length >= 2 && this.llmSelectors.fallback1) {
-                console.log(`🔍 BUG HUNT: Setting fallback1 LLM to: ${fallbackModels[1]} (isInitializing=${this.isInitializing})`);
                 this.llmSelectors.fallback1.setSelectedModel(fallbackModels[1]);
                 console.log(`Set fallback1 selector to: ${fallbackModels[1]}`);
             }
 
             if (fallbackModels.length >= 3 && this.llmSelectors.fallback2) {
-                console.log(`🔍 BUG HUNT: Setting fallback2 LLM to: ${fallbackModels[2]} (isInitializing=${this.isInitializing})`);
                 this.llmSelectors.fallback2.setSelectedModel(fallbackModels[2]);
                 console.log(`Set fallback2 selector to: ${fallbackModels[2]}`);
             }
@@ -2007,9 +1998,7 @@ class VisualResponseApp {
         }
 
         // Initialization is complete - allow selection change events
-        console.log('🔍 BUG HUNT: About to disable initialization flag...');
         this.isInitializing = false;
-        console.log('🔍 BUG HUNT: VisualResponseApp initialization complete - selection events now enabled');
     }
 
     /**
@@ -2018,12 +2007,9 @@ class VisualResponseApp {
      * @param {LLMModel|null} model - Selected model object
      */
     handleLLMSelectionChange(position, model) {
-        console.log(`🔍 BUG HUNT: LLM selection changed - ${position}:`, model);
-        console.log(`🔍 BUG HUNT: isInitializing = ${this.isInitializing}`);
 
         // Guard against updates during initialization
         if (this.isInitializing) {
-            console.log(`🚫 BUG HUNT: Blocking LLM selection change during initialization - ${position}`);
             return;
         }
 
@@ -2083,12 +2069,9 @@ class VisualResponseApp {
      * @param {LLMModel|null} model - Selected router LLM model
      */
     handleRouterLLMSelectionChange(model) {
-        console.log('🔍 BUG HUNT: Router LLM selection changed:', model);
-        console.log(`🔍 BUG HUNT: isInitializing = ${this.isInitializing}`);
 
         // Guard against updates during initialization
         if (this.isInitializing) {
-            console.log(`🚫 BUG HUNT: Blocking router LLM selection change during initialization`);
             return;
         }
 
@@ -2122,12 +2105,9 @@ class VisualResponseApp {
      * @param {LLMModel|null} model - Selected planner LLM model
      */
     handlePlannerLLMSelectionChange(model) {
-        console.log('🔍 BUG HUNT: Planner LLM selection changed:', model);
-        console.log(`🔍 BUG HUNT: isInitializing = ${this.isInitializing}`);
 
         // Guard against updates during initialization
         if (this.isInitializing) {
-            console.log(`🚫 BUG HUNT: Blocking planner LLM selection change during initialization`);
             return;
         }
 

@@ -507,8 +507,6 @@ def parse_cli_args() -> argparse.Namespace:
 
     parser.add_argument("--full_output", dest='full_output_mode', action="store_true", default=True,
                         help="Full output mode. Shows live model output instead of hiding it.")
-    parser.add_argument("-f", "--fast", action="store_true", default=False,
-                        help="Fast mode (deprecated - kept for backward compatibility).")
     parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
     parser.add_argument("-o", "--online", action="store_true", default=False,
@@ -587,6 +585,7 @@ import warnings
 # --- FIX: Import new command system components ---
 from agent.commands.command_handler import CommandHandler
 from agent.commands.base_command import CommandResult
+from agent.core.app_context import AppContext
 # --- END FIX ---
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -1197,7 +1196,8 @@ async def save_current_llm_config_as_default():
 
     # Update the 'selected' status in the full config based on the current session
     for model_key, data in full_config.items():
-        data['selected'] = model_key in currently_selected_models
+        if isinstance(data, dict):
+            data['selected'] = model_key in currently_selected_models
 
     # Save the modified configuration back to the persistent file
     g.save_llm_config(full_config)
@@ -1229,7 +1229,6 @@ async def main(  # type: ignore[misc]
                 gui=False,
                 c=False,
                 llm=None,
-                fast=False,
                 min=False,
                 image=False,
                 full_output_mode=False,
@@ -1269,7 +1268,7 @@ async def main(  # type: ignore[misc]
 
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
 
-        if not args.llm and not args.local and not args.fast:
+        if not args.llm and not args.local:
             apply_default_llm_config()
 
         # LLM roles are automatically loaded by g.load_llm_roles() during globals initialization
@@ -1430,7 +1429,7 @@ async def main(  # type: ignore[misc]
 
         if not tui_callback:
             logging.info(colored("Agent Ready.", "magenta"))
-            show_unified_bindings_display()
+            show_unified_bindings_display(gui_mode=args.gui)
             swap_to_simple_logging()
 
         # Start background input collector for real-time command queuing
@@ -1500,23 +1499,11 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
         assistant_response = ""
 
-        # --- FIX: Instantiate CommandHandler once before the loop ---
-        # This uses a minimal 'dummy' context to allow the command objects
-        # to be instantiated, as they rely on a context object.
-        class DummyAppContext:
-            def __init__(self):
-                self.logger = logging.getLogger("command_handler_context")
-                # Add a settings object to satisfy commands that need it
-                class DummySettings:
-                    def __init__(self):
-                        self.auto_execute = args.yolo
-                        self.voice_mode = args.voice
-                        self.local_mode = args.local
-                        self.online_mode = args.online
-                        self.full_output_mode = args.full_output_mode
-                self.settings = DummySettings()
-
-        command_handler = CommandHandler(DummyAppContext())
+        # --- FIX: Instantiate CommandHandler with proper AppContext ---
+        app_context = AppContext()
+        app_context.settings.load_from_args(args)
+        app_context.logger = logging.getLogger("command_handler_context")
+        command_handler = CommandHandler(app_context)
         # --- END FIX ---
 
         initializing: bool = True
@@ -1548,7 +1535,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
             if user_input and user_input.startswith('/'):
                 response = await command_handler.handle_command(
-                    user_input, args, context_chat=context_chat, command_handler=command_handler
+                    user_input, context_chat=context_chat, command_handler=command_handler
                 )
                 if response.result == CommandResult.EXIT: exit(0)
                 if response.result == CommandResult.ERROR: logging.error(colored(f"# cli-agent: {response.message}", "red"))
@@ -1618,7 +1605,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         if g.router_llm:
                             difficulty_chat = Chat("Act as a complexity assessment assistant. You view the users provided context and respond with a percentage value from 1-100 indicating the difficulty of formulating the next assistant response.")
                             difficulty_chat.add_message(Role.USER, "Hi, please think about the following conversation and assess the difficulty of responding:\n" + context_chat.print_chat(-3, None, True))
-                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm], force_preferred_model=True)
+                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm] + g.FALLBACK_MODELS, force_preferred_model=True)
                             # extract last number found in the response string
                             response_complexity: int = 50 # Default fallback
                             match = re.findall(r'\d+', response)
@@ -1642,7 +1629,6 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             chat=context_chat,
                             preferred_models=selected_models,
                             force_preferred_model=True,
-                            temperature=0.7,
                             base64_images=base64_images,
                             generation_stream_callback=interruption_callback,
                             assistant_prefix="<think>"
@@ -2006,12 +1992,7 @@ Examples:
                                     if ("response" in tool_name and "error" not in returned_context.lower()):
                                         # Break and wait for user input instead of continuing the loop
                                         break
-                                    else:
-                                        continue
-                                else:
-                                    # No meaningful context was added (only invisible tools like todos/think were executed)
-                                    # Break and wait for user input instead of continuing the loop
-                                    break
+                                continue # Continue the agent loop for the next action
                             except Exception:
                                 error_output = f"<context>\n{traceback.format_exc()}\n</context>"
                                 context_chat.add_message(Role.ASSISTANT, error_output)

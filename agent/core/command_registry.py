@@ -99,13 +99,6 @@ class CommandRegistry:
                 category="configuration"
             ),
             CommandDefinition(
-                canonical="fast_mode",
-                aliases=["/f", "/fast"],
-                description="Toggle fast mode (deprecated)",
-                category="configuration",
-                deprecated=True
-            ),
-            CommandDefinition(
                 canonical="full_output",
                 aliases=["/fo", "/full_output"],
                 description="Show full model output instead of summary",
@@ -133,6 +126,12 @@ class CommandRegistry:
                 canonical="fallbacks",
                 aliases=["/fallbacks"],
                 description="Set the fallback LLM models",
+                category="configuration"
+            ),
+            CommandDefinition(
+                canonical="config",
+                aliases=["/config", "/c"],
+                description="Display current agent and model configuration",
                 category="configuration"
             ),
 

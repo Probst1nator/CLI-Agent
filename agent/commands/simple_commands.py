@@ -7,7 +7,7 @@ from termcolor import colored
 from agent.commands.base_command import BaseCommand, CommandResponse, CommandResult
 
 if TYPE_CHECKING:
-    import argparse
+    pass
 
 class MultilineCommand(BaseCommand):
     """Command for multiline input mode."""
@@ -20,7 +20,7 @@ class MultilineCommand(BaseCommand):
     def description(self) -> str:
         return 'Enter multiline input mode'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         multiline_input = self._handle_multiline_input()
         return CommandResponse(
             result=CommandResult.SUCCESS,
@@ -53,7 +53,7 @@ class ExitCommand(BaseCommand):
     def description(self) -> str:
         return 'Exit CLI-Agent'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         print(colored("# cli-agent: Goodbye!", "cyan"))
         return CommandResponse(result=CommandResult.EXIT)
 
@@ -69,7 +69,7 @@ class UnsayCommand(BaseCommand):
     def description(self) -> str:
         return 'Remove last user message and AI response'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         context_chat = kwargs.get('context_chat')
         if context_chat and len(context_chat.messages) >= 2:
             context_chat.messages.pop()  # Remove AI response
@@ -90,11 +90,14 @@ class PrintCommand(BaseCommand):
     def description(self) -> str:
         return 'Print complete chat history'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         context_chat = kwargs.get('context_chat')
         if context_chat:
             print(colored("=== Chat History ===", "blue", attrs=["bold"]))
-            context_chat.print_chat()
+            if hasattr(context_chat, 'messages') and context_chat.messages:
+                context_chat.print_chat()
+            else:
+                print(colored("# cli-agent: Chat object exists but has no messages.", "yellow"))
         else:
             print(colored("# cli-agent: No chat history available.", "yellow"))
         return CommandResponse(result=CommandResult.CONTINUE)
@@ -111,7 +114,7 @@ class AutoCommand(BaseCommand):
     def description(self) -> str:
         return 'Toggle automatic code execution mode'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         self.context.settings.auto_execute = not self.context.settings.auto_execute
         status = "enabled" if self.context.settings.auto_execute else "disabled"
         print(colored(f"# cli-agent: Auto-execute mode {status}.", "green"))
@@ -128,29 +131,13 @@ class VoiceCommand(BaseCommand):
     def description(self) -> str:
         return 'Toggle voice input/output mode'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         self.context.settings.voice_mode = not self.context.settings.voice_mode
         status = "enabled" if self.context.settings.voice_mode else "disabled"
         print(colored(f"# cli-agent: Voice mode {status}.", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)
 
 
-class FastModeCommand(BaseCommand):
-    """Toggle fast mode (deprecated feature)."""
-
-    @property
-    def aliases(self) -> List[str]:
-        return ['/f', '/fast']
-
-    @property
-    def description(self) -> str:
-        return 'Toggle fast mode (deprecated)'
-
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
-        args.fast = not getattr(args, 'fast', False)
-        status = "enabled" if args.fast else "disabled"
-        print(colored(f"# cli-agent: Fast mode {status} (deprecated).", "green"))
-        return CommandResponse(result=CommandResult.CONTINUE)
 
 class LocalCommand(BaseCommand):
     """Toggle local-only LLM mode."""
@@ -163,7 +150,7 @@ class LocalCommand(BaseCommand):
     def description(self) -> str:
         return 'Toggle local-only LLM mode'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         self.context.settings.local_mode = not self.context.settings.local_mode
         status = "enabled" if self.context.settings.local_mode else "disabled"
         print(colored(f"# cli-agent: Local mode {status}.", "green"))
@@ -180,7 +167,7 @@ class OnlineCommand(BaseCommand):
     def description(self) -> str:
         return 'Toggle online mode for web-enabled features'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         self.context.settings.online_mode = not self.context.settings.online_mode
         status = "enabled" if self.context.settings.online_mode else "disabled"
         print(colored(f"# cli-agent: Online mode {status}.", "green"))
@@ -197,7 +184,7 @@ class FullOutputCommand(BaseCommand):
     def description(self) -> str:
         return 'Show full model output instead of summary'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         self.context.settings.full_output_mode = not self.context.settings.full_output_mode
         status = "enabled" if self.context.settings.full_output_mode else "disabled"
         print(colored(f"# cli-agent: Full output mode {status}.", "green"))
@@ -215,7 +202,7 @@ class LlmCommand(BaseCommand):
     def description(self) -> str:
         return 'Open LLM selection interface'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         """Execute LLM selection using the enhanced LlmSelector UI."""
         try:
             from agent.llm_selection import LlmSelector
@@ -242,8 +229,8 @@ class LlmCommand(BaseCommand):
             # Handle the special 'any_local' case
             if result.get("selection_type") == "any_local":
                 g.FORCE_LOCAL = True
-                args.local = True
-                args.llm = None
+                self.context.settings.local_mode = True
+                # Note: LLM selection handled separately in context
                 self.context.settings.local_mode = True
                 self.logger.info(colored("# cli-agent: 'Any but local' option selected. Local mode enabled.", "green"))
                 return CommandResponse(result=CommandResult.CONTINUE, message="Local mode enabled")
@@ -256,14 +243,14 @@ class LlmCommand(BaseCommand):
             selected_llms = [config['model_key'] for config in selected_configs]
 
             # Update context and globals with the latest selection
-            args.llm = selected_llms
+            # Note: LLM selection stored in context
             g.SELECTED_LLMS = selected_llms
             self.context.llm_config.model_key = selected_llms[0] if selected_llms else ""
 
             # Reload the config in `g` so the main loop gets the fresh settings
             g.load_llm_config()
 
-            if not args.llm:
+            if not selected_llms:
                 message = "LLM set to auto, type (-h) for info"
                 self.logger.info(colored(f"# cli-agent: {message}", "green"))
             else:
@@ -311,15 +298,18 @@ class PermissionCommand(BaseCommand):
     @property
     def sub_commands(self) -> Optional[Dict[str, str]]:
         return {
-            'list': 'List all permissions with IDs for removal',
+            'list': 'List all permissions with IDs for removal (default)',
             'view': 'View permissions in a user-friendly format',
+            'add': 'Add new permission with guided prompts',
+            'add dev <category>': 'Add development tool permission',
+            'add tool <name> <target>': 'Add tool permission',
+            'add group <name> <target>': 'Add group permission',
+            'add command <pattern> <scope>': 'Add command permission',
             'remove': 'Remove specific permission by ID',
             'clear': 'Clear all saved permissions',
-            'interactive': 'Open interactive permission manager',
-            'manage': 'Open interactive permission manager',
         }
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         """Execute permission management command."""
         try:
             # Import the new tool for the 'view' command
@@ -327,8 +317,8 @@ class PermissionCommand(BaseCommand):
 
             action = parts[1].lower() if len(parts) > 1 else "list"
 
-            if action == "list" or action == "":
-                # Default action is to list permissions with numbers for management
+            if action == "list":
+                # List permissions with numbers for management
                 result = self._list_permissions_for_management()
                 print(result)
                 return CommandResponse(result=CommandResult.CONTINUE, message="Permissions listed")
@@ -339,10 +329,10 @@ class PermissionCommand(BaseCommand):
                 print(result)
                 return CommandResponse(result=CommandResult.CONTINUE, message="Permissions viewed")
 
-            elif action in ["interactive", "manage"]:
-                # Open interactive manager
-                await self._interactive_permission_manager(args, kwargs)
-                return CommandResponse(result=CommandResult.CONTINUE, message="Interactive session completed")
+            elif action == "add":
+                # Add new permission with guided wizard
+                await self._add_permission_wizard(parts)
+                return CommandResponse(result=CommandResult.CONTINUE, message="Add permission completed")
 
             elif action == "remove" and len(parts) > 2:
                 perm_id = parts[2]
@@ -365,61 +355,183 @@ class PermissionCommand(BaseCommand):
             print(colored(f"❌ {error_msg}", "red"))
             return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
-    async def _interactive_permission_manager(self, args: argparse.Namespace, kwargs: Dict[str, Any]) -> None:
-        """Interactive permission management interface."""
-        print()
-        print(colored("🔧 INTERACTIVE PERMISSION MANAGER", "yellow", attrs=['bold']))
-        print(colored("═" * 50, "yellow"))
-
-        while True:
-            # Show current permissions with numbers for management
-            result = self._list_permissions_for_management()
-            print(result)
-
+    async def _add_permission_wizard(self, parts: List[str]) -> None:
+        """Simple add permission wizard."""
+        try:
             print()
-            print(colored("Commands:", "cyan"))
-            print(colored("  list                    # Refresh permission list", "white"))
-            print(colored("  remove <id>             # Remove permission by ID", "white"))
-            print(colored("  clear                   # Clear all permissions", "white"))
-            print(colored("  exit, quit, back        # Return to main CLI", "white"))
-            print()
+            print(colored("✨ Add Permission Wizard", "cyan", attrs=['bold']))
+            print(colored("=" * 40, "cyan"))
+
+            # Check if specific type was provided
+            if len(parts) >= 3:
+                perm_type = parts[2].lower()
+                if perm_type == "dev":
+                    await self._add_dev_permission(parts[3:])
+                elif perm_type == "tool":
+                    await self._add_tool_permission(parts[3:])
+                elif perm_type == "group":
+                    await self._add_group_permission(parts[3:])
+                elif perm_type == "command":
+                    await self._add_command_permission(parts[3:])
+                else:
+                    print(colored(f"❌ Unknown permission type: {perm_type}", "red"))
+                    print(colored("Valid types: dev, tool, group, command", "yellow"))
+                return
+
+            # Interactive type selection
+            print(colored("\n📂 Choose permission type:", "yellow"))
+            types = [
+                ("1", "dev", "Development tools (grep, find, etc.)"),
+                ("2", "tool", "Specific tools on files/directories"),
+                ("3", "group", "Groups of related tools"),
+                ("4", "command", "Command patterns"),
+            ]
+
+            for key, ptype, desc in types:
+                print(f"  {colored(key, 'green', attrs=['bold'])}: {colored(ptype, 'white')} - {desc}")
 
             try:
-                # Get user input (simplified for refactored version)
-                user_cmd = input(colored("Permissions> ", "cyan"))
-                user_cmd = user_cmd.strip().lower()
+                choice = input(colored("\nEnter choice (1-4): ", "cyan")).strip()
+
+                if choice == '1':
+                    await self._add_dev_permission([])
+                elif choice == '2':
+                    await self._add_tool_permission([])
+                elif choice == '3':
+                    await self._add_group_permission([])
+                elif choice == '4':
+                    await self._add_command_permission([])
+                else:
+                    print(colored("❌ Invalid choice.", "red"))
+
             except KeyboardInterrupt:
-                print(colored("\n↩️  Returning to main CLI (Ctrl+C)...", "yellow"))
-                break
+                print(colored("\n❌ Wizard cancelled.", "yellow"))
 
-            if user_cmd in ['exit', 'quit', 'back', '']:
-                print(colored("↩️  Returning to main CLI...", "green"))
-                break
+        except Exception as e:
+            print(colored(f"❌ Error in add wizard: {e}", "red"))
 
-            elif user_cmd == 'list':
-                continue
+    async def _add_dev_permission(self, args: List[str]) -> None:
+        """Add development tool permission."""
+        try:
+            from core.permissions.permissions_manager import get_permissions_manager
+            pm = get_permissions_manager()
 
-            elif user_cmd.startswith('remove ') and len(user_cmd.split()) >= 2:
-                perm_id = user_cmd.split()[1]
-                result = self._remove_permission(perm_id)
-                print(result)
+            print(colored("\n🛠️  Development Tool Permission", "cyan"))
 
-            elif user_cmd == 'clear':
-                print(colored("\n⚠️  WARNING: This will clear ALL saved permissions!", "red", attrs=['bold']))
-                print(colored("Type 'yes' to confirm or anything else to cancel:", "yellow"))
-
-                try:
-                    confirmation = input(colored("> ", "cyan")).strip().lower()
-                    if confirmation == 'yes':
-                        result = self._clear_all_permissions()
-                        print(result)
-                    else:
-                        print(colored("❌ Clear operation cancelled.", "yellow"))
-                except KeyboardInterrupt:
-                    print(colored("\n❌ Clear operation cancelled (Ctrl+C).", "yellow"))
-
+            if args and len(args) >= 1:
+                category = args[0]
+                scope = args[1] if len(args) >= 2 else "*"
             else:
-                print(colored(f"❓ Unknown command: {user_cmd}", "red"))
+                print(colored("Common categories: grepsearch, filesystems, network, development", "yellow"))
+                category = input(colored("Enter category name: ", "cyan")).strip()
+                if not category:
+                    print(colored("❌ Category required.", "red"))
+                    return
+
+                scope = input(colored("Enter scope (path or '*' for global): ", "cyan")).strip()
+                if not scope:
+                    scope = "*"
+
+            pm.add_always_allow(tool_name="bash", dev_tool_category=category, pattern=scope)
+            print(colored(f"✅ Added dev tool permission: {category} -> {scope}", "green"))
+
+        except Exception as e:
+            print(colored(f"❌ Error adding dev permission: {e}", "red"))
+
+    async def _add_tool_permission(self, args: List[str]) -> None:
+        """Add tool-specific permission."""
+        try:
+            from core.permissions.permissions_manager import get_permissions_manager
+            pm = get_permissions_manager()
+
+            print(colored("\n🔧 Tool Permission", "cyan"))
+
+            if args and len(args) >= 2:
+                tool_name = args[0]
+                target = args[1]
+            else:
+                tool_name = input(colored("Enter tool name (e.g., 'bash', 'readfile'): ", "cyan")).strip()
+                if not tool_name:
+                    print(colored("❌ Tool name required.", "red"))
+                    return
+
+                target = input(colored("Enter target (file path, directory, or tool name): ", "cyan")).strip()
+                if not target:
+                    target = tool_name
+
+            pm.add_always_allow(
+                tool_name=tool_name,
+                file_path=target if target != tool_name else None,
+                pattern=target if target != tool_name else None
+            )
+            print(colored(f"✅ Added tool permission: {tool_name} -> {target}", "green"))
+
+        except Exception as e:
+            print(colored(f"❌ Error adding tool permission: {e}", "red"))
+
+    async def _add_group_permission(self, args: List[str]) -> None:
+        """Add group permission."""
+        try:
+            from core.permissions.permissions_manager import get_permissions_manager
+            pm = get_permissions_manager()
+
+            print(colored("\n📁 Group Permission", "cyan"))
+
+            if args and len(args) >= 2:
+                group_name = args[0]
+                target = args[1]
+            else:
+                print(colored("Common groups: file_tools, system_tools, development_tools, search_tools", "yellow"))
+                group_name = input(colored("Enter group name: ", "cyan")).strip()
+                if not group_name:
+                    print(colored("❌ Group name required.", "red"))
+                    return
+
+                target = input(colored("Enter target (path or group name for global): ", "cyan")).strip()
+                if not target:
+                    target = group_name
+
+            pm.add_always_allow(
+                tool_name="",
+                group_name=group_name,
+                pattern=target if target != group_name else None
+            )
+            print(colored(f"✅ Added group permission: {group_name} -> {target}", "green"))
+
+        except Exception as e:
+            print(colored(f"❌ Error adding group permission: {e}", "red"))
+
+    async def _add_command_permission(self, args: List[str]) -> None:
+        """Add command pattern permission."""
+        try:
+            from core.permissions.permissions_manager import get_permissions_manager
+            pm = get_permissions_manager()
+
+            print(colored("\n⚡ Command Permission", "cyan"))
+            print(colored("Examples: 'ls*', 'git status', 'npm*'", "yellow"))
+
+            if args and len(args) >= 2:
+                command_pattern = args[0]
+                scope = args[1]
+            else:
+                command_pattern = input(colored("Enter command pattern: ", "cyan")).strip()
+                if not command_pattern:
+                    print(colored("❌ Command pattern required.", "red"))
+                    return
+
+                scope = input(colored("Enter scope path (or '*' for global): ", "cyan")).strip()
+                if not scope:
+                    scope = "*"
+
+            pm.add_always_allow(
+                tool_name="bash",
+                command_pattern=command_pattern,
+                scope_path=scope
+            )
+            print(colored(f"✅ Added command permission: bash:{command_pattern} -> {scope}", "green"))
+
+        except Exception as e:
+            print(colored(f"❌ Error adding command permission: {e}", "red"))
     def _list_permissions_for_management(self) -> str:
         """
         Generates a numbered list of permissions suitable for management (e.g., removal).
@@ -482,6 +594,14 @@ class PermissionCommand(BaseCommand):
 
             if permission_count > 0:
                 output_lines.append(f"\n📊 Total: {permission_count} active permissions")
+
+                # Add usage examples
+                output_lines.append("\n💡 USAGE EXAMPLES:")
+                output_lines.append("   /perms add dev grepsearch        # Add dev tool permission")
+                output_lines.append("   /perms add tool bash /home/user  # Add tool permission")
+                output_lines.append("   /perms remove 1                  # Remove permission #1")
+                output_lines.append("   /perms view                      # Pretty view")
+                output_lines.append("   /perms clear                     # Clear all")
 
             return "\n".join(output_lines)
 
@@ -600,7 +720,7 @@ class SaveCommand(BaseCommand):
     def description(self) -> str:
         return 'Save current LLM selection as default'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         """Save the current LLM selection as the new default."""
         try:
             from core.globals import g
@@ -621,7 +741,8 @@ class SaveCommand(BaseCommand):
 
             # Update the 'selected' status in the full config based on the current session
             for model_key, data in full_config.items():
-                data['selected'] = model_key in currently_selected_models
+                if isinstance(data, dict):
+                    data['selected'] = model_key in currently_selected_models
 
             # Save the modified configuration back to the persistent file
             g.save_llm_config(full_config)
@@ -660,7 +781,7 @@ class CompactCommand(BaseCommand):
     def description(self) -> str:
         return 'Compact conversation (create summary)'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         """Compact/summarize the current conversation."""
         try:
             import time
@@ -715,7 +836,7 @@ class ResetCommand(BaseCommand):
     def description(self) -> str:
         return 'Complete agent reset (chat, tools, images, context)'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         context_chat = kwargs.get('context_chat')
 
         # Clear chat history
@@ -752,7 +873,7 @@ class PlannerLlmCommand(BaseCommand):
     def description(self) -> str:
         return 'Set the planner LLM (use "None" to disable)'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -792,7 +913,7 @@ class RouterLlmCommand(BaseCommand):
     def description(self) -> str:
         return 'Set the router LLM (use "None" to disable)'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -832,7 +953,7 @@ class FallbacksCommand(BaseCommand):
     def description(self) -> str:
         return 'Set fallback LLMs (up to 3 models)'
 
-    async def execute(self, args: argparse.Namespace, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -860,5 +981,61 @@ class FallbacksCommand(BaseCommand):
 
         except Exception as e:
             error_msg = f"Failed to set fallback LLMs: {str(e)}"
+            print(colored(f"# cli-agent: {error_msg}", "red"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
+
+
+class ConfigCommand(BaseCommand):
+    """Command to display current agent and model configuration."""
+
+    @property
+    def aliases(self) -> List[str]:
+        return ['/config', '/c']
+
+    @property
+    def description(self) -> str:
+        return 'Display current agent and model configuration'
+
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+        try:
+            from shared.utils.display_utils import colorize_model_list
+            from core.globals import g
+
+            # Display configuration without triggering potential side effects
+            print(colored("--- Agent Configuration ---", "yellow"))
+
+            # Auto-execution status
+            auto_status = 'ON (manual confirmation)' if g.auto_execute else 'OFF'
+            auto_color = 'green' if g.auto_execute else 'red'
+            print("Auto-execution:".ljust(24) + " " + colored(auto_status, auto_color))
+
+            # Force Local mode status
+            force_local = getattr(g, 'FORCE_LOCAL', False) or self.context.settings.local_mode
+            local_status = colored('ON', 'green', attrs=['bold']) if force_local else colored('OFF', 'red')
+            print("Force Local:".ljust(24) + f" {local_status}")
+
+            # Voice mode status
+            voice_status = colored('ON', 'green', attrs=['bold']) if g.voice_mode else colored('OFF', 'red')
+            print("Voice Mode:".ljust(24) + f" {voice_status}")
+
+            # TTS mode status
+            tts_status = colored('Cloud TTS', 'green', attrs=['bold']) if g.online_mode else colored('Local TTS', 'green', attrs=['bold'])
+            print("TTS Mode:".ljust(24) + f" {tts_status}")
+
+            # Display model configuration
+            selected_models = g.SELECTED_LLMS if g.SELECTED_LLMS else []
+            if selected_models:
+                print(colored("--- Model Configuration ---", "yellow"))
+                count = len(selected_models)
+                label = f"  🤖 {count} Selected Models:".ljust(28)
+                models_str = colorize_model_list(selected_models, tui_mode=False)
+                print(colored(label, "light_green") + " " + models_str)
+
+            print(colored("--- Ready for User Input ---", "yellow"))
+
+            return CommandResponse(result=CommandResult.CONTINUE, message="Configuration displayed")
+
+        except Exception as e:
+            error_msg = f"Failed to display configuration: {str(e)}"
             print(colored(f"# cli-agent: {error_msg}", "red"))
             return CommandResponse(result=CommandResult.ERROR, message=error_msg)

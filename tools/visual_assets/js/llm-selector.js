@@ -196,10 +196,10 @@ class SearchableLLMSelectbox {
 
             if (data.status === 'success') {
                 this.setModels(data.models);
-                console.log(`Loaded ${data.models.length} LLM models from server`);
+                window.visualLogger.debug(`Loaded ${data.models.length} LLM models from server`);
                 // Store current system configuration for reference
                 this.systemConfiguration = data.current_configuration || {};
-                console.log('Current system configuration:', this.systemConfiguration);
+                window.visualLogger.debug('Current system configuration:', this.systemConfiguration);
                 // Notify that models are loaded
                 this.options.onModelsLoaded(this, data.models, this.systemConfiguration);
             } else {
@@ -248,7 +248,7 @@ class SearchableLLMSelectbox {
                 this.label.textContent = model.name;
                 this.label.title = `${model.provider}: ${model.name}`;
                 this.updateSelectboxWidth();
-                console.log(`Successfully restored deferred selection: ${modelId}`);
+                window.visualLogger.debug(`Successfully restored deferred selection: ${modelId}`);
                 // Don't call onSelectionChange for deferred selections to avoid duplicate events
             } else {
                 console.warn(`Deferred model ${modelId} still not found after models loaded`);

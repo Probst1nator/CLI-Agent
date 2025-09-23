@@ -92,7 +92,7 @@ async def handle_screenshot_capture() -> List[str]:
 
 async def handle_permission_flags(user_input: str, get_user_input_func, args, input_event, input_lock, shared_input):
     """Handle permission management flags like /permissions, -p, --p."""
-    from tools.permissions import permissions
+    from core.permissions.permissions_manager import get_permissions_manager
     from termcolor import colored
 
     # Parse the command
@@ -105,19 +105,23 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
             print(colored("\n🔧 CLI-AGENT PERMISSION MANAGER", "yellow", attrs=['bold']))
             print(colored("Using flag-based interface for easy permission management", "white"))
             print(colored("─" * 60, "yellow"))
-            result = permissions._list_permissions()
+            manager = get_permissions_manager()
+            result = f"Permissions config path: {manager.config_path}\nPermissions data: {manager.permissions}"
             print(result)
             return
 
         action = parts[1].lower()
 
         if action == "list":
-            result = permissions._list_permissions()
+            manager = get_permissions_manager()
+            result = f"Permissions config path: {manager.config_path}\nPermissions data: {manager.permissions}"
             print(result)
 
         elif action == "remove" and len(parts) >= 3:
             perm_id = parts[2]
-            result = permissions._remove_permission(perm_id)
+            manager = get_permissions_manager()
+            manager.remove_permission(perm_id)
+            result = f"Permission {perm_id} has been removed."
             print(result)
 
         elif action == "clear":
@@ -141,7 +145,9 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
                 return
 
             if confirmation.strip().lower() == 'yes':
-                result = permissions._clear_all_permissions()
+                manager = get_permissions_manager()
+                manager.clear_all_permissions()
+                result = "All permissions have been cleared."
                 print(result)
             else:
                 print(colored("❌ Clear operation cancelled.", "green"))
@@ -167,7 +173,7 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
 
 async def interactive_permission_manager(get_user_input_func, args, input_event, input_lock, shared_input):
     """Interactive permission management interface."""
-    from tools.permissions import permissions
+    from core.permissions.permissions_manager import get_permissions_manager
     from termcolor import colored
 
     print()
@@ -176,7 +182,8 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
 
     while True:
         # Show current permissions
-        result = permissions._list_permissions()
+        manager = get_permissions_manager()
+        result = f"Permissions config path: {manager.config_path}\nPermissions data: {manager.permissions}"
         print(result)
 
         print()
@@ -213,7 +220,9 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
 
         elif user_cmd.startswith('remove ') and len(user_cmd.split()) >= 2:
             perm_id = user_cmd.split()[1]
-            result = permissions._remove_permission(perm_id)
+            manager = get_permissions_manager()
+            manager.remove_permission(perm_id)
+            result = f"Permission {perm_id} has been removed."
             print(result)
 
         elif user_cmd == 'clear':
@@ -236,7 +245,9 @@ async def interactive_permission_manager(get_user_input_func, args, input_event,
                 continue
 
             if confirmation.strip().lower() == 'yes':
-                result = permissions._clear_all_permissions()
+                manager = get_permissions_manager()
+                manager.clear_all_permissions()
+                result = "All permissions have been cleared."
                 print(result)
                 break  # Exit after clearing
             else:

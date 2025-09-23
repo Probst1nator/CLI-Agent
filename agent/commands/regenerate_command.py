@@ -7,7 +7,7 @@ from termcolor import colored
 from agent.commands.base_command import BaseCommand, CommandResponse, CommandResult
 
 if TYPE_CHECKING:
-    import argparse
+    pass
 
 class RegenerateCommand(BaseCommand):
     """Command to regenerate the last AI response."""
@@ -22,7 +22,6 @@ class RegenerateCommand(BaseCommand):
 
     async def execute(
         self,
-        args: argparse.Namespace,
         parts: List[str],
         **kwargs: Any
     ) -> CommandResponse:

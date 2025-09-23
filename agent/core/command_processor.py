@@ -37,17 +37,15 @@ class CommandInputProcessor(InputProcessor):
         try:
             self.logger.debug(f"Processing command: {event.content}")
 
-            # Get args from context (this should be properly injected)
-            args = getattr(self.context, 'args', None)
-            if args is None:
-                self.logger.warning("No args available in context")
-                args = self._create_dummy_args()
+            # Process the command using the context settings
+            # Include context_chat if available from the event metadata
+            kwargs = {'event': event}
+            if hasattr(event, 'metadata') and event.metadata and 'context_chat' in event.metadata:
+                kwargs['context_chat'] = event.metadata['context_chat']
 
-            # Process the command
             response = await self.command_handler.handle_command(
                 event.content,
-                args,
-                event=event
+                **kwargs
             )
 
             # Convert command response to input response
@@ -57,7 +55,8 @@ class CommandInputProcessor(InputProcessor):
                 data={
                     'command_result': response.result.value,
                     'should_regenerate': response.should_regenerate,
-                    'images': response.base64_images
+                    'images': response.base64_images,
+                    'user_input': getattr(response, 'user_input', None)
                 },
                 should_continue=response.result != CommandResult.EXIT
             )
@@ -69,23 +68,6 @@ class CommandInputProcessor(InputProcessor):
                 message=f"Command processing failed: {str(e)}"
             )
 
-    def _create_dummy_args(self) -> argparse.Namespace:
-        """Create dummy args for command processing."""
-        import argparse
-        args = argparse.Namespace()
-
-        # Set common defaults
-        args.yolo = False
-        args.local = False
-        args.voice = False
-        args.online = True
-        args.full_output_mode = False
-        args.fast = False
-        args.message = []
-        args.private_remote_wake_detection = False
-        args.online_voice = False
-
-        return args
 
 
 class TextInputProcessor(InputProcessor):
@@ -244,7 +226,7 @@ class UnifiedInputManager:
         # Auto-setup basic input sources
         self._auto_setup_sources()
 
-        self.logger.info("UnifiedInputManager initialized")
+        self.logger.debug("UnifiedInputManager initialized")
 
     def _setup_processors(self) -> None:
         """Set up all input processors."""
@@ -284,9 +266,9 @@ class UnifiedInputManager:
                 self.input_manager.register_source(web_source)
                 # Set Web as default in GUI mode to prioritize GUI input
                 self.input_manager.set_default_source(web_source.source_type)
-                self.logger.info("Auto-configured CLI, Queue, and Web input sources (GUI mode)")
+                self.logger.debug("Auto-configured CLI, Queue, and Web input sources (GUI mode)")
             else:
-                self.logger.info("Auto-configured CLI and Queue input sources")
+                self.logger.debug("Auto-configured CLI and Queue input sources")
 
         except Exception as e:
             self.logger.error(f"Failed to auto-setup input sources: {e}")
@@ -350,9 +332,9 @@ class UnifiedInputManager:
             tuple: (user_input, base64_images)
         """
         try:
-            # Store args in context for processors
+            # Update context settings if args provided
             if args is not None:
-                self.context.args = args
+                self.context.settings.load_from_args(args)
 
             # Check for queued messages first
             if hasattr(args, 'message') and args and args.message:
@@ -409,7 +391,13 @@ class UnifiedInputManager:
             if event.event_type == InputEventType.INTERRUPT:
                 raise KeyboardInterrupt()
 
-            # Return in expected format
+            # If a command was processed, return the new user input from the command (if any),
+            # or an empty string to prevent the main loop from re-processing.
+            if event.event_type == InputEventType.COMMAND:
+                user_input_from_command = (response.data.get('user_input') if response.data else None) or ''
+                return user_input_from_command, images
+
+            # Return in expected format for non-commands
             return event.content, images
 
         except Exception as e:

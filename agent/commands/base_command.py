@@ -13,7 +13,6 @@ from enum import Enum
 
 if TYPE_CHECKING:
     from agent.core.app_context import AppContext
-    import argparse
 
 class CommandResult(Enum):
     """Command execution result types."""
@@ -68,7 +67,6 @@ class BaseCommand(abc.ABC):
     @abc.abstractmethod
     async def execute(
         self,
-        args: argparse.Namespace,
         parts: List[str],
         **kwargs: Any
     ) -> CommandResponse:
@@ -76,7 +74,6 @@ class BaseCommand(abc.ABC):
         Execute the command.
 
         Args:
-            args: Parsed command line arguments
             parts: Command parts (e.g., ['/perms', 'list'])
             **kwargs: Additional command-specific arguments
 
@@ -90,13 +87,20 @@ class BaseCommand(abc.ABC):
         return True
 
     def get_help_text(self) -> str:
-        """Get formatted help text for this command."""
-        help_text = f"{', '.join(self.aliases)}: {self.description}"
+        """Get formatted help text for this command with colors."""
+        from termcolor import colored
+
+        # Color the aliases and description differently
+        aliases_text = colored(', '.join(self.aliases), 'green', attrs=['bold'])
+        description_text = colored(self.description, 'white')
+        help_text = f"{aliases_text}: {description_text}"
 
         if self.sub_commands:
-            help_text += "\n  Sub-commands:"
+            help_text += f"\n      {colored('Sub-commands:', 'yellow')}:"
             for sub_cmd, desc in self.sub_commands.items():
-                help_text += f"\n    {sub_cmd}: {desc}"
+                sub_cmd_colored = colored(sub_cmd, 'green')
+                sub_desc_colored = colored(desc, 'white')
+                help_text += f"\n        {sub_cmd_colored}: {sub_desc_colored}"
 
         return help_text
 

@@ -1153,7 +1153,10 @@ class OllamaClient(AIProviderInterface):
                         ]
                     }
 
-                # For each model, get comprehensive variant information via web scraping
+                # For each model, get comprehensive variant information via parallel web scraping
+                import concurrent.futures
+
+                # Initialize model_status entries first
                 for model_base, last_updated in community_models.items():
                     if model_base not in model_status:
                         model_status[model_base] = {
@@ -1166,23 +1169,47 @@ class OllamaClient(AIProviderInterface):
                         # Add API date even for downloaded models
                         model_status[model_base]['api_modified_at'] = last_updated
 
-                    # Get variants via web scraping
-                    scraped_variants = OllamaClient.get_model_variants_from_web(model_base)
+                # Define function for parallel scraping
+                def scrape_model_variants(model_base):
+                    try:
+                        return model_base, OllamaClient.get_model_variants_from_web(model_base)
+                    except Exception as e:
+                        logging.debug(f"Failed to scrape {model_base}: {e}")
+                        return model_base, []
 
-                    for variant_info in scraped_variants:
-                        variant_name = variant_info['name']
+                # Use ThreadPoolExecutor for parallel web scraping with limited concurrency
+                max_workers = min(10, len(community_models))  # Limit to 10 concurrent requests
 
-                        # Only add if not already marked as downloaded
-                        if variant_name not in model_status[model_base]['variants']:
-                            model_status[model_base]['variants'][variant_name] = {
-                                'downloaded': False,
-                                'tag': variant_info['tag'],
-                                'size_str': variant_info.get('size_str', ''),
-                                'context_window': variant_info.get('context_window'),
-                                'model_base': variant_info['model_base'],
-                                'api_modified_at': last_updated,  # Propagate API date to variants
-                                'variant_modified_at': variant_info.get('variant_modified_at', '')  # Individual variant date
-                            }
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    # Submit all scraping tasks
+                    future_to_model = {
+                        executor.submit(scrape_model_variants, model_base): model_base
+                        for model_base in community_models.keys()
+                    }
+
+                    # Process completed tasks as they finish
+                    for future in concurrent.futures.as_completed(future_to_model):
+                        model_base = future_to_model[future]
+                        try:
+                            model_base_result, scraped_variants = future.result()
+                            last_updated = community_models[model_base_result]
+
+                            for variant_info in scraped_variants:
+                                variant_name = variant_info['name']
+
+                                # Only add if not already marked as downloaded
+                                if variant_name not in model_status[model_base_result]['variants']:
+                                    model_status[model_base_result]['variants'][variant_name] = {
+                                        'downloaded': False,
+                                        'tag': variant_info['tag'],
+                                        'size_str': variant_info.get('size_str', ''),
+                                        'context_window': variant_info.get('context_window'),
+                                        'model_base': variant_info['model_base'],
+                                        'api_modified_at': last_updated,  # Propagate API date to variants
+                                        'variant_modified_at': variant_info.get('variant_modified_at', '')  # Individual variant date
+                                    }
+                        except Exception as e:
+                            logging.debug(f"Error processing scraping result for {model_base}: {e}")
 
             except Exception as e:
                 logging.debug(f"Failed to get comprehensive model list: {e}")

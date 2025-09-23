@@ -98,10 +98,15 @@ class CommandCompleterWithDescriptions(Completer):
                 class MinimalContext:
                     def __init__(self):
                         import logging
+                        from typing import Any, Dict, List
                         self.logger = logging.getLogger("command_system")
+                        # Add minimal AppContext compatibility
+                        self.current_chat: Any = None
+                        self.base64_images: List[str] = []
+                        self.tool_classes: Dict[str, Any] = {}
 
                 context = MinimalContext()
-                command_handler = CommandHandler(context)
+                command_handler = CommandHandler(context)  # type: ignore[arg-type]
                 self._unified_completer = UnifiedCommandCompleter(command_handler)
             except ImportError:
                 # Fallback to legacy implementation

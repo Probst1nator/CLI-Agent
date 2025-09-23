@@ -15,7 +15,6 @@ from agent.commands.base_command import (
 
 if TYPE_CHECKING:
     from agent.core.app_context import AppContext
-    import argparse
 
 class CommandHandler:
     """
@@ -39,10 +38,10 @@ class CommandHandler:
         from agent.commands.help_command import HelpCommand
         from agent.commands.simple_commands import (
             MultilineCommand, ExitCommand, ResetCommand, UnsayCommand,
-            PrintCommand, AutoCommand, VoiceCommand, FastModeCommand, LocalCommand,
+            PrintCommand, AutoCommand, VoiceCommand, LocalCommand,
             OnlineCommand, FullOutputCommand, LlmCommand,
             PermissionCommand, SaveCommand, CompactCommand,
-            PlannerLlmCommand, RouterLlmCommand, FallbacksCommand
+            PlannerLlmCommand, RouterLlmCommand, FallbacksCommand, ConfigCommand
         )
 
         # Register all commands
@@ -57,7 +56,6 @@ class CommandHandler:
             SaveCommand(self.context),
             ResetCommand(self.context),
             VoiceCommand(self.context),
-            FastModeCommand(self.context),
             AutoCommand(self.context),
             LocalCommand(self.context),
             OnlineCommand(self.context),
@@ -68,6 +66,7 @@ class CommandHandler:
             PlannerLlmCommand(self.context),
             RouterLlmCommand(self.context),
             FallbacksCommand(self.context),
+            ConfigCommand(self.context),
         ]
 
         for command in commands:
@@ -124,7 +123,6 @@ class CommandHandler:
     async def handle_command(
         self,
         user_input: str,
-        args: argparse.Namespace,
         **kwargs: Any
     ) -> CommandResponse:
         """
@@ -132,7 +130,6 @@ class CommandHandler:
 
         Args:
             user_input: Raw user input (e.g., '/help' or '/perms list')
-            args: Parsed command line arguments
             **kwargs: Additional context from the calling function
 
         Returns:
@@ -166,7 +163,7 @@ class CommandHandler:
         try:
             # Execute command
             self.logger.debug(f"Executing command: {command_alias} with args: {parts[1:]}")
-            response = await command.execute(args, parts, **kwargs)
+            response = await command.execute(parts, **kwargs)
 
             # Log result
             if response.result == CommandResult.ERROR:
@@ -184,8 +181,18 @@ class CommandHandler:
             )
 
     def get_help_text(self) -> str:
-        """Get formatted help text for all commands."""
-        help_lines = ["Available commands:"]
+        """Get formatted help text for all commands with enhanced coloring."""
+        from termcolor import colored
+
+        # Categorize commands for better organization
+        categories = {
+            "Core Commands": ["/h", "/help", "/e", "/exit"],
+            "Input & Media": ["/m", "/message", "/img", "/screenshot", "/v", "/voice"],
+            "Chat Management": ["/r", "/regenerate", "/p", "/print", "/clear", "/reset", "/compact", "/unsay"],
+            "Configuration": ["/l", "/local", "/o", "/online", "/a", "/auto", "/fo", "/full_output", "/config", "/c"],
+            "LLM Management": ["/llm", "/planner_llm", "/router_llm", "/fallbacks", "/s", "/save"],
+            "Permissions": ["/perms", "/permissions"]
+        }
 
         # Group commands by their base command object to avoid duplicates
         unique_commands = {}
@@ -193,8 +200,39 @@ class CommandHandler:
             if command not in unique_commands.values():
                 unique_commands[alias] = command
 
-        for alias, command in sorted(unique_commands.items()):
-            help_lines.append(f"  {command.get_help_text()}")
+        help_lines = [colored("Available Commands:", "yellow", attrs=["bold"])]
+
+        # Organize commands by category
+        categorized_commands = {}
+        uncategorized_commands = {}
+
+        for alias, command in unique_commands.items():
+            found_category = None
+            for category, category_aliases in categories.items():
+                if alias in category_aliases:
+                    if category not in categorized_commands:
+                        categorized_commands[category] = []
+                    categorized_commands[category].append((alias, command))
+                    found_category = category
+                    break
+
+            if not found_category:
+                uncategorized_commands[alias] = command
+
+        # Display categorized commands
+        for category in categories.keys():
+            if category in categorized_commands:
+                help_lines.append("")
+                help_lines.append(colored(f"  {category}:", "cyan", attrs=["bold"]))
+                for alias, command in sorted(categorized_commands[category]):
+                    help_lines.append(f"    {command.get_help_text()}")
+
+        # Display any uncategorized commands
+        if uncategorized_commands:
+            help_lines.append("")
+            help_lines.append(colored("  Other Commands:", "cyan", attrs=["bold"]))
+            for alias, command in sorted(uncategorized_commands.items()):
+                help_lines.append(f"    {command.get_help_text()}")
 
         return "\n".join(help_lines)
 

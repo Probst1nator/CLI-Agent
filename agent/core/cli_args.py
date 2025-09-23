@@ -46,8 +46,6 @@ def parse_cli_args() -> argparse.Namespace:
 
     parser.add_argument("--full_output", dest='full_output_mode', action="store_true", default=True,
                         help="Full output mode. Shows live model output instead of hiding it.")
-    parser.add_argument("-f", "--fast", action="store_true", default=False,
-                        help="Fast mode (deprecated - kept for backward compatibility).")
     parser.add_argument("-img", "--image", action="store_true", default=False,
                         help="Take a screenshot using Spectacle for region selection (with automatic fallbacks if not available).")
     parser.add_argument("-o", "--online", action="store_true", default=False,
@@ -110,7 +108,6 @@ def create_tui_args() -> argparse.Namespace:
         gui=False,
         c=False,
         llm=None,
-        fast=False,
         min=False,
         image=False,
         full_output_mode=False,

@@ -47,7 +47,7 @@ class LlmSelector:
         self.data = []
         self.filtered_data = []  # Data after applying search filter
         self.current_row = 0
-        self.current_col = 0  # 0: Selector, 1: Host, 2: Branches, 3: Eval, 4: Guard, 5: Router, 6: Planner
+        self.current_col = 0  # 0: Router, 1: Planner, 2: Fallback, 3: Provider, 4: Model, 5: Host
         self.editing = False
         self.scroll_offset = 0  # For viewport scrolling
         self.edit_buffer = ""
@@ -134,12 +134,12 @@ class LlmSelector:
         # Base column widths (minimum required)
         base_widths = {
             'cursor': 1,           # "▶"
-            'active': 6,           # "[✓] "
             'provider': 15,        # "Provider"
             'model': 35,           # "Model" (base)
-            'host': 20,           # "Host" (base)
             'router': 7,          # "Router"
             'planner': 8,         # "Planner"
+            'fallback': 8,        # "Fallback"
+            'host': 20,           # "Host" (base)
             'pricing': 9,        # "Pricing"
             'vision': 6,          # "Vision"
             'context': 10,        # "Context"
@@ -148,7 +148,7 @@ class LlmSelector:
 
         # Calculate used space with base widths and gaps
         base_used = sum(base_widths.values())
-        base_gaps = 13  # Number of spaces between columns (updated for router and planner columns)
+        base_gaps = 10  # Number of spaces between columns
         total_base = base_used + base_gaps
 
         # Calculate extra space available
@@ -187,7 +187,7 @@ class LlmSelector:
     def _update_activation_status(self, row_index: int):
         """Activates a model if its router or planner count is positive."""
         row_data = self.data[row_index]
-        if row_data.get('router', 0) > 0 or row_data.get('planner', 0) > 0:
+        if row_data.get('router', 0) > 0 or row_data.get('planner', 0) > 0 or row_data.get('fallback', 0) > 0:
             row_data['selected'] = True
 
     def _reset_deselected_model(self, row_index: int):
@@ -196,6 +196,7 @@ class LlmSelector:
         if not row_data.get('selected'):
             row_data['router'] = 0
             row_data['planner'] = 0
+            row_data['fallback'] = 0
 
     def _check_vision_capability(self, model_key: str) -> bool:
         """
@@ -501,7 +502,9 @@ class LlmSelector:
 
                     self.data.append({
                         "selected": model_config.get("selected", False),
+                        "router": model_config.get("router", 0),
                         "planner": model_config.get("planner", 0),
+                        "fallback": model_config.get("fallback", 0),
                         "provider": "GoogleAPI",
                         "model_key": model_key,
                         "pricing_str": "Free",  # Google pricing varies, simplified
@@ -523,7 +526,9 @@ class LlmSelector:
 
                     self.data.append({
                         "selected": model_config.get("selected", False),
+                        "router": model_config.get("router", 0),
                         "planner": model_config.get("planner", 0),
+                        "fallback": model_config.get("fallback", 0),
                         "provider": "GroqAPI",
                         "model_key": model_key,
                         "pricing_str": "Free",
@@ -630,15 +635,24 @@ class LlmSelector:
 
         # Add a column header with dynamic widths that exactly matches data row structure
         widths = self._get_dynamic_column_widths()
+
+        # Top border of the table
+        top_border = f"{'┌' + '─' * widths['cursor']}{'┬' + '─' * widths['router']}{'┬' + '─' * widths['planner']}{'┬' + '─' * widths['fallback']}{'┬' + '─' * widths['provider']}{'┬' + '─' * widths['model']}{'┬' + '─' * widths['host']}{'┬' + '─' * widths['pricing']}{'┬' + '─' * widths['vision']}{'┬' + '─' * widths['context']}{'┬' + '─' * widths['status']}┐"
+        all_fragments.extend(to_formatted_text(HTML(f"<b>{top_border}</b>")))
+        all_fragments.append(('', '\n'))
+
         header_str = (
-            f"{' ':{widths['cursor']}} {'Active':<{widths['active']}} "
-            f"{'Provider':<{widths['provider']}} {'Model':<{widths['model']}} "
-            f"{'Host':<{widths['host']}} {'Branches':<{widths['branches']}} {'Eval':<{widths['eval']}} {'Guard':<{widths['guard']}} {'Router':<{widths['router']}} {'Planner':<{widths['planner']}} "
-            f"{'Pricing':<{widths['pricing']}} {'Vision':<{widths['vision']}} {'Context':<{widths['context']}} {'Status':<{widths['status']}}   "
+            f"{' ':{widths['cursor']}}│"
+            f"{'Router':<{widths['router']}}│{'Planner':<{widths['planner']}}│{'Fallback':<{widths['fallback']}}│"
+            f"{'Provider':<{widths['provider']}}│{'Model':<{widths['model']}}│"
+            f"{'Host':<{widths['host']}}│{'Pricing':<{widths['pricing']}}│{'Vision':<{widths['vision']}}│{'Context':<{widths['context']}}│{'Status':<{widths['status']}}   "
         )
         all_fragments.extend(to_formatted_text(HTML(f"<b>{header_str}</b>")))
         all_fragments.append(('', '\n'))
-        all_fragments.extend(to_formatted_text(HTML(f"<b>{'─' * (len(header_str) + 5)}</b>")))
+
+        # Header separator with proper grid formatting
+        header_separator = f"{'├' + '─' * widths['cursor']}{'┼' + '─' * widths['router']}{'┼' + '─' * widths['planner']}{'┼' + '─' * widths['fallback']}{'┼' + '─' * widths['provider']}{'┼' + '─' * widths['model']}{'┼' + '─' * widths['host']}{'┼' + '─' * widths['pricing']}{'┼' + '─' * widths['vision']}{'┼' + '─' * widths['context']}{'┼' + '─' * widths['status']}┤"
+        all_fragments.extend(to_formatted_text(HTML(f"<b>{header_separator}</b>")))
         all_fragments.append(('', '\n'))
 
         # Apply scroll offset - only show visible rows that fit in terminal
@@ -661,33 +675,22 @@ class LlmSelector:
             self._update_activation_status(original_index)
 
             cursor = "▶" if actual_row_index == self.current_row else " "
-            selected_char = "✓" if row.get('selected') else " "
 
-            # Format the selection box part to align with the new 'Active' header
-            selection_box = f"[{selected_char}]"
-
-            beams_text_base = f"{row.get('beams', 0)}"
-            eval_text_base = f"{row.get('eval', 0)}"
-            guard_text_base = f"{row.get('guard', 0)}"
-            router_text_base = f"{row.get('router', 0)}"
-            planner_text_base = f"{row.get('planner', 0)}"
+            router_text_base = "✓" if row.get('router', 0) > 0 else " "
+            planner_text_base = "✓" if row.get('planner', 0) > 0 else " "
+            fallback_text_base = "✓" if row.get('fallback', 0) > 0 else " "
 
             if self.editing and actual_row_index == self.current_row:
                 edit_display = f"[{self.edit_buffer}_]"
-                if self.current_col == 2:
-                    beams_text_base = edit_display
-                elif self.current_col == 3:
-                    eval_text_base = edit_display
-                elif self.current_col == 4:
-                    guard_text_base = edit_display
-                elif self.current_col == 5:
+                if self.current_col == 0:
                     router_text_base = edit_display
-                elif self.current_col == 6:
+                elif self.current_col == 1:
                     planner_text_base = edit_display
+                elif self.current_col == 2:
+                    fallback_text_base = edit_display
 
             style_map = {
-                'provider': 'provider', 'model': 'model', 'beams': 'beams',
-                'eval': 'eval', 'guard': 'guard', 'router': 'router', 'planner': 'planner', 'pricing': 'pricing', 'vision': 'vision', 'context': 'context'
+                'provider': 'provider', 'model': 'model', 'router': 'router', 'planner': 'planner', 'fallback': 'fallback', 'pricing': 'pricing', 'vision': 'vision', 'context': 'context'
             }
             # This block was removed to prevent non-local LLMs from being grayed out.
             # The force_local_mode flag still correctly auto-selects local models,
@@ -703,11 +706,9 @@ class LlmSelector:
                 host_text = f"<{style_map['provider']}>{host_value:<{widths['host']}}</{style_map['provider']}>"
             else:
                 host_text = f"<ansigreen>{host_value:<{widths['host']}}</ansigreen>"
-            beams_text = f"<{style_map['beams']}>{beams_text_base:<{widths['branches']}}</{style_map['beams']}>"
-            eval_text = f"<{style_map['eval']}>{eval_text_base:<{widths['eval']}}</{style_map['eval']}>"
-            guard_text = f"<{style_map['guard']}>{guard_text_base:<{widths['guard']}}</{style_map['guard']}>"
             router_text = f"<{style_map['router']}>{router_text_base:<{widths['router']}}</{style_map['router']}>"
             planner_text = f"<{style_map['planner']}>{planner_text_base:<{widths['planner']}}</{style_map['planner']}>"
+            fallback_text = f"<{style_map['fallback']}>{fallback_text_base:<{widths['fallback']}}</{style_map['fallback']}>"
             pricing_text = f"<{style_map['pricing']}>{row.get('pricing_str', ''):<{widths['pricing']}}</{style_map['pricing']}>"
 
             # Check vision capability and display
@@ -726,27 +727,37 @@ class LlmSelector:
 
             if actual_row_index == self.current_row and not self.editing:
                 if self.current_col == 0:
-                    model_text = f"<reverse>{row.get('model_key', ''):<{widths['model']}}</reverse>"
-                elif self.current_col == 1:
-                    host_text = f"<reverse>{row.get('assigned_host', 'localhost:11434'):<{widths['host']}}</reverse>"
-                elif self.current_col == 2:
-                    beams_text = f"<reverse>{beams_text_base:<{widths['branches']}}</reverse>"
-                elif self.current_col == 3:
-                    eval_text = f"<reverse>{eval_text_base:<{widths['eval']}}</reverse>"
-                elif self.current_col == 4:
-                    guard_text = f"<reverse>{guard_text_base:<{widths['guard']}}</reverse>"
-                elif self.current_col == 5:
                     router_text = f"<reverse>{router_text_base:<{widths['router']}}</reverse>"
-                elif self.current_col == 6:
+                elif self.current_col == 1:
                     planner_text = f"<reverse>{planner_text_base:<{widths['planner']}}</reverse>"
+                elif self.current_col == 2:
+                    fallback_text = f"<reverse>{fallback_text_base:<{widths['fallback']}}</reverse>"
+                elif self.current_col == 3:
+                    provider_text = f"<reverse>{row.get('provider', ''):<{widths['provider']}}</reverse>"
+                elif self.current_col == 4:
+                    model_text = f"<reverse>{row.get('model_key', ''):<{widths['model']}}</reverse>"
+                elif self.current_col == 5:
+                    host_text = f"<reverse>{row.get('assigned_host', 'localhost:11434'):<{widths['host']}}</reverse>"
 
             line_str = (
-                f"{cursor} {selection_box:<{widths['active']}} "
-                f"{provider_text} {model_text} "
-                f"{host_text} {beams_text} {eval_text} {guard_text} {router_text} {planner_text} "
-                f"{pricing_text} {vision_text} {context_text} {status_text}   "
+                f"{cursor}│"
+                f"{router_text}│{planner_text}│{fallback_text}│"
+                f"{provider_text}│{model_text}│"
+                f"{host_text}│{pricing_text}│{vision_text}│{context_text}│{status_text}   "
             )
             all_fragments.extend(to_formatted_text(HTML(line_str)))
+            all_fragments.append(('', '\n'))
+
+            # Add horizontal separator between rows
+            if actual_row_index < len(self.filtered_data) - 1:  # Don't add after last row
+                separator_line = f"{'├' + '─' * widths['cursor']}{'┼' + '─' * widths['router']}{'┼' + '─' * widths['planner']}{'┼' + '─' * widths['fallback']}{'┼' + '─' * widths['provider']}{'┼' + '─' * widths['model']}{'┼' + '─' * widths['host']}{'┼' + '─' * widths['pricing']}{'┼' + '─' * widths['vision']}{'┼' + '─' * widths['context']}{'┼' + '─' * widths['status']}┤"
+                all_fragments.extend(to_formatted_text(HTML(f"<separator>{separator_line}</separator>")))
+                all_fragments.append(('', '\n'))
+
+        # Add bottom border of the table
+        if self.filtered_data:  # Only if there are rows
+            bottom_border = f"{'└' + '─' * widths['cursor']}{'┴' + '─' * widths['router']}{'┴' + '─' * widths['planner']}{'┴' + '─' * widths['fallback']}{'┴' + '─' * widths['provider']}{'┴' + '─' * widths['model']}{'┴' + '─' * widths['host']}{'┴' + '─' * widths['pricing']}{'┴' + '─' * widths['vision']}{'┴' + '─' * widths['context']}{'┴' + '─' * widths['status']}┘"
+            all_fragments.extend(to_formatted_text(HTML(f"<b>{bottom_border}</b>")))
             all_fragments.append(('', '\n'))
 
         return all_fragments
@@ -763,14 +774,22 @@ class LlmSelector:
                              force_local: bool = False,
                              save_selection: bool = True) -> Dict[str, Any]:
 
+        import time
+        total_start = time.time()
+        logging.info("🔍 LLM SELECTOR: Starting get_selection...")
+
         self.force_local_mode = force_local
 
         try:
+            step_start = time.time()
             from core.llm import Llm
             from core.globals import g
             from core.providers.cls_ollama_interface import OllamaClient
+            logging.info(f"🔍 LLM SELECTOR: Imports took {(time.time() - step_start)*1000:.1f}ms")
 
+            step_start = time.time()
             saved_config = self._load_config()
+            logging.info(f"🔍 LLM SELECTOR: Load config took {(time.time() - step_start)*1000:.1f}ms")
 
             # --- New Multi-Host Discovery Logic ---
 
@@ -780,7 +799,7 @@ class LlmSelector:
             # 1. Add non-Ollama models and 'Any but local'
             if not force_local:
                 self.data.append({
-                    "selected": saved_config.get("any_local", {}).get("selected", False), "beams": 0, "eval": 0, "guard": 0, "router": 0, "planner": 0,
+                    "selected": saved_config.get("any_local", {}).get("selected", False), "router": 0, "planner": 0, "fallback": 0,
                     "provider": "Any", "model_key": "Any but local",
                     "pricing_str": "Automatic", "has_vision": False, "context_window": "N/A", "download_status_text": "",
                     "assigned_host": "cloud",
@@ -796,8 +815,10 @@ class LlmSelector:
                     is_selected = model_config.get("selected", False)
 
                     self.data.append({
-                        "selected": is_selected, "beams": model_config.get("beams", 0),
-                        "eval": model_config.get("eval", 0), "guard": model_config.get("guard", 0), "planner": model_config.get("planner", 0),
+                        "selected": is_selected,
+                        "router": model_config.get("router", 0),
+                        "planner": model_config.get("planner", 0),
+                        "fallback": model_config.get("fallback", 0),
                         "provider": provider_name, "model_key": model_key,
                         "pricing_str": f"${llm.pricing_in_dollar_per_1M_tokens}/1M" if llm.pricing_in_dollar_per_1M_tokens else "Free",
                         "has_vision": self._check_vision_capability(model_key), "context_window": llm.context_window,
@@ -806,19 +827,31 @@ class LlmSelector:
                     processed_models.add(f"{model_key}@cloud")
 
             # 2. Get comprehensive model data (cache or live)
+            step_start = time.time()
             ollama_status = {}
             try:
                 # Disabled automatic refresh - now manual only via 'u' key
                 # if g.is_model_cache_stale(max_age_minutes=30): g.refresh_model_discovery()
+
+                cache_start = time.time()
                 cached_data = g.get_cached_model_discovery()
+                logging.info(f"🔍 LLM SELECTOR: get_cached_model_discovery took {(time.time() - cache_start)*1000:.1f}ms")
+
                 if cached_data:
                     ollama_status = cached_data
                 else:
+                    wait_start = time.time()
+                    logging.info("🔍 LLM SELECTOR: No cached data, waiting for model discovery...")
                     if g.wait_for_model_discovery(timeout=3.0):
                         ollama_status = g.get_cached_model_discovery() or {}
+                        logging.info(f"🔍 LLM SELECTOR: wait_for_model_discovery took {(time.time() - wait_start)*1000:.1f}ms")
                     else:
+                        logging.info(f"🔍 LLM SELECTOR: wait_for_model_discovery TIMEOUT after {(time.time() - wait_start)*1000:.1f}ms")
+                        # Fallback to direct ollama query
+                        direct_start = time.time()
                         ollama_hosts_list = [h.split(':')[0] for h in g.DEFAULT_OLLAMA_HOSTS]
                         ollama_status = OllamaClient.get_comprehensive_downloadable_models(ollama_hosts_list)
+                        logging.info(f"🔍 LLM SELECTOR: Direct Ollama query took {(time.time() - direct_start)*1000:.1f}ms")
             except Exception as e:
                 logging.warning(f"Could not get comprehensive Ollama models: {e}")
             self.ollama_status = ollama_status # Store for use in other methods
@@ -845,7 +878,7 @@ class LlmSelector:
 
                     self.data.append({
                         "selected": model_config.get("selected", False),
-                        "beams": model_config.get("beams", 0), "eval": model_config.get("eval", 0), "guard": model_config.get("guard", 0), "router": model_config.get("router", 0), "planner": model_config.get("planner", 0),
+                        "router": model_config.get("router", 0), "planner": model_config.get("planner", 0), "fallback": model_config.get("fallback", 0),
                         "provider": "OllamaClient", "model_key": model_key, "pricing_str": "Free",
                         "has_vision": self._check_vision_capability(model_key),
                         "context_window": self._estimate_context_window(model_key),
@@ -884,7 +917,7 @@ class LlmSelector:
                         if identifier not in processed_models:
                             self.data.append({
                                 "selected": model_config.get("selected", False),
-                                "beams": model_config.get("beams", 0), "eval": model_config.get("eval", 0), "guard": model_config.get("guard", 0), "router": model_config.get("router", 0), "planner": model_config.get("planner", 0),
+                                "router": model_config.get("router", 0), "planner": model_config.get("planner", 0), "fallback": model_config.get("fallback", 0),
                                 "provider": "OllamaClient", "model_key": variant_name, "pricing_str": "Free",
                                 "has_vision": self._check_vision_capability(variant_name), "context_window": context_window,
                                 "download_status_text": status_text, "assigned_host": assigned_host,
@@ -999,6 +1032,18 @@ class LlmSelector:
                         row['router'] = 1
                         break
 
+            # Sync fallback models with priority from global state
+            fallback_models = g.FALLBACK_MODELS
+            # Clear all fallback priorities first
+            for row in self.data:
+                row['fallback'] = 0
+            # Set fallback priorities based on order
+            for priority, model_key in enumerate(fallback_models, 1):
+                for row in self.data:
+                    if row.get('model_key') == model_key:
+                        row['fallback'] = priority
+                        break
+
             self._apply_search_filter()
 
             self.search_box = TextArea(text="", multiline=False, height=1, wrap_lines=False, accept_handler=lambda buf: self._apply_search_filter())
@@ -1012,8 +1057,8 @@ class LlmSelector:
             def search_focused(): return self.current_focus == "search"
 
             app_style = Style.from_dict({
-                'provider': 'ansibrightblue', 'model': 'ansicyan', 'beams': 'ansiyellow',
-                'eval': 'ansimagenta', 'guard': 'ansired', 'planner': 'ansibrightcyan', 'pricing': 'ansigreen',
+                'provider': 'ansibrightblue', 'model': 'ansicyan',
+                'router': 'ansiyellow', 'planner': 'ansibrightcyan', 'fallback': 'ansimagenta', 'pricing': 'ansigreen',
                 'vision': 'ansibrightgreen', 'context': 'ansiblue', 'downloaded': 'ansigreen', 'notdownloaded': 'ansiyellow',
                 'reverse': 'reverse', 'separator': 'ansibrightblack',
             })
@@ -1038,7 +1083,7 @@ class LlmSelector:
 
             @bindings.add("right", filter=table_focused)
             def _(event):
-                if not self.editing: self.current_col = min(6, self.current_col + 1)
+                if not self.editing: self.current_col = min(5, self.current_col + 1)
 
             @bindings.add(" ", filter=table_focused)
             def _(event):
@@ -1062,8 +1107,8 @@ class LlmSelector:
                     self._reset_deselected_model(original_index)
 
             def adjust_value(increment: int):
-                if not self.editing and self.current_col in [2, 3, 4, 5, 6] and self.filtered_data:
-                    keys = {2: 'beams', 3: 'eval', 4: 'guard', 5: 'router', 6: 'planner'}
+                if not self.editing and self.current_col in [0, 1, 2] and self.filtered_data:
+                    keys = {0: 'router', 1: 'planner', 2: 'fallback'}
                     col_key = keys[self.current_col]
                     row_data = self.filtered_data[self.current_row]
                     original_index = next((idx for idx, original_row in enumerate(self.data) if original_row is row_data), self.current_row)
@@ -1101,6 +1146,27 @@ class LlmSelector:
                             row_data['planner'] = 0
                             from core.globals import g
                             g.update_llm_role('planner', None)
+                    elif col_key == 'fallback':
+                        # Fallback column: toggle checkbox behavior
+                        if current_value == 0:
+                            # Add to fallbacks - assign the next available priority
+                            existing_priorities = [data_row.get('fallback', 0) for data_row in self.data if data_row.get('fallback', 0) > 0]
+                            next_priority = max(existing_priorities, default=0) + 1
+                            row_data['fallback'] = next_priority
+                        else:
+                            # Remove from fallbacks
+                            row_data['fallback'] = 0
+
+                        # Update global fallbacks list
+                        from core.globals import g
+                        fallback_models = []
+                        for data_row in self.data:
+                            if data_row.get('fallback', 0) > 0:
+                                fallback_models.append((data_row.get('fallback', 0), data_row.get('model_key', '')))
+
+                        # Sort by priority and extract model keys
+                        fallback_models.sort(key=lambda x: x[0])
+                        g.update_llm_role('fallbacks', model_keys=[model for _, model in fallback_models])
                     else:
                         # Regular numeric columns
                         row_data[col_key] = max(0, current_value + increment)
@@ -1118,7 +1184,7 @@ class LlmSelector:
                 if self.editing:
                     try:
                         new_value = int(self.edit_buffer) if self.edit_buffer else 0
-                        keys = {2: 'beams', 3: 'eval', 4: 'guard', 5: 'router', 6: 'planner'}
+                        keys = {0: 'router', 1: 'planner', 2: 'fallback'}
                         col_key = keys[self.current_col]
                         if self.filtered_data:
                             row_data = self.filtered_data[self.current_row]
@@ -1156,6 +1222,28 @@ class LlmSelector:
                                     row_data['planner'] = 0
                                     from core.globals import g
                                     g.update_llm_role('planner', None)
+                            elif col_key == 'fallback':
+                                # Fallback column: toggle checkbox behavior
+                                current_value = row_data.get('fallback', 0)
+                                if new_value > 0 and current_value == 0:
+                                    # Add to fallbacks - assign the next available priority
+                                    existing_priorities = [data_row.get('fallback', 0) for data_row in self.data if data_row.get('fallback', 0) > 0]
+                                    next_priority = max(existing_priorities, default=0) + 1
+                                    row_data['fallback'] = next_priority
+                                elif new_value == 0:
+                                    # Remove from fallbacks
+                                    row_data['fallback'] = 0
+
+                                # Update global fallbacks list
+                                from core.globals import g
+                                fallback_models = []
+                                for data_row in self.data:
+                                    if data_row.get('fallback', 0) > 0:
+                                        fallback_models.append((data_row.get('fallback', 0), data_row.get('model_key', '')))
+
+                                # Sort by priority and extract model keys
+                                fallback_models.sort(key=lambda x: x[0])
+                                g.update_llm_role('fallbacks', model_keys=[model for _, model in fallback_models])
                             else:
                                 # Regular numeric columns
                                 row_data[col_key] = new_value
@@ -1163,7 +1251,7 @@ class LlmSelector:
                             self._update_activation_status(original_index)
                     except ValueError: pass
                     self.editing = False; self.edit_buffer = ""
-                elif self.current_col == 1 and self.filtered_data:
+                elif self.current_col == 5 and self.filtered_data:
                     row_data = self.filtered_data[self.current_row]
                     if row_data.get('provider') == 'OllamaClient':
                         try:
@@ -1171,12 +1259,12 @@ class LlmSelector:
                             event.app.renderer.reset()
                         except Exception as e:
                             logging.error(f"Failed to open host editor: {e}", exc_info=True)
-                elif self.current_col in [2, 3, 4, 5, 6] and self.filtered_data:
+                elif self.current_col in [0, 1, 2] and self.filtered_data:
                     self.editing = True
-                    keys = {2: 'beams', 3: 'eval', 4: 'guard', 5: 'router', 6: 'planner'}
+                    keys = {0: 'router', 1: 'planner', 2: 'fallback'}
                     col_key = keys[self.current_col]
                     row_data = self.filtered_data[self.current_row]
-                    self.edit_buffer = str(row_data[col_key])
+                    self.edit_buffer = str(row_data.get(col_key, 0))
 
             @bindings.add("escape", filter=table_focused)
             def _(event):
@@ -1201,9 +1289,6 @@ class LlmSelector:
                             if model_key:
                                 current_selections[model_key] = {
                                     'selected': row.get('selected', False),
-                                    'beams': row.get('beams', 0),
-                                    'eval': row.get('eval', 0),
-                                    'guard': row.get('guard', 0)
                                 }
 
                         # Rebuild data from scratch
@@ -1221,7 +1306,7 @@ class LlmSelector:
                                 any_local_config = current_selections.get("Any but local", saved_config.get("any_local", {}))
                                 new_data.append({
                                     "selected": any_local_config.get("selected", False),
-                                    "beams": 0, "eval": 0, "guard": 0, "router": 0, "planner": 0,
+                                    "router": 0, "planner": 0, "fallback": 0,
                                     "provider": "Any", "model_key": "Any but local",
                                     "pricing_str": "Automatic", "has_vision": False,
                                     "context_window": "N/A", "download_status_text": "",
@@ -1244,9 +1329,6 @@ class LlmSelector:
 
                                 new_data.append({
                                     "selected": is_selected,
-                                    "beams": current_config.get("beams", 0),
-                                    "eval": current_config.get("eval", 0),
-                                    "guard": current_config.get("guard", 0),
                                     "router": current_config.get("router", 0),
                                     "provider": provider_name,
                                     "model_key": model_key,
@@ -1342,13 +1424,14 @@ class LlmSelector:
             config_to_save = {
                 model: {k: v for k, v in data.items() if k not in ['provider']}
                 for model, data in config.items()
-                if data.get('selected') or any(data.get(k, 0) > 0 for k in ['beams', 'eval', 'guard', 'planner'])
+                if data.get('selected') or any(data.get(k, 0) > 0 for k in ['router', 'planner', 'fallback'])
             }
 
-            # Save planner and router LLM keys using unified method
+            # Save planner, router, fallback, and selected LLM keys using unified method
             planner_model = None
             router_model = None
             selected_models = []
+            fallback_models = []
 
             for model, data in config.items():
                 if data.get('planner', 0) > 0:
@@ -1357,11 +1440,18 @@ class LlmSelector:
                     router_model = model
                 if data.get('selected', False):
                     selected_models.append(model)
+                if data.get('fallback', 0) > 0:
+                    fallback_models.append((data.get('fallback', 0), model))
+
+            # Sort fallback models by priority
+            fallback_models.sort(key=lambda x: x[0])
+            fallback_model_keys = [model for _, model in fallback_models]
 
             from core.globals import g
             g.update_llm_role('planner', planner_model)
             g.update_llm_role('router', router_model)
             g.update_llm_role('selected', model_keys=selected_models)
+            g.update_llm_role('fallbacks', model_keys=fallback_model_keys)
 
             with open(self.config_file, 'w') as f:
                 json.dump(config_to_save, f, indent=2)

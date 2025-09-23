@@ -49,26 +49,34 @@ reload_container() {
     # Restart the service
     echo -e "${CYAN}Restarting service...${NC}"
     if sudo systemctl restart "$SERVICE_NAME" > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ Service restarted${NC}"
-        
-        # Wait for container to be ready
-        echo -e "${CYAN}Waiting for container to be ready...${NC}"
-        sleep 10
-        
-        # Test if web UI is accessible
-        for i in {1..6}; do
-            if curl -s -o /dev/null -w "%{http_code}" http://localhost:7861/ | grep -q "200"; then
-                echo -e "${GREEN}✓ Web UI is ready${NC}"
-                break
-            else
-                echo -e "${YELLOW}⏳ Waiting for web UI... ($i/6)${NC}"
-                sleep 5
-            fi
-        done
+        echo -e "${GREEN}✓ Service restarted successfully via systemd${NC}"
     else
-        echo -e "${RED}✗ Service restart failed${NC}"
-        return 1
+        echo -e "${YELLOW}⚠️ Systemd restart failed. Falling back to direct Docker Compose restart...${NC}"
+        cd "$PROJECT_DIR"
+        # Mimic the service file's down/up logic to ensure a clean start
+        if docker compose -f docker_files/docker-compose.isolated.yml down --remove-orphans > /dev/null 2>&1 && \
+           docker compose -f docker_files/docker-compose.isolated.yml up -d > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Service restarted successfully via Docker Compose fallback${NC}"
+        else
+            echo -e "${RED}✗ Fallback restart via Docker Compose also failed${NC}"
+            return 1
+        fi
     fi
+    
+    # Wait for container to be ready
+    echo -e "${CYAN}Waiting for container to be ready...${NC}"
+    sleep 10
+    
+    # Test if web UI is accessible
+    for i in {1..6}; do
+        if curl -s -o /dev/null -w "%{http_code}" http://localhost:7861/ | grep -q "200"; then
+            echo -e "${GREEN}✓ Web UI is ready${NC}"
+            break
+        else
+            echo -e "${YELLOW}⏳ Waiting for web UI... ($i/6)${NC}"
+            sleep 5
+        fi
+    done
     
     echo -e "${GREEN}🚀 Container reloaded successfully!${NC}"
     echo -e "${CYAN}📍 Access: http://localhost:7861${NC}"
@@ -93,20 +101,22 @@ echo -e "${BLUE}👀 Watching for changes...${NC}"
 
 # Watch for Python file changes
 inotifywait -m -r -e modify,create,delete,move \
-    --include='.*\.py$' \
     --exclude='__pycache__' \
     --exclude='\.pyc$' \
     --exclude='tests/' \
     --exclude='\.git/' \
     "$PROJECT_DIR" |
 while read -r directory events filename; do
-    # Debounce rapid changes (wait 2 seconds for more changes)
-    sleep 2
-    
-    # Check if there are more pending events
-    if read -t 0; then
-        continue  # Skip this event, more are coming
+    # Only process Python files
+    if [[ "$filename" =~ \.py$ ]]; then
+        # Debounce rapid changes (wait 2 seconds for more changes)
+        sleep 2
+        
+        # Check if there are more pending events
+        if read -t 0; then
+            continue  # Skip this event, more are coming
+        fi
+        
+        reload_container "$directory$filename"
     fi
-    
-    reload_container "$directory$filename"
 done

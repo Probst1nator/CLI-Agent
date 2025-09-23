@@ -375,9 +375,9 @@ class Logger {
 }
 
 // Create global logger instance
-// Configure for debug mode initially, can be changed via console
+// Configure for info mode initially to reduce console spam
 window.visualLogger = new Logger({
-    level: 'DEBUG',
+    level: 'INFO',
     persist: true,
     console: true
 });

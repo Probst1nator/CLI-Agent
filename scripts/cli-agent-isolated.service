@@ -20,7 +20,6 @@ WorkingDirectory=/home/prob/repos/CLI-Agent
 
 # Start command
 ExecStartPre=/usr/bin/docker compose -f ${COMPOSE_FILE} down --remove-orphans
-ExecStartPre=-/usr/bin/docker compose -f ${COMPOSE_FILE} pull --quiet
 ExecStart=/usr/bin/docker compose -f ${COMPOSE_FILE} up -d
 
 # Stop command
