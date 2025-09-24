@@ -76,7 +76,6 @@ class LLMRoleConfig(TypedDict, total=False):
     planner: Optional[str]
     router: Optional[str]
     fallbacks: List[str]
-    selected: List[str]
 
 class LLMConfig(TypedDict, total=False):
     """Complete LLM configuration structure."""
@@ -169,7 +168,6 @@ class Globals:
             'planner': None,
             'router': None,
             'fallbacks': [],
-            'selected': []
         }
         self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
 
@@ -969,13 +967,13 @@ class Globals:
 
     @property
     def SELECTED_LLMS(self) -> List[str]:
-        """Backward compatibility property for selected LLMs."""
-        return self.llm_roles.get('selected', [])
+        """Backward compatibility property for selected LLMs. Now points to fallbacks array."""
+        return self.llm_roles.get('fallbacks', [])
 
     @SELECTED_LLMS.setter
     def SELECTED_LLMS(self, value: List[str]) -> None:
-        """Setter for selected LLMs."""
-        self.llm_roles['selected'] = value
+        """Setter for selected LLMs. Now updates fallbacks array."""
+        self.llm_roles['fallbacks'] = value
         self.save_llm_roles()
 
     def update_llm_role(self, role: str, model_key: Optional[str] = None, model_keys: Optional[List[str]] = None) -> None:
@@ -983,20 +981,25 @@ class Globals:
         Unified method to update LLM roles with automatic persistence.
 
         Args:
-            role: The role to update ('planner', 'router', 'fallbacks', 'selected')
+            role: The role to update ('planner', 'router', 'fallbacks')
             model_key: Single model key for planner/router roles
-            model_keys: List of model keys for fallbacks/selected roles
+            model_keys: List of model keys for fallbacks role
         """
         if role in ['planner', 'router']:
             if model_keys is not None:
                 raise ValueError(f"Role '{role}' expects model_key, not model_keys")
             self.llm_roles[role] = model_key
-        elif role in ['fallbacks', 'selected']:
+        elif role == 'fallbacks':
             if model_key is not None:
                 raise ValueError(f"Role '{role}' expects model_keys, not model_key")
             self.llm_roles[role] = model_keys or []
+        elif role == 'selected':
+            # Redirect selected to fallbacks for backward compatibility
+            if model_key is not None:
+                raise ValueError(f"Role '{role}' expects model_keys, not model_key")
+            self.llm_roles['fallbacks'] = model_keys or []
         else:
-            raise ValueError(f"Unknown role: {role}. Valid roles: planner, router, fallbacks, selected")
+            raise ValueError(f"Unknown role: {role}. Valid roles: planner, router, fallbacks")
 
         self.save_llm_roles()
         logging.info(f"🔧 LLM role '{role}' updated to: {model_key or model_keys}")
@@ -1022,13 +1025,13 @@ class Globals:
             isinstance(config['roles'], dict) and
             # Check if roles has been properly populated (not just empty defaults)
             (config['roles'].get('planner') or config['roles'].get('router') or
-             config['roles'].get('selected') or config['roles'].get('fallbacks'))
+             config['roles'].get('fallbacks'))
         )
 
         if has_valid_roles:
             # Use new format
             step_start = time.time()
-            for key, default_value in [('planner', None), ('router', None), ('fallbacks', []), ('selected', [])]:
+            for key, default_value in [('planner', None), ('router', None), ('fallbacks', [])]:
                 self.llm_roles[key] = config['roles'].get(key, default_value)
             logging.info(f"🚀 ROLES: Loading existing roles took {(time.time() - step_start)*1000:.1f}ms")
         else:
@@ -1040,7 +1043,7 @@ class Globals:
             self.llm_roles['planner'] = config.get('__planner_llm__')
             self.llm_roles['router'] = config.get('__router_llm__')
 
-            # Migrate selected models
+            # Migrate selected models to fallbacks array (eliminating separate selected array)
             selected_models = []
             for model_key, model_config in config.items():
                 if isinstance(model_config, dict) and model_config.get('selected', False):
@@ -1048,10 +1051,9 @@ class Globals:
 
             # Sort by order if available
             selected_models.sort(key=lambda m: config.get(m, {}).get('order', 999))
-            self.llm_roles['selected'] = selected_models
 
-            # Initialize empty fallbacks (old format didn't persist fallbacks)
-            self.llm_roles['fallbacks'] = []
+            # Store selected models as fallbacks (unified array)
+            self.llm_roles['fallbacks'] = selected_models
 
             # Save the migrated configuration and clean up old format
             self.save_llm_roles()
@@ -1080,6 +1082,12 @@ class Globals:
             if '__router_llm__' in config:
                 del config['__router_llm__']
                 cleaned = True
+
+            # Remove 'selected' array from roles (now unified with fallbacks)
+            if 'roles' in config and isinstance(config['roles'], dict):
+                if 'selected' in config['roles']:
+                    del config['roles']['selected']
+                    cleaned = True
 
             # Remove 'selected' and 'order' from model entries (they're now in roles)
             for model_key, model_config in list(config.items()):
@@ -1222,11 +1230,7 @@ def validate_llm_config(config: Dict[str, Any]) -> LLMConfig:
                 raise TypeError("fallbacks must be a list of strings")
             validated_roles['fallbacks'] = fallbacks
 
-        if 'selected' in roles:
-            selected = roles['selected']
-            if not isinstance(selected, list) or not all(isinstance(x, str) for x in selected):
-                raise TypeError("selected must be a list of strings")
-            validated_roles['selected'] = selected
+        # Backward compatibility: ignore 'selected' key as it's now unified with fallbacks
 
         validated_config['roles'] = validated_roles
 

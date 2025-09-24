@@ -16,6 +16,7 @@ import re
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
+import atexit
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +151,10 @@ class OllamaClient(AIProviderInterface):
     _cancellation_event: Optional[threading.Event] = None
     _executor: Optional[ThreadPoolExecutor] = None
 
+    # Track active clients for cleanup
+    _active_clients: List[ollama.Client] = []
+    _cleanup_registered: bool = False
+
     @classmethod
     def reset_host_cache(cls):
         """Reset the host reachability cache to allow retrying all hosts."""
@@ -158,6 +163,62 @@ class OllamaClient(AIProviderInterface):
         cls._host_cache["reachable"].clear()
         cls._host_cache["unreachable"].clear()
         # Note: unreachable_hosts now also contains host:model combinations
+
+    @classmethod
+    def _create_client(cls, host: str) -> ollama.Client:
+        """Create an ollama client with proper resource tracking."""
+        # Register cleanup on first client creation
+        if not cls._cleanup_registered:
+            atexit.register(cls.cleanup_all_clients)
+            cls._cleanup_registered = True
+
+        client = ollama.Client(host=f'http://{host}:11434')
+        cls._active_clients.append(client)
+        return client
+
+    @classmethod
+    def _cleanup_client(cls, client: ollama.Client):
+        """Clean up an ollama client and remove from tracking."""
+        try:
+            # Try multiple ways to access and close the underlying HTTP client
+            if hasattr(client, '_client'):
+                # ollama client has _client attribute (httpx.Client)
+                http_client = client._client
+                if hasattr(http_client, 'close'):
+                    http_client.close()
+                elif hasattr(http_client, 'aclose'):
+                    # For async clients
+                    import asyncio
+                    try:
+                        asyncio.get_event_loop().run_until_complete(http_client.aclose())
+                    except:
+                        pass
+            elif hasattr(client, 'close'):
+                # Direct close method on client
+                client.close()
+            elif hasattr(client, '_session'):
+                # Some clients use _session for HTTP
+                if hasattr(client._session, 'close'):
+                    client._session.close()
+        except Exception as e:
+            # Log cleanup failures for debugging
+            logger.debug(f"Failed to cleanup ollama client: {e}")
+
+        try:
+            cls._active_clients.remove(client)
+        except ValueError:
+            pass  # Client wasn't in the list
+
+    @classmethod
+    def cleanup_all_clients(cls):
+        """Clean up all active clients to prevent resource leaks."""
+        for client in cls._active_clients.copy():
+            cls._cleanup_client(client)
+        cls._active_clients.clear()
+
+        # Force garbage collection to ensure connections are released
+        import gc
+        gc.collect()
 
     @classmethod
     def cancel_current_generation(cls):
@@ -190,17 +251,19 @@ class OllamaClient(AIProviderInterface):
         return cls._executor
 
     @classmethod
-    def _create_cancellable_stream(cls, raw_stream, model_key: str):
+    def _create_cancellable_stream(cls, raw_stream, model_key: str, client=None):
         """
         Create a cancellable stream wrapper that monitors the cancellation event.
         This implements proper HTTP request cancellation for Ollama streams.
         """
         class CancellableOllamaStream:
-            def __init__(self, stream, cancellation_event, model_key):
+            def __init__(self, stream, cancellation_event, model_key, client=None):
                 self.stream = stream
                 self.cancellation_event = cancellation_event
                 self.model_key = model_key
+                self.client = client  # Keep reference to client for cleanup
                 self._cancelled = False
+                self._finished = False
 
             def __iter__(self):
                 return self
@@ -211,6 +274,7 @@ class OllamaClient(AIProviderInterface):
                     if not self._cancelled:
                         self._cancelled = True
                         logger.debug(f"Ollama stream for {self.model_key} cancelled via interruption")
+                        self._cleanup()
                         # This will cause the stream processing to stop immediately
                         raise StopIteration("Stream cancelled due to tool call completion")
 
@@ -218,14 +282,26 @@ class OllamaClient(AIProviderInterface):
                     # Get the next chunk from the raw stream
                     return next(self.stream)
                 except StopIteration:
-                    # Natural end of stream
+                    # Natural end of stream - cleanup the client
+                    self._cleanup()
                     raise
                 except Exception as e:
-                    # Handle any other stream errors
+                    # Handle any other stream errors - cleanup the client
+                    self._cleanup()
                     logger.warning(f"Ollama stream error for {self.model_key}: {e}")
                     raise
 
-        return CancellableOllamaStream(raw_stream, cls._cancellation_event, model_key)
+            def _cleanup(self):
+                """Clean up the associated client when stream ends."""
+                if not self._finished and self.client:
+                    self._finished = True
+                    try:
+                        OllamaClient._cleanup_client(self.client)
+                        logger.debug(f"Cleaned up ollama client after stream ended for {self.model_key}")
+                    except Exception as e:
+                        logger.debug(f"Failed to cleanup client after stream: {e}")
+
+        return CancellableOllamaStream(raw_stream, cls._cancellation_event, model_key, client)
 
     @classmethod
     def check_host_reachability(cls, host: str, chat: Optional[Chat] = None) -> bool:
@@ -266,7 +342,7 @@ class OllamaClient(AIProviderInterface):
             else:
                 logging.debug(f"Ollama-Api: Checking host <{host}>...")
 
-            with socket.create_connection((hostname, port), timeout=1): # 1-second timeout
+            with socket.create_connection((hostname, port), timeout=1) as sock: # 1-second timeout
                 # Cache successful result
                 cls._host_cache["reachable"][host] = current_time
                 return True
@@ -331,7 +407,7 @@ class OllamaClient(AIProviderInterface):
                     failed_hosts_this_attempt.append(host)
 
             if host in OllamaClient.reached_hosts and host not in OllamaClient.unreachable_hosts:
-                client = ollama.Client(host=f'http://{host}:11434')
+                client = OllamaClient._create_client(host)
                 try:
                     response = client.list()
 
@@ -490,7 +566,7 @@ class OllamaClient(AIProviderInterface):
         # If we reach here, no host had the model. Try to download on the first reachable host
         if OllamaClient.reached_hosts:
             first_host = OllamaClient.reached_hosts[0]
-            client = ollama.Client(host=f'http://{first_host}:11434')
+            client = OllamaClient._create_client(first_host)
 
             if chat:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
@@ -670,7 +746,7 @@ class OllamaClient(AIProviderInterface):
             OllamaClient._current_stream = raw_stream
 
             # Return a cancellable stream wrapper
-            return OllamaClient._create_cancellable_stream(raw_stream, model_key)
+            return OllamaClient._create_cancellable_stream(raw_stream, model_key, client)
         except ollama.ResponseError as e:
             # This handles specific API errors from Ollama, like model not found.
             # We create a more descriptive error message to be handled by the router.
@@ -707,8 +783,10 @@ class OllamaClient(AIProviderInterface):
             List[Dict[str, Any]]: List of model information dictionaries
         """
         try:
-            client = ollama.Client(host=f'http://{host}:11434')
+            client = OllamaClient._create_client(host)
             response = client.list()
+            # Clean up after use
+            OllamaClient._cleanup_client(client)
 
             # Handle new dictionary-based response from ollama-python >= 0.2.0
             if isinstance(response, dict) and 'models' in response:
@@ -795,7 +873,7 @@ class OllamaClient(AIProviderInterface):
             Optional[int]: Context length if available, None otherwise
         """
         try:
-            client = ollama.Client(host=f'http://{host}:11434')
+            client = OllamaClient._create_client(host)
 
             # Try to get model info - this might not work for all Ollama versions
             try:
@@ -820,6 +898,12 @@ class OllamaClient(AIProviderInterface):
 
         except Exception:
             return None
+        finally:
+            # Clean up the client
+            try:
+                OllamaClient._cleanup_client(client)
+            except:
+                pass
 
     @staticmethod
     def get_model_variants_from_web(model_name: str, timeout: int = 10) -> List[Dict[str, Any]]:
@@ -1231,6 +1315,7 @@ class OllamaClient(AIProviderInterface):
         Returns:
             Optional[List[float]]: The embedding vector or None if failed
         """
+        client = None
         try:
             # Get a valid client for this model
             client, found_model_key, _ = OllamaClient.get_valid_client(model, None, False)
@@ -1258,6 +1343,13 @@ class OllamaClient(AIProviderInterface):
             # Fail silently to allow fallback to other embedding methods
             logger.debug(f"Failed to generate embedding with Ollama model {model}: {e}")
             return None
+        finally:
+            # Clean up the client
+            if client:
+                try:
+                    OllamaClient._cleanup_client(client)
+                except:
+                    pass
 
 
 def test_ollama_functionality():

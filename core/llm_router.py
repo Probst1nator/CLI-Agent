@@ -1143,8 +1143,7 @@ class LlmRouter:
                             criteria_desc = ", ".join(criteria_parts) if criteria_parts else "no specific criteria"
 
                             # Get total available models for context
-                            from core.llm_collection import get_llm_models
-                            all_models = get_llm_models()
+                            all_models = Llm.get_available_llms(include_dynamic=True)
                             total_models = len(all_models)
                             available_model_names = [m.model_key for m in all_models[:10]]  # Show first 10
                             available_str = ", ".join(available_model_names)
@@ -1162,7 +1161,7 @@ class LlmRouter:
 
                 # Enable caching for all temperatures - behavior differs based on temperature
                 enable_caching = True
-                instance.last_used_model = model.model_key
+                cls.last_used_model = model.model_key
 
                 # --- FIX: Log BEFORE cache check to ensure all branch attempts are visible ---
                 if not hidden_reason:

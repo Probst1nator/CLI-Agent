@@ -1548,6 +1548,17 @@ code:not(pre > code) {
     font-size: 0.9rem;
 }
 
+.tool-model {
+    display: inline-block;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-left: 5px;
+}
+
 .tool-code {
     background-color: var(--code-bg, #f8f9fa);
     border: 1px solid var(--border-color, #e9ecef);
@@ -2538,4 +2549,79 @@ html[data-theme='light'] .llm-context {
         max-width: none;
         margin: 0;
     }
+}
+
+/* HTML Message Resize Handle Styles */
+.html-message-container {
+    position: relative;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+    min-height: 150px;
+    max-height: 80vh;
+}
+
+.html-resize-handle {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 12px;
+    background: linear-gradient(to bottom, transparent 0%, rgba(0, 123, 255, 0.1) 50%, rgba(0, 123, 255, 0.2) 100%);
+    cursor: ns-resize;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+.html-resize-handle:hover {
+    background: linear-gradient(to bottom, rgba(0, 123, 255, 0.1) 0%, rgba(0, 123, 255, 0.2) 50%, rgba(0, 123, 255, 0.3) 100%);
+}
+
+.html-resize-handle:active {
+    background: linear-gradient(to bottom, rgba(0, 123, 255, 0.2) 0%, rgba(0, 123, 255, 0.3) 50%, rgba(0, 123, 255, 0.4) 100%);
+}
+
+.html-resize-handle::after {
+    content: '⋯';
+    font-size: 16px;
+    color: rgba(0, 123, 255, 0.6);
+    letter-spacing: 2px;
+    transform: rotate(90deg);
+    pointer-events: none;
+}
+
+.html-resize-handle:hover::after {
+    color: rgba(0, 123, 255, 0.8);
+}
+
+/* Iframe adjustments for resizable container */
+.html-message-container iframe {
+    width: 100%;
+    height: calc(100% - 12px); /* Account for resize handle */
+    border: none;
+    display: block;
+}
+
+/* Resize indicator */
+.resize-indicator {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.resize-indicator.show {
+    opacity: 1;
 }

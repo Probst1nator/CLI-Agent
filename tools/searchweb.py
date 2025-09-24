@@ -27,6 +27,7 @@ if __name__ == '__main__':
 
 from shared.utils.search.brave_search import BraveSearchAPI
 from shared.utils.search.search_vector_db import SearchResultsVectorDB
+from shared.utils.text_resource_manager import TextResourceManager
 
 
 class searchweb:
@@ -58,7 +59,7 @@ class searchweb:
             "description": (
                 f"Performs a web search using a specified query and type. "
                 f"Requires <query> and an optional <type> tag. Supported types are 'text' (default), "
-                f"'images', 'files', 'cited text', and 'any'. Returns up to {searchweb.MAX_RESULTS} results. "
+                f"'images', 'files', and 'any'. Returns up to {searchweb.MAX_RESULTS} results. "
                 f"Disable the locally cached results for time-sensitive queries via <cache>false</cache>."
             ),
             "example": (
@@ -106,8 +107,49 @@ class searchweb:
 
 
         sourced_snippets = []
-        for result in results:
-            sourced_snippets.append(searchweb.result_to_source(result))
+        created_resources = []  # Track created text resources
+
+        for i, result in enumerate(results):
+            source_content = searchweb.result_to_source(result)
+            sourced_snippets.append(source_content)
+
+            # Create individual text resources (only if caching enabled)
+            if use_cache and source_content.strip():
+                try:
+                    resource_manager = TextResourceManager._get_manager()
+
+                    # Create a hash-based resource ID for deduplication
+                    import hashlib
+                    content_hash = hashlib.md5(source_content.encode()).hexdigest()[:8]
+                    resource_id = f"search_result_{content_hash}"
+
+                    # Check if resource already exists
+                    existing_resource = resource_manager.get_resource(resource_id)
+                    if existing_resource:
+                        # Update access time for existing resource
+                        existing_resource.update_access_time()
+                        created_resources.append({
+                            'resource_id': resource_id,
+                            'title': result.get('title', 'No Title'),
+                            'url': result.get('url', 'No URL'),
+                            'is_new': False
+                        })
+                    else:
+                        # Create new resource
+                        resource_manager.create_resource(
+                            content=source_content,
+                            source=result.get('url', f'search_result_{i}'),
+                            source_type='web_search_result',
+                            resource_id=resource_id
+                        )
+                        created_resources.append({
+                            'resource_id': resource_id,
+                            'title': result.get('title', 'No Title'),
+                            'url': result.get('url', 'No URL'),
+                            'is_new': True
+                        })
+                except Exception as e:
+                    print(f"⚠️ Failed to create text resource for result {i}: {e}")
 
         if not sourced_snippets:
             return "No useful information found."
@@ -115,7 +157,7 @@ class searchweb:
         joined_text = " ".join(sourced_snippets)
 
         chat = Chat()
-        chat.add_message(Role.USER, f"The search query is: {query}\nProvide a concise summary of the following web results: {joined_text}")
+        chat.add_message(Role.USER, f"The search query is: {query}\nJudge and compare these different web sources and summarize: {joined_text}")
 
         # Use await for async LLM completion
         summary = await LlmRouter.generate_completion(chat)
@@ -149,7 +191,28 @@ class searchweb:
             except Exception as e:
                 print(f"⚠️ Failed to store summary in vector database: {e}")
 
-        return f"Web search summary: {summary}"
+        # Build the enhanced response with resource information
+        response = f"Web search summary: {summary}"
+
+        # Add individual source access information (only if resources were created)
+        if use_cache and created_resources:
+            response += "\n\nIndividual Sources Available:"
+            for resource_info in created_resources:
+                status_indicator = "📄" if resource_info['is_new'] else "🔄"
+                response += f"\n- {status_indicator} Resource ID: {resource_info['resource_id']} | Title: \"{resource_info['title']}\" | URL: {resource_info['url']}"
+
+            response += f"\n\nAccess individual sources using:"
+            response += f"\n• Read full source: <readfile>{{resource_id}}</readfile>"
+            response += f"\n• Search within source: <searchtext><resource_id>{{resource_id}}</resource_id><pattern>your search term</pattern></searchtext>"
+
+            new_count = sum(1 for r in created_resources if r['is_new'])
+            existing_count = len(created_resources) - new_count
+            if new_count > 0:
+                response += f"\n\n📄 Created {new_count} new text resources"
+            if existing_count > 0:
+                response += f" | 🔄 Updated access time for {existing_count} existing resources"
+
+        return response
 
     @staticmethod
     def _format_cited_text(results: list) -> str:
@@ -216,7 +279,7 @@ class searchweb:
                 search_type = 'text'
             else:
                 query = query_match.group(1).strip()
-                search_type = type_match.group(1).strip().lower() if type_match else 'any'
+                search_type = type_match.group(1).strip().lower() if type_match else 'text'
 
             # Parse cache flag (default: true)
             use_cache = True
@@ -401,16 +464,16 @@ class searchweb:
                     except Exception as e:
                         print(f"⚠️ Failed to store image summary in vector database: {e}")
                 return result
-            elif search_type in ['files', 'cited text', 'any']:
-                # Check for existing cited text summary to avoid duplicates (only if caching enabled)
+            elif search_type in ['files', 'any']:
+                # Check for existing summary to avoid duplicates (only if caching enabled)
                 if use_cache:
                     existing_summary = vector_db.get_summary_by_query(query, search_type)
                     if existing_summary:
-                        print("✅ Found and using existing cited text summary from vector database")
+                        print("✅ Found and using existing summary from vector database")
                         return existing_summary
 
                 result = searchweb._format_cited_text(results_list)
-                # Store cited text summary in vector database with enhanced metadata (only if caching enabled)
+                # Store summary in vector database with enhanced metadata (only if caching enabled)
                 if use_cache:
                     try:
                         # Collect source IDs for audit trail
@@ -424,17 +487,17 @@ class searchweb:
                                 source_ids.append(f"result_{content_hash}")
 
                         generation_info = {
-                            'method': 'cited',
-                            'model': 'N/A'  # Cited text is formatted, not generated by LLM
+                            'method': 'structured_list',
+                            'model': 'N/A'  # Structured lists are formatted, not generated by LLM
                         }
 
                         if vector_db.store_summary(query, search_type, result, source_ids, generation_info):
-                            print("💾 Stored cited text summary in vector database")
+                            print("💾 Stored summary in vector database")
                     except Exception as e:
-                        print(f"⚠️ Failed to store cited summary in vector database: {e}")
+                        print(f"⚠️ Failed to store summary in vector database: {e}")
                 return result
             else:
-                return f"Error: Unknown search type '{search_type}'. Use 'text', 'images', 'files', 'cited text', or 'any'."
+                return f"Error: Unknown search type '{search_type}'. Use 'text', 'images', 'files', or 'any'."
 
         except Exception as e:
             return f"An unexpected error occurred in the searchweb tool: {str(e)}"

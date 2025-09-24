@@ -48,6 +48,7 @@ services:
       - cli-agent-logs:/workspace/logs
       - cli-agent-temp:/workspace/temp
       - cli-agent-config:/workspace/.cli-agent
+      - cli-agent-user-config:/home/cliagent/.config/cli-agent
 
     # Health check
     healthcheck:
@@ -95,3 +96,6 @@ volumes:
   cli-agent-config:
     driver: local
     name: cli-agent-isolated-config
+  cli-agent-user-config:
+    driver: local
+    name: cli-agent-isolated-user-config
