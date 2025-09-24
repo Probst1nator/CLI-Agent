@@ -18,9 +18,8 @@ import re
 import hashlib
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
-import logging
 
-logger = logging.getLogger(__name__)
+# TextResourceManager is fully decoupled from logging system
 
 
 @dataclass
@@ -191,12 +190,7 @@ class TextResourceManager:
         self._max_age = 86400  # 24 hours
         self._max_resources = 100  # Maximum cached resources
 
-        # Safe logging - by the time tools are used, logging will be configured
-        try:
-            logger.info("TextResourceManager initialized")
-        except (ValueError, OSError):
-            # Logging system may not be ready during early initialization
-            pass
+        # TextResourceManager initialization is silent
 
     def create_resource(
         self,
@@ -250,10 +244,7 @@ class TextResourceManager:
 
             self._resources[resource_id] = resource
 
-        try:
-            logger.debug(f"Created text resource {resource_id} ({metadata.total_lines} lines, {metadata.total_chars} chars)")
-        except (ValueError, OSError):
-            pass
+        # Resource creation is silent - no logging dependencies
         return resource_id
 
     def get_resource(self, resource_id: str) -> Optional[TextResource]:
@@ -304,10 +295,6 @@ class TextResourceManager:
                 "source_type": resource.metadata.source_type
             }
         except Exception as e:
-            try:
-                logger.error(f"Search error in resource {resource_id}: {e}")
-            except (ValueError, OSError):
-                pass
             return {"error": f"Search failed: {str(e)}"}
 
     def get_line_range(
@@ -327,10 +314,6 @@ class TextResourceManager:
             result["source"] = resource.metadata.source
             return result
         except Exception as e:
-            try:
-                logger.error(f"Line range error in resource {resource_id}: {e}")
-            except (ValueError, OSError):
-                pass
             return {"error": f"Failed to get line range: {str(e)}"}
 
     def list_resources(self) -> List[Dict[str, Any]]:
@@ -354,10 +337,6 @@ class TextResourceManager:
         with self._resource_lock:
             if resource_id in self._resources:
                 del self._resources[resource_id]
-                try:
-                    logger.debug(f"Removed resource {resource_id}")
-                except (ValueError, OSError):
-                    pass
                 return True
             return False
 
@@ -365,10 +344,6 @@ class TextResourceManager:
         """Clear all resources (useful for testing)."""
         with self._resource_lock:
             self._resources.clear()
-            try:
-                logger.debug("Cleared all text resources")
-            except (ValueError, OSError):
-                pass
 
     def _cleanup_old_resources(self):
         """Remove old or least recently used resources."""
@@ -397,11 +372,7 @@ class TextResourceManager:
             if resource_id in self._resources:
                 del self._resources[resource_id]
 
-        if resources_to_remove:
-            try:
-                logger.debug(f"Cleaned up {len(resources_to_remove)} old text resources")
-            except (ValueError, OSError):
-                pass
+        # Cleanup is silent - no logging dependencies
 
     def get_stats(self) -> Dict[str, Any]:
         """Get manager statistics."""

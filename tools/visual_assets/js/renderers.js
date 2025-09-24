@@ -6,12 +6,23 @@
  * @param {string} htmlContent - The complete HTML string to render.
  */
 function renderHTML(targetElement, htmlContent, messageId = null) {
+    // Decode HTML entities if the content appears to be HTML-encoded
+    if (htmlContent.includes('&lt;') || htmlContent.includes('&gt;') || htmlContent.includes('&amp;')) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = htmlContent;
+        htmlContent = tempDiv.textContent || tempDiv.innerText || '';
+        window.visualLogger.info('Decoded HTML entities from content', {
+            originalLength: htmlContent.length,
+            decodedLength: htmlContent.length
+        });
+    }
+
     // Check if JavaScript execution is enabled for this specific message (considering global state)
     let jsEnabled = true; // Default to enabled
     if (messageId && window.JavaScriptUtils) {
         jsEnabled = window.JavaScriptUtils.getEffectiveMessageJSState(messageId);
     }
-    
+
     // Check if the HTML content contains JavaScript
     const hasJS = window.JavaScriptUtils ? window.JavaScriptUtils.detectJavaScript(htmlContent) : false;
     
@@ -63,15 +74,35 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
             <html>
             <head>
                 <meta charset="utf-8">
+                <base href="${window.location.href}">
                 <style>
                     body {
                         margin: 0;
                         font-family: inherit;
                         background: transparent;
-                        color: var(--text-color, #e0e0e0);
+                        color: #e0e0e0;
                     }
-                    * { max-width: 100%; }
+                    * {
+                        max-width: 100%;
+                        color: inherit;
+                    }
                 </style>
+                <script>
+                    // Override console.error to suppress source map warnings
+                    const originalError = console.error;
+                    console.error = function(...args) {
+                        const message = args[0];
+                        if (typeof message === 'string' && (
+                            message.includes('Source map error') ||
+                            message.includes('DevTools failed to load') ||
+                            message.includes('sourceMappingURL') ||
+                            message.includes('Failed to load source map')
+                        )) {
+                            return; // Suppress source map errors
+                        }
+                        return originalError.apply(console, args);
+                    };
+                </script>
             </head>
             <body>${safeContent}</body>
             </html>
@@ -147,41 +178,8 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
     const MAX_HEIGHT_ADJUSTMENTS = 8; // Allow more adjustments for better accuracy
     const HEIGHT_DEBOUNCE_MS = 150; // Reduce debounce time for faster response
 
-    // Listen for height messages from iframe content with improved logic
-    const messageListener = (event) => {
-        if (event.source === iframe.contentWindow && event.data.type === 'resize') {
-            const rawHeight = event.data.height;
-            const newHeight = Math.max(150, Math.min(1200, rawHeight + 10)); // Reduce padding from 20px to 10px
-
-            // Only adjust if height difference is meaningful
-            const heightDifference = Math.abs(newHeight - lastHeight);
-            if (heightDifference < 8 && heightAdjustmentCount > 1) {
-                window.visualLogger.debug(`Skipping height adjustment: difference too small (${heightDifference}px)`);
-                return;
-            }
-
-            // Allow more adjustments but with exponential backoff for later ones
-            if (heightAdjustmentCount >= MAX_HEIGHT_ADJUSTMENTS) {
-                window.visualLogger.debug(`Maximum height adjustments reached (${MAX_HEIGHT_ADJUSTMENTS}), ignoring further changes`);
-                return;
-            }
-
-            // Clear existing timeout and set new one with dynamic delay
-            if (heightDebounceTimeout) {
-                clearTimeout(heightDebounceTimeout);
-            }
-
-            // Use shorter delay for early adjustments, longer for later ones
-            const dynamicDelay = Math.min(HEIGHT_DEBOUNCE_MS * (1 + heightAdjustmentCount * 0.3), 500);
-
-            heightDebounceTimeout = setTimeout(() => {
-                iframe.style.height = newHeight + 'px';
-                lastHeight = newHeight;
-                heightAdjustmentCount++;
-                window.visualLogger.debug(`Iframe height adjusted to ${newHeight}px (raw: ${rawHeight}px, adjustment #${heightAdjustmentCount})`);
-            }, dynamicDelay);
-        }
-    };
+    // Declare messageListener variable that will be defined later
+    let messageListener;
 
     // Add height-reporting script to the HTML content
     const heightReportingScript = `
@@ -256,20 +254,78 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
         </script>
     `;
 
-    // Add CSP meta tag to iframe content to allow external scripts
+    // Add CSP meta tag and base tag to iframe content to allow external scripts and fix source maps
+    const baseTag = `<base href="${window.location.href}">`;
     const cspMetaTag = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\' \'unsafe-inline\' \'unsafe-eval\' https://unpkg.com https://cdn.plot.ly https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src \'self\' data: blob:; connect-src \'self\' ws: wss:; object-src \'none\'; base-uri \'self\'; form-action \'self\'">';
 
-    // Inject CSP and height reporting script into the HTML content
+    // Add CSS to fix text color inheritance and disable source maps
+    const colorFixCSS = `
+        <style>
+            body {
+                color: #e0e0e0 !important;
+            }
+            * {
+                color: inherit;
+            }
+            h1, h2, h3, h4, h5, h6, p, span, div, td, th {
+                color: inherit !important;
+            }
+        </style>
+    `;
+
+    // Add script to disable source map loading and handle console errors
+    const sourceMapDisableScript = `
+        <script>
+            // Override console.error to suppress source map warnings
+            const originalError = console.error;
+            console.error = function(...args) {
+                const message = args[0];
+                if (typeof message === 'string' && (
+                    message.includes('Source map error') ||
+                    message.includes('DevTools failed to load') ||
+                    message.includes('sourceMappingURL') ||
+                    message.includes('Failed to load source map')
+                )) {
+                    return; // Suppress source map errors
+                }
+                return originalError.apply(console, args);
+            };
+
+            // Disable source map loading by overriding fetch for .map files
+            const originalFetch = window.fetch;
+            if (originalFetch) {
+                window.fetch = function(url, options) {
+                    if (typeof url === 'string' && url.endsWith('.map')) {
+                        return Promise.reject(new Error('Source maps disabled in iframe'));
+                    }
+                    return originalFetch.apply(this, arguments);
+                };
+            }
+
+            // Override XMLHttpRequest for .map files
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url, ...args) {
+                if (typeof url === 'string' && url.endsWith('.map')) {
+                    // Prevent source map requests
+                    return;
+                }
+                return originalOpen.apply(this, [method, url, ...args]);
+            };
+        </script>
+    `;
+
+    // Inject CSP, base tag, styling, and source map disable script into the HTML content
     let modifiedHtmlContent = htmlContent;
 
-    // First, inject CSP meta tag in head
+    // First, inject meta tags, styling, and source map disable script in head
+    const headContent = baseTag + cspMetaTag + colorFixCSS + sourceMapDisableScript;
     if (htmlContent.toLowerCase().includes('</head>')) {
-        modifiedHtmlContent = modifiedHtmlContent.replace('</head>', cspMetaTag + '</head>');
+        modifiedHtmlContent = modifiedHtmlContent.replace('</head>', headContent + '</head>');
     } else if (htmlContent.toLowerCase().includes('<head>')) {
-        modifiedHtmlContent = modifiedHtmlContent.replace('<head>', '<head>' + cspMetaTag);
+        modifiedHtmlContent = modifiedHtmlContent.replace('<head>', '<head>' + headContent);
     } else {
         // If no head tag, add it
-        modifiedHtmlContent = modifiedHtmlContent.replace('<html>', '<html><head>' + cspMetaTag + '</head>');
+        modifiedHtmlContent = modifiedHtmlContent.replace('<html>', '<html><head>' + headContent + '</head>');
     }
 
     // Then inject height reporting script
@@ -314,11 +370,13 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
             estimatedHeight = Math.min(estimatedHeight, 600);
 
             iframe.style.height = estimatedHeight + 'px';
+            lastHeight = estimatedHeight; // Update lastHeight for container sizing
             window.visualLogger.debug(`Iframe height estimated at ${estimatedHeight}px (conservative fallback)`);
 
         } catch (e) {
             window.visualLogger.warn('Could not resize iframe automatically:', e.message);
             iframe.style.height = originalHeight + 'px'; // More conservative default
+            lastHeight = originalHeight; // Update lastHeight for container sizing
         }
     }
 
@@ -335,10 +393,14 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
         window.visualLogger.info('iFrame content rendered successfully using srcdoc.');
 
         // Resize after a short delay to allow content to render
-        setTimeout(resizeIframe, 100);
+        setTimeout(() => {
+            resizeIframe();
+        }, 100);
 
         // Also resize after images might have loaded
-        setTimeout(resizeIframe, 1000);
+        setTimeout(() => {
+            resizeIframe();
+        }, 1000);
     };
 
     iframe.onerror = (e) => {
@@ -346,9 +408,209 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
         targetElement.textContent = "An error occurred while loading the iFrame.";
     };
 
-    // Clear the target element and append the new iframe.
+    // Clear the target element and create resizable container
     targetElement.innerHTML = '';
-    targetElement.appendChild(iframe);
+
+    // Create container for resizable HTML messages
+    const resizableContainer = document.createElement('div');
+    resizableContainer.className = 'html-message-container';
+
+    // Create resize handle
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'html-resize-handle';
+    resizeHandle.title = 'Drag to resize message height';
+
+    // Add drag functionality to resize handle
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+    let resizeIndicator = null;
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startY = e.clientY;
+        startHeight = resizableContainer.offsetHeight;
+
+        // Create and show resize indicator
+        resizeIndicator = document.createElement('div');
+        resizeIndicator.className = 'resize-indicator';
+        resizeIndicator.textContent = startHeight + 'px';
+        document.body.appendChild(resizeIndicator);
+        setTimeout(() => resizeIndicator.classList.add('show'), 10);
+
+        // Prevent text selection and add global mouse events
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'ns-resize';
+
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        const deltaY = e.clientY - startY;
+        const newHeight = Math.max(150, Math.min(window.innerHeight * 0.8, startHeight + deltaY));
+
+        // Update container height
+        resizableContainer.style.height = newHeight + 'px';
+
+        // Update iframe height to fill container minus handle space (12px)
+        const iframeHeight = newHeight - 12;
+        iframe.style.height = iframeHeight + 'px';
+
+        // Update lastHeight for consistency with automatic sizing
+        lastHeight = iframeHeight;
+
+        if (resizeIndicator) {
+            resizeIndicator.textContent = Math.round(newHeight) + 'px';
+        }
+
+        e.preventDefault();
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!isResizing) return;
+
+        isResizing = false;
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+
+        // Hide and remove resize indicator
+        if (resizeIndicator) {
+            resizeIndicator.classList.remove('show');
+            setTimeout(() => {
+                if (resizeIndicator && resizeIndicator.parentNode) {
+                    resizeIndicator.parentNode.removeChild(resizeIndicator);
+                }
+                resizeIndicator = null;
+            }, 200);
+        }
+    });
+
+    // Set initial height based on content (container = iframe + handle)
+    resizableContainer.style.height = (lastHeight + 12) + 'px';
+
+    // Append iframe and resize handle to container
+    resizableContainer.appendChild(iframe);
+    resizableContainer.appendChild(resizeHandle);
+
+    // Append container to target element
+    targetElement.appendChild(resizableContainer);
+
+    // Now create the message listener with access to resizableContainer
+    messageListener = (event) => {
+        if (event.source === iframe.contentWindow && event.data.type === 'resize') {
+            const rawHeight = event.data.height;
+            const newHeight = Math.max(150, Math.min(1200, rawHeight + 10)); // Reduce padding from 20px to 10px
+
+            // Only adjust if height difference is meaningful
+            const heightDifference = Math.abs(newHeight - lastHeight);
+            if (heightDifference < 8 && heightAdjustmentCount > 1) {
+                window.visualLogger.debug(`Skipping height adjustment: difference too small (${heightDifference}px)`);
+                return;
+            }
+
+            // Allow more adjustments but with exponential backoff for later ones
+            if (heightAdjustmentCount >= MAX_HEIGHT_ADJUSTMENTS) {
+                window.visualLogger.debug(`Maximum height adjustments reached (${MAX_HEIGHT_ADJUSTMENTS}), ignoring further changes`);
+                return;
+            }
+
+            // Clear existing timeout and set new one with dynamic delay
+            if (heightDebounceTimeout) {
+                clearTimeout(heightDebounceTimeout);
+            }
+
+            // Use shorter delay for early adjustments, longer for later ones
+            const dynamicDelay = Math.min(HEIGHT_DEBOUNCE_MS * (1 + heightAdjustmentCount * 0.3), 500);
+
+            heightDebounceTimeout = setTimeout(() => {
+                // Update iframe height
+                iframe.style.height = newHeight + 'px';
+                lastHeight = newHeight;
+                heightAdjustmentCount++;
+
+                // Also update container height to accommodate iframe + handle (12px)
+                resizableContainer.style.height = (newHeight + 12) + 'px';
+
+                window.visualLogger.debug(`Iframe height adjusted to ${newHeight}px (raw: ${rawHeight}px, adjustment #${heightAdjustmentCount})`);
+            }, dynamicDelay);
+        }
+    };
+
+    // Add message listener to window
+    window.addEventListener('message', messageListener);
+
+    // Function to resize iframe with conservative content estimation fallback
+    function resizeIframe() {
+        try {
+            // More conservative height estimation based on content
+            const contentLines = htmlContent.split('\n').length;
+            const hasImages = htmlContent.includes('<img');
+            const hasLargeContent = htmlContent.length > 1000;
+            const contentLength = htmlContent.replace(/<[^>]*>/g, '').trim().length; // Text content only
+
+            // Base height on actual content, not just lines
+            let estimatedHeight = Math.max(150, Math.min(500, Math.max(
+                contentLines * 12, // Reduced from 20px per line
+                contentLength * 0.3 // Rough character-based estimation
+            )));
+
+            if (hasImages) {
+                estimatedHeight += 200; // Reduced from 300px
+            }
+
+            if (hasLargeContent) {
+                estimatedHeight += 100; // Reduced from 200px
+            }
+
+            // Don't exceed reasonable bounds
+            estimatedHeight = Math.min(estimatedHeight, 600);
+
+            iframe.style.height = estimatedHeight + 'px';
+            lastHeight = estimatedHeight; // Update lastHeight for container sizing
+
+            // Update container height to match
+            resizableContainer.style.height = (estimatedHeight + 12) + 'px';
+
+            window.visualLogger.debug(`Iframe height estimated at ${estimatedHeight}px (conservative fallback)`);
+
+        } catch (e) {
+            window.visualLogger.warn('Could not resize iframe automatically:', e.message);
+            const fallbackHeight = 300; // More conservative default
+            iframe.style.height = fallbackHeight + 'px';
+            lastHeight = fallbackHeight; // Update lastHeight for container sizing
+            resizableContainer.style.height = (fallbackHeight + 12) + 'px';
+        }
+    }
+
+    // Cleanup function to remove message listener and clear timeouts
+    iframe.cleanup = () => {
+        window.removeEventListener('message', messageListener);
+        if (heightDebounceTimeout) {
+            clearTimeout(heightDebounceTimeout);
+        }
+    };
+
+    // Set up event handlers
+    iframe.onload = () => {
+        window.visualLogger.info('iFrame content rendered successfully using srcdoc.');
+
+        // Resize after a short delay to allow content to render
+        setTimeout(() => {
+            resizeIframe();
+        }, 100);
+
+        // Also resize after images might have loaded
+        setTimeout(() => {
+            resizeIframe();
+        }, 1000);
+    };
+
+    iframe.onerror = (e) => {
+        window.visualLogger.error("An error occurred loading the iFrame content.", { error: e });
+        targetElement.textContent = "An error occurred while loading the iFrame.";
+    };
 }
 
 /**
@@ -411,50 +673,36 @@ class ContentRenderer {
                 if (type === 'html' && messageId && timestampDiv && window.JavaScriptUtils) {
                     const hasJS = window.JavaScriptUtils.detectJavaScript(content);
 
-                    if (hasJS) {
-                        // Add JS toggle to the right side of timestamp header
-                        timestampDiv.classList.add('has-js-toggle');
+                    // Always show JS controls for HTML messages (JS detection is just for informational purposes)
+                    timestampDiv.classList.add('has-js-toggle');
 
-                        const resetButton = window.JavaScriptUtils.createResetButton(
-                            messageId,
-                            (msgId, enabled) => this.reRenderMessage(container, data, msgId, enabled)
-                        );
+                    const resetButton = window.JavaScriptUtils.createResetButton(
+                        messageId,
+                        (msgId, enabled) => this.reRenderMessage(container, data, msgId, enabled)
+                    );
 
-                        const toggleButton = window.JavaScriptUtils.createToggleButton(
-                            messageId,
-                            (msgId, enabled) => this.reRenderMessage(container, data, msgId, enabled)
-                        );
+                    const toggleButton = window.JavaScriptUtils.createToggleButton(
+                        messageId,
+                        (msgId, enabled) => this.reRenderMessage(container, data, msgId, enabled)
+                    );
 
-                        const copyButton = window.JavaScriptUtils.createCopyButton(
-                            messageId,
-                            content
-                        );
+                    const copyButton = window.JavaScriptUtils.createCopyButton(
+                        messageId,
+                        content
+                    );
 
-                        const saveButton = window.JavaScriptUtils.createSaveButton(
-                            messageId,
-                            content
-                        );
+                    const saveButton = window.JavaScriptUtils.createSaveButton(
+                        messageId,
+                        content
+                    );
 
-                        timestampDiv.appendChild(resetButton);
-                        timestampDiv.appendChild(toggleButton);
-                        timestampDiv.appendChild(copyButton);
-                        timestampDiv.appendChild(saveButton);
-                        window.visualLogger.debug(`Added JS controls to header for message ${messageId}`);
-                    } else {
-                        // For HTML messages without JS, add copy and save buttons
-                        const copyButton = window.JavaScriptUtils.createCopyButton(
-                            messageId,
-                            content
-                        );
+                    timestampDiv.appendChild(resetButton);
+                    timestampDiv.appendChild(toggleButton);
+                    timestampDiv.appendChild(copyButton);
+                    timestampDiv.appendChild(saveButton);
 
-                        const saveButton = window.JavaScriptUtils.createSaveButton(
-                            messageId,
-                            content
-                        );
-
-                        timestampDiv.appendChild(copyButton);
-                        timestampDiv.appendChild(saveButton);
-                    }
+                    const jsStatus = hasJS ? 'detected' : 'not detected';
+                    window.visualLogger.debug(`Added JS controls to header for message ${messageId} (JS ${jsStatus})`);
 
                     window.visualLogger.debug(`Added expand button and controls to header for message ${messageId}`);
                 }

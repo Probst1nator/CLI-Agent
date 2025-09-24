@@ -200,7 +200,7 @@ class VisualResponseApp {
         this.checkLibraries();
         this.initializeComponents();
         this.setupEventListeners();
-        this.setupThemeSwitcher();
+        this.setDarkTheme();
         this.loadMessageHistory();
         console.log('✅ Visual Response App initialized successfully');
         console.groupEnd();
@@ -463,54 +463,29 @@ class VisualResponseApp {
             return;
         }
 
-        // Force immediate scroll with multiple methods
+        // Single efficient scroll operation - much faster than multiple attempts
         const scrollToEnd = () => {
-            const scrollHeight = contentWrapper.scrollHeight;
-            const clientHeight = contentWrapper.clientHeight;
-            const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
-            
-            console.log('Scrolling attempt:', { 
-                scrollHeight, 
-                clientHeight, 
-                currentScrollTop: contentWrapper.scrollTop,
-                maxScroll: maxScrollTop,
-                targetScroll: scrollHeight + 100 // Extra padding to ensure bottom
-            });
-            
-            // Method 1: Direct scrollTop assignment with extra padding
-            contentWrapper.scrollTop = scrollHeight + 100;
-            
-            // Method 2: scrollTo with extra padding
-            contentWrapper.scrollTo(0, scrollHeight + 100);
-            
-            // Method 3: Force scroll to absolute maximum
-            contentWrapper.scrollTop = contentWrapper.scrollHeight;
-            
-            // Method 4: Alternative scrollIntoView approach
+            // Use scrollIntoView for the most reliable scrolling
             const lastChild = contentWrapper.lastElementChild;
             if (lastChild) {
                 try {
                     lastChild.scrollIntoView({ behavior: 'instant', block: 'end', inline: 'nearest' });
                 } catch (e) {
-                    lastChild.scrollIntoView(false); // Fallback
+                    // Fallback to direct scroll assignment
+                    contentWrapper.scrollTop = contentWrapper.scrollHeight;
                 }
-            }
-            
-            // Method 5: One more forced scroll after DOM settles
-            setTimeout(() => {
+            } else {
+                // Direct scroll if no children
                 contentWrapper.scrollTop = contentWrapper.scrollHeight;
-            }, 1);
+            }
         };
 
         // Immediate scroll
         scrollToEnd();
-        
-        // Delayed scrolls to handle dynamic content
+
+        // Single delayed scroll for dynamic content (much faster than multiple timeouts)
         requestAnimationFrame(() => {
             scrollToEnd();
-            setTimeout(scrollToEnd, 10);
-            setTimeout(scrollToEnd, 50);
-            setTimeout(scrollToEnd, 100);
         });
     }
 
@@ -1128,25 +1103,9 @@ class VisualResponseApp {
         });
     }
 
-    setupThemeSwitcher() {
-        const lightThemeBtn = document.getElementById('light-theme-btn');
-        const darkThemeBtn = document.getElementById('dark-theme-btn');
-
-        const setTheme = (theme) => {
-            document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('agent-theme', theme);
-        };
-
-        if (lightThemeBtn) {
-            lightThemeBtn.addEventListener('click', () => setTheme('light'));
-        }
-
-        if (darkThemeBtn) {
-            darkThemeBtn.addEventListener('click', () => setTheme('dark'));
-        }
-
-        // Load saved theme or default to dark
-        setTheme(localStorage.getItem('agent-theme') || 'dark');
+    setDarkTheme() {
+        // Always use dark theme
+        document.documentElement.setAttribute('data-theme', 'dark');
     }
     
 
@@ -2312,7 +2271,15 @@ class ConsoleLogManager {
         this.consoleLog = [];
 
         /** @type {number} */
-        this.maxLogLines = 1000;
+        this.maxLogLines = 5000;
+
+        // Performance optimization properties
+        /** @type {boolean} */
+        this.consoleUpdatePending = false;
+        /** @type {number} */
+        this.lastRenderTime = 0;
+        /** @type {number} */
+        this.renderThrottleMs = 16; // ~60fps max
 
         /** @type {number} */
         this.consoleWidth = 350; // Default width
@@ -2398,6 +2365,12 @@ class ConsoleLogManager {
         this.consoleVisible = !this.consoleVisible;
         this.updateConsoleVisibility();
         this.saveConsoleState();
+
+        // Render console content when it becomes visible
+        if (this.consoleVisible) {
+            this.renderConsoleLog();
+            this.scrollToBottom();
+        }
     }
 
     updateConsoleVisibility() {
@@ -2431,8 +2404,8 @@ class ConsoleLogManager {
     addLogLine(line, level = 'info') {
         const timestamp = new Date().toLocaleTimeString();
 
-        // Store the raw unfiltered line (just trimmed)
-        const rawLine = line.trim();
+        // Store the raw unfiltered line (preserve original content)
+        const rawLine = line;
 
         const logEntry = {
             timestamp,
@@ -2447,18 +2420,51 @@ class ConsoleLogManager {
             this.consoleLog = this.consoleLog.slice(-this.maxLogLines);
         }
 
-        this.renderConsoleLog();
-        this.scrollToBottom();
+        // Only render if console is visible - use throttled rendering for better performance
+        if (this.consoleVisible) {
+            this.scheduleConsoleUpdate();
+        }
     }
 
-    renderConsoleLog() {
+    /**
+     * Add multiple log lines efficiently (for file-based streaming)
+     * @param {Array} lines - Array of {line, level} objects
+     */
+    addLogLines(lines) {
+        const timestamp = new Date().toLocaleTimeString();
+
+        // Add all lines at once
+        const logEntries = lines.map(({line, level = 'info'}) => ({
+            timestamp,
+            line: line,
+            level
+        }));
+
+        this.consoleLog.push(...logEntries);
+
+        // Keep only the most recent lines
+        if (this.consoleLog.length > this.maxLogLines) {
+            this.consoleLog = this.consoleLog.slice(-this.maxLogLines);
+        }
+
+        // Only render once for all lines if console is visible - use throttled rendering
+        if (this.consoleVisible) {
+            this.scheduleConsoleUpdate();
+        }
+    }
+
+    /**
+     * Optimized console rendering using DocumentFragment for better performance
+     */
+    renderConsoleLogOptimized() {
         const consoleContent = document.getElementById('console-content');
         if (!consoleContent) return;
 
-        // Show last 100 lines for performance
-        const displayLines = this.consoleLog.slice(-100);
+        // Show last 500 lines for performance while allowing more content
+        const displayLines = this.consoleLog.slice(-500);
 
         if (displayLines.length === 0) {
+            // Fast path for empty console
             consoleContent.innerHTML = `
                 <div class="console-line">
                     <span class="console-timestamp">[${new Date().toLocaleTimeString()}]</span>
@@ -2468,15 +2474,36 @@ class ConsoleLogManager {
             return;
         }
 
-        consoleContent.innerHTML = displayLines.map(entry => {
+        // Use DocumentFragment for efficient DOM manipulation
+        const fragment = document.createDocumentFragment();
+
+        // Batch create all elements before DOM insertion
+        displayLines.forEach(entry => {
+            const lineDiv = document.createElement('div');
+            lineDiv.className = 'console-line';
+
+            const timestampSpan = document.createElement('span');
+            timestampSpan.className = 'console-timestamp';
+            timestampSpan.textContent = `[${entry.timestamp}]`;
+
+            const textSpan = document.createElement('span');
             const levelClass = this.getLevelClass(entry.level);
-            return `
-                <div class="console-line">
-                    <span class="console-timestamp">[${entry.timestamp}]</span>
-                    <span class="console-text ${levelClass}">${this.escapeHtml(entry.line)}</span>
-                </div>
-            `;
-        }).join('');
+            textSpan.className = `console-text ${levelClass}`;
+            textSpan.textContent = entry.line; // textContent is safer than innerHTML
+
+            lineDiv.appendChild(timestampSpan);
+            lineDiv.appendChild(textSpan);
+            fragment.appendChild(lineDiv);
+        });
+
+        // Single DOM write operation - much faster than multiple innerHTML writes
+        consoleContent.textContent = ''; // Clear existing content efficiently
+        consoleContent.appendChild(fragment);
+    }
+
+    // Legacy method for backwards compatibility
+    renderConsoleLog() {
+        this.renderConsoleLogOptimized();
     }
 
     /**
@@ -2522,11 +2549,58 @@ class ConsoleLogManager {
         return div.innerHTML;
     }
 
-    scrollToBottom() {
+    /**
+     * Schedule a console update using requestAnimationFrame for optimal performance
+     */
+    scheduleConsoleUpdate() {
+        if (this.consoleUpdatePending) {
+            return; // Already scheduled
+        }
+
+        this.consoleUpdatePending = true;
+
+        // Use requestAnimationFrame for smooth 60fps updates
+        requestAnimationFrame(() => {
+            const now = performance.now();
+
+            // Throttle updates to prevent overwhelming the browser
+            if (now - this.lastRenderTime >= this.renderThrottleMs) {
+                this.performConsoleUpdate();
+                this.lastRenderTime = now;
+            } else {
+                // Schedule for later if we're updating too frequently
+                setTimeout(() => {
+                    this.scheduleConsoleUpdate();
+                }, this.renderThrottleMs - (now - this.lastRenderTime));
+                return;
+            }
+
+            this.consoleUpdatePending = false;
+        });
+    }
+
+    /**
+     * Perform the actual console update with optimized DOM manipulation
+     */
+    performConsoleUpdate() {
+        this.renderConsoleLogOptimized();
+        this.scrollToBottomOptimized();
+    }
+
+    /**
+     * Optimized scroll to bottom - single efficient operation
+     */
+    scrollToBottomOptimized() {
         const consoleContent = document.getElementById('console-content');
         if (consoleContent) {
+            // Single efficient scroll operation
             consoleContent.scrollTop = consoleContent.scrollHeight;
         }
+    }
+
+    // Legacy method for backwards compatibility
+    scrollToBottom() {
+        this.scrollToBottomOptimized();
     }
 
     clearConsole() {

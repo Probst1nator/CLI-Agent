@@ -1615,7 +1615,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                 except ValueError:
                                     logging.warning(f"Could not convert '{match[-1]}' to int for complexity score. Using default.")
 
-                            if response_complexity > 60:
+                            if response_complexity > 85:
                                 selected_models = [g.planner_llm] + g.FALLBACK_MODELS if g.planner_llm else g.FALLBACK_MODELS
                             elif response_complexity > 20:
                                 selected_models = g.FALLBACK_MODELS
@@ -1633,6 +1633,13 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             generation_stream_callback=interruption_callback,
                             assistant_prefix="<think>"
                         )
+
+                        # Add model information to previously stored tool execution info
+                        if hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
+                            used_model = LlmRouter.get_last_used_model()
+                            for tool_info in g.last_executed_tools_info:
+                                tool_info['model'] = used_model
+                            logging.debug(f"Updated execution info with model: {used_model}")
 
                         base64_images = []
 
@@ -1727,6 +1734,11 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         should_execute = False
                         if len(tool_tags_found) == 1 and any(k in (tool_tags_found[0].__module__ or "") for k in ["todos", "think", "searchweb", "grepsearch"]):
                             should_execute = True
+                        elif len(tool_tags_found) == 1 and tool_tags_found[0].get_delim() == "bash":
+                            # Check for sleep commands - auto-allow them like the bash tool already handles them specially
+                            sleep_match = re.search(r'<bash>\s*sleep\s+(\d+)\s*</bash>', assistant_response, re.IGNORECASE | re.DOTALL)
+                            if sleep_match:
+                                should_execute = True
                         elif len(tool_tags_found) > 0:
                             # Analyze each tool for path-based permissions
                             permission_needed = False
@@ -1976,6 +1988,7 @@ Examples:
 
                                 # Store tool execution info in global context for visual response
                                 if executed_tools_info:
+                                    # Store tool execution info (model info will be added after LLM response)
                                     g.last_executed_tools_info = executed_tools_info
                                     logging.debug(f"Stored execution info for {len(executed_tools_info)} tools")
 

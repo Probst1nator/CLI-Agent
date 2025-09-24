@@ -43,7 +43,7 @@ All files CLI-Agent saves to disk, organized by XDG Base Directory specification
 | `screenshots` | 7d | Screenshot files | `~/.cache/cli-agent/screenshots/` |
 | `model_cache.json` | Auto | Model discovery cache | `~/.cache/cli-agent/` |
 | `llm_cache.db` | Permanent | LLM response cache (SQLite) | `~/.cache/cli-agent/` |
-| `logs/` | 1-7d | Application logs | `~/.cache/cli-agent/logs/` |
+| `logs/` | 1-7d | Application logs & console output | `~/.cache/cli-agent/logs/` |
 
 **System temp files** (1 day TTL, being migrated to cache):
 - `/tmp/faster_whisper_debug_*.wav` → `~/.cache/cli-agent/audio_temp/`

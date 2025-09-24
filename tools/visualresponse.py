@@ -9,12 +9,14 @@ Requires: pip install aiohttp
 import multiprocessing
 import asyncio
 import json
+import os
+import sys
 import time
 import webbrowser
 import socket
 import re # Import the regular expression module
 from pathlib import Path
-from typing import Optional, Set, Any, List
+from typing import Optional, Set, Any, List, Dict
 from termcolor import colored
 from queue import Empty as QueueEmpty
 
@@ -35,7 +37,6 @@ except ImportError as e:
 
 from core.globals import g
 from core.tool_context import tool_context
-import sys
 
 # --- Server Configuration ---
 SERVER_HOST = "0.0.0.0"  # Changed from 127.0.0.1 for Docker compatibility
@@ -463,6 +464,35 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             except Exception as connectivity_error:
                 subprocess_logger.warning(f"Server connectivity verification failed: {connectivity_error}")
             subprocess_logger.info("Server is now accepting connections")
+
+            # Start file watcher for console logging
+            # Create file watcher for the standard log file paths
+            log_paths = {
+                'stdout': '/tmp/cli-agent-stdout.log',
+                'stderr': '/tmp/cli-agent-stderr.log'
+            }
+
+            # Check if log files exist (indicates console capture is enabled)
+            import os
+            subprocess_logger.info(f"Checking for log files: stdout={os.path.exists(log_paths['stdout'])}, stderr={os.path.exists(log_paths['stderr'])}")
+            if os.path.exists(log_paths['stdout']) or os.path.exists(log_paths['stderr']):
+                subprocess_logger.info("Log files found - creating file watcher")
+                global _file_watcher
+                _file_watcher = LogFileWatcher(log_paths)
+                loop = asyncio.get_running_loop()
+                subprocess_logger.info(f"Created file watcher: {_file_watcher}")
+
+                # Start file watching directly
+                try:
+                    _file_watcher.running = True
+                    _file_watcher.watch_task = loop.create_task(_file_watcher._watch_files())
+                    subprocess_logger.info(f"File watching task created: {_file_watcher.watch_task}")
+                    subprocess_logger.info("File-based console watching started")
+                except Exception as e:
+                    subprocess_logger.error(f"Failed to start file watching task: {e}", exc_info=True)
+            else:
+                subprocess_logger.warning("No log files found - file watcher not started")
+
             await broadcast_updates()
         except Exception as e:
             subprocess_logger.error(f"Failed to start server: {e}", exc_info=True)
@@ -588,16 +618,14 @@ class visualresponse:
         return {
             "name": "visualresponse",
             "description": (
-                "Respond using a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. An `<id>` is recommended but optional for creation.\n"
+                "Create content in a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. IDs are auto-generated.\n"
                 "PARAMETERS:\n"
-                "- `<action>`: `create` (default), `delete`, `clear`, `agent_reset`.\n"
-                "- `<id>`: A unique ID for the element. If omitted on create, one is generated.\n"
                 "- `<type>`: Must be either `html` or `markdown`.\n"
                 "- `<content>`: The full HTML document or Markdown text. For HTML, you can wrap content in <![CDATA[...]]> to ensure correct parsing."
             ),
             "example": (
                 "// Create an interactive Plotly chart using the 'html' type\n"
-                "<visualresponse><id>my-chart</id><type>html</type><content><![CDATA[\n"
+                "<visualresponse><type>html</type><content><![CDATA[\n"
                 "<!DOCTYPE html><html><head>\n"
                 "  <script src='https://cdn.plot.ly/plotly-latest.min.js'></script>\n"
                 "</head><body>\n"
@@ -608,7 +636,7 @@ class visualresponse:
                 "  </script>\n"
                 "</body></html>\n"
                 "]]></content></visualresponse>\n\n"
-                "// Create a simple markdown panel (ID will be auto-generated)\n"
+                "// Create a simple markdown panel\n"
                 "<visualresponse><type>markdown</type><content># Analysis Complete</content></visualresponse>"
             )
         }
@@ -630,17 +658,9 @@ class visualresponse:
             if content.strip().lower() in ['status', 'test', 'diagnostic', 'debug']:
                 return visualresponse._run_diagnostics()
 
-            # --- FIX STARTS HERE: Robust parsing with Regular Expressions ---
+            # --- Simplified parsing: always create, auto-generate ID ---
             args = {}
             # Use re.DOTALL to make '.' match newlines, crucial for multi-line content
-            action_match = re.search(r'<action>(.*?)</action>', content, re.IGNORECASE | re.DOTALL)
-            if action_match:
-                args['action'] = action_match.group(1).strip()
-
-            id_match = re.search(r'<id>(.*?)</id>', content, re.IGNORECASE | re.DOTALL)
-            if id_match:
-                args['id'] = id_match.group(1).strip()
-
             type_match = re.search(r'<type>(.*?)</type>', content, re.IGNORECASE | re.DOTALL)
             if type_match:
                 args['type'] = type_match.group(1).strip()
@@ -652,52 +672,35 @@ class visualresponse:
                 if c.strip().startswith('<![CDATA['):
                     c = c.strip()[9:-3] # Remove <![CDATA[ and ]]>
                 args['content'] = c.strip()
-            # --- END OF FIX ---
 
-            action = args.get('action', 'create').lower()
-            # Generate unique ID to prevent collisions using higher precision timestamp + random component
-            import random
+            # Always default to 'create' action
+            action = 'create'
+            # Auto-generate unique ID using precise timestamp
             unique_timestamp = int(time.time() * 1000000)  # Microsecond precision
-            random_suffix = random.randint(100, 999)
-            viz_id = args.get('id', f"viz-{unique_timestamp}-{random_suffix}")
+            viz_id = f"viz-{unique_timestamp}"
 
             payload = {"id": viz_id, "action": action}
 
-            # Add tool execution info if available (for create actions)
-            if action == 'create' and hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
+            # Add tool execution info if available
+            if hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
                 payload['tool_info'] = g.last_executed_tools_info
                 # Clear the info after using it to avoid reusing stale data
                 g.last_executed_tools_info = None
 
-            if action == 'create':
-                viz_type = args.get('type')
-                viz_content_str = args.get('content')
+            # Always create content
+            viz_type = args.get('type')
+            viz_content_str = args.get('content')
 
-                if not viz_type or viz_content_str is None:
-                    return "Error: 'create' action requires <type> and <content> tags."
+            if not viz_type or viz_content_str is None:
+                return "Error: visualresponse requires <type> and <content> tags."
 
-                viz_type = viz_type.lower()
-                supported_types = ['markdown', 'html']
-                if viz_type not in supported_types:
-                    return f"Error: Unsupported type '{viz_type}'. Supported types are: {', '.join(supported_types)}"
+            viz_type = viz_type.lower()
+            supported_types = ['markdown', 'html']
+            if viz_type not in supported_types:
+                return f"Error: Unsupported type '{viz_type}'. Supported types are: {', '.join(supported_types)}"
 
-                payload['type'] = viz_type
-                payload['content'] = viz_content_str
-
-            elif action == 'delete':
-                if 'id' not in args:
-                    return "Error: 'delete' action requires an <id> tag."
-                payload['type'] = 'system'
-
-            elif action == 'clear':
-                payload['type'] = 'system'
-
-            elif action == 'agent_reset':
-                payload['type'] = 'system'
-                payload['clear'] = True  # Use same logic as /clear command
-
-            else:
-                return f"Error: Unknown action '{action}'. Supported actions: create, delete, clear, agent_reset."
+            payload['type'] = viz_type
+            payload['content'] = viz_content_str
 
             session = visualresponse._get_session()
             if not session.is_healthy():
@@ -707,10 +710,9 @@ class visualresponse:
             session.send_update(payload)
 
             # Set current viz_id in tool context for live tool updates
-            if action == 'create':
-                tool_context.set_current_viz_id(viz_id)
+            tool_context.set_current_viz_id(viz_id)
 
-            return f"Visual response command '{action}' for ID '{viz_id}' sent to the live UI on port {session.port}."
+            return f"Visual response created with ID '{viz_id}' and sent to the live UI on port {session.port}."
 
         except Exception as e:
             logger.error(f"Fatal error in visualresponse tool: {e}", exc_info=True)
@@ -811,9 +813,83 @@ class visualresponse:
             return False
 
 
+class FileBasedConsoleCapture:
+    """
+    File-based console output capture system for browser console display.
+    Redirects stdout/stderr to log files for real-time streaming to web interface.
+    """
+
+    def __init__(self, log_dir: str = None):
+        self.original_stdout = sys.stdout
+        self.original_stderr = sys.stderr
+        self.enabled = False
+
+        # Set up log file paths using XDG cache directory specification
+        if log_dir is None:
+            # Follow XDG Base Directory specification for cache files
+            xdg_cache_home = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
+            log_dir = os.path.join(xdg_cache_home, 'cli-agent', 'logs')
+
+        # Ensure the log directory exists
+        os.makedirs(log_dir, exist_ok=True)
+
+        self.stdout_log_path = os.path.join(log_dir, 'console-stdout.log')
+        self.stderr_log_path = os.path.join(log_dir, 'console-stderr.log')
+
+        self.stdout_stream = None
+        self.stderr_stream = None
+
+    def enable(self):
+        """Enable file-based console capture."""
+        if self.enabled:
+            return
+
+        # Create file streams that redirect to log files
+        self.stdout_stream = LogFileStream(self.original_stdout, self.stdout_log_path)
+        self.stderr_stream = LogFileStream(self.original_stderr, self.stderr_log_path)
+
+        # Redirect stdout/stderr to file streams
+        sys.stdout = self.stdout_stream
+        sys.stderr = self.stderr_stream
+        self.enabled = True
+        logger.debug(f"File-based console capture enabled: stdout={self.stdout_log_path}, stderr={self.stderr_log_path}")
+
+    def disable(self):
+        """Disable console capture and restore original streams."""
+        if not self.enabled:
+            return
+
+        # Close file streams
+        if self.stdout_stream:
+            self.stdout_stream.close()
+        if self.stderr_stream:
+            self.stderr_stream.close()
+
+        # Restore original streams
+        sys.stdout = self.original_stdout
+        sys.stderr = self.original_stderr
+        self.enabled = False
+        logger.debug("File-based console capture disabled")
+
+    def get_log_paths(self):
+        """Get the paths to the log files."""
+        return {
+            'stdout': self.stdout_log_path,
+            'stderr': self.stderr_log_path
+        }
+
+    def __enter__(self):
+        self.enable()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.disable()
+
+
 class ConsoleCapture:
     """
-    Console output capture system for forwarding stdout/stderr to visual interface.
+    LEGACY: Console output capture system for forwarding stdout/stderr to visual interface.
+    This class is kept for backward compatibility but should be replaced by FileBasedConsoleCapture.
     """
 
     def __init__(self):
@@ -850,9 +926,68 @@ class ConsoleCapture:
         self.disable()
 
 
+class LogFileStream:
+    """
+    File-based stream that redirects stdout/stderr to log files for browser console.
+    """
+
+    def __init__(self, original_stream, log_file_path: str):
+        self.original_stream = original_stream
+        self.log_file_path = log_file_path
+
+        # Create directory if it doesn't exist
+        import os
+        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+
+        # Open log file in append mode with line buffering for real-time updates
+        self.log_file = open(log_file_path, 'a', buffering=1, encoding='utf-8')
+
+    def write(self, text):
+        # Write to original stream first (for terminal display)
+        self.original_stream.write(text)
+
+        # Write raw text directly to log file (no filtering)
+        self.log_file.write(text)
+
+        # Directly send to WebSocket clients if we have non-empty content
+        if text.strip():
+            self._broadcast_to_console(text.rstrip('\n\r'))
+
+    def _broadcast_to_console(self, content: str):
+        """Send content directly to browser console via WebSocket."""
+        try:
+            # Strip ANSI escape sequences for clean console display
+            import re
+            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            clean_content = ansi_escape.sub('', content)
+
+            # Use the existing visualresponse.send_console_log function
+            # which properly handles the WebSocket communication
+            level = 'error' if 'stderr' in self.log_file_path.lower() else 'info'
+
+            # Import and use the visualresponse class's console log method
+            from tools.visualresponse import visualresponse
+            visualresponse.send_console_log(clean_content, level)
+        except Exception:
+            # Don't let broadcast errors break stdout/stderr
+            pass
+
+    def flush(self):
+        self.original_stream.flush()
+        self.log_file.flush()
+
+    def close(self):
+        if hasattr(self, 'log_file') and self.log_file:
+            self.log_file.close()
+
+    def __getattr__(self, name):
+        return getattr(self.original_stream, name)
+
+
 class ConsoleWrapper:
     """
-    Wrapper for stdout/stderr that forwards output to visual interface.
+    LEGACY: Wrapper for stdout/stderr that forwards output to visual interface.
+    This class is kept for backward compatibility but should be replaced by LogFileStream.
     """
 
     def __init__(self, original_stream, level: str):
@@ -888,20 +1023,191 @@ class ConsoleWrapper:
         return getattr(self.original_stream, name)
 
 
+class LogFileWatcher:
+    """
+    Monitors log files for changes and streams content to browser console.
+    """
+
+    def __init__(self, log_file_paths: Dict[str, str]):
+        self.log_file_paths = log_file_paths  # {'stdout': path, 'stderr': path}
+        self.file_positions = {}  # Track last read position for each file
+        self.running = False
+        self.watch_task = None
+
+        # Initialize file positions
+        for stream_type, log_path in log_file_paths.items():
+            try:
+                # Start from end of existing file or 0 for new file
+                if os.path.exists(log_path):
+                    with open(log_path, 'r', encoding='utf-8') as f:
+                        f.seek(0, 2)  # Seek to end
+                        self.file_positions[log_path] = f.tell()
+                else:
+                    self.file_positions[log_path] = 0
+            except Exception as e:
+                logger.warning(f"Could not initialize position for {log_path}: {e}")
+                self.file_positions[log_path] = 0
+
+    def start_watching(self, loop=None):
+        """Start monitoring log files for changes."""
+        if self.running:
+            return
+
+        self.running = True
+
+        # Get or create event loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop, we'll start the task later when server starts
+                logger.debug("No running event loop - file watching will start with server")
+                return
+
+        self.watch_task = loop.create_task(self._watch_files())
+        logger.debug("Log file watching started")
+
+    def stop_watching(self):
+        """Stop monitoring log files."""
+        if not self.running:
+            return
+
+        self.running = False
+        if self.watch_task:
+            self.watch_task.cancel()
+        logger.debug("Log file watching stopped")
+
+    def ensure_watching_started(self, loop):
+        """Ensure file watching is started with the given event loop."""
+        logger.info(f"ensure_watching_started: running={self.running}, watch_task={self.watch_task}")
+        if self.running and not self.watch_task:
+            self.watch_task = loop.create_task(self._watch_files())
+            logger.info("Log file watching started with server event loop")
+        else:
+            logger.warning(f"File watching not started: running={self.running}, watch_task={self.watch_task}")
+
+    async def _watch_files(self):
+        """Main file watching loop."""
+        logger.info("File watcher started - monitoring log files")
+        loop_count = 0
+        while self.running:
+            try:
+                loop_count += 1
+                if loop_count % 50 == 0:  # Log every 5 seconds (50 * 0.1s)
+                    logger.info(f"File watcher alive - loop {loop_count}")
+
+                for stream_type, log_path in self.log_file_paths.items():
+                    await self._check_file_for_updates(log_path, stream_type)
+
+                # Check files every 0.1 seconds for real-time updates
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                logger.info("File watcher cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in file watching loop: {e}")
+                await asyncio.sleep(1)  # Back off on errors
+
+    async def _check_file_for_updates(self, log_path: str, stream_type: str):
+        """Check a single log file for new content."""
+        try:
+            if not os.path.exists(log_path):
+                return
+
+            # Get current file size
+            current_size = os.path.getsize(log_path)
+            last_position = self.file_positions.get(log_path, 0)
+
+            # Check if file has new content
+            if current_size > last_position:
+                logger.info(f"New content detected in {log_path}: {current_size - last_position} bytes")
+                # Read new content
+                with open(log_path, 'r', encoding='utf-8') as f:
+                    f.seek(last_position)
+                    new_content = f.read()
+
+                    if new_content:
+                        logger.info(f"Sending {len(new_content)} characters to browser console")
+                        # Send new content to browser via WebSocket
+                        await self._send_log_content(new_content, stream_type)
+
+                        # Update position
+                        self.file_positions[log_path] = f.tell()
+
+            elif current_size < last_position:
+                # File was truncated or rotated, start from beginning
+                self.file_positions[log_path] = 0
+
+        except Exception as e:
+            logger.error(f"Error reading log file {log_path}: {e}")
+
+    async def _send_log_content(self, content: str, stream_type: str):
+        """Send log content to browser console via WebSocket."""
+        try:
+            # Split content into lines for better browser handling
+            lines = content.splitlines(keepends=True)
+
+            for line in lines:
+                if line.strip():  # Only send non-empty lines
+                    # Determine log level based on stream type
+                    level = 'error' if stream_type == 'stderr' else 'info'
+
+                    # Use existing broadcast system
+                    await broadcast_console_log(line.rstrip('\n\r'), level)
+
+        except Exception as e:
+            logger.error(f"Error sending log content to browser: {e}")
+
+
 # Global console capture instance
 _console_capture = None
+_file_watcher = None
+
+
+def enable_file_based_console_capture():
+    """Enable file-based console output capture for visual interface."""
+    global _console_capture, _file_watcher
+
+    # Disable old console capture if active
+    if _console_capture is not None:
+        _console_capture.disable()
+
+    # Create file-based console capture
+    _console_capture = FileBasedConsoleCapture()
+    _console_capture.enable()
+
+    # Start file monitoring
+    log_paths = _console_capture.get_log_paths()
+    _file_watcher = LogFileWatcher(log_paths)
+    _file_watcher.start_watching()
+
+    logger.info("File-based console capture enabled with real-time file monitoring")
+
+
+def disable_file_based_console_capture():
+    """Disable file-based console output capture for visual interface."""
+    global _console_capture, _file_watcher
+
+    # Stop file monitoring
+    if _file_watcher is not None:
+        _file_watcher.stop_watching()
+        _file_watcher = None
+
+    # Disable console capture
+    if _console_capture is not None:
+        _console_capture.disable()
+        _console_capture = None
+
+    logger.info("File-based console capture disabled")
 
 
 def enable_console_capture():
-    """Enable console output capture for visual interface."""
-    global _console_capture
-    if _console_capture is None:
-        _console_capture = ConsoleCapture()
-    _console_capture.enable()
+    """Enable console output capture for visual interface (legacy method)."""
+    # Use the new file-based system by default
+    enable_file_based_console_capture()
 
 
 def disable_console_capture():
-    """Disable console output capture."""
-    global _console_capture
-    if _console_capture is not None:
-        _console_capture.disable()
+    """Disable console output capture (legacy method)."""
+    # Use the new file-based system by default
+    disable_file_based_console_capture()

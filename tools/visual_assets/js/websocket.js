@@ -384,7 +384,7 @@ class WebSocketManager {
         this.cleanupLiveToolsContainer();
 
         // Transfer loading tools to visualresponse header when message arrives
-        this.transferLoadingToolsToMessage(data.id);
+        this.transferLoadingToolsToMessage(data.id, data.tool_info);
 
         // Clean up any orphaned loading tools header after transfer
         setTimeout(() => {
@@ -445,15 +445,7 @@ class WebSocketManager {
         // Base timestamp content
         let timestampContent = `<span class="timestamp-text">${timestamp} - ID: ${data.id}</span>`;
 
-        // Add tool execution info if available
-        if (data.tool_info && Array.isArray(data.tool_info) && data.tool_info.length > 0) {
-            const toolCount = data.tool_info.length;
-            const toolNames = data.tool_info.map(tool => tool.name).join(', ');
-
-            timestampContent += `<span class="tool-info-summary" title="Click to expand tool details">
-                🔧 ${toolCount} tool${toolCount > 1 ? 's' : ''}: ${toolNames}
-            </span>`;
-        }
+        // Tool info is now handled by loading-tools-header, not in timestamp
 
         timestampDiv.innerHTML = timestampContent;
         messageBlock.appendChild(timestampDiv);
@@ -480,6 +472,10 @@ class WebSocketManager {
                             <span class="tool-toggle">▼</span>
                         </div>
                         <div class="tool-detail-expanded" id="${toolDetailId}" style="display: none;">
+                            <div class="tool-detail-section">
+                                <strong>Model:</strong>
+                                <span class="tool-model">${tool.model || 'unknown'}</span>
+                            </div>
                             <div class="tool-detail-section">
                                 <strong>Arguments:</strong>
                                 <pre class="tool-code">${this.escapeHtml(tool.args || 'No arguments')}</pre>
@@ -880,7 +876,7 @@ class WebSocketManager {
         toolItem.removeAttribute('data-stopwatch-timer');
     }
 
-    transferLoadingToolsToMessage(messageId) {
+    transferLoadingToolsToMessage(messageId, toolInfo = null) {
         const loadingToolsHeader = document.getElementById('loading-tools-header');
         if (!loadingToolsHeader || loadingToolsHeader.children.length === 0) {
             // Still clean up any empty loading headers
@@ -949,6 +945,30 @@ class WebSocketManager {
 
                 toolsHeader.appendChild(clonedTool);
             });
+
+            // Add model information to loading tool details if available
+            if (toolInfo && Array.isArray(toolInfo) && toolInfo.length > 0) {
+                // Get the model from the first tool (all tools should have the same model)
+                const model = toolInfo[0].model || 'unknown';
+                console.log('Adding model info:', model, 'toolInfo:', toolInfo[0]);
+                // Always show model info, even if unknown
+                const loadingToolItems = toolsHeader.querySelectorAll('.loading-tool-item');
+                console.log('Found loading tool items:', loadingToolItems.length);
+                loadingToolItems.forEach((toolItem, index) => {
+                    const details = toolItem.querySelector('.loading-tool-details');
+                    console.log(`Tool ${index}:`, toolItem, 'Details:', details);
+                    if (details) {
+                        const modelLine = document.createElement('div');
+                        modelLine.innerHTML = `<strong>Model:</strong> <span class="tool-model">${model}</span>`;
+                        details.appendChild(modelLine);
+                        console.log('Added model line to tool', index);
+                    } else {
+                        console.log('No details found for tool', index);
+                    }
+                });
+            } else {
+                console.log('No tool info available:', toolInfo);
+            }
 
             // Remove the loading tools header
             loadingToolsHeader.remove();
