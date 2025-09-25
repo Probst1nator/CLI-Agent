@@ -387,8 +387,12 @@ class VisualResponseApp {
             // Show interrupt button when sending user message (agent will start generating)
             this.showInterruptButton();
 
-            // Send the message
-            this.wsManager.sendMessage(message);
+            // Send the message with tool configuration
+            const messageWithConfig = {
+                message: message,
+                toolConfig: window.ToolManager ? window.ToolManager.getToolConfiguration() : null
+            };
+            this.wsManager.sendMessage(JSON.stringify(messageWithConfig));
             this.chatInput.value = '';
             this.chatInput.focus();
 

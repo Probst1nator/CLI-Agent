@@ -1113,14 +1113,19 @@ The following loop is a suggestion of how to behave effectively, you may freely 
 
     step_4 = "4.  **OBSERVE & ATTEND**: After executing a tool, ALWAYS use <think> and <todos> to remember and update your plan based on your observations. When you have finished your tasks or need intermittent information from the user, please prompt him with <response>."
 
+    # Get disabled tools from global state (set by visual interface)
+    user_disabled_tools = getattr(g, 'disabled_tools', [])
+
     # In GUI mode, modify the tool documentation and response behavior
     if gui_mode:
         # Replace 'response' instructions with 'visualresponse'
         base_instructions = base_instructions.replace("response", "visualresponse")
         step_4 = step_4.replace("response", "visualresponse")
-        tool_docs = _generate_tool_documentation(["response"])
+        # Combine built-in disabled tools with user-disabled tools
+        disabled_tools = ["response"] + user_disabled_tools
+        tool_docs = _generate_tool_documentation(disabled_tools)
     else:
-        tool_docs = _generate_tool_documentation()
+        tool_docs = _generate_tool_documentation(user_disabled_tools)
 
 
 

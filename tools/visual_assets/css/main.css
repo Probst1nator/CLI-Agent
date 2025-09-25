@@ -34,10 +34,11 @@ body {
     height: 100vh;
     overflow: hidden;
     display: grid;
-    grid-template-rows: auto 1fr auto;
-    grid-template-areas: 
+    grid-template-rows: auto 1fr auto auto;
+    grid-template-areas:
         "header"
         "content"
+        "tools"
         "footer";
 }
 
@@ -2624,4 +2625,121 @@ html[data-theme='light'] .llm-context {
 
 .resize-indicator.show {
     opacity: 1;
+}
+
+/* Tool Toggles Styles */
+.tool-toggles-container {
+    grid-area: tools;
+    background-color: var(--surface-color);
+    border-top: 1px solid var(--border-color);
+    padding: 8px 16px 0px;
+    font-size: 11px;
+}
+
+.tool-toggles-header {
+    color: var(--text-color);
+    font-weight: 500;
+    opacity: 0.8;
+    white-space: nowrap;
+    margin-right: 12px;
+}
+
+.tool-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.tool-toggles-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+
+.tool-toggle-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--text-color);
+    opacity: 0.9;
+}
+
+.tool-toggle-item input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--primary-color);
+}
+
+.tool-toggle-item label {
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-color);
+    user-select: none;
+}
+
+.tool-toggle-item.disabled {
+    opacity: 0.5;
+}
+
+.tool-toggle-item.disabled label {
+    text-decoration: line-through;
+}
+
+/* Responsive behavior for tool toggles */
+@media (max-width: 768px) {
+    .tool-toggles {
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .tool-toggles-list {
+        gap: 8px;
+    }
+
+    .tool-toggle-item {
+        font-size: 10px;
+    }
+
+    .tool-toggle-item input[type="checkbox"] {
+        width: 12px;
+        height: 12px;
+    }
+
+    .tool-toggles-header {
+        margin-right: 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .tool-toggles-container {
+        padding: 6px 12px;
+    }
+
+    .tool-toggles {
+        gap: 6px;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .tool-toggles-list {
+        gap: 6px;
+    }
+
+    .tool-toggle-item {
+        font-size: 9px;
+        gap: 3px;
+    }
+
+    .tool-toggles-header {
+        margin-right: 0;
+        margin-bottom: 4px;
+    }
 }
