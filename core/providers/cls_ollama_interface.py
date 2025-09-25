@@ -420,8 +420,6 @@ class OllamaClient(AIProviderInterface):
                         logger.warning(f"Ollama host {host} returned unexpected response format: {type(response)}")
                         continue # Skip to the next host
 
-                    logger.debug("=== START MODEL PROCESSING ===")
-
                     # Convert to dict for JSON serialization, compatible with OllamaModelList
                     response_dict = {"models": []}
                     for model_data in models_data:
@@ -447,14 +445,11 @@ class OllamaClient(AIProviderInterface):
                     model_list.models.sort(key=lambda m: m.modified_at, reverse=True)
 
                     # Look for model name in all available models
-                    logger.debug(f"\nSearching for model key: {model_key}")
                     found_model_key = next((
                         model.model
                         for model in model_list.models
                         if model.model and model_key.lower() in model.model.lower()
                     ), None)
-                    logger.debug(f"Found model key: {found_model_key}")
-                    logger.debug("=== END MODEL PROCESSING ===\n")
 
                     if found_model_key:
                         # Set current_host for logging consistency

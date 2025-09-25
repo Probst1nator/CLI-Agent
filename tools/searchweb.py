@@ -201,9 +201,9 @@ class searchweb:
                 status_indicator = "📄" if resource_info['is_new'] else "🔄"
                 response += f"\n- {status_indicator} Resource ID: {resource_info['resource_id']} | Title: \"{resource_info['title']}\" | URL: {resource_info['url']}"
 
-            response += f"\n\nAccess individual sources using:"
-            response += f"\n• Read full source: <readfile>{{resource_id}}</readfile>"
-            response += f"\n• Search within source: <searchtext><resource_id>{{resource_id}}</resource_id><pattern>your search term</pattern></searchtext>"
+            response += "\n\nAccess individual sources using:"
+            response += "\n• Read full source: <readfile>{resource_id}</readfile>"
+            response += "\n• Search within source: <searchtext><resource_id>{resource_id}</resource_id><pattern>your search term</pattern></searchtext>"
 
             new_count = sum(1 for r in created_resources if r['is_new'])
             existing_count = len(created_resources) - new_count

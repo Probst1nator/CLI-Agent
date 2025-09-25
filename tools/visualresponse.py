@@ -185,6 +185,14 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         clients.add(ws)
+        
+        # Register with connection monitor
+        try:
+            from tools.connection_monitor import connection_monitor
+            connection_monitor.register_client(ws)
+        except Exception as e:
+            subprocess_logger.warning(f"Failed to register client with connection monitor: {e}")
+            
         subprocess_logger.info(f"Browser client connected: {request.remote}")
 
         # Send continue mode configuration to new client
@@ -261,6 +269,25 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                                 except Exception as e:
                                     subprocess_logger.debug(f"Could not access main interrupt flag: {e}")
 
+                            elif 'message' in message_data and 'toolConfig' in message_data:
+                                # Handle user message with tool configuration
+                                user_message = message_data['message']
+                                tool_config = message_data.get('toolConfig', {})
+
+                                # Log tool configuration
+                                disabled_tools = tool_config.get('disabledTools', [])
+                                if disabled_tools:
+                                    subprocess_logger.info(f"User message with disabled tools: {disabled_tools}")
+                                else:
+                                    subprocess_logger.debug("User message with all tools enabled")
+
+                                # Store tool configuration globally for tool discovery to access
+                                # This will be picked up by the agent's tool discovery system
+                                g.disabled_tools = disabled_tools
+
+                                # Send only the user message content to maintain compatibility
+                                input_queue.put(user_message)
+                                subprocess_logger.info(f"User message queued with tool restrictions: {user_message[:50]}...")
 
                             else:
                                 # For other JSON messages, put the raw string
@@ -283,6 +310,13 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         finally:
             subprocess_logger.info(f"Browser client disconnected: {request.remote}")
             clients.remove(ws)
+            
+            # Unregister from connection monitor
+            try:
+                from tools.connection_monitor import connection_monitor
+                connection_monitor.unregister_client(ws)
+            except Exception as e:
+                subprocess_logger.warning(f"Failed to unregister client from connection monitor: {e}")
         return ws
     async def index_handler(request: web.Request):
         response = web.FileResponse(ASSETS_DIR / 'index.html')
@@ -379,6 +413,79 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 'models': []
             }, status=500)
 
+    async def tools_handler(request: web.Request):
+        """Serve available tools data for the frontend tool manager."""
+        try:
+            # Import here to avoid circular imports
+            from agent.core.tool_discovery import _generate_tool_documentation
+            from core.globals import g
+            import importlib
+            from pathlib import Path
+
+            # Discover tools from the tools directory
+            tools_dir = Path(__file__).parent.parent / "tools"
+            tools_data = []
+
+            # Scan both main tools directory and optional subdirectory
+            tool_directories = [
+                (tools_dir, "tools"),
+                (tools_dir / "optional", "tools.optional")
+            ]
+
+            for directory, module_prefix in tool_directories:
+                if not directory.exists():
+                    continue
+
+                for file in directory.glob("*.py"):
+                    if file.name.startswith("_") or file.stem == "__init__":
+                        continue
+
+                    try:
+                        # Import the tool module with appropriate prefix
+                        module_name = f"{module_prefix}.{file.stem}"
+                        module = importlib.import_module(module_name)
+
+                        # Find the tool class (should match the filename)
+                        tool_class_name = file.stem
+                        if hasattr(module, tool_class_name):
+                            tool_class = getattr(module, tool_class_name)
+                            if hasattr(tool_class, 'get_delim') and hasattr(tool_class, 'get_tool_info'):
+                                try:
+                                    tool_info = tool_class.get_tool_info()
+                                    tool_delim = tool_class.get_delim()
+
+                                    tools_data.append({
+                                        'name': tool_class_name,
+                                        'delim': tool_delim,
+                                        'info': tool_info,
+                                        'displayName': tool_info.get('name', tool_class_name),
+                                        'description': tool_info.get('description', ''),
+                                        'example': tool_info.get('example', '')
+                                    })
+                                except Exception as tool_error:
+                                    subprocess_logger.debug(f"Could not get info for tool {tool_class_name}: {tool_error}")
+                    except Exception as import_error:
+                        subprocess_logger.debug(f"Could not import tool from {file}: {import_error}")
+
+            # Sort tools alphabetically by name
+            tools_data.sort(key=lambda x: x['name'])
+
+            subprocess_logger.info(f"Served tools data: {len(tools_data)} tools discovered")
+
+            return web.json_response({
+                'status': 'success',
+                'tools': tools_data,
+                'total_count': len(tools_data)
+            })
+
+        except Exception as e:
+            subprocess_logger.error(f"Failed to get tools data: {e}", exc_info=True)
+            return web.json_response({
+                'status': 'error',
+                'message': f'Failed to retrieve tools data: {str(e)}',
+                'tools': []
+            }, status=500)
+
     async def upload_handler(request: web.Request):
         try:
             reader = await request.multipart()
@@ -443,6 +550,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         app.router.add_get('/ws', websocket_handler)
         app.router.add_get('/favicon.ico', favicon_handler)
         app.router.add_get('/api/llms', llm_data_handler)
+        app.router.add_get('/api/tools', tools_handler)
         app.router.add_post('/upload', upload_handler)
         app.router.add_static('/libs/', path=ASSETS_DIR / 'libs', name='libs')
         app.router.add_static('/css/', path=ASSETS_DIR / 'css', name='css')
@@ -453,6 +561,16 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         try:
             await site.start()
             subprocess_logger.info(f"Server started successfully at http://{SERVER_HOST}:{port}")
+            
+            # Start connection monitoring
+            try:
+                from tools.connection_monitor import connection_monitor
+                monitoring_task = asyncio.create_task(connection_monitor.start_monitoring())
+                subprocess_logger.info("Connection monitoring started")
+            except Exception as e:
+                subprocess_logger.warning(f"Failed to start connection monitoring: {e}")
+                monitoring_task = None
+                
             await asyncio.sleep(0.1)
             try:
                 import urllib.request
