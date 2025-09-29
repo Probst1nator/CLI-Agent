@@ -314,7 +314,7 @@ class WebSocketManager {
     }
 
     async handleMessage(data) {
-        this.logger.debug('Received WebSocket message', { type: data.type, action: data.action, id: data.id });
+        this.logger.debug('Received WebSocket message', { type: data.type, action: data.action, id: data.id, model: data.model });
 
         // Handle configuration messages
         if (data.type === 'config' && data.action === 'connection_init') {
@@ -442,8 +442,18 @@ class WebSocketManager {
         const timestampDiv = document.createElement('div');
         timestampDiv.className = 'agent-msg-head';
 
-        // Base timestamp content
-        let timestampContent = `<span class="timestamp-text">${timestamp} - ID: ${data.id}</span>`;
+        // Base timestamp content with model key right after ID
+        let timestampContent = `<span class="timestamp-text">${timestamp} - ID: ${data.id}`;
+
+        // Add model key if available, right after the ID
+        if (data.model) {
+            timestampContent += ` <span class="model-key" title="Model used for this response">[${data.model}]</span>`;
+            this.logger.debug('Added model key to timestamp', { model: data.model });
+        } else {
+            this.logger.debug('No model key found in message data', { dataKeys: Object.keys(data) });
+        }
+
+        timestampContent += `</span>`;
 
         // Tool info is now handled by loading-tools-header, not in timestamp
 
@@ -462,20 +472,17 @@ class WebSocketManager {
                 const argsPreview = tool.args ? (tool.args.length > 100 ? tool.args.substring(0, 100) + '...' : tool.args) : 'No arguments';
                 const contextPreview = tool.context_returned ? (tool.context_returned.length > 100 ? tool.context_returned.substring(0, 100) + '...' : tool.context_returned) : 'No output';
                 const contextLength = tool.context_length || 0;
+                const modelDisplay = tool.model ? ` <span class="model-key" title="Model used for this tool call">[${tool.model}]</span>` : '';
 
                 const toolDetailId = `tool-detail-${data.id}-${index}`;
 
                 detailsHTML += `
                     <div class="tool-detail-item">
                         <div class="tool-summary" onclick="toggleToolDetail('${toolDetailId}')">
-                            ${statusIcon} <strong>${tool.name}</strong> - ${tool.duration_ms}ms${errorText}
+                            ${statusIcon} <strong>${tool.name}</strong> - ${tool.duration_ms}ms${errorText}${modelDisplay}
                             <span class="tool-toggle">▼</span>
                         </div>
                         <div class="tool-detail-expanded" id="${toolDetailId}" style="display: none;">
-                            <div class="tool-detail-section">
-                                <strong>Model:</strong>
-                                <span class="tool-model">${tool.model || 'unknown'}</span>
-                            </div>
                             <div class="tool-detail-section">
                                 <strong>Arguments:</strong>
                                 <pre class="tool-code">${this.escapeHtml(tool.args || 'No arguments')}</pre>
@@ -772,9 +779,13 @@ class WebSocketManager {
         const startTime = Date.now();
         toolItem.dataset.startTime = startTime;
 
+        // Add model information to the display
+        const modelDisplay = data.model ? `<span class="loading-tool-model">[${this.escapeHtml(data.model)}]</span>` : '';
+
         toolItem.innerHTML = `
             <div class="loading-tool-main">
                 <span class="loading-tool-name">${this.escapeHtml(data.tool_name)}</span>
+                ${modelDisplay}
                 <span class="loading-tool-status running">
                     <span class="loading-tool-spinner">⏳</span>
                     <span class="loading-tool-stopwatch">0.0s</span>
@@ -796,6 +807,9 @@ class WebSocketManager {
         });
 
         loadingToolsHeader.appendChild(toolItem);
+
+        // Scroll to show the new tool
+        this.scrollToBottom();
 
         // Start stopwatch
         const stopwatchSpan = toolItem.querySelector('.loading-tool-stopwatch');
@@ -874,6 +888,9 @@ class WebSocketManager {
 
         // Clear any timer attribute
         toolItem.removeAttribute('data-stopwatch-timer');
+
+        // Scroll to show the completed tool
+        this.scrollToBottom();
     }
 
     transferLoadingToolsToMessage(messageId, toolInfo = null) {
@@ -946,29 +963,8 @@ class WebSocketManager {
                 toolsHeader.appendChild(clonedTool);
             });
 
-            // Add model information to loading tool details if available
-            if (toolInfo && Array.isArray(toolInfo) && toolInfo.length > 0) {
-                // Get the model from the first tool (all tools should have the same model)
-                const model = toolInfo[0].model || 'unknown';
-                console.log('Adding model info:', model, 'toolInfo:', toolInfo[0]);
-                // Always show model info, even if unknown
-                const loadingToolItems = toolsHeader.querySelectorAll('.loading-tool-item');
-                console.log('Found loading tool items:', loadingToolItems.length);
-                loadingToolItems.forEach((toolItem, index) => {
-                    const details = toolItem.querySelector('.loading-tool-details');
-                    console.log(`Tool ${index}:`, toolItem, 'Details:', details);
-                    if (details) {
-                        const modelLine = document.createElement('div');
-                        modelLine.innerHTML = `<strong>Model:</strong> <span class="tool-model">${model}</span>`;
-                        details.appendChild(modelLine);
-                        console.log('Added model line to tool', index);
-                    } else {
-                        console.log('No details found for tool', index);
-                    }
-                });
-            } else {
-                console.log('No tool info available:', toolInfo);
-            }
+            // Model information is now displayed in the main tool header
+            // No need to add it to individual tool details
 
             // Remove the loading tools header
             loadingToolsHeader.remove();

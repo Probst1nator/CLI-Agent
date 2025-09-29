@@ -133,7 +133,7 @@
 
 - `core/ai_strengths.py` - Enum definition for AI model capabilities, categorizing different strengths like UNCENSORED, VISION, and LOCAL processing with numeric values.
 
-- `core/chat.py` - Core Chat class for managing conversational AI interactions, supporting multiple message roles, colorized terminal output, debug windows, serialization, and conversion to various AI API formats (Ollama, OpenAI, Groq, Gemini, Gemma).
+- `core/chat.py` - Core Chat class for managing conversational AI interactions, supporting multiple message roles, colorized terminal output, debug windows, serialization, conversion to various AI API formats (Ollama, OpenAI, Groq, Gemini, Gemma), and LLM-based conversation compression with configurable density levels ('dense', 'detailed') and custom prompts.
 
 - `core/globals.py` - Singleton global state manager handling application configuration, file paths, LLM settings, debug flags, model discovery caching, persistent storage with cross-platform compatibility, and enhanced temporary file cleanup using the integrated file manager.
 
@@ -169,15 +169,27 @@
 
 - `docker_files/docker-compose.isolated.yml` - Container orchestration configuration for isolated CLI-Agent deployment with network isolation (internet-only access), persistent Docker volumes, resource limits, health checks, and systemd integration for production use.
 
+- `docker_files/docker-compose.multi-dev.yml` - Multi-instance development container setup with live source code mounting, per-browser-tab isolation, session management, and instant code updates without rebuilds. Uses ports 7870-7873 to avoid conflicts with production setup.
+
+- `docker_files/docker-compose.multi-simple.yml` - Production multi-instance container setup with session management, per-browser-tab isolation, and automatic session routing. Uses ports 7860-7863 for production deployment.
+
+- `docker_files/deprecated/` - Deprecated Docker configurations: single-instance dev setup, Traefik-based multi-instance, and related configs superseded by current implementations.
+
 - `docs/AGENT_RAG.md` - Documentation of the CLI-Agent's RAG (Retrieval-Augmented Generation) system architecture, covering ToolVectorDB, PlaybookManager, and UtilsManager integration for contextual guidance and strategic planning.
 
 - `docs/APIS.md` - Comprehensive API documentation for LLM providers (Google Gemini, Groq, Ollama), detailing data structures, parameters, and model discovery endpoints for dynamic model integration.
 
 - `docs/DOCKER_ISOLATED.md` - Comprehensive documentation for CLI-Agent isolated Docker container setup with network isolation, security hardening, UFW firewall configuration, troubleshooting guide, and production-ready deployment instructions including port mapping (7860→7861) and dependency management.
 
+- `docs/MULTI_INSTANCE_SETUP.md` - Multi-instance container setup documentation covering per-browser-tab isolation, automatic session management, default LLM configuration, round-robin load balancing, and Docker Compose orchestration for scalable CLI-Agent deployments with independent instance configuration.
+
+- `docs/NETWORK_ACCESS.md` - Container network access and security documentation detailing accessible ports, AI service connectivity, Ollama configuration, inter-container communication, security restrictions, and troubleshooting guide for the sandboxed container environment.
+
 - `docs/CURRENT_AND_IDEAL_ARCHITECTURE.md` - Architecture analysis documenting duplicate files between py_classes and core directories, with findings on AI provider interfaces and proposed monorepo structure improvements.
 
 - `docs/SEARCHWEB_VECTOR_DB.md` - : Comprehensive documentation for SearchWeb vector database integration using ChromaDB and embeddinggemma:latest. Details semantic search architecture, two-collection system (search results + summaries), query flow, performance benefits, configuration, and troubleshooting for the intelligent caching system that reduces API calls and builds progressive knowledge base.
+
+- `docs/VISUALRESPONSE_ARCHITECTURE.md` - Comprehensive architecture documentation for the Visual Response system covering client-server architecture, multi-process event-driven design, WebSocket communication protocol, container orchestration, security implementation, and deployment patterns. Details server-side components (aiohttp web server, subprocess management), client-side architecture (modular JavaScript, content rendering, security sandboxing), and multi-instance scaling with session management.
 
 - `docs/OLLAMA_INFO.md` - Documentation for Ollama integration, covering local model hosting, configuration, and offline LLM capabilities.
 
@@ -334,6 +346,16 @@
 - `tools/configure_tts.py` - TTS configuration utility for interactive setup and management of text-to-speech engine preferences, voice selection, and audio output settings.
 
 - `tools/tts_tester.py` - Comprehensive TTS testing and benchmarking utility for evaluating all available TTS engines, comparing quality, and configuring optimal TTS setup.
+
+- `tools/visual_assets/index.html` - Main HTML interface for the Visual Response web UI providing a complete browser-based CLI-Agent experience with chat input, file upload, screenshot capture, voice mode toggle, LLM selection, and real-time agent communication.
+
+- `tools/visual_assets/css/main.css` - Comprehensive stylesheet for the Visual Response interface featuring dark/light theme support, responsive design, tool toggles, chat interface styling, and visual feedback animations for all interactive elements.
+
+- `tools/visual_assets/js/main.js` - Primary JavaScript controller for the Visual Response interface orchestrating WebSocket communication, content rendering, file upload handling, screenshot capture, voice button functionality, LLM selection, and user interaction management.
+
+- `tools/visual_assets/js/websocket.js` - WebSocket communication manager for real-time bidirectional communication between the browser client and CLI-Agent server with connection management, message handling, and automatic reconnection.
+
+- `tools/visualresponse.py` - Visual Response server implementation providing a multi-process web interface for CLI-Agent with aiohttp web server, WebSocket communication, file upload handling, screenshot integration, and session management for browser-based agent interaction.
 
 - `tools/podcast_generator/main.py` - Podcast generation tool for creating audio content from text, managing podcast workflows, and automating audio content production.
 

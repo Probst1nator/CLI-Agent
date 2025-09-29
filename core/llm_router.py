@@ -901,7 +901,7 @@ class LlmRouter:
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
         thinking_budget: Optional[int] = 4096,
-        generation_stream_callback: Optional[Callable] = None,
+        generation_stream_callback: Callable[[str], None] | None = lambda char: print(colored(char, 'green'), end=''),
         follows_condition_callback: Optional[Callable] = None,
         decision_patterns: Optional[Dict[str, str]] = None,
         branch_context: Optional[Dict[str, Any]] = None,
@@ -1305,7 +1305,11 @@ class LlmRouter:
 
                         # Call original callback if provided
                         if generation_stream_callback:
-                            return await generation_stream_callback(chunk)
+                            import asyncio
+                            if asyncio.iscoroutinefunction(generation_stream_callback):
+                                return await generation_stream_callback(chunk)
+                            else:
+                                return generation_stream_callback(chunk)
                         return None
 
                     # Set up periodic timeout checking for stream processing
@@ -1351,20 +1355,19 @@ class LlmRouter:
                     # Explicitly catch Ctrl+C during model generation and convert to clean exception
                     raise UserInterruptedException("Model generation interrupted by user (Ctrl+C).")
 
-            except (UserInterruptedException, StreamInterruptedException) as e:
+            except (UserInterruptedException, StreamInterruptedException):
                 # Handle stream interruption by cancelling any active generation
-                if isinstance(e, StreamInterruptedException):
-                    # Cancel the current generation on the provider if it supports cancellation
-                    provider = model.provider if model else None
-                    if provider and hasattr(provider, 'cancel_current_generation'):
-                        try:
-                            provider.cancel_current_generation()
-                            logger.debug(f"Cancelled generation for provider {provider.__class__.__name__}")
-                        except Exception as cancel_error:
-                            logger.warning(f"Failed to cancel generation for provider {provider.__class__.__name__}: {cancel_error}")
-                    elif provider:
-                        # Provider exists but doesn't support cancellation
-                        logger.debug(f"Provider {provider.__class__.__name__} does not support stream cancellation")
+                # This now correctly triggers for BOTH user interrupts and tool detection.
+                provider = model.provider if model else None
+                if provider and hasattr(provider, 'cancel_current_generation'):
+                    try:
+                        provider.cancel_current_generation()
+                        logger.debug(f"Cancelled generation for provider {provider.__class__.__name__}")
+                    except Exception as cancel_error:
+                        logger.warning(f"Failed to cancel generation for provider {provider.__class__.__name__}: {cancel_error}")
+                elif provider:
+                    # Provider exists but doesn't support cancellation
+                    logger.debug(f"Provider {provider.__class__.__name__} does not support stream cancellation")
 
                 # Re-raise exceptions that are part of the normal control flow
                 # so they can be handled by the caller in main.py.

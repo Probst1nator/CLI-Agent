@@ -3,6 +3,7 @@ import json
 import math
 import os
 import logging
+import time
 import tkinter as tk
 from enum import Enum
 from typing import Dict, List, Optional, Sequence, Tuple, Union, Any
@@ -16,6 +17,8 @@ from core.globals import g
 from ollama._types import Message
 
 logger = logging.getLogger(__name__)
+
+# LlmRouter will be imported lazily in compress() method to avoid circular imports
 
 class Role(Enum):
     SYSTEM = "system"
@@ -724,3 +727,76 @@ class Chat:
                 self._update_window_display()
                 break
         return self
+
+    def compact(self, prompt: str, level: str = 'detailed', model: str = '') -> 'Chat':
+        """
+        Compacts the chat conversation using an LLM to generate a summary.
+
+        :param prompt: Custom compression instruction/context
+        :param level: Compression level - 'dense' (brief) or 'detailed' (comprehensive)
+        :param model: Optional specific model to use (defaults to system configuration)
+        :return: A new Chat instance with compacted conversation
+        """
+        # Lazy import to avoid circular imports
+        try:
+            from core.llm_router import LlmRouter
+        except ImportError:
+            logger.warning("LlmRouter not available for compression, returning copy of original chat")
+            return self.deep_copy()
+
+        # Validate level parameter
+        if level not in ['dense', 'detailed']:
+            logger.warning(f"Invalid compression level '{level}', defaulting to 'detailed'")
+            level = 'detailed'
+
+        # Create compression prompt based on level
+        if level == 'dense':
+            compression_instruction = (
+                "Create a brief, essential summary of this conversation. "
+                "Focus on key decisions, important facts, and critical context needed to continue the discussion. "
+                "Be concise but preserve the most important information."
+            )
+        else:  # detailed
+            compression_instruction = (
+                "Create a comprehensive summary of this conversation that maintains all important details, "
+                "decisions, technical context, and key points. The summary should provide full context "
+                "for someone to continue the conversation seamlessly."
+            )
+
+        chat = Chat(compression_instruction)
+        chat.add_message(Role.USER, f"{prompt}\n\nConversation:\n{self.print_chat()}")
+
+        try:
+            router = LlmRouter.get_instance()
+            response = router.generate_response(chat, model_name=model if model else None, stream=False)
+        except Exception as e:
+            logger.error(f"LLM compression failed: {e}")
+            return self.deep_copy()
+
+        system_msg = ""
+        if self.messages and self.messages[0][0] == Role.SYSTEM:
+            system_msg = self.messages[0][1]
+
+        memory_delimiter_prefix: str = "\n<context>"
+        memory_delimiter_suffix: str = "</context>"
+
+        if (memory_delimiter_prefix in system_msg): # cleanup previous chat memory in sys_msg
+            system_msg = system_msg.split(memory_delimiter_prefix)[0]
+
+        system_msg += memory_delimiter_prefix + response + memory_delimiter_suffix
+
+        # Create new compressed chat
+        compressed_chat = Chat()
+        compressed_chat.set_instruction_message(system_msg)
+
+        # Add compression metadata
+        compressed_chat.metadata['compression'] = {
+            'original_length': len(self),
+            'compressed_length': len(compressed_chat),
+            'level': level,
+            'model': model,
+            'prompt': prompt,
+            'timestamp': time.time()
+        }
+
+        return compressed_chat

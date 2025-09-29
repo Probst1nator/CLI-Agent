@@ -12,47 +12,63 @@ class RateLimitConfig:
 
     # Known model configurations
     MODEL_CONFIGS = {
-        # Gemini Models - Free Tier (conservative estimates)
+        # Gemini Models - Free Tier (optimistic estimates - let API tell us actual limits)
         'gemini-1.5-pro': {
-            LimitType.RPM: 2,
-            LimitType.TPM: 32000,
-            LimitType.RPD: 50
+            LimitType.RPM: 60,  # Increased from 2 to be more permissive initially
+            LimitType.TPM: 100000,  # Increased from 32000
+            LimitType.RPD: 1000  # Increased from 50
         },
         'gemini-1.5-flash': {
-            LimitType.RPM: 15,
-            LimitType.TPM: 1000000,
-            LimitType.RPD: 1500
+            LimitType.RPM: 100,  # Increased from 15
+            LimitType.TPM: 2000000,  # Increased from 1M
+            LimitType.RPD: 5000  # Increased from 1500
         },
         'gemini-2.5-flash': {
-            LimitType.RPM: 15,
-            LimitType.TPM: 1000000,
-            LimitType.RPD: 1500
+            LimitType.RPM: 100,  # Increased from 15
+            LimitType.TPM: 2000000,  # Increased from 1M
+            LimitType.RPD: 5000  # Increased from 1500
         },
         'gemini-1.5-pro-latest': {
-            LimitType.RPM: 2,
-            LimitType.TPM: 32000,
-            LimitType.RPD: 50
+            LimitType.RPM: 60,  # Increased from 2
+            LimitType.TPM: 100000,  # Increased from 32000
+            LimitType.RPD: 1000  # Increased from 50
         },
         'gemini-1.5-flash-latest': {
-            LimitType.RPM: 15,
-            LimitType.TPM: 1000000,
-            LimitType.RPD: 1500
+            LimitType.RPM: 100,  # Increased from 15
+            LimitType.TPM: 2000000,  # Increased from 1M
+            LimitType.RPD: 5000  # Increased from 1500
         },
         # Additional Gemini model variants
         'gemini-2.5-flash-preview-05-20': {
-            LimitType.RPM: 15,
-            LimitType.TPM: 1000000,
-            LimitType.RPD: 1500
+            LimitType.RPM: 100,  # Increased from 15
+            LimitType.TPM: 2000000,  # Increased from 1M
+            LimitType.RPD: 5000  # Increased from 1500
+        },
+        # NEW: Add missing model configurations
+        'gemini-2.5-flash-lite-preview-06-17': {
+            LimitType.RPM: 100,
+            LimitType.TPM: 2000000,
+            LimitType.RPD: 5000
+        },
+        'gemini-2.0-flash': {
+            LimitType.RPM: 100,
+            LimitType.TPM: 2000000,
+            LimitType.RPD: 5000
+        },
+        'gemini-2.5-pro': {
+            LimitType.RPM: 60,
+            LimitType.TPM: 100000,
+            LimitType.RPD: 1000
         },
         'gemini-flash': {
-            LimitType.RPM: 15,
-            LimitType.TPM: 1000000,
-            LimitType.RPD: 1500
+            LimitType.RPM: 100,  # Increased from 15
+            LimitType.TPM: 2000000,  # Increased from 1M
+            LimitType.RPD: 5000  # Increased from 1500
         },
         'gemini-pro': {
-            LimitType.RPM: 2,
-            LimitType.TPM: 32000,
-            LimitType.RPD: 50
+            LimitType.RPM: 60,  # Increased from 2
+            LimitType.TPM: 100000,  # Increased from 32000
+            LimitType.RPD: 1000  # Increased from 50
         },
 
         # Gemini Models - Paid Tier 1 (with billing enabled)
@@ -67,27 +83,34 @@ class RateLimitConfig:
             LimitType.RPD: 10000
         },
 
-        # Ollama Models (typically local, high limits)
-        'ollama-default': {
-            LimitType.RPM: 100,
-            LimitType.TPM: 100000
+        # Groq Models (generous defaults)
+        'groq-default': {
+            LimitType.RPM: 500,  # Groq is generally fast and generous
+            LimitType.TPM: 1000000,
+            LimitType.RPD: 10000
         },
 
-        # Generic defaults for unknown models
+        # Ollama Models (typically local, high limits)
+        'ollama-default': {
+            LimitType.RPM: 1000,  # Increased - local models should be very permissive
+            LimitType.TPM: 1000000,  # Increased
+        },
+
+        # Generic defaults for unknown models - MUCH more permissive
         'unknown-free': {
-            LimitType.RPM: 10,
-            LimitType.TPM: 10000,
-            LimitType.RPD: 100
+            LimitType.RPM: 100,  # Increased from 10
+            LimitType.TPM: 500000,  # Increased from 10000
+            LimitType.RPD: 2000  # Increased from 100
         },
         'unknown-paid': {
-            LimitType.RPM: 100,
-            LimitType.TPM: 100000,
-            LimitType.RPD: 1000
+            LimitType.RPM: 500,  # Increased from 100
+            LimitType.TPM: 2000000,  # Increased from 100000
+            LimitType.RPD: 10000  # Increased from 1000
         }
     }
 
     @classmethod
-    def initialize_model_limits(cls, model_key: str, is_paid: bool = False, provider: str = "unknown"):
+    def initialize_model_limits(cls, model_key: str, is_paid: bool = False, provider: str = "unknown", lazy: bool = True):
         """
         Initialize rate limits for a model if not already configured.
 
@@ -95,11 +118,19 @@ class RateLimitConfig:
             model_key: The model identifier
             is_paid: Whether the user has a paid account
             provider: The provider name (for fallback defaults)
+            lazy: If True, only initialize if the model has been rate limited before.
+                  If False, initialize proactively (original behavior)
         """
         # Check if already configured
         status = enhanced_rate_limit_tracker.get_status_summary(model_key)
         if status["status"] != "no_limits_configured":
             logger.debug(f"Rate limits already configured for {model_key}")
+            return
+
+        # LAZY INITIALIZATION: Only initialize limits after first rate limit error
+        # This prevents preemptive blocking of models that may have generous limits
+        if lazy:
+            logger.debug(f"Lazy initialization: skipping preemptive rate limits for {model_key}")
             return
 
         # Try to find specific configuration
@@ -123,6 +154,10 @@ class RateLimitConfig:
                 # Default to flash for unknown Gemini models
                 config = cls.MODEL_CONFIGS['gemini-flash']
                 logger.debug(f"Using Gemini Flash defaults for unknown Gemini model: {model_key}")
+        # Pattern matching for Groq models
+        elif provider.lower() in ["groq", "groqapi"]:
+            config = cls.MODEL_CONFIGS['groq-default']
+            logger.debug(f"Using Groq defaults for {model_key}")
         # Provider defaults
         elif provider.lower() == "ollama":
             config = cls.MODEL_CONFIGS['ollama-default']
@@ -188,6 +223,24 @@ class RateLimitConfig:
         return False
 
     @classmethod
+    def initialize_limits_from_error(cls, model_key: str, provider: str = "unknown", error_message: str = ""):
+        """
+        Initialize rate limits for a model that just hit a rate limit.
+        This is called reactively after the first rate limit error.
+
+        Args:
+            model_key: The model that had an error
+            provider: The provider name
+            error_message: The error message from the API (for tier detection)
+        """
+        # Auto-detect tier if possible
+        is_paid = cls.auto_detect_tier(model_key, error_message) if error_message else False
+
+        # Force initialization with lazy=False to actually create the limits
+        cls.initialize_model_limits(model_key, is_paid=is_paid, provider=provider, lazy=False)
+        logger.info(f"Reactively initialized rate limits for {model_key} after rate limit error - paid tier: {is_paid}")
+
+    @classmethod
     def update_limits_from_error(cls, model_key: str, error_message: str):
         """
         Update model limits based on information in error message.
@@ -204,7 +257,7 @@ class RateLimitConfig:
 
         # If no limits configured or if we detected a tier upgrade
         if status["status"] == "no_limits_configured" or is_paid:
-            cls.initialize_model_limits(model_key, is_paid=is_paid, provider="gemini")
+            cls.initialize_model_limits(model_key, is_paid=is_paid, provider="gemini", lazy=False)
             logger.info(f"Updated {model_key} limits based on error - paid tier: {is_paid}")
 
 # Initialize common models on import
@@ -218,9 +271,10 @@ def initialize_common_models():
     # Configure Ollama defaults
     config.configure_ollama_defaults()
 
-# Auto-initialize on import
+# Auto-initialize on import - but with lazy mode to prevent preemptive blocking
 try:
-    initialize_common_models()
-    logger.info("Initialized common model rate limits")
+    # Note: We skip auto-initialization to prevent preemptive blocking
+    # Models will be initialized lazily when they first encounter rate limits
+    logger.info("Rate limiting system ready - using lazy initialization to prevent preemptive blocking")
 except Exception as e:
-    logger.warning(f"Failed to initialize common model rate limits: {e}")
+    logger.warning(f"Failed to initialize rate limiting system: {e}")

@@ -206,6 +206,48 @@ class VisualResponseApp {
         console.groupEnd();
     }
 
+    displayInstanceInfo() {
+        // Show which instance/port this tab is connected to
+        const port = window.location.port;
+        let instanceInfo = '';
+        
+        if (port === '7861') {
+            instanceInfo = '🟢 Instance 1 (Port 7861)';
+        } else if (port === '7862') {
+            instanceInfo = '🟡 Instance 2 (Port 7862)';  
+        } else if (port === '7863') {
+            instanceInfo = '🔵 Instance 3 (Port 7863)';
+        } else if (port === '7860') {
+            instanceInfo = '⚪ Session Manager (Port 7860)';
+        } else {
+            instanceInfo = `⚫ Unknown Instance (Port ${port})`;
+        }
+        
+        // Add instance indicator to header
+        const header = document.querySelector('.header h1, h1') || document.querySelector('body');
+        if (header) {
+            const instanceDiv = document.createElement('div');
+            instanceDiv.id = 'instance-indicator';
+            instanceDiv.style.cssText = `
+                position: fixed; 
+                top: 10px; 
+                right: 10px; 
+                background: rgba(0, 0, 0, 0.8); 
+                color: white; 
+                padding: 8px 12px; 
+                border-radius: 5px; 
+                font-size: 12px; 
+                font-family: monospace; 
+                z-index: 10000;
+                border: 1px solid #444;
+            `;
+            instanceDiv.textContent = instanceInfo;
+            document.body.appendChild(instanceDiv);
+        }
+        
+        console.log('🏷️ Connected to:', instanceInfo);
+    }
+
     checkLibraries() {
         console.groupCollapsed('📚 Library Dependencies');
         console.log('jQuery:', typeof $ !== 'undefined' ? '✅ loaded' : '❌ MISSING');
@@ -260,6 +302,7 @@ class VisualResponseApp {
         this.fileInput = document.getElementById('file-input');
         this.fileUploadBtn = document.getElementById('file-upload-btn');
         this.screenshotBtn = document.getElementById('screenshot-btn');
+        this.voiceBtn = document.getElementById('voice-btn');
 
         // Initialize LLM selectors
         this.initializeLLMSelectors();
@@ -363,6 +406,9 @@ class VisualResponseApp {
         // Screenshot button event listener
         this.setupScreenshot();
 
+        // Voice button event listener
+        this.setupVoiceButton();
+
         // Global JS toggle event listener
         this.setupGlobalJSToggle();
 
@@ -449,10 +495,13 @@ class VisualResponseApp {
         // Force immediate scroll after user message
         this.scrollToBottom();
 
-        // Show loading indicator after user message
-        this.showLoadingIndicator();
+        // Only show loading indicator if this is not a command (doesn't start with "/")
+        // Commands don't generate agent responses, so no loading indicator is needed
+        if (!message.trim().startsWith('/')) {
+            this.showLoadingIndicator();
+        }
 
-        // Scroll again after loading indicator is added
+        // Scroll again after loading indicator is added (or immediately if no indicator)
         setTimeout(() => this.scrollToBottom(), 10);
     }
 
@@ -586,6 +635,59 @@ class VisualResponseApp {
                 setTimeout(() => {
                     this.screenshotBtn.innerHTML = originalIcon;
                     this.screenshotBtn.style.borderColor = '';
+                }, 1500);
+            }
+        });
+    }
+
+    setupVoiceButton() {
+        if (!this.voiceBtn) {
+            console.error('Voice button not found');
+            return;
+        }
+
+        // Voice button click
+        this.voiceBtn.addEventListener('click', () => {
+            console.log('🎤 Voice button clicked');
+
+            // Send voice command to agent
+            if (this.wsManager && this.wsManager.isConnected()) {
+                this.wsManager.sendMessage('/voice');
+
+                // Visual feedback - toggle active state
+                this.voiceBtn.classList.toggle('active');
+
+                // Change icon based on state
+                const isActive = this.voiceBtn.classList.contains('active');
+                const originalIcon = this.voiceBtn.innerHTML;
+
+                if (isActive) {
+                    // Show microphone with "active" styling
+                    this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" fill="currentColor"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
+                    this.voiceBtn.title = 'Voice mode enabled - click to disable';
+                } else {
+                    // Show regular microphone icon
+                    this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
+                    this.voiceBtn.title = 'Toggle voice mode (/voice)';
+                }
+
+                // Brief feedback animation
+                this.voiceBtn.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    this.voiceBtn.style.transform = '';
+                }, 150);
+
+            } else {
+                console.warn('WebSocket not connected, voice command not sent');
+
+                // Visual feedback for connection error
+                const originalIcon = this.voiceBtn.innerHTML;
+                this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2"/></svg>';
+                this.voiceBtn.style.borderColor = '#dc3545';
+
+                setTimeout(() => {
+                    this.voiceBtn.innerHTML = originalIcon;
+                    this.voiceBtn.style.borderColor = '';
                 }, 1500);
             }
         });

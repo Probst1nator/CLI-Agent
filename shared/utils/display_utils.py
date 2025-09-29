@@ -158,12 +158,27 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
         # Display selected models
         count = len(selected_models)
         count_color = "light_green" if count > 0 else "red"
-        label = f"  🤖 {count} Selected Models:".ljust(DESC_WIDTH)
+        label = f"  {count} Selected Models:".ljust(DESC_WIDTH)
         models_str = colorize_model_list(selected_models, tui_mode) if selected_models else "None"
         if tui_mode:
             logging.info(f"[{count_color}]{label}[/{count_color}] {models_str}")
         else:
             logging.info(colored(label, count_color) + " " + models_str)
+
+        # Display planner and router LLMs if configured
+        if hasattr(g, 'planner_llm') and g.planner_llm:
+            planner_label = "  Planner LLM:".ljust(DESC_WIDTH)
+            if tui_mode:
+                logging.info(f"[cyan]{planner_label}[/cyan] {g.planner_llm}")
+            else:
+                logging.info(colored(planner_label, "cyan") + " " + g.planner_llm)
+
+        if hasattr(g, 'router_llm') and g.router_llm:
+            router_label = "  Router LLM:".ljust(DESC_WIDTH)
+            if tui_mode:
+                logging.info(f"[cyan]{router_label}[/cyan] {g.router_llm}")
+            else:
+                logging.info(colored(router_label, "cyan") + " " + g.router_llm)
 
     # Display final status line
     status_line = "[yellow]--- Ready for User Input ---[/yellow]" if tui_mode else colored("--- Ready for User Input ---", "yellow")

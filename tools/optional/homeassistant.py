@@ -156,9 +156,15 @@ class homeassistant:
     @classmethod
     def initialize(cls) -> None:
         """Initialize the Home Assistant tool by testing connectivity."""
+        # Skip if already initialized to prevent duplicate logging
+        if hasattr(cls, '_initialized') and cls._initialized:
+            return
+
         is_reachable, message = _HomeAssistantAPI.check_reachability()
         cls._is_enabled = is_reachable
         cls._status_message = message
+        cls._initialized = True
+
         if not is_reachable:
             logging.warning(f"Home Assistant tool disabled: {message}")
         else:

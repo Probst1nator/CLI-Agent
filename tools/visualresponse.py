@@ -188,7 +188,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         
         # Register with connection monitor
         try:
-            from tools.connection_monitor import connection_monitor
+            from tools._connection_monitor import connection_monitor
             connection_monitor.register_client(ws)
         except Exception as e:
             subprocess_logger.warning(f"Failed to register client with connection monitor: {e}")
@@ -313,7 +313,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             
             # Unregister from connection monitor
             try:
-                from tools.connection_monitor import connection_monitor
+                from tools._connection_monitor import connection_monitor
                 connection_monitor.unregister_client(ws)
             except Exception as e:
                 subprocess_logger.warning(f"Failed to unregister client from connection monitor: {e}")
@@ -417,8 +417,6 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         """Serve available tools data for the frontend tool manager."""
         try:
             # Import here to avoid circular imports
-            from agent.core.tool_discovery import _generate_tool_documentation
-            from core.globals import g
             import importlib
             from pathlib import Path
 
@@ -564,7 +562,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             
             # Start connection monitoring
             try:
-                from tools.connection_monitor import connection_monitor
+                from tools._connection_monitor import connection_monitor
                 monitoring_task = asyncio.create_task(connection_monitor.start_monitoring())
                 subprocess_logger.info("Connection monitoring started")
             except Exception as e:
@@ -799,6 +797,15 @@ class visualresponse:
 
             payload = {"id": viz_id, "action": action}
 
+            # Add model key metadata
+            try:
+                from core.llm_router import LlmRouter
+                used_model = LlmRouter.get_last_used_model()
+                if used_model:
+                    payload['model'] = used_model
+            except Exception as e:
+                logger.debug(f"Could not get model key for response: {e}")
+
             # Add tool execution info if available
             if hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
                 payload['tool_info'] = g.last_executed_tools_info
@@ -885,6 +892,15 @@ class visualresponse:
                 "id": f"user-msg-{int(time.time() * 1000000)}"
             }
 
+            # Add model key metadata for user messages too (to track context)
+            try:
+                from core.llm_router import LlmRouter
+                used_model = LlmRouter.get_last_used_model()
+                if used_model:
+                    payload['model'] = used_model
+            except Exception as e:
+                logger.debug(f"Could not get model key for user message: {e}")
+
             print(f"[DEBUG] About to send user message payload: {payload}")
             session.send_update(payload)
             print(f"[DEBUG] ✅ Sent user message to visual interface: {message[:50]}...")
@@ -922,6 +938,15 @@ class visualresponse:
                 "timestamp": time.time(),
                 "id": f"console-log-{int(time.time() * 1000000)}"
             }
+
+            # Add model key metadata for console logs too
+            try:
+                from core.llm_router import LlmRouter
+                used_model = LlmRouter.get_last_used_model()
+                if used_model:
+                    payload['model'] = used_model
+            except Exception as e:
+                logger.debug(f"Could not get model key for console log: {e}")
 
             session.send_update(payload)
             return True
@@ -1271,7 +1296,8 @@ class LogFileWatcher:
                     level = 'error' if stream_type == 'stderr' else 'info'
 
                     # Use existing broadcast system
-                    await broadcast_console_log(line.rstrip('\n\r'), level)
+                    # TODO: Fix scope issue - broadcast_console_log not accessible here
+                    # await broadcast_console_log(line.rstrip('\n\r'), level)
 
         except Exception as e:
             logger.error(f"Error sending log content to browser: {e}")

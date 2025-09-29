@@ -124,8 +124,8 @@ class GoogleAPI(AIProviderInterface):
         # Get the prefix for debug logging
         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
 
-        # Initialize rate limits for this model if not already done
-        RateLimitConfig.initialize_model_limits(model_key, is_paid=False, provider="gemini")
+        # Initialize rate limits for this model if not already done (using lazy initialization)
+        RateLimitConfig.initialize_model_limits(model_key, is_paid=False, provider="gemini", lazy=True)
 
         # Estimate token cost (rough approximation)
         token_cost = 0
@@ -140,11 +140,14 @@ class GoogleAPI(AIProviderInterface):
                     image_count += len(content['images'])
 
         # Check if request can be made with enhanced rate limiting
+        # With lazy initialization, models without configured limits are allowed through
         can_make_request, reason = enhanced_rate_limit_tracker.can_make_request(
             model_key, token_cost=token_cost, image_count=image_count
         )
 
-        if not can_make_request:
+        # Only block if model is actively rate limited (not if unconfigured)
+        status = enhanced_rate_limit_tracker.get_status_summary(model_key)
+        if not can_make_request and status["status"] != "no_limits_configured":
             if not silent_reason:
                 g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(f'rate limited ({reason})', 'yellow')}", force_print=True, prefix=prefix)
 
@@ -154,6 +157,9 @@ class GoogleAPI(AIProviderInterface):
                 raise RateLimitException(f"Model {model_key} exceeded maximum retry attempts")
             else:
                 raise RateLimitException(f"Model {model_key} is rate limited: {reason}. Retry in {retry_delay:.1f}s")
+        elif not can_make_request and status["status"] == "no_limits_configured":
+            # Model has no limits configured - allow it through (lazy initialization)
+            logger.debug(f"Allowing unconfigured model {model_key} to proceed (lazy initialization)")
 
         # Configure the API if not already done - let any error here bubble up to the router
         if g.VERBOSE_DEBUG:
