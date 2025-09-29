@@ -1277,11 +1277,6 @@ async def main(  # type: ignore[misc]
             apply_default_llm_config()
 
         # LLM roles are automatically loaded by g.load_llm_roles() during globals initialization
-        logging.info("🔍 STARTUP DEBUG: LLM roles loaded from unified configuration")
-        if g.planner_llm:
-            logging.info(colored(f"📋 Loaded planner LLM from config: {g.planner_llm}", "cyan"))
-        if g.router_llm:
-            logging.info(colored(f"📋 Loaded router LLM from config: {g.router_llm}", "cyan"))
 
         # Configure TTS engine priority based on --remote-tts flag
         if getattr(args, 'online_voice', False):
@@ -1387,34 +1382,34 @@ async def main(  # type: ignore[misc]
         g.stderr_callback = stderr_callback
         g.tui_callback = tui_callback  # Store tui_callback as well for consistent logging
 
+        # Populate tool info for startup display
+        if not hasattr(g, 'loaded_tool_info') or not g.loaded_tool_info:
+            # Get disabled tools from global state (set by visual interface)
+            user_disabled_tools = getattr(g, 'disabled_tools', [])
+            _generate_tool_documentation(user_disabled_tools)
+
         if tui_callback: tui_callback("✔ Initialization complete.", "system_ok")
         else:
             # Display tool loading information
             if hasattr(g, 'loaded_tool_info') and g.loaded_tool_info:
                 tool_info = g.loaded_tool_info
-                core_tools_list = ", ".join(tool_info['loaded_tools'])
-                logging.info(colored("--- Tool Configuration ---", "blue"))
-                logging.info(colored(f"  🔧 {tool_info['tool_count']} Core Tools: {core_tools_list}", "cyan"))
 
-                # Display failed/skipped tools with warnings
-                if tool_info['failed_tools']:
-                    failed_list = ", ".join(tool_info['failed_tools'][:3])  # Show first 3
-                    if len(tool_info['failed_tools']) > 3:
-                        failed_list += f" (and {len(tool_info['failed_tools']) - 3} more)"
-                    logging.info(colored(f"  ⚠️  Failed to load: {failed_list}", "yellow"))
+                # Simple count display
+                total_tools = tool_info['tool_count']
+                failed_count = len(tool_info.get('failed_tools', []))
+                skipped_count = len(tool_info.get('skipped_tools', []))
 
-                if tool_info['skipped_tools']:
-                    skipped_list = ", ".join(tool_info['skipped_tools'])
-                    logging.info(colored(f"  ⏭️  Skipped: {skipped_list}", "yellow"))
+                status_parts = [f"{total_tools} tools loaded"]
+                if failed_count > 0:
+                    status_parts.append(f"{failed_count} failed")
+                if skipped_count > 0:
+                    status_parts.append(f"{skipped_count} disabled")
 
-                # Display GUI tools if any
-                if tool_info['gui_tools']:
-                    gui_status = ", ".join(tool_info['gui_tools'])
-                    logging.info(colored(f"  📁 GUI Tools: {gui_status}", "cyan"))
-
-                logging.info(colored("--- Ready for User Input ---", "blue"))
-
-            logging.info(colored("Tools ready.", "blue"))
+                tools_status = ", ".join(status_parts)
+                logging.info(colored(f"Tools ready: {tools_status}.", "blue"))
+            else:
+                # Fallback if detailed tool info is not available
+                logging.info(colored("Tools ready.", "blue"))
 
         if context_chat is None:
             context_chat = await construct_engineered_prompt(args.voice, args.gui)
@@ -1516,7 +1511,9 @@ I have successfully viewed my permissions. Is there anything else I can assist y
         # CommandHandler already initialized above - no need to reinitialize
 
         while True:
-            LlmRouter().failed_models.clear()
+            from core.llm_router import LlmRouter
+            router = LlmRouter()
+            router.failed_models.clear()
             g.LLM_STRENGTHS = []
             assistant_response = ""
 
@@ -1610,7 +1607,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         if g.router_llm:
                             difficulty_chat = Chat("Act as a complexity assessment assistant. You view the users provided context and respond with a percentage value from 1-100 indicating the difficulty of formulating the next assistant response.")
                             difficulty_chat.add_message(Role.USER, "Hi, please think about the following conversation and assess the difficulty of responding:\n" + context_chat.print_chat(-3, None, True))
-                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm] + g.FALLBACK_MODELS, force_preferred_model=True)
+                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm] + g.FALLBACK_MODELS, force_preferred_model=True, force_free=False)
                             # extract last number found in the response string
                             response_complexity: int = 50 # Default fallback
                             match = re.findall(r'\d+', response)
@@ -1638,6 +1635,9 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             generation_stream_callback=interruption_callback,
                             assistant_prefix="<think>"
                         )
+
+                        # Store current model for tool execution
+                        g.current_llm_model = LlmRouter.get_last_used_model()
 
                         # Add model information to previously stored tool execution info
                         if hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
@@ -1744,6 +1744,21 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             sleep_match = re.search(r'<bash>\s*sleep\s+(\d+)\s*</bash>', assistant_response, re.IGNORECASE | re.DOTALL)
                             if sleep_match:
                                 should_execute = True
+
+                            # Check for safe read-only commands - auto-allow them without permissions
+                            if not should_execute:
+                                safe_command_patterns = [
+                                    r'<bash>\s*ls(\s+[^;&|`$()]*)*\s*</bash>',    # ls with safe flags
+                                    r'<bash>\s*pwd\s*</bash>',                     # pwd
+                                    r'<bash>\s*whoami\s*</bash>',                  # whoami
+                                    r'<bash>\s*date(\s+[^;&|`$()]*)*\s*</bash>',   # date
+                                    r'<bash>\s*hostname\s*</bash>',                # hostname
+                                    r'<bash>\s*uname(\s+-[a-zA-Z]*)*\s*</bash>',   # uname with flags
+                                ]
+
+                                if any(re.search(pattern, assistant_response, re.IGNORECASE | re.DOTALL)
+                                       for pattern in safe_command_patterns):
+                                    should_execute = True
                         elif len(tool_tags_found) > 0:
                             # Analyze each tool for path-based permissions
                             permission_needed = False
@@ -1830,6 +1845,15 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                                         "tool_args": first_block.strip() if first_block else "",
                                                         "timestamp": time.time()
                                                     }
+
+                                                    # Add model key metadata to tool start notifications
+                                                    try:
+                                                        from core.llm_router import LlmRouter
+                                                        used_model = LlmRouter.get_last_used_model()
+                                                        if used_model:
+                                                            live_payload['model'] = used_model
+                                                    except Exception as e:
+                                                        logging.debug(f"Could not get model key for tool start: {e}")
                                                     session.send_update(live_payload)
                                                     logging.debug(f"Sent loading tool start notification for {tool_name}")
                                             except Exception as e:
@@ -1896,13 +1920,22 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                                     "tool_result": tool_result[:500] if tool_result else "",  # Truncate for header display
                                                     "timestamp": time.time()
                                                 }
+
+                                                # Add model key metadata to tool completion notifications
+                                                try:
+                                                    from core.llm_router import LlmRouter
+                                                    used_model = LlmRouter.get_last_used_model()
+                                                    if used_model:
+                                                        live_payload['model'] = used_model
+                                                except Exception as e:
+                                                    logging.debug(f"Could not get model key for tool completion: {e}")
                                                 session.send_update(live_payload)
                                                 logging.debug(f"Sent loading tool completion notification for {tool_name}")
                                         except Exception as e:
                                             logging.debug(f"Failed to send loading tool completion notification: {e}")
 
                                     # Store tool execution info for visual interface
-                                    executed_tools_info.append({
+                                    tool_info = {
                                         "name": tool_name,
                                         "status": tool_status,
                                         "duration_ms": tool_duration_ms,
@@ -1910,7 +1943,22 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                         "args": first_block.strip() if first_block else "",
                                         "context_returned": tool_result.strip() if tool_result else "",
                                         "context_length": len(str(tool_result)) if tool_result else 0
-                                    })
+                                    }
+
+                                    # Add model key to tool info at creation time
+                                    try:
+                                        # Use stored current model from LLM response
+                                        if hasattr(g, 'current_llm_model') and g.current_llm_model:
+                                            tool_info["model"] = g.current_llm_model
+                                        else:
+                                            # Fallback to get_last_used_model
+                                            used_model = LlmRouter.get_last_used_model()
+                                            tool_info["model"] = used_model if used_model else "unknown"
+                                    except Exception as e:
+                                        logging.debug(f"Could not get model for tool {tool_name}: {e}")
+                                        tool_info["model"] = "unknown"
+
+                                    executed_tools_info.append(tool_info)
 
                                     # Wrap tools returned values as tool_ouput
                                     if tool_name and tool_name not in ["todos"] and tool_result:
@@ -2025,9 +2073,11 @@ Examples:
                     else:
                         # No tools or code found, this is a conversational response.
                         break # Ask for user input
-                except KeyboardInterrupt:
+                except (KeyboardInterrupt, UserInterruptedException):
                     user_interrupt = True
-                    break # Ask for user input
+                    # This will now gracefully break the agent's inner loop
+                    # and return to the user input prompt.
+                    break
                 except Exception as e:
                     if "ctrl+c" not in str(e).lower():
                         # Get detailed traceback information

@@ -56,9 +56,10 @@ RUN useradd -m -u 1000 -s /bin/bash cliagent && \
     usermod -aG sudo cliagent && \
     echo 'cliagent ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-# Create directories for data persistence
+# Create directories for data persistence and config
 RUN mkdir -p /workspace/data /workspace/logs /workspace/temp /workspace/.cli-agent && \
-    chown -R cliagent:cliagent /workspace /cli-agent
+    mkdir -p /home/cliagent/.config/cli-agent && \
+    chown -R cliagent:cliagent /workspace /cli-agent /home/cliagent/.config
 
 # Set environment variables for isolated production
 ENV PYTHONPATH=/cli-agent

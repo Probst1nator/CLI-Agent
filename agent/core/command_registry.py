@@ -87,9 +87,9 @@ class CommandRegistry:
                 category="configuration"
             ),
             CommandDefinition(
-                canonical="auto_execute",
-                aliases=["/a", "/auto"],
-                description="Toggle automatic code execution mode",
+                canonical="yolo_mode",
+                aliases=["/yolo", "/y"],
+                description="Toggle YOLO mode (automatic code execution)",
                 category="configuration"
             ),
             CommandDefinition(
@@ -178,6 +178,12 @@ class CommandRegistry:
                 canonical="print",
                 aliases=["/p", "/print"],
                 description="Print complete chat history",
+                category="information"
+            ),
+            CommandDefinition(
+                canonical="tools",
+                aliases=["/tools", "/tool", "/t", "/health"],
+                description="Display detailed tool health status",
                 category="information"
             ),
 

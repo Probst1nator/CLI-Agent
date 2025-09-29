@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLI-Agent Multi-Instance Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #1e1e1e;
+            color: #ffffff;
+        }
+        .container {
+            background-color: #2d2d2d;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            color: #00d4aa;
+            text-align: center;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #444;
+            border-radius: 5px;
+        }
+        .btn {
+            background-color: #00d4aa;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .btn:hover {
+            background-color: #00b890;
+        }
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #333;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .instance {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 5px;
+            background-color: #444;
+            border-radius: 3px;
+            text-decoration: none;
+            color: #00d4aa;
+        }
+        .instance:hover {
+            background-color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 CLI-Agent Multi-Instance Test</h1>
+        
+        <div class="test-section">
+            <h3>📋 Available Instances</h3>
+            <p>Each instance runs isolated with its own data and configuration:</p>
+            <a href="http://localhost:7861/" target="_blank" class="instance">Instance 1 (Port 7861)</a>
+            <a href="http://localhost:7862/" target="_blank" class="instance">Instance 2 (Port 7862)</a>
+            <a href="http://localhost:7863/" target="_blank" class="instance">Instance 3 (Port 7863)</a>
+        </div>
+
+        <div class="test-section">
+            <h3>🎯 Session Manager (Load Balancer)</h3>
+            <p>Visit the main entry point to get automatically assigned to the least loaded instance:</p>
+            <a href="http://localhost:7860/" target="_blank" class="instance">Main Entry Point (Port 7860)</a>
+        </div>
+
+        <div class="test-section">
+            <h3>🧪 Multi-Tab Test</h3>
+            <p>To test per-browser-tab isolation:</p>
+            <ol>
+                <li>Click the "Open New Tab" button multiple times</li>
+                <li>Each tab should get assigned to a different instance (round-robin)</li>
+                <li>Each tab will have completely isolated conversations</li>
+            </ol>
+            <button class="btn" onclick="openNewTab()">Open New Tab</button>
+            <div id="results" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Session Manager Status</h3>
+            <button class="btn" onclick="checkStatus()">Check Status</button>
+            <button class="btn" onclick="checkInstances()">Check Instances</button>
+            <div id="status-result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        let tabCounter = 0;
+
+        function openNewTab() {
+            tabCounter++;
+            const newTab = window.open('http://localhost:7860/', `tab${tabCounter}`);
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML += `<div>Opened Tab ${tabCounter} - should get assigned to an instance</div>`;
+            
+            // Scroll to show the new result
+            resultsDiv.scrollTop = resultsDiv.scrollHeight;
+        }
+
+        async function checkStatus() {
+            try {
+                const response = await fetch('http://localhost:7860/health');
+                const data = await response.json();
+                document.getElementById('status-result').innerHTML = 
+                    `<strong>Health:</strong> ${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                document.getElementById('status-result').innerHTML = 
+                    `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+
+        async function checkInstances() {
+            try {
+                const response = await fetch('http://localhost:7860/api/instances');
+                const data = await response.json();
+                document.getElementById('status-result').innerHTML = 
+                    `<strong>Instances:</strong> ${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                document.getElementById('status-result').innerHTML = 
+                    `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+
+        // Auto-check status on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkStatus();
+        });
+    </script>
+</body>
+</html>

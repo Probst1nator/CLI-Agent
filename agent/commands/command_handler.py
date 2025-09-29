@@ -38,10 +38,11 @@ class CommandHandler:
         from agent.commands.help_command import HelpCommand
         from agent.commands.simple_commands import (
             MultilineCommand, ExitCommand, ResetCommand, UnsayCommand,
-            PrintCommand, AutoCommand, VoiceCommand, LocalCommand,
+            PrintCommand, YoloCommand, VoiceCommand, LocalCommand,
             OnlineCommand, FullOutputCommand, LlmCommand,
             PermissionCommand, SaveCommand, CompactCommand,
-            PlannerLlmCommand, RouterLlmCommand, FallbacksCommand, ConfigCommand
+            PlannerLlmCommand, RouterLlmCommand, FallbacksCommand, ConfigCommand,
+            ToolsCommand
         )
 
         # Register all commands
@@ -56,7 +57,7 @@ class CommandHandler:
             SaveCommand(self.context),
             ResetCommand(self.context),
             VoiceCommand(self.context),
-            AutoCommand(self.context),
+            YoloCommand(self.context),
             LocalCommand(self.context),
             OnlineCommand(self.context),
             PrintCommand(self.context),
@@ -67,6 +68,7 @@ class CommandHandler:
             RouterLlmCommand(self.context),
             FallbacksCommand(self.context),
             ConfigCommand(self.context),
+            ToolsCommand(self.context),
         ]
 
         for command in commands:
@@ -189,7 +191,7 @@ class CommandHandler:
             "Core Commands": ["/h", "/help", "/e", "/exit"],
             "Input & Media": ["/m", "/message", "/img", "/screenshot", "/v", "/voice"],
             "Chat Management": ["/r", "/regenerate", "/p", "/print", "/clear", "/reset", "/compact", "/unsay"],
-            "Configuration": ["/l", "/local", "/o", "/online", "/a", "/auto", "/fo", "/full_output", "/config", "/c"],
+            "Configuration": ["/l", "/local", "/o", "/online", "/yolo", "/y", "/fo", "/full_output", "/config", "/c"],
             "LLM Management": ["/llm", "/planner_llm", "/router_llm", "/fallbacks", "/s", "/save"],
             "Permissions": ["/perms", "/permissions"]
         }

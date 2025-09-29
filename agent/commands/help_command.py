@@ -69,7 +69,7 @@ class HelpCommand(BaseCommand):
             f"  {colored('/e, /exit', 'green', attrs=['bold'])}: {colored('Exit CLI-Agent', 'white')}",
             f"  {colored('/s, /save', 'green', attrs=['bold'])}: {colored('Save current LLM selection as default', 'white')}",
             f"  {colored('/clear', 'green', attrs=['bold'])}: {colored('Clear chat history and start fresh', 'white')}",
-            f"  {colored('/a, /auto', 'green', attrs=['bold'])}: {colored('Toggle automatic code execution mode', 'white')}",
+            f"  {colored('/yolo, /y', 'green', attrs=['bold'])}: {colored('Toggle YOLO mode (automatic code execution)', 'white')}",
             f"  {colored('/v, /voice', 'green', attrs=['bold'])}: {colored('Toggle voice input/output mode', 'white')}",
             f"  {colored('/o, /online', 'green', attrs=['bold'])}: {colored('Toggle online mode for web-enabled features', 'white')}",
             f"  {colored('/p, /print', 'green', attrs=['bold'])}: {colored('Print complete chat history', 'white')}",

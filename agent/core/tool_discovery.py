@@ -155,8 +155,8 @@ def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
 
     # Check for GUI tools that are loaded
     for tool_name in sorted_tool_names:
-        if tool_name in ['taskmanager']:
-            tool_info['gui_tools'].append(tool_name)
+        # Currently no tools are specifically GUI-only
+        pass
 
     # Add skipped GUI tools
     if skipped_tools:

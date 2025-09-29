@@ -980,6 +980,36 @@ code:not(pre > code) {
     opacity: 0.9;
 }
 
+.voice-button {
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: background-color 0.2s, opacity 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+}
+
+.voice-button:hover {
+    background-color: var(--button-hover-bg);
+    opacity: 0.9;
+}
+
+.voice-button.active {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.voice-button.active:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
 #chat-form button[type="submit"] {
     padding: 10px 20px;
     border: none;
@@ -1550,14 +1580,12 @@ code:not(pre > code) {
 }
 
 .tool-model {
-    display: inline-block;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 3px 8px;
-    border-radius: 12px;
-    font-size: 0.8rem;
-    font-weight: 500;
-    margin-left: 5px;
+    font-family: 'Courier New', monospace;
+    font-weight: normal;
+    color: var(--text-color);
+    font-size: 0.75rem;
+    opacity: 0.7;
+    /* No background color to avoid colored backdrop */
 }
 
 .tool-code {
@@ -1912,6 +1940,16 @@ html[data-theme='light'] .reset-progress-stopwatch {
     font-weight: 600;
     color: var(--text-color);
     font-size: 0.9rem;
+}
+
+.loading-tool-model {
+    font-family: 'Courier New', monospace;
+    font-weight: normal;
+    color: var(--text-color);
+    font-size: 0.75rem;
+    opacity: 0.7;
+    margin: 2px 0;
+    /* No background color to avoid colored backdrop */
 }
 
 .loading-tool-status {
@@ -2742,4 +2780,16 @@ html[data-theme='light'] .llm-context {
         margin-right: 0;
         margin-bottom: 4px;
     }
+}
+
+/* Model key display styling - uncolored like loading-tool-model */
+.model-key {
+    font-family: 'Courier New', monospace;
+    font-weight: normal;
+    color: var(--text-color);
+    font-size: 0.75rem;
+    opacity: 0.7;
+    margin-left: 8px;
+    white-space: nowrap;
+    /* No background color to avoid colored backdrop */
 }

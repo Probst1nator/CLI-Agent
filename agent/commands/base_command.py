@@ -90,10 +90,15 @@ class BaseCommand(abc.ABC):
         """Get formatted help text for this command with colors."""
         from termcolor import colored
 
+        # Check if command has usage information
+        usage_info = ""
+        if hasattr(self, 'usage'):
+            usage_info = f" {colored(self.usage, 'yellow')}"
+
         # Color the aliases and description differently
         aliases_text = colored(', '.join(self.aliases), 'green', attrs=['bold'])
         description_text = colored(self.description, 'white')
-        help_text = f"{aliases_text}: {description_text}"
+        help_text = f"{aliases_text}{usage_info}: {description_text}"
 
         if self.sub_commands:
             help_text += f"\n      {colored('Sub-commands:', 'yellow')}:"

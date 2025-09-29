@@ -1,6 +1,6 @@
-# tools/paralleltodos.py
+# tools/paralleltools.py
 """
-This file implements the 'paralleltodos' tool. It allows an agent to specify
+This file implements the 'paralleltools' tool. It allows an agent to specify
 multiple file paths and a single prompt, then spawns concurrent, read-only
 sub-agents to execute that prompt on each path.
 """
@@ -16,7 +16,7 @@ from core.llm_router import LlmRouter
 from shared.common_utils import extract_blocks
 from termcolor import colored
 
-class paralleltodos:
+class paralleltools:
     """
     A tool to execute a single prompt across multiple directories in parallel
     using sandboxed, read-only sub-agents.
@@ -25,20 +25,20 @@ class paralleltodos:
     @staticmethod
     def get_delim() -> str:
         """Provides the delimiter for this tool."""
-        return 'paralleltodos'
+        return 'paralleltools'
 
     @staticmethod
     def get_tool_info() -> dict:
         """Provides standardized documentation for this tool."""
         return {
-            "name": "paralleltodos",
+            "name": "paralleltools",
             "description": "Executes a single prompt on a list of directories in parallel. Each directory is processed by an independent, read-only agent. Useful for applying the same analysis or task across multiple components of a codebase.",
             "example": (
-                "<paralleltodos>\n"
+                "<paralleltools>\n"
                 "  <path>./src/api</path>\n"
                 "  <path>./src/ui</path>\n"
                 "  <prompt>Analyze the code in this directory and write a short summary of its purpose and key dependencies.</prompt>\n"
-                "</paralleltodos>"
+                "</paralleltools>"
             )
         }
 
@@ -174,21 +174,21 @@ class paralleltodos:
         prompt_match = re.search(r'<prompt>(.*?)</prompt>', content, re.DOTALL)
 
         if not path_matches or not prompt_match:
-            return "Error: <paralleltodos> requires one or more <path> tags and one <prompt> tag."
+            return "Error: <paralleltools> requires one or more <path> tags and one <prompt> tag."
 
         paths = [p.strip() for p in path_matches]
         prompt = prompt_match.group(1).strip()
 
         # 2. Setup the read-only environment for all sub-agents
-        readonly_tools = paralleltodos._get_readonly_tools()
+        readonly_tools = paralleltools._get_readonly_tools()
         if not readonly_tools:
             return "Error: Could not load read-only tools for sub-agents. Main agent may not be initialized correctly."
 
-        readonly_system_prompt = paralleltodos._generate_readonly_system_prompt(readonly_tools)
+        readonly_system_prompt = paralleltools._generate_readonly_system_prompt(readonly_tools)
 
         # 3. Create and run all sub-agent tasks concurrently
         tasks = [
-            paralleltodos._run_sub_agent(path, prompt, readonly_tools, readonly_system_prompt)
+            paralleltools._run_sub_agent(path, prompt, readonly_tools, readonly_system_prompt)
             for path in paths
         ]
 

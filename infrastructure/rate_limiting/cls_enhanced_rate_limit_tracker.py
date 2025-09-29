@@ -120,6 +120,11 @@ class EnhancedRateLimitTracker:
         self._last_file_mtime = 0  # Track file modification time for auto-reload
         self._load_limits()
 
+        # Clear stale cooldowns on startup to prevent persistent blocking
+        stale_cleared = self.clear_stale_cooldowns(max_age_hours=6)
+        if stale_cleared > 0:
+            logger.info(f"Startup: Cleared {stale_cleared} stale rate limit cooldowns")
+
     def _get_storage_path(self) -> str:
         """Get the storage path for rate limits."""
         return g.MODEL_RATE_LIMITS_PATH.replace('.json', '_enhanced.json')
@@ -414,6 +419,31 @@ class EnhancedRateLimitTracker:
             self.backoff_manager.reset_retries(model_key)
             self._save_limits()
             logger.info(f"Cleared cooldowns for {model_key}")
+
+    def clear_stale_cooldowns(self, max_age_hours: int = 6):
+        """Clear all cooldowns older than specified hours."""
+        current_time = time.time()
+        models_cleared = []
+
+        for model_key, limits in self.model_limits.items():
+            any_cleared = False
+            for rate_limit in limits.values():
+                # Check if cooldown is older than max_age_hours
+                cooldown_age_hours = (current_time - (rate_limit.cooldown_until - 3600)) / 3600  # Rough estimate
+                if rate_limit.is_rate_limited() and cooldown_age_hours > max_age_hours:
+                    rate_limit.cooldown_until = 0
+                    rate_limit.retry_delay = 0
+                    any_cleared = True
+
+            if any_cleared:
+                models_cleared.append(model_key)
+                self.backoff_manager.reset_retries(model_key)
+
+        if models_cleared:
+            self._save_limits()
+            logger.info(f"Cleared stale cooldowns for {len(models_cleared)} models: {models_cleared[:5]}{'...' if len(models_cleared) > 5 else ''}")
+
+        return len(models_cleared)
 
 # Create singleton instance
 enhanced_rate_limit_tracker = EnhancedRateLimitTracker()

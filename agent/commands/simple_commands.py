@@ -103,21 +103,21 @@ class PrintCommand(BaseCommand):
         return CommandResponse(result=CommandResult.CONTINUE)
 
 # Toggle commands for various modes
-class AutoCommand(BaseCommand):
-    """Toggle automatic code execution mode."""
+class YoloCommand(BaseCommand):
+    """Toggle YOLO mode (automatic code execution)."""
 
     @property
     def aliases(self) -> List[str]:
-        return ['/a', '/auto']
+        return ['/yolo', '/y']
 
     @property
     def description(self) -> str:
-        return 'Toggle automatic code execution mode'
+        return 'Toggle YOLO mode (automatic code execution)'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         self.context.settings.auto_execute = not self.context.settings.auto_execute
         status = "enabled" if self.context.settings.auto_execute else "disabled"
-        print(colored(f"# cli-agent: Auto-execute mode {status}.", "green"))
+        print(colored(f"# cli-agent: YOLO mode {status}.", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)
 
 class VoiceCommand(BaseCommand):
@@ -779,14 +779,15 @@ class CompactCommand(BaseCommand):
 
     @property
     def description(self) -> str:
-        return 'Compact conversation (create summary)'
+        return 'Compact conversation using LLM compression'
+
+    @property
+    def usage(self) -> str:
+        return '<prompt> [level] [model]'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
-        """Compact/summarize the current conversation."""
+        """Compact/summarize the current conversation using Chat.compress()."""
         try:
-            import time
-            from core.globals import g
-
             context_chat = kwargs.get('context_chat')
 
             if not context_chat or not context_chat.messages:
@@ -794,29 +795,45 @@ class CompactCommand(BaseCommand):
                 self.logger.warning(colored(f"# cli-agent: {message}", "yellow"))
                 return CommandResponse(result=CommandResult.CONTINUE, message=message)
 
-            self.logger.info(colored("# cli-agent: Compacting conversation...", "green"))
+            # Parse command arguments
+            if len(parts) < 2:
+                message = "Usage: /compact <prompt> [level] [model]\nExample: /compact 'Summarize our Python discussion' detailed"
+                print(colored(f"# cli-agent: {message}", "yellow"))
+                return CommandResponse(result=CommandResult.CONTINUE, message=message)
 
-            # Set the compacting flag
-            g.AGENT_IS_COMPACTING = True
+            prompt = parts[1]
+            level = parts[2] if len(parts) > 2 else 'detailed'
+            model = parts[3] if len(parts) > 3 else ''
 
-            # Create the automated message for conversation summarization
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            storage_path = getattr(g, 'CLIAGENT_PERSISTENT_STORAGE_PATH', './storage')
+            # Validate level
+            if level not in ['dense', 'detailed']:
+                message = f"Invalid level '{level}'. Use 'dense' or 'detailed'."
+                print(colored(f"# cli-agent: {message}", "yellow"))
+                return CommandResponse(result=CommandResult.CONTINUE, message=message)
 
-            automated_message = f"Let's pause. Please summarize our conversation and progress into a markdown file at: {storage_path}/MEMORY/summary_{timestamp}.md"
+            self.logger.info(colored(f"# cli-agent: Compacting conversation with {level} level...", "green"))
 
-            # Try to use the memory tool for compaction
-            try:
-                from tools.disabled.memory import memory
-                await memory.compact_and_store(context_chat)
-                self.logger.info(colored("✅ Conversation compacted and stored in memory.", "green"))
-            except Exception as e:
-                self.logger.warning(f"Memory storage failed, using fallback: {e}")
+            # Use the Chat.compact() method
+            compressed_chat = context_chat.compact(prompt=prompt, level=level, model=model)
+
+            # Replace the current context chat with the compressed version
+            context_chat.messages = compressed_chat.messages
+            context_chat.metadata = compressed_chat.metadata
+
+            # Log compression results
+            if 'compression' in compressed_chat.metadata:
+                compression_info = compressed_chat.metadata['compression']
+                original_length = compression_info.get('original_length', 0)
+                compressed_length = compression_info.get('compressed_length', 0)
+                reduction = ((original_length - compressed_length) / original_length * 100) if original_length > 0 else 0
+
+                print(colored(f"✅ Conversation compressed: {original_length} → {compressed_length} chars ({reduction:.1f}% reduction)", "green"))
+            else:
+                print(colored("✅ Conversation compacted successfully.", "green"))
 
             return CommandResponse(
                 result=CommandResult.SUCCESS,
-                message="Conversation compacting initiated",
-                user_input=automated_message
+                message="Conversation compacted using LLM compression"
             )
 
         except Exception as e:
@@ -894,7 +911,11 @@ class PlannerLlmCommand(BaseCommand):
 
     @property
     def description(self) -> str:
-        return 'Set the planner LLM (use "None" to disable)'
+        return 'Set the planner LLM'
+
+    @property
+    def usage(self) -> str:
+        return '<model_key|"None">'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
@@ -934,7 +955,11 @@ class RouterLlmCommand(BaseCommand):
 
     @property
     def description(self) -> str:
-        return 'Set the router LLM (use "None" to disable)'
+        return 'Set the router LLM'
+
+    @property
+    def usage(self) -> str:
+        return '<model_key|"None">'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
@@ -974,7 +999,11 @@ class FallbacksCommand(BaseCommand):
 
     @property
     def description(self) -> str:
-        return 'Set fallback LLMs (up to 3 models)'
+        return 'Set fallback LLMs'
+
+    @property
+    def usage(self) -> str:
+        return '<model1> [model2] [model3]'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
@@ -1060,5 +1089,103 @@ class ConfigCommand(BaseCommand):
 
         except Exception as e:
             error_msg = f"Failed to display configuration: {str(e)}"
+            print(colored(f"# cli-agent: {error_msg}", "red"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
+
+
+class ToolsCommand(BaseCommand):
+    """Command to display detailed tool health status."""
+
+    @property
+    def aliases(self) -> List[str]:
+        return ['/tools', '/tool', '/t', '/health']
+
+    @property
+    def description(self) -> str:
+        return 'Display detailed tool health status'
+
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+        try:
+            from core.globals import g
+
+            print(colored("--- Tool Health Status ---", "yellow"))
+
+            # Check if we have tool info
+            if not hasattr(g, 'loaded_tool_info') or not g.loaded_tool_info:
+                print(colored("Tool information not available. Tools may not have been initialized yet.", "red"))
+                return CommandResponse(result=CommandResult.CONTINUE, message="Tool info not available")
+
+            tool_info = g.loaded_tool_info
+
+            # Display enabled tools
+            if tool_info.get('loaded_tools'):
+                enabled_count = len(tool_info['loaded_tools'])
+                print(colored(f"Enabled Tools ({enabled_count}):", "green"))
+                for i, tool in enumerate(tool_info['loaded_tools'], 1):
+                    status = "OK"
+                    # Check for specific tool status (like Home Assistant)
+                    if tool == "homeassistant":
+                        try:
+                            from tools.optional.homeassistant import homeassistant
+                            if hasattr(homeassistant, '_status_message'):
+                                status = homeassistant._status_message
+                        except ImportError:
+                            status = "Import error"
+                    print(f"  {i:2d}. {tool.ljust(20)} - {colored(status, 'green')}")
+
+            # Display failed tools
+            if tool_info.get('failed_tools'):
+                failed_count = len(tool_info['failed_tools'])
+                print(f"\n{colored(f'Failed Tools ({failed_count}):', 'red')}")
+                for i, tool in enumerate(tool_info['failed_tools'], 1):
+                    reason = "Unknown error"
+                    # Try to get more specific error info if available
+                    if isinstance(tool, dict):
+                        tool_name = tool.get('name', 'Unknown')
+                        reason = tool.get('error', reason)
+                    elif isinstance(tool, str):
+                        tool_name = tool
+                        # Common failure reasons based on tool name
+                        if 'class not found' in tool:
+                            tool_name = tool.split('(')[0].strip()
+                            reason = "Class not found"
+                        elif 'missing required methods' in tool:
+                            tool_name = tool.split('(')[0].strip()
+                            reason = "Missing required methods"
+                    else:
+                        tool_name = str(tool)
+
+                    print(f"  {i:2d}. {tool_name.ljust(20)} - {colored(reason, 'red')}")
+
+            # Display disabled/skipped tools
+            if tool_info.get('skipped_tools'):
+                skipped_count = len(tool_info['skipped_tools'])
+                print(f"\n{colored(f'Disabled Tools ({skipped_count}):', 'yellow')}")
+                for i, tool in enumerate(tool_info['skipped_tools'], 1):
+                    reason = "Disabled"
+                    if isinstance(tool, str) and '(' in tool:
+                        tool_name = tool.split('(')[0].strip()
+                        reason = tool.split('(')[1].rstrip(')')
+                    else:
+                        tool_name = str(tool)
+                    print(f"  {i:2d}. {tool_name.ljust(20)} - {colored(reason, 'yellow')}")
+
+            # Summary
+            total_tools = len(tool_info.get('loaded_tools', []))
+            failed_tools = len(tool_info.get('failed_tools', []))
+            skipped_tools = len(tool_info.get('skipped_tools', []))
+
+            print(f"\n{colored('Summary:', 'yellow')}")
+            print(f"  Total: {total_tools + failed_tools + skipped_tools} tools")
+            print(f"  {colored('Enabled:', 'green')} {total_tools}")
+            if failed_tools > 0:
+                print(f"  {colored('Failed:', 'red')} {failed_tools}")
+            if skipped_tools > 0:
+                print(f"  {colored('Disabled:', 'yellow')} {skipped_tools}")
+
+            return CommandResponse(result=CommandResult.CONTINUE, message="Tool status displayed")
+
+        except Exception as e:
+            error_msg = f"Failed to display tool status: {str(e)}"
             print(colored(f"# cli-agent: {error_msg}", "red"))
             return CommandResponse(result=CommandResult.ERROR, message=error_msg)
