@@ -905,7 +905,7 @@ class LlmRouter:
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
         thinking_budget: Optional[int] = 4096,
-        generation_stream_callback: Callable[[str], None] | None = lambda char: print(colored(char, 'green'), end=''),
+        generation_stream_callback: Optional[Callable[[str], None]] = lambda char: print(colored(char, 'green'), end=''),
         follows_condition_callback: Optional[Callable] = None,
         decision_patterns: Optional[Dict[str, str]] = None,
         branch_context: Optional[Dict[str, Any]] = None,
@@ -1302,10 +1302,40 @@ class LlmRouter:
                             # Reset the alarm for another check
                             signal.alarm(5)  # Check every 5 seconds for more responsive first token detection
 
-                    # Enhanced stream callback that monitors activity
+                    # Track recent characters for repetition detection
+                    recent_chars = []
+                    repetition_threshold = 500  # Characters to analyze
+                    max_char_repetition = 0.8  # 80% of same character = spam
+
+                    # Enhanced stream callback that monitors activity and repetition
                     async def activity_aware_callback(chunk: str) -> str:
+                        nonlocal recent_chars
+
                         if chunk:
                             stream_monitor.add_chars(len(chunk))
+
+                            # Add characters to recent buffer
+                            recent_chars.extend(list(chunk))
+
+                            # Keep only last 500 characters for analysis
+                            if len(recent_chars) > repetition_threshold:
+                                recent_chars = recent_chars[-repetition_threshold:]
+
+                            # Check for character spam once we have enough data
+                            if len(recent_chars) >= repetition_threshold:
+                                char_counts = {}
+                                for char in recent_chars:
+                                    char_counts[char] = char_counts.get(char, 0) + 1
+
+                                # Find most frequent character and its percentage
+                                if char_counts:
+                                    max_count = max(char_counts.values())
+                                    max_char = max(char_counts, key=lambda k: char_counts[k])
+                                    repetition_ratio = max_count / len(recent_chars)
+
+                                    # Detect character spam (ignore whitespace/newlines for this check)
+                                    if repetition_ratio > max_char_repetition and max_char not in [' ', '\n', '\t']:
+                                        raise Exception(f"Model repetition detected: '{max_char}' repeated {max_count}/{len(recent_chars)} times ({repetition_ratio:.1%}) in last {repetition_threshold} characters")
 
                         # Call original callback if provided
                         if generation_stream_callback:
@@ -1314,7 +1344,7 @@ class LlmRouter:
                                 return await generation_stream_callback(chunk)
                             else:
                                 return generation_stream_callback(chunk)
-                        return None
+                        return ""
 
                     # Set up periodic timeout checking for stream processing
                     signal.signal(signal.SIGALRM, stream_timeout_handler)
@@ -1342,7 +1372,7 @@ class LlmRouter:
 
                     # Extract and log decision if patterns provided
                     if decision_patterns and not hidden_reason:
-                        elapsed_time = time.time() - monitor.start_time if 'monitor' in locals() else None
+                        elapsed_time = time.time() - stream_monitor.start_time
                         decision_found = cls._log_extracted_decision(full_response, decision_patterns, model.model_key, elapsed_time, branch_context)
                         if not decision_found:
                             # If no decision found, still need to complete the line
@@ -1526,7 +1556,7 @@ class LlmRouter:
             print(colored(f"Failed to save chat completion pair: {e}", "red"))
 
     @classmethod
-    def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str, elapsed_time: float = None, branch_context: Dict[str, Any] = None) -> bool:
+    def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str, elapsed_time: Optional[float] = None, branch_context: Optional[Dict[str, Any]] = None) -> bool:
         """Extract and log decisions from model responses. Returns True if decision found."""
         import re
 

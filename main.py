@@ -1740,6 +1740,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         # --- Enhanced Path-Aware Permission Checking ---
                         # Check permissions using path detection for tools with file operations
                         should_execute = False
+                        rejection_reason = []  # Initialize rejection tracking
                         if len(tool_tags_found) == 1 and any(k in (tool_tags_found[0].__module__ or "") for k in ["todos", "think", "searchweb", "grepsearch"]):
                             should_execute = True
                         elif len(tool_tags_found) == 1 and tool_tags_found[0].get_delim() == "bash":
@@ -1762,7 +1763,8 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                                 if any(re.search(pattern, assistant_response, re.IGNORECASE | re.DOTALL)
                                        for pattern in safe_command_patterns):
                                     should_execute = True
-                        elif len(tool_tags_found) > 0:
+                                # If command doesn't match safe patterns, fall through to general permission system
+                        if not should_execute and len(tool_tags_found) > 0:
                             # Analyze each tool for path-based permissions
                             permission_needed = False
                             tool_analyses = []
@@ -1807,6 +1809,17 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
                                     if not permission_granted:
                                         logging.info(colored("⛔ Code execution denied", "green"))
+                                        # Store rejection details for informative user message
+                                        if 'rejection_reason' not in locals():
+                                            rejection_reason = []
+                                        rejection_details = {
+                                            'tool': analysis['tool_name'],
+                                            'action': analysis['action_description'],
+                                            'paths': analysis.get('detected_paths', []),
+                                            'risk_level': analysis.get('risk_level', 'unknown'),
+                                            'xml_content': analysis.get('xml_content', '')[:100] + '...' if len(analysis.get('xml_content', '')) > 100 else analysis.get('xml_content', '')
+                                        }
+                                        rejection_reason.append(rejection_details)
 
                                         should_execute = False
                                         break
@@ -2068,7 +2081,31 @@ Examples:
                                 assistant_response = ""
                                 continue # Continue the agent loop for the next action
                         else:
-                            cancellation_notice = "<context>\nCode execution rejected by user or guard.\n</context>"
+                            # Build detailed rejection message
+                            if 'rejection_reason' in locals() and rejection_reason:
+                                rejection_details = []
+                                for reason in rejection_reason:
+                                    tool_detail = f"Tool: {reason['tool']}"
+                                    action_detail = f"Action: {reason['action']}"
+                                    risk_detail = f"Risk Level: {reason['risk_level']}"
+
+                                    details = [tool_detail, action_detail, risk_detail]
+
+                                    if reason['paths']:
+                                        paths_detail = f"Paths: {', '.join(reason['paths'][:3])}" + ("..." if len(reason['paths']) > 3 else "")
+                                        details.append(paths_detail)
+
+                                    if reason['xml_content']:
+                                        content_detail = f"Content: {reason['xml_content']}"
+                                        details.append(content_detail)
+
+                                    rejection_details.append(" | ".join(details))
+
+                                detailed_reason = "\n".join(f"  - {detail}" for detail in rejection_details)
+                                cancellation_notice = f"<context>\nCode execution rejected by user or guard.\n\nRejection Details:\n{detailed_reason}\n</context>"
+                            else:
+                                cancellation_notice = "<context>\nCode execution rejected by user or guard.\n</context>"
+
                             context_chat.add_message(Role.ASSISTANT, cancellation_notice)
                             assistant_response = ""
                             continue # Continue the agent loop for the next action
