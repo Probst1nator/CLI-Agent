@@ -195,13 +195,17 @@ class InputManager:
         # Determine source to use
         target_source = source or self._default_source
 
-        # Try target source first
-        sources_to_try = [target_source]
+        # PRIORITY: Check if queue source has messages first
+        if InputSource.QUEUE in self._sources and self._sources[InputSource.QUEUE].has_messages():
+            sources_to_try = [InputSource.QUEUE]
+        else:
+            # Try target source first
+            sources_to_try = [target_source]
 
-        # Add fallback sources if target source fails
-        for fallback in self._fallback_sources:
-            if fallback != target_source:
-                sources_to_try.append(fallback)
+            # Add fallback sources if target source fails
+            for fallback in self._fallback_sources:
+                if fallback != target_source:
+                    sources_to_try.append(fallback)
 
         last_error = None
 

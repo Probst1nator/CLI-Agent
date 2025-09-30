@@ -393,7 +393,7 @@ class LlmRouter:
             instance._ensure_dynamic_models_loaded()
 
         # Debug print for large token counts
-        if (len(chat) > 4000 and not force_free and not force_local):
+        if (len(chat) > 4000 and not force_free and not force_local) and g.VERBOSE_DEBUG:
             print(colored("DEBUG: len(chat) returned: " + str(len(chat)), "yellow"))
 
         # Try models in order of preference
@@ -681,10 +681,14 @@ class LlmRouter:
             if branch_context and branch_context.get('store_message'):
                 g.debug_log(cache_msg, "blue", force_print=True, prefix=f"[{debug_title}]")
             else:
-                g.debug_log(f"\n{cache_msg}", "blue", force_print=True, prefix=f"[{debug_title}]")
+                g.debug_log(cache_msg, "blue", force_print=True, prefix=f"[{debug_title}]")
             for char in cached_completion:
                 if callback:
-                    finished_response = await callback(char)
+                    import asyncio
+                    if asyncio.iscoroutinefunction(callback):
+                        finished_response = await callback(char)
+                    else:
+                        finished_response = callback(char)
                     if finished_response and isinstance(finished_response, str):
                         return finished_response
                 elif (not hidden_reason) or g.DEBUG_MODE:

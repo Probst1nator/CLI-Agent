@@ -217,7 +217,9 @@ class WebInputSource(InputSource_ABC):
                             else:
                                 print("[DEBUG] ❌ Failed to send user message to Visual Response System")
                         else:
-                            print("[DEBUG] GUI mode not active, not sending user message")
+                            from core.globals import g
+                            if g.DEBUG_MODE:
+                                print("[DEBUG] GUI mode not active, not sending user message")
                     except Exception as e:
                         print(f"[DEBUG] ❌ Error sending user message to Visual Response System: {e}")
                         import traceback
@@ -655,7 +657,9 @@ class QueueInputSource(InputSource_ABC):
                     else:
                         print("[DEBUG] ❌ Failed to send queued user message to Visual Response System")
             else:
-                print("[DEBUG] GUI mode not active, not sending queued user message")
+                from core.globals import g
+                if g.DEBUG_MODE:
+                    print("[DEBUG] GUI mode not active, not sending queued user message")
         except Exception as e:
             print(f"[DEBUG] ❌ Error sending queued user message to Visual Response System: {e}")
             import traceback
