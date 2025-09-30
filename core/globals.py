@@ -515,7 +515,7 @@ class Globals:
 
     def _default_debug_log(self, message: str, color: str = None, force_print: bool = False, **kwargs):
         """A simple default logger in case the main one isn't set up yet."""
-        if force_print:
+        if force_print and message.strip():  # Skip empty messages
             if color:
                 print(colored(f"DEBUG: {message}", color))
             else:

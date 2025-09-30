@@ -974,7 +974,6 @@ def create_interruption_callback(
     async def _callback(chunk: str):
         # Check for user interrupt immediately at start of callback for faster response
         if check_interrupt():
-            print("\n")
             raise StreamInterruptedException(response_buffer[0])
 
         # Batch processing for better performance while maintaining interrupt responsiveness
@@ -984,7 +983,6 @@ def create_interruption_callback(
         for i, char in enumerate(chunk):
             # Check for user interrupt every 10 characters or at batch boundaries for efficiency
             if i % 10 == 0 and check_interrupt():
-                print("\n")
                 raise StreamInterruptedException(response_buffer[0] + ''.join(char_batch) + char)
 
             char_batch.append(char)
@@ -1029,7 +1027,6 @@ def create_interruption_callback(
                         tool_match = XML_TOOL_BLOCK_REGEX.search(current_buffer)
                         if tool_match:
                             full_block = tool_match.group(0).strip()
-                            print("\n")
                             raise StreamInterruptedException(full_block)
 
     return _callback
@@ -1607,7 +1604,9 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         if g.router_llm:
                             difficulty_chat = Chat("Act as a complexity assessment assistant. You view the users provided context and respond with a percentage value from 1-100 indicating the difficulty of formulating the next assistant response.")
                             difficulty_chat.add_message(Role.USER, "Hi, please think about the following conversation and assess the difficulty of responding:\n" + context_chat.print_chat(-3, None, True))
-                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm] + g.FALLBACK_MODELS, force_preferred_model=True, force_free=False)
+                            # In local mode, don't force preferred models since they might be cloud models
+                            router_preferred = [] if g.FORCE_LOCAL else [g.router_llm] + g.FALLBACK_MODELS
+                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=router_preferred, force_preferred_model=False, force_free=False, force_local=g.FORCE_LOCAL)
                             # extract last number found in the response string
                             response_complexity: int = 50 # Default fallback
                             match = re.findall(r'\d+', response)
@@ -1627,10 +1626,13 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             selected_models = g.FALLBACK_MODELS
 
                         # Generate single response
+                        # In local mode, don't force preferred models since they might be cloud models
+                        main_preferred = [] if g.FORCE_LOCAL else selected_models
                         assistant_response = await LlmRouter.generate_completion(
                             chat=context_chat,
-                            preferred_models=selected_models,
-                            force_preferred_model=True,
+                            preferred_models=main_preferred,
+                            force_preferred_model=not g.FORCE_LOCAL,
+                            force_local=g.FORCE_LOCAL,
                             base64_images=base64_images,
                             generation_stream_callback=interruption_callback,
                             assistant_prefix="<think>"
@@ -1638,15 +1640,6 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
                         # Store current model for tool execution
                         g.current_llm_model = LlmRouter.get_last_used_model()
-
-                        # Add model information to previously stored tool execution info
-                        if hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
-                            used_model = LlmRouter.get_last_used_model()
-                            for tool_info in g.last_executed_tools_info:
-                                tool_info['model'] = used_model
-                            logging.debug(f"Updated execution info with model: {used_model}")
-
-                        base64_images = []
 
                     except UserInterruptedException:
                         # User interrupted model generation with Ctrl+C - handle gracefully with state preservation
@@ -1678,6 +1671,16 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             print(colored(f"\n🔧 Tool block detected: {e.response[:50]}{'...' if len(e.response) > 50 else ''}", "cyan"))
                         assistant_response = e.response
                         # Continue normal flow with the extracted tool block
+
+                        # Add model information to previously stored tool execution info
+                        if hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
+                            used_model = LlmRouter.get_last_used_model()
+                            for tool_info in g.last_executed_tools_info:
+                                tool_info['model'] = used_model
+                            logging.debug(f"Updated execution info with model: {used_model}")
+
+                        base64_images = []
+
                     except Exception as e:
                         print(colored(f"An Exception was raised, e: {e}", "red"))
                         traceback.print_exc()
