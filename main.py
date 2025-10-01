@@ -1628,14 +1628,15 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         # Generate single response
                         # In local mode, don't force preferred models since they might be cloud models
                         main_preferred = [] if g.FORCE_LOCAL else selected_models
+                        # Add the thinking prefix to the chat directly
+                        context_chat.add_message(Role.ASSISTANT, "<think>")
                         assistant_response = await LlmRouter.generate_completion(
                             chat=context_chat,
                             preferred_models=main_preferred,
                             force_preferred_model=not g.FORCE_LOCAL,
                             force_local=g.FORCE_LOCAL,
                             base64_images=base64_images,
-                            generation_stream_callback=interruption_callback,
-                            assistant_prefix="<think>"
+                            generation_stream_callback=interruption_callback
                         )
 
                         # Store current model for tool execution
