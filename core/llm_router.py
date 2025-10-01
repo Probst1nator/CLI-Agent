@@ -498,8 +498,7 @@ class LlmRouter:
         stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
         provider: AIProviderInterface,
         hidden_reason: str,
-        callback: Optional[Callable] = None,
-        existing_prefix: str = ""
+        callback: Optional[Callable] = None
     ) -> str:
         """
         Process a stream of tokens from any provider.
@@ -509,23 +508,13 @@ class LlmRouter:
             provider (AIProviderInterface): The provider interface
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
-            existing_prefix (str): Any existing assistant message prefix to include at the beginning
 
         Returns:
             str: The full response string
         """
-        full_response = existing_prefix  # Start with any existing prefix
+        full_response = ""
         finished_response = ""
         token_stream_painter = TextStreamPainter()
-
-        # If we have an existing prefix, process it first with the callback/display
-        if existing_prefix:
-            if callback is not None:
-                finished_response = await callback(existing_prefix)
-                if finished_response and isinstance(finished_response, str):
-                    return finished_response
-            elif (not hidden_reason) or g.DEBUG_MODE:
-                g.print_token(token_stream_painter.apply_color(existing_prefix))
 
         # Handle different stream types
         # ! Anthropic
@@ -658,8 +647,7 @@ class LlmRouter:
         text_stream_painter: TextStreamPainter,
         hidden_reason: str,
         debug_title:str,
-        callback: Optional[Callable] = None,
-        branch_context: Optional[Dict[str, Any]] = None
+        callback: Optional[Callable] = None
     ) -> str:
         """
         Process a cached response.
@@ -670,18 +658,13 @@ class LlmRouter:
             text_stream_painter (TextStreamPainter): Token coloring utility
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
-            branch_context (Optional[Dict]): Branch context for MCT formatting
 
         Returns:
             str: The processed response string
         """
         if not hidden_reason:
-            # For branch context, don't add leading newline to preserve inline formatting
             cache_msg = f"{colored('Cache - ' + model.provider.__module__.split('.')[-1], 'green')} <{colored(model.model_key, 'green')}>"
-            if branch_context and branch_context.get('store_message'):
-                g.debug_log(cache_msg, "blue", force_print=True, prefix=f"[{debug_title}]")
-            else:
-                g.debug_log(cache_msg, "blue", force_print=True, prefix=f"[{debug_title}]")
+            g.debug_log(cache_msg, "blue", force_print=True, prefix=f"[{debug_title}]")
             for char in cached_completion:
                 if callback:
                     import asyncio
@@ -905,34 +888,27 @@ class LlmRouter:
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
         thinking_budget: Optional[int] = 4096,
-        generation_stream_callback: Optional[Callable[[str], None]] = lambda char: print(colored(char, 'green'), end=''),
-        follows_condition_callback: Optional[Callable] = None,
-        decision_patterns: Optional[Dict[str, str]] = None,
-        branch_context: Optional[Dict[str, Any]] = None,
-        assistant_prefix: Optional[str] = ""
+        generation_stream_callback: Optional[Callable[[str], None]] = lambda char: print(colored(char, 'green'), end='')
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
 
         Args:
-            chat (Chat|str): The chat prompt or string.
-            preferred_models (List[str]): List of preferred model keys.
-            strength (List[AIStrengths] | AIStrengths): The required strengths of the model.
-            temperature (float): Temperature setting for the model.
-            base64_images (List[str]): List of base64-encoded images.
-            force_local (bool): Whether to force local models only.
-            force_free (bool): Whether to force free models only.
-            force_preferred_model (bool): Whether to force using only preferred models.
-            hidden_reason (str): Reason for hidden mode.
-            exclude_reasoning_tokens (bool): Whether to exclude reasoning tokens.
-            thinking_budget (Optional[int]): Token budget for model's internal reasoning process (Gemini models only).
-                                           Use -1 for dynamic, 0 to disable, or positive integer for fixed budget.
-            generation_stream_callback (Optional[Callable]): A function to call with each chunk of streaming data.
-            decision_patterns (Optional[Dict[str, str]]): Patterns to extract decisions from response for logging.
-            assistant_prefix: Optional[str]: Add a prefix to the assistants response to have it continue from there
+            chat (Chat|str): The conversation context as a Chat object or plain text string prompt.
+            preferred_models (List[str] | List[Llm]): Model preference list - can be model keys (strings) or Llm objects. Router tries these first before fallbacks.
+            strengths (List[AIStrengths]): Required model capabilities (e.g., vision, reasoning, coding). Empty list means no specific requirements.
+            temperature (float): Controls randomness in responses (0.0-1.0). Default 0 for deterministic output. Higher values increase creativity.
+            base64_images (List[str]): Base64-encoded images for vision-capable models. Automatically enables vision model selection when provided.
+            force_local (bool): When True, restricts to locally-hosted models only (Ollama). Ignores cloud models entirely.
+            force_free (bool): When True (default), prioritizes free tier models. When False, allows premium/paid models for complex tasks.
+            force_preferred_model (bool): When True, only uses models from preferred_models list. When False, falls back to system defaults if preferred models fail.
+            hidden_reason (str): When non-empty, suppresses live token streaming output to console. Used for background/silent completions.
+            exclude_reasoning_tokens (bool): When True (default), strips reasoning tokens from response. When False, includes model's internal reasoning in output.
+            thinking_budget (Optional[int]): Token budget for model reasoning (Gemini only). -1=dynamic, 0=disabled, >0=fixed limit. Default 4096.
+            generation_stream_callback (Optional[Callable[[str], None]]): Function called with each streaming token. Default prints tokens in green. None disables streaming callbacks.
 
         Returns:
-            str: The generated completion string.
+            str: The generated completion text with reasoning tokens excluded (unless exclude_reasoning_tokens=False).
         """
         instance = cls()
         cls.call_counter += 1
@@ -1177,39 +1153,13 @@ class LlmRouter:
                     provider_info, provider_emoji = cls.get_provider_info(model.model_key, colored_output=True)
 
                     # Create colored version with distinct colors for text in brackets
-                    # Add context-specific prefix if provided
-                    context_prefix = ""
-                    if branch_context and branch_context.get('log_prefix'):
-                        context_prefix = branch_context['log_prefix']
-                    base_msg = f"{context_prefix}{provider_emoji}[Tokens: {token_count} | Messages: {message_count}] -> Calling model "
+                    base_msg = f"{provider_emoji}[Tokens: {token_count} | Messages: {message_count}] -> Calling model "
                     model_colored = colored(f"<{model.model_key}>", "light_blue", attrs=["bold"])
                     temp_colored = temp_str.replace(f"<{temperature}>", colored(f"<{temperature}>", "light_blue", attrs=["bold"])) if temp_str else ""
                     # provider_info is already colored from get_provider_info call above
 
-                    # Add branch context if provided
-                    branch_suffix = ""
-                    if branch_context:
-                        branch_num = branch_context.get('branch_number', '')
-                        if branch_num:
-                            branch_suffix = f" → branch {branch_num}"
-
-                    full_msg = f"{base_msg}{model_colored}{temp_colored}{provider_info}{branch_suffix}"
-                    # If we have decision patterns, print without newline so we can append the decision
-                    if decision_patterns:
-                        print(colored(full_msg, "cyan"), end="", flush=True)
-                    else:
-                        # Store the message for potential status update
-                        if branch_context and branch_context.get('store_message'):
-                            branch_context['stored_message'] = full_msg
-                            branch_context['log_printed'] = True
-                            print(colored(full_msg, "cyan"), end="", flush=True)
-                        else:
-                            # For consistency, always use print for branch context to avoid mixed output streams
-                            if branch_context:
-                                branch_context['log_printed'] = True
-                                print(colored(full_msg, "cyan"), end="", flush=True)
-                            else:
-                                logging.info(colored(full_msg, "cyan"))
+                    full_msg = f"{base_msg}{model_colored}{temp_colored}{provider_info}"
+                    logging.info(colored(full_msg, "cyan"))
 
                 # Check for interrupt before proceeding with model call
                 try:
@@ -1221,19 +1171,19 @@ class LlmRouter:
 
                 # Check for cached completion (behavior varies by temperature)
                 prefixed_chat = chat.deep_copy()
-                if (assistant_prefix):
-                    prefixed_chat.add_message(Role.ASSISTANT, assistant_prefix)
 
                 cached_completion = instance._get_cached_completion(model.model_key, str(chat), base64_images, temperature)
                 if cached_completion:
                     return exclude_reasoning(await cls._process_cached_response(
-                        cached_completion, model, TextStreamPainter(), hidden_reason, prefixed_chat.debug_title, generation_stream_callback, branch_context
+                        cached_completion, model, TextStreamPainter(), hidden_reason, prefixed_chat.debug_title, generation_stream_callback
                     ))
 
                 try:
                     # Get the stream from the provider
                     if hasattr(model.provider, 'generate_response'):
-                        stream = model.provider.generate_response(prefixed_chat, model.model_key, temperature, hidden_reason, thinking_budget)
+                        # Only pass thinking_budget to Gemini/Google providers, others ignore it
+                        provider_thinking_budget = thinking_budget if 'google' in model.provider.__class__.__module__.lower() else None
+                        stream = model.provider.generate_response(prefixed_chat, model.model_key, temperature, hidden_reason, provider_thinking_budget)
                     else:
                         raise Exception(f"Provider {model.provider.__class__.__name__} does not support generate_response method")
 
@@ -1352,15 +1302,13 @@ class LlmRouter:
 
                     try:
                         # Detect existing assistant message prefix before processing stream
-                        full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback, assistant_prefix)
+                        full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback)
 
                     finally:
                         signal.alarm(0)  # Clear the alarm
 
                     if (not full_response.endswith("\n") and not hidden_reason):
-                        # Don't print newline for branch context - success status will be added inline
-                        if not branch_context or not branch_context.get('store_message'):
-                            print()
+                        print()
 
                     if enable_caching:
                         # Cache the response
@@ -1370,15 +1318,6 @@ class LlmRouter:
                     if not force_local:
                         instance._save_chat_completion_pair(prefixed_chat.to_openai(), full_response, model.model_key)
 
-                    # Extract and log decision if patterns provided
-                    if decision_patterns and not hidden_reason:
-                        elapsed_time = time.time() - stream_monitor.start_time
-                        decision_found = cls._log_extracted_decision(full_response, decision_patterns, model.model_key, elapsed_time, branch_context)
-                        if not decision_found:
-                            # If no decision found, still need to complete the line
-                            # Don't print newline for branch context - success status will be added inline
-                            if not branch_context or not branch_context.get('store_message'):
-                                print()
 
                     # Branch context completion is handled in main.py for MCT branches
                     # No need to print success status here as it's handled at the branch level
@@ -1555,45 +1494,6 @@ class LlmRouter:
             logger.error(f"Failed to save chat completion pair: {e}")
             print(colored(f"Failed to save chat completion pair: {e}", "red"))
 
-    @classmethod
-    def _log_extracted_decision(cls, response: str, decision_patterns: Dict[str, str], model_key: str, elapsed_time: Optional[float] = None, branch_context: Optional[Dict[str, Any]] = None) -> bool:
-        """Extract and log decisions from model responses. Returns True if decision found."""
-        import re
-
-        for decision_type, pattern in decision_patterns.items():
-            if decision_type == "guard":
-                # For guard decisions, find ALL matches and take the LAST one (same as voting logic)
-                matches = list(re.finditer(pattern, response, re.IGNORECASE | re.DOTALL))
-                if matches:
-                    decision = matches[-1].group(1)  # Take the last match
-                    timing_str = f" ({elapsed_time:.1f}s)" if elapsed_time is not None else ""
-                    decision_colored = colored(f" → {decision}{timing_str}", "yellow" if decision == "unfinished" else "green" if decision == "yes" else "red")
-                    # Print the decision on the same line (append to current line) and add newline
-                    print(decision_colored)
-                    return True
-            else:
-                # For non-guard decisions, use first match as before
-                match = re.search(pattern, response, re.IGNORECASE | re.DOTALL)
-                if match:
-                    timing_str = f" ({elapsed_time:.1f}s)" if elapsed_time is not None else ""
-                    if decision_type == "eval":
-                        # For eval decisions, show the selected index with source model
-                        index = int(match.group(1))
-                        # If we have an index_map from voting context, use it to convert to original branch index
-                        if branch_context and branch_context.get('index_map') and index in branch_context['index_map']:
-                            original_index = branch_context['index_map'][index]
-                            decision_colored = colored(f" → branch {original_index} ({model_key}){timing_str}", "cyan")
-                        else:
-                            decision_colored = colored(f" → branch {index} ({model_key}){timing_str}", "cyan")
-                    else:
-                        # Generic decision
-                        decision = match.group(1)
-                        decision_colored = colored(f" → {decision}{timing_str}", "cyan")
-
-                    # Print the decision on the same line (append to current line) and add newline
-                    print(decision_colored)
-                    return True
-        return False
 
     @classmethod
     def has_unconfirmed_data(cls) -> bool:
