@@ -505,7 +505,10 @@ class VoiceInputSource(InputSource_ABC):
             # Clean prompt for TTS
             clean_prompt = re.sub(r'\x1b\[[0-9;]*m', '', prompt).strip()
 
-            if clean_prompt == ">":
+            # Handle main "Enter your request" prompt - just say "Ready" or nothing
+            if "Enter your request" in clean_prompt:
+                clean_prompt = ""  # Don't speak for main prompt, listening sound is enough
+            elif clean_prompt == ">":
                 clean_prompt = "Please state your choice."
             elif clean_prompt.endswith(":"):
                 clean_prompt = clean_prompt[:-1]
@@ -521,10 +524,12 @@ class VoiceInputSource(InputSource_ABC):
             elif 'Permissions>' in clean_prompt:
                 clean_prompt = "Permissions manager. What would you like to do?"
 
-            self.logger.info(f"🎤 Asking: \"{clean_prompt}\"")
-
-            # Speak the prompt
-            text_to_speech(text=clean_prompt, speed=0.8, volume=0.7, use_piper=True)
+            # Speak the prompt if there's something to say
+            if clean_prompt:
+                self.logger.info(f"🎤 Asking: \"{clean_prompt}\"")
+                text_to_speech(text=clean_prompt, speed=0.8, volume=0.7, use_piper=True)
+            else:
+                self.logger.info(f"🎤 Listening...")
 
             # Listen for response
             transcription, _, _ = listen_microphone(
@@ -553,7 +558,15 @@ class VoiceInputSource(InputSource_ABC):
             raise RuntimeError(f"Voice input not available: {e}")
 
     def _map_voice_keywords(self, transcription: str) -> str:
-        """Map voice keywords to command shortcuts."""
+        """Map voice keywords to command shortcuts.
+
+        Only applies to short responses (< 20 chars) to avoid false matches
+        in normal conversation.
+        """
+        # Only map keywords for short responses (likely single-word commands)
+        if len(transcription) > 20:
+            return transcription
+
         keyword_map = {
             'y': ['yes', 'yeah', 'yep', 'confirm', 'konfirm', 'allow', 'okay', 'ok', 'go', 'execute', 'proceed'],
             'n': ['no', 'nope', 'stop', 'abort', 'cancel', 'deny'],
@@ -575,11 +588,20 @@ class VoiceInputSource(InputSource_ABC):
         }
 
         user_reply = transcription.lower().strip()
+
+        # Try exact match first
         for command, keywords in keyword_map.items():
-            for keyword in keywords:
-                if keyword in user_reply:
-                    self.logger.info(f"🎤 Interpreted \"{transcription}\" as command: '{command}'")
-                    return command
+            if user_reply in keywords:
+                self.logger.info(f"🎤 Interpreted \"{transcription}\" as command: '{command}'")
+                return command
+
+        # Try substring match only for very short inputs
+        if len(user_reply) <= 10:
+            for command, keywords in keyword_map.items():
+                for keyword in keywords:
+                    if keyword in user_reply:
+                        self.logger.info(f"🎤 Interpreted \"{transcription}\" as command: '{command}'")
+                        return command
 
         # No mapping found, return original
         return transcription

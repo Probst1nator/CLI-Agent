@@ -160,5 +160,12 @@ def initialize_app(
     if hasattr(args, 'full_output_mode'):
         context.settings.full_output_mode = args.full_output_mode
 
+    # Sync context settings back to global state to ensure consistency
+    from core.globals import g
+    g.auto_execute = context.settings.auto_execute
+    g.voice_mode = context.settings.voice_mode
+    g.local_mode = context.settings.local_mode
+    g.online_mode = context.settings.online_mode
+
     logging.info("CLI-Agent initialization complete")
     return context

@@ -172,37 +172,48 @@ from agent.core.input_handlers import (
 # --- Signal Handling for Graceful Interruption ---
 def setup_signal_handlers():
     """Setup signal handlers for graceful interruption during AI generation."""
+    interrupt_count = [0]  # Use list to allow modification in nested function
+
     def signal_handler(signum, frame):
-        """Handle SIGINT (Ctrl+C) by setting interrupt flag and attempting immediate cancellation."""
-        _interrupt_flag.set()
-        print(colored("\n🛑 INTERRUPT SIGNAL RECEIVED - Cancelling AI generation...", "red", attrs=['bold']))
+        """Handle SIGINT (Ctrl+C) - first press cancels AI, second press exits immediately."""
+        interrupt_count[0] += 1
 
-        # Break out of autonomous loops immediately
-        if hasattr(g, 'autonomous_iteration_count'):
-            g.autonomous_iteration_count = 999  # Force exit from autonomous mode
-        if hasattr(g, 'total_autonomous_count'):
-            g.total_autonomous_count = 999  # Force exit from autonomous mode
+        if interrupt_count[0] == 1:
+            # First interrupt: Cancel AI generation and return to input
+            _interrupt_flag.set()
+            print(colored("\n🛑 INTERRUPT SIGNAL RECEIVED - Cancelling AI generation...", "red", attrs=['bold']))
 
-        # Set a global interrupt flag for the main loop
-        g.USER_INTERRUPT_REQUESTED = True
+            # Break out of autonomous loops immediately
+            if hasattr(g, 'autonomous_iteration_count'):
+                g.autonomous_iteration_count = 999  # Force exit from autonomous mode
+            if hasattr(g, 'total_autonomous_count'):
+                g.total_autonomous_count = 999  # Force exit from autonomous mode
 
-        # Attempt immediate provider cancellation if available
-        try:
-            from core.llm_router import LlmRouter
-            router = LlmRouter()
-            if hasattr(router, 'last_used_model') and router.last_used_model:
-                # Get the current model's provider
-                current_model = router.get_model([router.last_used_model])
-                if current_model:
-                    cancel_func = getattr(current_model.provider, 'cancel_current_generation', None)
-                    if callable(cancel_func):
-                        cancel_func()
-                        print(colored("  → Provider cancellation initiated", "yellow"))
-        except Exception:
-            # Don't let provider cancellation errors break the signal handler
-            pass
+            # Set a global interrupt flag for the main loop
+            g.USER_INTERRUPT_REQUESTED = True
 
-        print(colored("  → Breaking out of autonomous mode and returning to user input...", "yellow"))
+            # Attempt immediate provider cancellation if available
+            try:
+                from core.llm_router import LlmRouter
+                router = LlmRouter()
+                if hasattr(router, 'last_used_model') and router.last_used_model:
+                    # Get the current model's provider
+                    current_model = router.get_model([router.last_used_model])
+                    if current_model:
+                        cancel_func = getattr(current_model.provider, 'cancel_current_generation', None)
+                        if callable(cancel_func):
+                            cancel_func()
+                            print(colored("  → Provider cancellation initiated", "yellow"))
+            except Exception:
+                # Don't let provider cancellation errors break the signal handler
+                pass
+
+            print(colored("  → Breaking out of autonomous mode and returning to user input...", "yellow"))
+            print(colored("  → Press Ctrl+C again to exit immediately", "yellow"))
+        else:
+            # Second interrupt: Exit immediately
+            print(colored("\n🛑 SECOND INTERRUPT - Exiting immediately...", "red", attrs=['bold']))
+            sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -1258,6 +1269,12 @@ async def main(  # type: ignore[misc]
             setup_logging(args.debug, args.log_file)
             g.DEBUG_MODE = args.debug
 
+            # Sync command line args to global state
+            g.auto_execute = args.yolo
+            g.voice_mode = args.voice
+            g.local_mode = args.local
+            g.online_mode = args.online
+
             # Setup signal handlers for graceful interruption
             setup_signal_handlers()
 
@@ -1708,6 +1725,25 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                     # Display the response in summary mode (since streaming doesn't show it)
                     if assistant_response.strip():
                         print(assistant_response)
+
+                        # Speak the response via TTS if voice mode is enabled
+                        if g.voice_mode:
+                            try:
+                                from shared.utils_audio import text_to_speech
+                                # Note: re is already imported at module level (line 90)
+
+                                # Extract text from <response> tags if present, otherwise use full response
+                                response_match = re.search(r'<response>(.*?)</response>', assistant_response, re.DOTALL)
+                                if response_match:
+                                    response_text = response_match.group(1).strip()
+                                else:
+                                    # Remove all XML tags for TTS
+                                    response_text = re.sub(r'<[^>]+>', '', assistant_response).strip()
+
+                                if response_text:
+                                    text_to_speech(text=response_text, speed=0.9, volume=0.8, use_piper=True)
+                            except Exception as e:
+                                logging.warning(f"Failed to speak response via TTS: {e}")
 
                     # --- INTELLIGENT CORRECTION & VALIDATION ---
                     # 1. Proactively auto-correct common HTML tags to be XML-compliant

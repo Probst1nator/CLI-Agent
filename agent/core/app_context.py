@@ -42,6 +42,9 @@ class AgentSettings:
     full_output_mode: bool = False
     online_voice: bool = False
 
+    def __post_init__(self):
+        pass
+
     def load_from_args(self, args: argparse.Namespace) -> None:
         """Populate settings from command-line arguments."""
         self.auto_execute = getattr(args, 'yolo', self.auto_execute)

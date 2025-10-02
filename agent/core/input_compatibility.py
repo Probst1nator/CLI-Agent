@@ -107,9 +107,20 @@ async def get_user_input_with_bindings_unified(
         # No GUI mode available
         pass
 
-    # Check for voice mode on confirmation prompts
-    is_internal_prompt = "Enter your request" not in prompt
-    if args.voice and is_internal_prompt:
+    # Check for voice mode - use voice input for main user prompts
+    # Main prompt contains "Enter your request", internal prompts do not
+    is_main_prompt = "Enter your request" in prompt
+
+    # Check both command line args and runtime toggle state
+    voice_mode_active = args.voice if hasattr(args, 'voice') else False
+    try:
+        from core.globals import g
+        if hasattr(g, 'voice_mode'):
+            voice_mode_active = g.voice_mode
+    except ImportError:
+        pass
+
+    if voice_mode_active and is_main_prompt:
         from agent.core.input_manager import InputSource
         source = InputSource.VOICE
 
