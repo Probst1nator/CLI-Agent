@@ -115,7 +115,12 @@ class YoloCommand(BaseCommand):
         return 'Toggle YOLO mode (automatic code execution)'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+        from core.globals import g
+
         self.context.settings.auto_execute = not self.context.settings.auto_execute
+        # Sync with global state for compatibility
+        g.auto_execute = self.context.settings.auto_execute
+
         status = "enabled" if self.context.settings.auto_execute else "disabled"
         print(colored(f"# cli-agent: YOLO mode {status}.", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)
@@ -132,7 +137,12 @@ class VoiceCommand(BaseCommand):
         return 'Toggle voice input/output mode'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+        from core.globals import g
+
         self.context.settings.voice_mode = not self.context.settings.voice_mode
+        # Sync with global state for compatibility
+        g.voice_mode = self.context.settings.voice_mode
+
         status = "enabled" if self.context.settings.voice_mode else "disabled"
         print(colored(f"# cli-agent: Voice mode {status}.", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)
@@ -151,7 +161,12 @@ class LocalCommand(BaseCommand):
         return 'Toggle local-only LLM mode'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+        from core.globals import g
+
         self.context.settings.local_mode = not self.context.settings.local_mode
+        # Sync with global state for compatibility
+        g.local_mode = self.context.settings.local_mode
+
         status = "enabled" if self.context.settings.local_mode else "disabled"
         print(colored(f"# cli-agent: Local mode {status}.", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)
@@ -168,7 +183,12 @@ class OnlineCommand(BaseCommand):
         return 'Toggle online mode for web-enabled features'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+        from core.globals import g
+
         self.context.settings.online_mode = not self.context.settings.online_mode
+        # Sync with global state for compatibility
+        g.online_mode = self.context.settings.online_mode
+
         status = "enabled" if self.context.settings.online_mode else "disabled"
         print(colored(f"# cli-agent: Online mode {status}.", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)

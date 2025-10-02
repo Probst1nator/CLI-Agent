@@ -503,7 +503,9 @@ def record_audio(
         if ENABLE_EXTENDED_LOGGING: print("\n<Recording> No speech detected.")
         return None
 
-    return np.concatenate(recorded_frames, axis=0)
+    play_notification()
+    data = np.concatenate(recorded_frames, axis=0)
+    return data
 
 
 def initialize_whisper_model(model_key: str = None) -> None:

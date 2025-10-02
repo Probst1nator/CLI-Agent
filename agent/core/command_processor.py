@@ -204,6 +204,7 @@ class UnifiedInputManager:
         from agent.core.input_manager import InputManager
 
         self.context = context
+        self._context_initialized = False  # Track if context settings have been loaded from args
 
         # Handle different context types
         if hasattr(context, 'logger'):
@@ -262,6 +263,12 @@ class UnifiedInputManager:
             queue_source = QueueInputSource(self.context)
             self.input_manager.register_source(queue_source)
 
+            # Always register voice input source (activated when voice_mode is enabled)
+            from agent.core.input_sources import VoiceInputSource
+            voice_source = VoiceInputSource(self.context)
+            self.input_manager.register_source(voice_source)
+            self.logger.debug("Registered Voice input source")
+
             # Auto-enable Web input source if GUI mode is active
             if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
                 from agent.core.input_sources import WebInputSource
@@ -269,9 +276,9 @@ class UnifiedInputManager:
                 self.input_manager.register_source(web_source)
                 # Set Web as default in GUI mode to prioritize GUI input
                 self.input_manager.set_default_source(web_source.source_type)
-                self.logger.debug("Auto-configured CLI, Queue, and Web input sources (GUI mode)")
+                self.logger.debug("Auto-configured CLI, Queue, Voice, and Web input sources (GUI mode)")
             else:
-                self.logger.debug("Auto-configured CLI and Queue input sources")
+                self.logger.debug("Auto-configured CLI, Queue, and Voice input sources")
 
         except Exception as e:
             self.logger.error(f"Failed to auto-setup input sources: {e}")
@@ -335,9 +342,11 @@ class UnifiedInputManager:
             tuple: (user_input, base64_images)
         """
         try:
-            # Update context settings if args provided
-            if args is not None:
+            # Load args only on first call to initialize context settings
+            # Don't reload on subsequent calls to preserve runtime changes (e.g., /v toggle)
+            if args is not None and not self._context_initialized:
                 self.context.settings.load_from_args(args)
+                self._context_initialized = True
 
             # Check for queued messages first
             if hasattr(args, 'message') and args and args.message:
@@ -370,6 +379,8 @@ class UnifiedInputManager:
                 self.logger.info(f"Force input requested - using source: {force_source}")
 
             # Get input event
+            if force_source:
+                self.logger.info(f"Using forced input source: {force_source}")
             event = await self.input_manager.get_input(
                 prompt=prompt,
                 source=force_source,
