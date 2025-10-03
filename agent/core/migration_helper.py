@@ -21,6 +21,7 @@ from agent.core.input_compatibility import (
     get_unified_input_manager,
     cleanup_unified_input_system
 )
+from core.globals import g
 
 
 class MainPyMigrationHelper:

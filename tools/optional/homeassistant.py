@@ -63,7 +63,7 @@ class _HomeAssistantAPI:
         cls._save_interacted_entities(interacted_entities)
 
     @staticmethod
-    def _get_config() -> tuple[str, str]:
+    def _get_config() -> 'tuple[str, str]':
         load_dotenv()
         hass_url = os.environ.get("HASS_URL")
         hass_token = os.environ.get("HASS_TOKEN")
@@ -232,6 +232,8 @@ class homeassistant:
 
             # --- Action Router ---
             if action == 'call_service':
+                # Ensure service_data is present, even if empty, to satisfy the function signature
+                args['service_data'] = args.get('service_data', {})
                 result = _HomeAssistantAPI.call_service(**args)
                 return f"Success: {result['message']}"
 

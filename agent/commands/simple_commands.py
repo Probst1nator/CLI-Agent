@@ -234,9 +234,11 @@ class LlmCommand(BaseCommand):
             selector = LlmSelector()
 
             # Use the selector to get user selection
+            # Get args from kwargs if available
+            cli_args = kwargs.get('args')
             result = await selector.get_selection(
-                preselected_llms=getattr(args, 'llm', None),
-                force_local=getattr(args, 'local', False),
+                preselected_llms=getattr(cli_args, 'llm', None) if cli_args else None,
+                force_local=getattr(cli_args, 'local', False) if cli_args else False,
                 save_selection=True
             )
 
@@ -481,8 +483,8 @@ class PermissionCommand(BaseCommand):
 
             pm.add_always_allow(
                 tool_name=tool_name,
-                file_path=target if target != tool_name else None,
-                pattern=target if target != tool_name else None
+                file_path=target if target and target != tool_name else None,
+                pattern=target if target and target != tool_name else None
             )
             print(colored(f"✅ Added tool permission: {tool_name} -> {target}", "green"))
 
@@ -514,7 +516,7 @@ class PermissionCommand(BaseCommand):
             pm.add_always_allow(
                 tool_name="",
                 group_name=group_name,
-                pattern=target if target != group_name else None
+                pattern=target if target and target != group_name else None
             )
             print(colored(f"✅ Added group permission: {group_name} -> {target}", "green"))
 
@@ -863,15 +865,15 @@ class CompactCommand(BaseCommand):
 
 
 class ResetCommand(BaseCommand):
-    """Complete agent reset (chat, tools, images, context)."""
+    """Start a new chat (archives current conversation and resets context)."""
 
     @property
     def aliases(self) -> List[str]:
-        return ['/reset']
+        return ['/new_chat', '/new']
 
     @property
     def description(self) -> str:
-        return 'Complete agent reset (chat, tools, images, context)'
+        return 'Start a new chat (archives current conversation and resets context)'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         context_chat = kwargs.get('context_chat')
@@ -918,7 +920,7 @@ class ResetCommand(BaseCommand):
                 context_chat.add_message(Role.SYSTEM, "You are a helpful AI assistant.")
                 print("🔧 Debug: Added fallback system message")
 
-        print(colored("# cli-agent: Complete reset performed.", "green"))
+        print(colored("# cli-agent: New chat started. Previous conversation archived.", "green"))
         return CommandResponse(result=CommandResult.CONTINUE)
 
 
@@ -1006,6 +1008,50 @@ class RouterLlmCommand(BaseCommand):
 
         except Exception as e:
             error_msg = f"Failed to set router LLM: {str(e)}"
+            print(colored(f"# cli-agent: {error_msg}", "red"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
+
+
+class OverrideLlmCommand(BaseCommand):
+    """Command to set the override LLM."""
+
+    @property
+    def aliases(self) -> List[str]:
+        return ['/override_llm']
+
+    @property
+    def description(self) -> str:
+        return 'Set the override LLM (bypasses router/planner selection)'
+
+    @property
+    def usage(self) -> str:
+        return '<model_key|"None">'
+
+    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+        if len(parts) < 2:
+            return CommandResponse(
+                result=CommandResult.ERROR,
+                message="Usage: /override_llm <model_key> (use 'None' to disable)"
+            )
+
+        model_key = parts[1]
+        if model_key.lower() == "none":
+            model_key = None
+
+        try:
+            from core.globals import g
+            g.update_llm_role('override', model_key)
+
+            if model_key:
+                message = f"Override LLM set to: {model_key}"
+            else:
+                message = "Override LLM disabled"
+
+            print(colored(f"# cli-agent: {message}", "green"))
+            return CommandResponse(result=CommandResult.CONTINUE, message=message)
+
+        except Exception as e:
+            error_msg = f"Failed to set override LLM: {str(e)}"
             print(colored(f"# cli-agent: {error_msg}", "red"))
             return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 

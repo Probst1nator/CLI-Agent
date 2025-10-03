@@ -15,7 +15,7 @@ class Llm:
         provider: AIProviderInterface,
         model_key: str,
         pricing_in_dollar_per_1M_tokens: Optional[float],
-        context_window: int,
+        context_window: Optional[int],
         strengths: List[AIStrengths] = [],
     ):
         """
@@ -31,7 +31,7 @@ class Llm:
         self.provider = provider
         self.model_key = model_key
         self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
-        self.context_window = context_window
+        self.context_window: Optional[int] = context_window
         self.strengths = strengths
 
     def __str__(self) -> str:
@@ -135,10 +135,9 @@ class Llm:
         # Add static Google models if GoogleAPI is available
         if GoogleAPI:
             llms.extend([
-                Llm(GoogleAPI(), "gemini-2.5-flash", None, 1000000, [AIStrengths.VISION]),
+                Llm(GoogleAPI(), "gemini-flash-latest", None, 1000000, [AIStrengths.VISION]),
                 Llm(GoogleAPI(), "gemini-2.5-pro", None, 1000000, [AIStrengths.VISION]),
-                Llm(GoogleAPI(), "gemini-2.5-flash-preview-05-20", None, 1000000, [AIStrengths.VISION]),
-                Llm(GoogleAPI(), "gemini-2.5-flash-lite-preview-06-17", None, 1000000, [AIStrengths.VISION]),
+                Llm(GoogleAPI(), "gemini-flash-lite-latest", None, 1000000, [AIStrengths.VISION]),
                 Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.VISION]),
             ])
 
@@ -146,6 +145,7 @@ class Llm:
         if GroqAPI:
             llms.extend([
                 Llm(GroqAPI(), "moonshotai/kimi-k2-instruct", None, 128000, []),
+                Llm(GroqAPI(), "openai/gpt-oss-120b", None, 128000, []),
                 Llm(GroqAPI(), "qwen/qwen3-32b", None, 128000, []),
                 Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, []),
                 Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, []),
@@ -162,21 +162,21 @@ class Llm:
         try:
             from core.providers.cls_ollama_interface import OllamaClient
             llms.extend([
-                Llm(OllamaClient(), "gemma3n:e4b", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "mistral-small3.2:latest", None, None, [AIStrengths.VISION, AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "magistral:latest", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen3:30b", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen3-coder:latest", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "devstral:latest", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "gemma3n:e2b", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "gemma3:27b", None, None, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "gemma3n:e4b", None, 128000, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "mistral-small3.2:latest", None, 128000, [AIStrengths.VISION, AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "magistral:latest", None, 130000, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "qwen3:30b", None, 131072, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "qwen3-coder:latest", None, 128000, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "devstral:latest", None, 128000, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "gemma3n:e2b", None, 128000, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.LOCAL]),
 
 
-                Llm(OllamaClient(), "qwen2.5vl:3b", None, None, [AIStrengths.VISION, AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "cogito:32b", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen3:1.7b", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen2.5-coder:1.5b", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen2.5-coder:7b", None, None, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "qwen2.5vl:3b", None, 128000, [AIStrengths.VISION, AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "qwen3:1.7b", None, 131072, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "qwen2.5-coder:1.5b", None, 128000, [AIStrengths.LOCAL]),
+                Llm(OllamaClient(), "qwen2.5-coder:7b", None, 128000, [AIStrengths.LOCAL]),
 
 
                 # Guard models

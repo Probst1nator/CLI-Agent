@@ -429,26 +429,37 @@ def listen_microphone(
     language: Optional[str] = None
 ) -> Tuple[str, str, bool|str]:
     """High-level function to record audio and transcribe it using Faster-Whisper."""
-    audio_data = record_audio(max_duration=float(max_listening_duration or 60))
+    first_iteration = True
+    while True:
+        audio_data = record_audio(max_duration=float(max_listening_duration or 60), notify_user=first_iteration)
+        first_iteration = False
+        
+        if audio_data is None:
+            return "", "unknown", False
 
-    if audio_data is None:
-        return "", "unknown", False
+        if ENABLE_EXTENDED_LOGGING:
+            print(f"<{colored('Debug', 'yellow')}> Original audio array shape: {audio_data.shape}")
 
-    if ENABLE_EXTENDED_LOGGING:
-        print(f"<{colored('Debug', 'yellow')}> Original audio array shape: {audio_data.shape}")
+        audio_data = audio_data.flatten()
 
-    audio_data = audio_data.flatten()
+        if ENABLE_EXTENDED_LOGGING:
+            print(f"<{colored('Debug', 'yellow')}> Flattened audio array shape: {audio_data.shape}")
 
-    if ENABLE_EXTENDED_LOGGING:
-        print(f"<{colored('Debug', 'yellow')}> Flattened audio array shape: {audio_data.shape}")
+        initialize_faster_whisper_model("small")
 
-    initialize_faster_whisper_model("small")
+        transcription, detected_language = _transcribe_with_faster_whisper(
+            audio_data, 16000, language=language, fallback_to_google=remote_voice_enabled
+        )
 
-    transcription, detected_language = _transcribe_with_faster_whisper(
-        audio_data, 16000, language=language, fallback_to_google=remote_voice_enabled
-    )
+        transcription = transcription.strip()
 
+        if (transcription == ""):
+            continue
+        else:
+            break
+    play_notification()
     return transcription, detected_language, False
+            
 
 
 def record_audio(
@@ -456,6 +467,7 @@ def record_audio(
     threshold: float = None,
     silence_duration: float = None,
     max_duration: float = 20.0,
+    notify_user: bool = True
 ) -> Optional[np.ndarray]:
     """Record audio from the microphone, stopping after a period of silence."""
     if threshold is None:
@@ -463,9 +475,10 @@ def record_audio(
     if silence_duration is None:
         silence_duration = float(os.environ.get('CLIAGENT_SILENCE_DURATION', '2.0'))
 
-    play_notification()
-    time.sleep(1)
     print(f"<{colored('Recording', 'red')}> Listening...")
+    if notify_user:
+        play_notification()
+        time.sleep(1)
     if ENABLE_EXTENDED_LOGGING:
         print(f" (threshold: {threshold:.3f}, silence: {silence_duration}s)")
 
@@ -503,7 +516,6 @@ def record_audio(
         if ENABLE_EXTENDED_LOGGING: print("\n<Recording> No speech detected.")
         return None
 
-    play_notification()
     data = np.concatenate(recorded_frames, axis=0)
     return data
 
@@ -711,6 +723,79 @@ def text_to_speech(
 
     print(f"<{colored('TTS Fallback', 'red')}> All TTS methods failed.")
     return False
+
+
+def filter_latex_for_tts(text: str) -> str:
+    r"""
+    Remove LaTeX mathematical formulas and markdown formatting from text for TTS.
+
+    Filters out:
+    - Display math: $$...$$ and \[...\]
+    - Inline math: $...$ and \(...\)
+    - Equation environments: \begin{equation}...\end{equation}, etc.
+    - Markdown code blocks: ```...```
+    - Markdown tables
+    - Markdown formatting: # * _ `
+
+    Args:
+        text: Input text potentially containing LaTeX and markdown
+
+    Returns:
+        Cleaned text suitable for TTS
+    """
+    import re
+
+    # --- Remove Markdown Code Blocks ---
+    # Remove fenced code blocks (```...```)
+    text = re.sub(r'```[^`]*```', '[code block]', text, flags=re.DOTALL)
+
+    # Remove inline code (`...`)
+    text = re.sub(r'`[^`]+`', '', text)
+
+    # --- Remove Markdown Tables ---
+    # Tables are lines with pipes | and dashes ---
+    # Remove table separator lines (|---|---|)
+    text = re.sub(r'\|[\s\-:]+\|[\s\-:|]*', '', text, flags=re.MULTILINE)
+
+    # Remove table rows (| cell | cell |)
+    # Only if multiple pipes on same line
+    text = re.sub(r'^.*?\|.*?\|.*?$', '', text, flags=re.MULTILINE)
+
+    # --- Remove LaTeX Math ---
+    # Display math with $$ delimiters
+    text = re.sub(r'\$\$[^$]+\$\$', '[mathematical formula]', text, flags=re.DOTALL)
+
+    # Display math with \[ \] delimiters
+    text = re.sub(r'\\\[[^\]]+\\\]', '[mathematical formula]', text, flags=re.DOTALL)
+
+    # Equation environments (equation, align, gather, multline, split)
+    text = re.sub(r'\\begin\{(?:equation|align|gather|multline|split)\*?\}.*?\\end\{(?:equation|align|gather|multline|split)\*?\}',
+                  '[mathematical formula]', text, flags=re.DOTALL)
+
+    # Inline math with $ delimiters (careful with currency)
+    # Only match if content contains letters or LaTeX commands (backslash)
+    # This avoids matching pure numbers like $5 or $10
+    text = re.sub(r'\$([^$\s]*[a-zA-Z\\^_{}][^$]*?)\$', '[math]', text)
+
+    # Inline math with \( \) delimiters
+    text = re.sub(r'\\\([^\)]+\\\)', '[math]', text)
+
+    # --- Remove Markdown Formatting Characters ---
+    # Remove headers (# ## ### etc.)
+    text = re.sub(r'#+\s*', '', text)
+
+    # Remove bold/italic markers (* ** ___)
+    text = re.sub(r'[*_]{1,3}', '', text)
+
+    # Remove remaining backticks
+    text = re.sub(r'`', '', text)
+
+    # Clean up multiple spaces and newlines
+    text = re.sub(r'\n{3,}', '\n\n', text)  # Max 2 newlines
+    text = re.sub(r' {2,}', ' ', text)  # Max 1 space
+
+    return text.strip()
+
 
 def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
                   output_path: Optional[str] = None, play: bool = True,

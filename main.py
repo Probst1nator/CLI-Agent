@@ -173,10 +173,19 @@ from agent.core.input_handlers import (
 def setup_signal_handlers():
     """Setup signal handlers for graceful interruption during AI generation."""
     interrupt_count = [0]  # Use list to allow modification in nested function
+    reset_timer = [None]  # Timer to reset interrupt count
+
+    def reset_interrupt_count():
+        """Reset interrupt count after timeout."""
+        interrupt_count[0] = 0
 
     def signal_handler(signum, frame):
         """Handle SIGINT (Ctrl+C) - first press cancels AI, second press exits immediately."""
         interrupt_count[0] += 1
+
+        # Cancel existing reset timer
+        if reset_timer[0] is not None:
+            reset_timer[0].cancel()
 
         if interrupt_count[0] == 1:
             # First interrupt: Cancel AI generation and return to input
@@ -209,7 +218,12 @@ def setup_signal_handlers():
                 pass
 
             print(colored("  → Breaking out of autonomous mode and returning to user input...", "yellow"))
-            print(colored("  → Press Ctrl+C again to exit immediately", "yellow"))
+            print(colored("  → Press Ctrl+C again within 2 seconds to exit immediately", "yellow"))
+
+            # Reset counter after 2 seconds
+            reset_timer[0] = threading.Timer(2.0, reset_interrupt_count)
+            reset_timer[0].daemon = True
+            reset_timer[0].start()
         else:
             # Second interrupt: Exit immediately
             print(colored("\n🛑 SECOND INTERRUPT - Exiting immediately...", "red", attrs=['bold']))
@@ -555,26 +569,6 @@ def parse_cli_args() -> argparse.Namespace:
         exit(1)
 
     return args
-
-# ConsoleFormatter moved to shared.utils.logging_utils
-
-# SimpleFormatter moved to shared.utils.logging_utils
-
-# FileFormatter moved to shared.utils.logging_utils
-
-# setup_logging function moved to shared.utils.logging_utils
-
-# swap_to_simple_logging function moved to shared.utils.logging_utils
-
-# --- End Custom Logging Setup ---
-
-
-# Display utility functions moved to shared.utils.display_utils
-
-
-
-
-# print_startup_summary function moved to shared.utils.display_utils
 
 # --- Eager setup of args ---
 # This is done before heavy imports to allow --help to work quickly.
@@ -1119,7 +1113,7 @@ The following loop is a suggestion of how to behave effectively, you may freely 
 1.  **DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
 2.  **PLAN & TRACK**: Display/update your <todos>...</todos> to align your next step(s) with the stated long term goal(s).'''
 
-    step_4 = "4.  **OBSERVE & ATTEND**: After executing a tool, ALWAYS use <think> and <todos> to remember and update your plan based on your observations. When you have finished your tasks or need intermittent information from the user, please prompt him with <response>."
+    step_4 = "4.  **OBSERVE & ATTEND**: After executing a tool, mindfully attend to it with the <think> and <todos> tags to integrate your observations into your long term strategy. When you have finished your tasks or need intermittent information from the user, please prompt him with <response>."
 
     # Get disabled tools from global state (set by visual interface)
     user_disabled_tools = getattr(g, 'disabled_tools', [])
@@ -1617,8 +1611,11 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             user_interrupt = True
                             break
 
+                        # Check for override model first - if set, use it exclusively and skip routing
+                        if g.override_llm:
+                            selected_models = [g.override_llm] + g.FALLBACK_MODELS
                         # Use router for complexity assessment if available
-                        if g.router_llm:
+                        elif g.router_llm:
                             difficulty_chat = Chat("Act as a complexity assessment assistant. You view the users provided context and respond with a percentage value from 1-100 indicating the difficulty of formulating the next assistant response.")
                             difficulty_chat.add_message(Role.USER, "Hi, please think about the following conversation and assess the difficulty of responding:\n" + context_chat.print_chat(-3, None, True))
                             # In local mode, don't force preferred models since they might be cloud models
@@ -1726,25 +1723,6 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                     if assistant_response.strip():
                         print(assistant_response)
 
-                        # Speak the response via TTS if voice mode is enabled
-                        if g.voice_mode:
-                            try:
-                                from shared.utils_audio import text_to_speech
-                                # Note: re is already imported at module level (line 90)
-
-                                # Extract text from <response> tags if present, otherwise use full response
-                                response_match = re.search(r'<response>(.*?)</response>', assistant_response, re.DOTALL)
-                                if response_match:
-                                    response_text = response_match.group(1).strip()
-                                else:
-                                    # Remove all XML tags for TTS
-                                    response_text = re.sub(r'<[^>]+>', '', assistant_response).strip()
-
-                                if response_text:
-                                    text_to_speech(text=response_text, speed=0.9, volume=0.8, use_piper=True)
-                            except Exception as e:
-                                logging.warning(f"Failed to speak response via TTS: {e}")
-
                     # --- INTELLIGENT CORRECTION & VALIDATION ---
                     # 1. Proactively auto-correct common HTML tags to be XML-compliant
                     corrected_response = auto_correct_html_for_xml(assistant_response)
@@ -1773,6 +1751,8 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
                     # If any tool tags are found, process them
                     if tool_tags_found:
+                        # Store original response for TTS after tool execution
+                        original_assistant_response = assistant_response
 
                         # --- Enhanced Path-Aware Permission Checking ---
                         # Check permissions using path detection for tools with file operations
@@ -2111,6 +2091,61 @@ Examples:
                                     if ("response" in tool_name and "error" not in returned_context.lower()):
                                         # Break and wait for user input instead of continuing the loop
                                         break
+
+                                # --- TTS: Speak the response after tools have executed ---
+                                # This ensures visualresponse content is processed before TTS
+                                # Use original_assistant_response since assistant_response was cleared
+                                if g.voice_mode and 'original_assistant_response' in locals() and original_assistant_response.strip():
+                                    try:
+                                        from shared.utils_audio import text_to_speech, filter_latex_for_tts
+                                        # Note: re is already imported at module level (line 90)
+
+                                        # --- TIER 1: Tool-Aware Content Filtering ---
+                                        # Check if visualresponse tool is being used
+                                        skip_tts = False
+                                        response_text = None
+
+                                        # Detect visualresponse tool call
+                                        visualresponse_match = re.search(r'<visualresponse>(.*?)</visualresponse>', original_assistant_response, re.DOTALL | re.IGNORECASE)
+                                        if visualresponse_match:
+                                            visualresponse_content = visualresponse_match.group(1)
+                                            # Check the type tag inside visualresponse
+                                            type_match = re.search(r'<type>(.*?)</type>', visualresponse_content, re.DOTALL | re.IGNORECASE)
+                                            if type_match:
+                                                viz_type = type_match.group(1).strip().lower()
+                                                if viz_type in ['html', 'code', 'javascript', 'css']:
+                                                    # Skip TTS for visual-only content types
+                                                    skip_tts = True
+                                                elif viz_type == 'markdown':
+                                                    # For markdown, extract the content and speak it
+                                                    content_match = re.search(r'<content>(.*?)</content>', visualresponse_content, re.DOTALL | re.IGNORECASE)
+                                                    if content_match:
+                                                        markdown_content = content_match.group(1).strip()
+                                                        # Remove CDATA wrapper if present
+                                                        if markdown_content.startswith('<![CDATA['):
+                                                            markdown_content = markdown_content[9:-3].strip()
+                                                        # Note: markdown formatting will be removed by filter_latex_for_tts()
+                                                        response_text = markdown_content
+
+                                        if not skip_tts and response_text is None:
+                                            # Extract text from <response> tags if present, otherwise use full response
+                                            response_match = re.search(r'<response>(.*?)</response>', original_assistant_response, re.DOTALL)
+                                            if response_match:
+                                                response_text = response_match.group(1).strip()
+                                            else:
+                                                # Remove all XML tags for TTS
+                                                response_text = re.sub(r'<[^>]+>', '', original_assistant_response).strip()
+
+                                        # --- TIER 2: LaTeX/Math Formula Filtering ---
+                                        if not skip_tts and response_text:
+                                            response_text = filter_latex_for_tts(response_text)
+
+                                        # Speak the filtered text
+                                        if not skip_tts and response_text:
+                                            text_to_speech(text=response_text, speed=0.9, volume=0.8, use_piper=True)
+                                    except Exception as e:
+                                        logging.warning(f"Failed to speak response via TTS: {e}")
+
                                 continue # Continue the agent loop for the next action
                             except Exception:
                                 error_output = f"<context>\n{traceback.format_exc()}\n</context>"

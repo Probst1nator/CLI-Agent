@@ -75,6 +75,7 @@ class LLMRoleConfig(TypedDict, total=False):
     """LLM role configuration structure."""
     planner: Optional[str]
     router: Optional[str]
+    override: Optional[str]
     fallbacks: List[str]
 
 class LLMConfig(TypedDict, total=False):
@@ -167,6 +168,7 @@ class Globals:
         self.llm_roles: LLMRoleConfig = {
             'planner': None,
             'router': None,
+            'override': None,
             'fallbacks': [],
         }
         self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
@@ -221,6 +223,7 @@ class Globals:
 
         # --- Tool and Agent State ---
         self.last_executed_tools_info: Optional[Any] = None  # Stores information about last executed tools
+        self.loaded_tool_info: Optional[Dict[str, Any]] = None  # Stores information about loaded tools
         self.current_images: List[str] = []  # Current images for vision models
 
         # --- GUI Communication ---
@@ -513,7 +516,7 @@ class Globals:
             if hosts:
                 self.DEFAULT_OLLAMA_HOSTS = hosts
 
-    def _default_debug_log(self, message: str, color: str = None, force_print: bool = False, **kwargs):
+    def _default_debug_log(self, message: str, color: Optional[str] = None, force_print: bool = False, **kwargs: Any):
         """A simple default logger in case the main one isn't set up yet."""
         if force_print and message.strip():  # Skip empty messages
             if color:
@@ -917,8 +920,8 @@ class Globals:
         self.TTS_DEFAULT_GENDER = saved_defaults.get('gender', self.TTS_DEFAULT_GENDER)
         self.TTS_DEFAULT_QUALITY = saved_defaults.get('quality', self.TTS_DEFAULT_QUALITY)
 
-    def save_tts_defaults(self, voice: str = None, speed: float = None, volume: float = None,
-                         language: str = None, gender: str = None, quality: str = None) -> None:
+    def save_tts_defaults(self, voice: Optional[str] = None, speed: Optional[float] = None, volume: Optional[float] = None,
+                         language: Optional[str] = None, gender: Optional[str] = None, quality: Optional[str] = None) -> None:
         """Save TTS default settings."""
         defaults = self.get_config_value('tts_defaults', {})
 
@@ -955,6 +958,11 @@ class Globals:
         return self.llm_roles.get('router')
 
     @property
+    def override_llm(self) -> Optional[str]:
+        """Backward compatibility property for override LLM."""
+        return self.llm_roles.get('override')
+
+    @property
     def FALLBACK_MODELS(self) -> List[str]:
         """Backward compatibility property for fallback models."""
         return self.llm_roles.get('fallbacks', [])
@@ -985,7 +993,7 @@ class Globals:
             model_key: Single model key for planner/router roles
             model_keys: List of model keys for fallbacks role
         """
-        if role in ['planner', 'router']:
+        if role in ['planner', 'router', 'override']:
             if model_keys is not None:
                 raise ValueError(f"Role '{role}' expects model_key, not model_keys")
             self.llm_roles[role] = model_key
@@ -999,7 +1007,7 @@ class Globals:
                 raise ValueError(f"Role '{role}' expects model_keys, not model_key")
             self.llm_roles['fallbacks'] = model_keys or []
         else:
-            raise ValueError(f"Unknown role: {role}. Valid roles: planner, router, fallbacks")
+            raise ValueError(f"Unknown role: {role}. Valid roles: planner, router, override, fallbacks")
 
         self.save_llm_roles()
         logging.info(f"🔧 LLM role '{role}' updated to: {model_key or model_keys}")
@@ -1031,7 +1039,7 @@ class Globals:
         if has_valid_roles:
             # Use new format
             step_start = time.time()
-            for key, default_value in [('planner', None), ('router', None), ('fallbacks', [])]:
+            for key, default_value in [('planner', None), ('router', None), ('override', None), ('fallbacks', [])]:
                 self.llm_roles[key] = config['roles'].get(key, default_value)
             logging.info(f"🚀 ROLES: Loading existing roles took {(time.time() - step_start)*1000:.1f}ms")
         else:
@@ -1039,9 +1047,10 @@ class Globals:
             step_start = time.time()
             logging.info("🔄 Migrating LLM configuration from old format to unified roles")
 
-            # Migrate planner and router
+            # Migrate planner, router, and override
             self.llm_roles['planner'] = config.get('__planner_llm__')
             self.llm_roles['router'] = config.get('__router_llm__')
+            self.llm_roles['override'] = config.get('__override_llm__')
 
             # Migrate selected models to fallbacks array (eliminating separate selected array)
             selected_models = []
@@ -1059,11 +1068,11 @@ class Globals:
             if not selected_models and not config.get('__planner_llm__') and not config.get('__router_llm__'):
                 logging.info("🔧 No existing configuration found, applying default LLM configuration")
                 self.llm_roles['planner'] = 'gemini-2.5-pro'
-                self.llm_roles['router'] = 'gemini-2.5-flash-lite-preview-06-17'
+                self.llm_roles['router'] = 'gemini-flash-lite-latest'
                 self.llm_roles['fallbacks'] = [
-                    'gemini-2.5-flash-preview-05-20',
-                    'gemini-2.5-flash', 
-                    'gemini-2.5-flash-lite-preview-06-17'
+                    'gemini-flash-latest',
+                    'gemini-flash-lite-latest',
+                    'mistral-small3.2:latest'
                 ]
 
             # Save the migrated configuration and clean up old format

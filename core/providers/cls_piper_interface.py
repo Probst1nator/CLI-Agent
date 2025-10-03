@@ -12,6 +12,7 @@ from typing import Optional, List, Union, Tuple, Dict, Any
 from pathlib import Path
 import urllib.request
 import numpy as np
+from piper import PiperVoice, SynthesisConfig
 import speech_recognition as sr
 
 from py_classes.unified_interfaces import AudioProviderInterface
@@ -45,12 +46,29 @@ class PiperInterface(AudioProviderInterface):
             "gender": "male",
             "quality": "medium"
         },
-        "de_DE-mls-medium": {
+        "de_DE-mls-medium-f2": {
             "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx",
             "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx.json",
             "language": "de",
             "gender": "female",
-            "quality": "medium"
+            "quality": "medium",
+            "voice_id": 14
+        },
+        "de_DE-mls-medium-f1": {
+            "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx",
+            "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx.json",
+            "language": "de",
+            "gender": "female",
+            "quality": "high",
+            "voice_id": 14
+        },
+        "de_DE-mls-medium-m1": {
+            "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx",
+            "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx.json",
+            "language": "de",
+            "gender": "male",
+            "quality": "medium",
+            "voice_id": 150
         },
         # English voices
         "en_GB-alba-medium": {
@@ -126,7 +144,7 @@ class PiperInterface(AudioProviderInterface):
                 config_path.unlink()
             return False
 
-    def _load_voice(self, voice_name: str) -> Optional[object]:
+    def _load_voice(self, voice_name: str) -> Optional[PiperVoice]:
         """Load a Piper voice model."""
         if voice_name in self._voices_cache:
             return self._voices_cache[voice_name]
@@ -152,13 +170,13 @@ class PiperInterface(AudioProviderInterface):
             logger.error(f"Failed to load voice {voice_name}: {e}")
             return None
 
-    def _select_voice(self, language: str = "en", gender: str = "female", quality: str = "medium") -> str:
+    def _select_voice(self, language: str = "en", gender: str = "female", quality: str = "medium", speaker_id: None | str = "") -> str:
         """Select appropriate voice based on parameters."""
         # Default voice mappings
         defaults = {
+            ("de", "male", "medium"): "de_DE-mls-medium-m1",
             ("de", "male", "high"): "de_DE-thorsten-high",
-            ("de", "male", "medium"): "de_DE-thorsten-medium",
-            ("de", "female", "medium"): "de_DE-mls-medium",
+            ("de", "female", "medium"): "de_DE-mls-medium-f1",
             ("en", "female", "medium"): "en_GB-alba-medium",
             ("en", "male", "medium"): "en_GB-alan-medium"
         }
@@ -209,8 +227,8 @@ class PiperInterface(AudioProviderInterface):
         # Text preprocessing
         text = text.replace("*", "")
 
-        if (len(text)>1000):
-            speed *= 1.2
+        # if (len(text)>1000):
+        #     speed *= 1.2
 
         # # Auto-detect language if needed
         # if language == "auto":
@@ -233,11 +251,32 @@ class PiperInterface(AudioProviderInterface):
             logger.error(f"Failed to load voice: {voice_name}")
             return False
 
+            # Piper TTS synthesis configuration parameters  
+        
+        length_scale: float = 1  
+        """Speech rate multiplier (0.75=faster, 1.0=normal, 1.25=slower)"""  
+        
+        noise_scale: float = 0.2
+        """Overall prosodic variability (0.333=consistent, 0.667-1.4=more expressive)"""  
+        
+        noise_w_scale: float = 0.1 
+        """Stochastic duration of phonemes/words (controls timing variability)"""  
+        
+        normalize_audio: bool = True  
+        """Whether to normalize output audio levels for consistent volume"""  
+        
+        volume: float = 1.0  
+        """Output volume multiplier (1.0=normal, >1.0=louder, <1.0=quieter)"""
+
+        if "voice_id" in self.VOICES[voice_name]:  
+            speaker_id = self.VOICES[voice_name]["voice_id"]  
+            synthConf = SynthesisConfig(speaker_id, length_scale, noise_scale, noise_w_scale, normalize_audio, volume)
+        else:
+            synthConf = SynthesisConfig()
+
         try:
             logger.info(f"Generating speech with {voice_name}: '{text[:50]}...'")
-
-            # Generate audio - synthesize returns a generator of AudioChunk objects
-            audio_chunks = list(piper_voice.synthesize(text))
+            audio_chunks = list(piper_voice.synthesize(text, synthConf))  
 
             # Extract audio data from chunks
             if not audio_chunks:

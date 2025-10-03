@@ -1,6 +1,7 @@
 import importlib
 import inspect
 import asyncio
+import logging
 from typing import List, Type, Optional, Dict, Any
 from pathlib import Path
 from termcolor import colored
@@ -9,7 +10,6 @@ from .util_base import UtilBase
 
 class UtilsManager:
     def __init__(self):
-        import logging
         # Get the absolute path of the CLI agent directory
         # From: agent/utils_manager/utils_manager.py ->
         self.cli_agent_root = Path(__file__).parent.parent.parent.absolute()
@@ -238,7 +238,7 @@ from {util_cls.__module__} import {util_cls.__name__}
 
         return results
 
-    def get_relevant_guidance(self, query: str, top_k: int = 2) -> List[Dict[str, Any]]:
+    def get_relevant_guidance(self, query: str, top_k: int = 2) -> List[str]:
         """
         Get relevant guidance hints for a query.
 

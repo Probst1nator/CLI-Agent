@@ -45,6 +45,7 @@
   - `commands/help_command.py` - Help command showing integration with command handler for dynamic help generation
   - `commands/regenerate_command.py` - Regenerate command with chat history management and proper state handling
   - `commands/simple_commands.py` - Collection of simple command implementations (multiline, exit, reset, toggle commands) with consistent interfaces. : Added unified LLM selection commands (`PlannerLlmCommand`, `RouterLlmCommand`, `FallbacksCommand`), configuration display command (`ConfigCommand`), and replaced `ClearCommand` with command-based approach integrating with web UI selectboxes. **NEW**: Enhanced `PermissionCommand` with simple command-based permission management supporting direct actions like `/perms add dev grepsearch` and guided wizards
+  - `commands/profile_commands.py` - LLM profile management commands providing `/profile_save <id>`, `/profile_load <id>`, `/profile_list`, and `/profile_delete <id>` for saving/loading different LLM configurations with simplified ID-based approach (no names, descriptions, or timestamps)
   
   **GUI Components**
   - `gui/layouts.py` - Layout definitions and management for prompt_toolkit-based GUI including main layout, debug layout, minimal layout, and compact layout options
@@ -145,6 +146,8 @@
 
 - `core/llm_router.py` - Comprehensive LLM router singleton managing model selection, request routing, caching, stream processing, error handling, retry logic, and provider integration across multiple AI services with activity monitoring and fine-tuning data collection.
 
+- `core/llm_profiles.py` - LLM Profile Management System providing save/load functionality for different LLM configurations. Each profile contains override, router, planner, and fallback models identified by a simple numeric ID (1-6 for web UI slots). Profiles are stored persistently in JSON format with automatic loading and application.
+
 - `core/providers/cls_anthropic_interface.py` - Anthropic API provider implementation for Claude models, handling chat format conversion, image processing (base64/URL), system prompts, and streaming responses with unified interface integration.
 
 - `core/providers/cls_google_interface.py` - Google Gemini API provider implementation with chat format conversion, temperature control, thinking budget support for Gemini 2.x models, rate limiting integration, and streaming response generation.
@@ -192,6 +195,8 @@
 - `docs/VISUALRESPONSE_ARCHITECTURE.md` - Comprehensive architecture documentation for the Visual Response system covering client-server architecture, multi-process event-driven design, WebSocket communication protocol, container orchestration, security implementation, and deployment patterns. Details server-side components (aiohttp web server, subprocess management), client-side architecture (modular JavaScript, content rendering, security sandboxing), and multi-instance scaling with session management.
 
 - `docs/OLLAMA_INFO.md` - Documentation for Ollama integration, covering local model hosting, configuration, and offline LLM capabilities.
+
+- `docs/DEVELOPMENT_WORKFLOW.md` - Development workflow guide covering development mode (instant updates via bind mounts) vs production mode (isolated baked-in code), container deployment strategies, hybrid workflows, and quick reference commands for both docker-compose.multi-dev.yml and docker-compose.multi-simple.yml setups.
 
 - `license` - GNU Affero General Public License v3 (AGPL-3.0) governing the distribution and modification of the CLI-Agent project as open source software.
 
@@ -351,11 +356,11 @@
 
 - `tools/visual_assets/css/main.css` - Comprehensive stylesheet for the Visual Response interface featuring dark/light theme support, responsive design, tool toggles, chat interface styling, and visual feedback animations for all interactive elements.
 
-- `tools/visual_assets/js/main.js` - Primary JavaScript controller for the Visual Response interface orchestrating WebSocket communication, content rendering, file upload handling, screenshot capture, voice button functionality, LLM selection, and user interaction management.
+- `tools/visual_assets/js/main.js` - Primary JavaScript controller for the Visual Response interface orchestrating WebSocket communication, content rendering, file upload handling, screenshot capture, voice button functionality, LLM selection, profile slot management (6 slots with click-to-load and auto-save), and user interaction management.
 
 - `tools/visual_assets/js/websocket.js` - WebSocket communication manager for real-time bidirectional communication between the browser client and CLI-Agent server with connection management, message handling, and automatic reconnection.
 
-- `tools/visualresponse.py` - Visual Response server implementation providing a multi-process web interface for CLI-Agent with aiohttp web server, WebSocket communication, file upload handling, screenshot integration, and session management for browser-based agent interaction.
+- `tools/visualresponse.py` - Visual Response server implementation providing a multi-process web interface for CLI-Agent with aiohttp web server, WebSocket communication, file upload handling, screenshot integration, profile management API endpoint (`/api/profiles`), and session management for browser-based agent interaction.
 
 - `tools/podcast_generator/main.py` - Podcast generation tool for creating audio content from text, managing podcast workflows, and automating audio content production.
 

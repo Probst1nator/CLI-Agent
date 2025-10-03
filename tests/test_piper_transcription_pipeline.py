@@ -39,9 +39,9 @@ TEST_SENTENCES = {
 
 # Voice configuration: 1 female, 1 male as requested
 VOICE_CONFIG = {
-    "female": {"german": {"gender": "female", "voice": "de_DE-mls-medium"},
+    "female": {"german": {"gender": "female", "voice": "de_DE-mls-medium-f1"},
               "english": {"gender": "female", "voice": "en_GB-alba-medium"}},
-    "male": {"german": {"gender": "male", "voice": "de_DE-thorsten-medium"},
+    "male": {"german": {"gender": "male", "voice": "de_DE-mls-medium-m1"},
             "english": {"gender": "male", "voice": "en_GB-alan-medium"}}
 }
 

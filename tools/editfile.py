@@ -6,6 +6,7 @@ working directory.
 """
 import os
 import re
+from typing import Match
 
 class editfile:
     @staticmethod
@@ -49,7 +50,7 @@ class editfile:
             return f"Error executing editfile tool: {str(e)}"
 
     @staticmethod
-    def _find_and_replace(filepath_match, find_match, replace_match):
+    def _find_and_replace(filepath_match: Match[str], find_match: Match[str], replace_match: Match[str]) -> str:
         """Handle traditional find-and-replace editing."""
         filepath = filepath_match.group(1).strip()
         find_str = find_match.group(1)
@@ -80,7 +81,7 @@ class editfile:
         return f"Successfully edited file: {full_path}"
 
     @staticmethod
-    def _edit_specific_line(filepath_match, line_match, content_match):
+    def _edit_specific_line(filepath_match: Match[str], line_match: Match[str], content_match: Match[str]) -> str:
         """Handle line-specific editing."""
         filepath = filepath_match.group(1).strip()
         line_str = line_match.group(1).strip()

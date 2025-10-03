@@ -11,6 +11,7 @@ access or control system processes or processes started outside of the agent.
 import time
 import asyncio
 import xml.etree.ElementTree as ET
+from typing import Dict, Any, Optional
 from termcolor import colored
 from core.globals import g
 from tools.bash import bash  # Import to access the shared process list
@@ -20,13 +21,13 @@ try:
     from shared.utils.text_resource_manager import TextResourceManager
     RESOURCE_MANAGER_AVAILABLE = True
 
-    def get_resource_manager():
+    def get_resource_manager() -> Any:
         return TextResourceManager._get_manager()
 
 except ImportError:
     RESOURCE_MANAGER_AVAILABLE = False
 
-    def get_resource_manager():
+    def get_resource_manager() -> None:
         return None
 
 class taskmanager:
@@ -48,7 +49,8 @@ class taskmanager:
             ),
             "example": (
                 "<taskmanager><list/></taskmanager>\n"
-                "<taskmanager><stdout>bg_a1b2c3d4</stdout></taskmanager>\n"
+                "<taskmanager><kill><pid>bg_a1b2c3d4</pid></kill></taskmanager>\n"
+                "<taskmanager><stdout><pid>bg_a1b2c3d4</pid></stdout></taskmanager>\n"
                 "<taskmanager><input><pid>bg_a1b2c3d4</pid><data>y\\n</data></input></taskmanager> <!-- Use \\\\n for newlines in data -->"
             )
         }
@@ -64,7 +66,7 @@ class taskmanager:
                 'command' in proc_info)
 
     @staticmethod
-    def _update_process_status(proc_info: dict):
+    def _update_process_status(proc_info: Dict[str, Any]) -> None:
         """
         Helper to check if a running process has finished and update its status.
         pexpect's isalive() is the source of truth.
@@ -104,7 +106,7 @@ class taskmanager:
             # If content contains literal newlines in data tags, it will break XML parsing
             # Look for the pattern and escape newlines within data tags
             import re
-            def escape_data_content(match):
+            def escape_data_content(match: Any) -> str:
                 data_content = match.group(1)
                 # Escape problematic characters within data content
                 escaped_content = data_content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
@@ -122,15 +124,23 @@ class taskmanager:
                 return taskmanager._list_processes()
 
             elif command == 'kill':
-                target = command_element.text.strip() if command_element.text else ''
+                pid_element = command_element.find('pid')
+                if pid_element is not None and pid_element.text:
+                    target = pid_element.text.strip()
+                else:
+                    target = command_element.text.strip() if command_element.text else ''
                 if not target:
-                    return "Error: <kill> tag cannot be empty. Provide a process ID or 'all'."
+                    return "Error: <kill> requires <pid>process_id</pid> or 'all'."
                 return taskmanager._kill_process(target)
 
             elif command == 'stdout':
-                pid = command_element.text.strip() if command_element.text else ''
+                pid_element = command_element.find('pid')
+                if pid_element is not None and pid_element.text:
+                    pid = pid_element.text.strip()
+                else:
+                    pid = command_element.text.strip() if command_element.text else ''
                 if not pid:
-                    return "Error: <stdout> tag cannot be empty. Provide a process ID."
+                    return "Error: <stdout> requires <pid>process_id</pid>."
                 return taskmanager._read_stdout(pid)
 
             elif command == 'watch':
@@ -259,7 +269,7 @@ class taskmanager:
             return f"Error sending input to process {pid}: {e}"
 
     @staticmethod
-    def _read_stdout(pid: str, max_chars: int = 4096) -> str:
+    def _read_stdout(pid: str, max_chars: Optional[int] = 4096) -> str:
         proc_info = bash._background_processes.get(pid)
         if not proc_info:
             return f"Error: Process with ID '{pid}' not found."

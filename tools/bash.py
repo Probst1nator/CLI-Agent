@@ -64,7 +64,7 @@ class BashSession:
         self.stderr_callback = stderr_callback or (lambda text: print(colored(f"STDERR: {text}", "red"), end=''))
 
         self.bash_prompt_regex = f"__PROMPT_{uuid.uuid4().hex}__"
-        self.child = None
+        self.child: Optional[pexpect.spawn] = None
 
         # STREAMING FIX: Add state tracking to prevent duplicate output
         self.displayed_lines: set = set()  # Track what we've already shown
@@ -209,7 +209,8 @@ class BashSession:
             header = f"[{user_colored}@{host_colored}:{dir_colored}]{prompt_colored} {command_colored}"
             self.stdout_callback(f"💻 {header}\n") # MODIFIED: Added newline for better formatting
 
-            self.child.sendline(full_command_with_boundary)
+            if self.child:
+                self.child.sendline(full_command_with_boundary)
 
             loop = asyncio.get_running_loop()
 
@@ -225,10 +226,10 @@ class BashSession:
             while True:
                 try:
                     index = await loop.run_in_executor(
-                        None, lambda: self.child.expect([boundary, self.bash_prompt_regex, pexpect.TIMEOUT], timeout=0.5)
+                        None, lambda: self.child.expect([boundary, self.bash_prompt_regex, pexpect.TIMEOUT], timeout=0.5) if self.child else -1
                     )
 
-                    current_buffer = self.child.before or ""
+                    current_buffer = self.child.before or "" if self.child else ""
                     new_content = current_buffer[self.last_buffer_position:]
                     self.last_buffer_position = len(current_buffer)
 
@@ -255,7 +256,8 @@ class BashSession:
                             output_capture.write(remaining + '\n')
                     break
 
-            await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, timeout)
+            if self.child:
+                await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, timeout)
             return output_capture.getvalue().strip()
 
         try:
@@ -287,22 +289,24 @@ class BashSession:
 
         async def _read_loop_silent():
             output_capture = io.StringIO()
-            self.child.sendline(full_command_with_boundary)
+            if self.child:
+                self.child.sendline(full_command_with_boundary)
             loop = asyncio.get_running_loop()
 
             # Skip the initial command echo
             try:
-                await loop.run_in_executor(None, self.child.expect_exact, clean_command, 0.2)
+                if self.child:
+                    await loop.run_in_executor(None, self.child.expect_exact, clean_command, 0.2)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 pass
 
             while True:
                 try:
                     index = await loop.run_in_executor(
-                        None, lambda: self.child.expect([boundary, self.bash_prompt_regex], timeout=timeout)
+                        None, lambda: self.child.expect([boundary, self.bash_prompt_regex], timeout=timeout) if self.child else -1
                     )
 
-                    output = (self.child.before or "").strip()
+                    output = (self.child.before or "").strip() if self.child else ""
                     # Filter out command echo
                     if output.startswith(clean_command):
                         output = output[len(clean_command):].lstrip()
@@ -323,7 +327,8 @@ class BashSession:
                     raise
 
             # Final prompt clear
-            await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, timeout)
+            if self.child:
+                await loop.run_in_executor(None, self.child.expect_exact, self.bash_prompt_regex, timeout)
             return output_capture.getvalue().strip()
 
         try:

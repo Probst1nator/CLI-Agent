@@ -175,7 +175,7 @@ class LlmRouter:
             temperature=temperature
         )
 
-    def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, debug_model_key: str = None) -> tuple[bool, str | None]:
+    def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, debug_model_key: Optional[str] = None) -> tuple[bool, str | None]:
         """
         Check if a model is capable of handling the given constraints.
 
@@ -302,9 +302,10 @@ class LlmRouter:
                         # Fallback to substring match (for backward compatibility)
                         model = next((model for model in instance.retry_models if model_key in model.model_key), None)
 
-                    capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision)
-                    if model and capable:
-                        available_models.append(model)
+                    if model:
+                        capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision)
+                        if capable:
+                            available_models.append(model)
 
             # Then check all models
             if not available_models:
@@ -912,6 +913,11 @@ class LlmRouter:
         """
         instance = cls()
         cls.call_counter += 1
+
+        # Check for override model first - if set, use it exclusively
+        if g.override_llm:
+            preferred_models = [g.override_llm]
+            force_preferred_model = True  # Force using only the override model
 
         # Check global force flags
         if g.LLM:

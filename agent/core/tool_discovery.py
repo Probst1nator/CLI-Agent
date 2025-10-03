@@ -24,11 +24,11 @@ def _check_getuserfiles_available() -> bool:
     try:
         import websockets
 
-        async def test_connection():
+        async def test_connection() -> bool:
             try:
                 async with websockets.connect("ws://localhost:8765", open_timeout=1) as websocket:
                     content = await asyncio.wait_for(websocket.recv(), timeout=2)
-                    return content and not content.startswith("Error:")
+                    return bool(content and not content.startswith("Error:"))
             except:
                 return False
 

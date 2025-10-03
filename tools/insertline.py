@@ -6,6 +6,7 @@ current working directory.
 """
 import os
 import re
+from typing import Optional
 
 class insertline:
     @staticmethod
@@ -51,7 +52,7 @@ class insertline:
                 lines = f.readlines()
 
             total_lines = len(lines)
-            insert_position = None
+            insert_position: Optional[int] = None
             position_description = ""
 
             # Determine insertion position
