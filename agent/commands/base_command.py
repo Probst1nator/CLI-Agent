@@ -64,6 +64,11 @@ class BaseCommand(abc.ABC):
         """Optional sub-commands with descriptions."""
         return None
 
+    @property
+    def usage(self) -> Optional[str]:
+        """Optional usage information for help text."""
+        return None
+
     @abc.abstractmethod
     async def execute(
         self,
@@ -92,7 +97,7 @@ class BaseCommand(abc.ABC):
 
         # Check if command has usage information
         usage_info = ""
-        if hasattr(self, 'usage'):
+        if self.usage:
             usage_info = f" {colored(self.usage, 'yellow')}"
 
         # Color the aliases and description differently

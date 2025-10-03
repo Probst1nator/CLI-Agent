@@ -42,10 +42,11 @@ class writefile:
 
             # This is a specific hook for the memory compaction process.
             # It intercepts writes to a special 'MEMORY' path.
-            if g.AGENT_IS_COMPACTING and "MEMORY" in filepath:
+            if hasattr(g, 'AGENT_IS_COMPACTING') and g.AGENT_IS_COMPACTING and "MEMORY" in filepath:
                 from tools.disabled.memory import memory
-                memory.store(file_content)
-                return "Content stored in agent's long-term memory."
+                if hasattr(memory, 'store'):
+                    memory.store(file_content)
+                    return "Content stored in agent's long-term memory."
 
             # Resolve the path relative to the current working directory for safety.
             full_path = os.path.abspath(filepath)

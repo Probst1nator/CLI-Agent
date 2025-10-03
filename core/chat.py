@@ -303,7 +303,7 @@ class Chat:
             joined_string += f"{role_value.upper()}:\n {content}\n"
         return joined_string.strip()
 
-    def save_to_json(self, file_name: str = "recent_chat.json", merge: bool = False):
+    def save_to_json(self, file_name: str = "recent_chat.json", merge: bool = False, also_archive: bool = True):
         """
         Saves the chat instance to a JSON file in a .cli-agent folder in the current working directory.
 
@@ -311,6 +311,7 @@ class Chat:
         :param merge: Whether to merge with existing file content (read-modify-write operation).
                      If True, loads existing file, merges messages, and overwrites the entire file.
                      For true append operations, consider using save_to_jsonl instead.
+        :param also_archive: Whether to also save a timestamped copy to the archive.
         """
         # Define the storage path in the current working directory
         storage_path = os.path.join(os.getcwd(), ".cli-agent")
@@ -333,6 +334,13 @@ class Chat:
 
         with open(file_path, "w") as file:
             json.dump(few_shot_prompts._to_dict(), file, indent=4)
+
+        # Also save to archive if requested
+        if also_archive and len(self.messages) > 2:
+            try:
+                self.save_to_archive()
+            except Exception as e:
+                logger.warning(f"Failed to save chat to archive: {e}")
 
     @classmethod
     def load_from_json(cls, file_name: str = "recent_chat.json") -> "Chat":
@@ -436,6 +444,176 @@ class Chat:
                 chat = Chat.from_dict(chat_data)
                 chats.append(chat)
         return chats
+
+    def save_to_archive(self) -> str:
+        """
+        Saves the chat to a timestamped archive file and updates the index.
+
+        :return: The chat ID (hash) of the saved chat.
+        """
+        import hashlib
+        from datetime import datetime as dt
+
+        # Generate timestamp and hash
+        timestamp = dt.now()
+        timestamp_str = timestamp.strftime("%Y%m%d_%H%M%S")
+
+        # Create hash from timestamp + first user message
+        hash_input = timestamp_str
+        for role, content in self.messages:
+            if role == Role.USER:
+                hash_input += content[:100]
+                break
+        chat_hash = hashlib.md5(hash_input.encode()).hexdigest()[:4]
+
+        # Define paths
+        storage_path = os.path.join(os.getcwd(), ".cli-agent")
+        archive_path = os.path.join(storage_path, "chat_history")
+        os.makedirs(archive_path, exist_ok=True)
+
+        # Save chat file
+        filename = f"chat_{timestamp_str}_{chat_hash}.json"
+        file_path = os.path.join(archive_path, filename)
+
+        with open(file_path, "w") as file:
+            json.dump(self._to_dict(), file, indent=4)
+
+        # Update index
+        self._update_archive_index(chat_hash, timestamp.timestamp(), filename)
+
+        logger.debug(f"Chat archived: {filename}")
+        return chat_hash
+
+    @staticmethod
+    def _update_archive_index(chat_id: str, timestamp: float, filename: str):
+        """Updates the chat history index with new chat metadata."""
+        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        index_path = os.path.join(storage_path, "index.json")
+
+        # Load existing index
+        if os.path.exists(index_path):
+            with open(index_path, "r") as f:
+                index = json.load(f)
+        else:
+            index = {"chats": []}
+
+        # Load the chat file to get metadata
+        chat_path = os.path.join(storage_path, filename)
+        with open(chat_path, "r") as f:
+            chat_data = json.load(f)
+
+        # Extract preview from first user message
+        preview = ""
+        message_count = len(chat_data.get("messages", []))
+        for msg in chat_data.get("messages", []):
+            if msg.get("role") == "user":
+                preview = msg.get("content", "")[:100]
+                break
+
+        # Add to index
+        index["chats"].append({
+            "id": chat_id,
+            "timestamp": timestamp,
+            "filename": filename,
+            "preview": preview,
+            "message_count": message_count
+        })
+
+        # Keep only last 100 chats
+        index["chats"] = sorted(index["chats"], key=lambda x: x["timestamp"], reverse=True)[:100]
+
+        # Save index
+        with open(index_path, "w") as f:
+            json.dump(index, f, indent=2)
+
+    @staticmethod
+    def list_archived_chats() -> List[Dict[str, Any]]:
+        """
+        Lists all archived chats from the index.
+
+        :return: List of chat metadata dictionaries.
+        """
+        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        index_path = os.path.join(storage_path, "index.json")
+
+        if not os.path.exists(index_path):
+            return []
+
+        with open(index_path, "r") as f:
+            index = json.load(f)
+
+        return index.get("chats", [])
+
+    @classmethod
+    def load_from_archive(cls, chat_id: str) -> "Chat":
+        """
+        Loads a chat from the archive by its ID.
+
+        :param chat_id: The chat ID (hash).
+        :return: The loaded Chat instance.
+        """
+        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        index_path = os.path.join(storage_path, "index.json")
+
+        # Find the filename from index
+        with open(index_path, "r") as f:
+            index = json.load(f)
+
+        filename = None
+        for chat in index.get("chats", []):
+            if chat["id"] == chat_id:
+                filename = chat["filename"]
+                break
+
+        if not filename:
+            raise FileNotFoundError(f"Chat with ID {chat_id} not found in archive")
+
+        # Load the chat file
+        file_path = os.path.join(storage_path, filename)
+        with open(file_path, "r") as f:
+            data_dict = json.load(f)
+
+        return cls.from_dict(data_dict)
+
+    @staticmethod
+    def delete_from_archive(chat_id: str) -> bool:
+        """
+        Deletes a chat from the archive.
+
+        :param chat_id: The chat ID (hash).
+        :return: True if deleted successfully.
+        """
+        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        index_path = os.path.join(storage_path, "index.json")
+
+        # Load index
+        with open(index_path, "r") as f:
+            index = json.load(f)
+
+        # Find and remove from index
+        filename = None
+        index["chats"] = [chat for chat in index["chats"] if chat["id"] != chat_id or (filename := chat["filename"], False)[1]]
+
+        # Find the filename
+        for chat in index.get("chats", []):
+            if chat["id"] == chat_id:
+                filename = chat["filename"]
+                break
+
+        if filename:
+            # Delete the file
+            file_path = os.path.join(storage_path, filename)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+            # Update index
+            index["chats"] = [chat for chat in index["chats"] if chat["id"] != chat_id]
+            with open(index_path, "w") as f:
+                json.dump(index, f, indent=2)
+
+            return True
+
+        return False
 
 
 

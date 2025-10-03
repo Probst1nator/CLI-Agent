@@ -54,8 +54,8 @@ reload_container() {
         echo -e "${YELLOW}⚠️ Systemd restart failed. Falling back to direct Docker Compose restart...${NC}"
         cd "$PROJECT_DIR"
         # Mimic the service file's down/up logic to ensure a clean start
-        if docker compose -f docker_files/docker-compose.isolated.yml down --remove-orphans > /dev/null 2>&1 && \
-           docker compose -f docker_files/docker-compose.isolated.yml up -d > /dev/null 2>&1; then
+        if docker compose -f docker_files/docker-compose.multi-simple.yml down --remove-orphans > /dev/null 2>&1 && \
+           docker compose -f docker_files/docker-compose.multi-simple.yml up -d > /dev/null 2>&1; then
             echo -e "${GREEN}✓ Service restarted successfully via Docker Compose fallback${NC}"
         else
             echo -e "${RED}✗ Fallback restart via Docker Compose also failed${NC}"

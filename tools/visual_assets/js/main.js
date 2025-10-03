@@ -186,6 +186,15 @@ class VisualResponseApp {
         /** @type {boolean} */
         this.agentGenerating = false;
 
+        /** @type {string|null} */
+        this.activeProfileSlot = null;
+
+        /** @type {Object.<string, Object>} */
+        this.profileSlots = {};
+
+        /** @type {number|null} */
+        this.autoSaveTimeout = null;
+
         /** @type {Logger} */
         this.logger = window.visualLogger;
 
@@ -413,14 +422,20 @@ class VisualResponseApp {
         this.setupGlobalJSToggle();
 
 
-        // Reset history button event listener
-        this.setupResetHistoryButton();
+        // Setup interrupt button
+        const interruptBtn = document.getElementById('interrupt-btn');
+        if (interruptBtn) {
+            this.setupInterruptButton(interruptBtn);
+        }
 
         // Iframe focus management
         this.setupIframeFocusManagement();
 
         // Agent message height management
         // this.setupAgentMessageHeightManagement();
+
+        // Profile slot event listeners
+        this.setupProfileSlots();
     }
 
     handleChatSubmit() {
@@ -430,8 +445,10 @@ class VisualResponseApp {
             // Display user message immediately
             this.displayUserMessage(message);
 
-            // Show interrupt button when sending user message (agent will start generating)
-            this.showInterruptButton();
+            // Only show interrupt button for non-command messages (commands don't generate agent responses)
+            if (!message.startsWith('/')) {
+                this.showInterruptButton();
+            }
 
             // Send the message with tool configuration
             const messageWithConfig = {
@@ -441,6 +458,9 @@ class VisualResponseApp {
             this.wsManager.sendMessage(JSON.stringify(messageWithConfig));
             this.chatInput.value = '';
             this.chatInput.focus();
+
+            // Reset screenshot state if a screenshot was ready (screenshot has been sent)
+            this.resetScreenshotState();
 
         } else if (!this.wsManager.isConnected()) {
             // Visual feedback for connection error
@@ -612,18 +632,8 @@ class VisualResponseApp {
             if (this.wsManager && this.wsManager.isConnected()) {
                 this.wsManager.sendMessage('/screenshot');
 
-                // Visual feedback
-                const originalIcon = this.screenshotBtn.innerHTML;
-                this.screenshotBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M12 1v6m0 6v6m-6-6h6m6 0h-6" stroke="currentColor" stroke-width="2"/></svg>';
-                this.screenshotBtn.style.opacity = '0.7';
-                this.screenshotBtn.disabled = true;
-
-                // Reset button after a delay
-                setTimeout(() => {
-                    this.screenshotBtn.innerHTML = originalIcon;
-                    this.screenshotBtn.style.opacity = '';
-                    this.screenshotBtn.disabled = false;
-                }, 2000);
+                // Set capturing state
+                this.setScreenshotCapturing();
             } else {
                 console.warn('WebSocket not connected, screenshot command not sent');
 
@@ -638,6 +648,48 @@ class VisualResponseApp {
                 }, 1500);
             }
         });
+    }
+
+    /**
+     * Set screenshot button to capturing state (loading spinner)
+     */
+    setScreenshotCapturing() {
+        if (!this.screenshotBtn) return;
+
+        this.screenshotBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M12 1v6m0 6v6m-6-6h6m6 0h-6" stroke="currentColor" stroke-width="2"/></svg>';
+        this.screenshotBtn.style.opacity = '0.7';
+        this.screenshotBtn.disabled = true;
+        this.screenshotBtn.classList.remove('screenshot-ready');
+    }
+
+    /**
+     * Set screenshot button to ready state (green glow)
+     */
+    setScreenshotReady() {
+        if (!this.screenshotBtn) return;
+
+        // Restore original icon
+        this.screenshotBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15L16 10L5 21" stroke="currentColor" stroke-width="2"/></svg>';
+        this.screenshotBtn.style.opacity = '';
+        this.screenshotBtn.disabled = false;
+        this.screenshotBtn.classList.add('screenshot-ready');
+
+        console.log('📸 Screenshot ready - button styled with green indicator');
+    }
+
+    /**
+     * Reset screenshot button to default state
+     */
+    resetScreenshotState() {
+        if (!this.screenshotBtn) return;
+
+        // Restore original icon
+        this.screenshotBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15L16 10L5 21" stroke="currentColor" stroke-width="2"/></svg>';
+        this.screenshotBtn.style.opacity = '';
+        this.screenshotBtn.disabled = false;
+        this.screenshotBtn.classList.remove('screenshot-ready');
+
+        console.log('📸 Screenshot state reset to default');
     }
 
     setupVoiceButton() {
@@ -930,77 +982,6 @@ class VisualResponseApp {
 
         return null;
     }
-
-    setupResetHistoryButton() {
-        const resetHistoryBtn = document.getElementById('reset-history-btn');
-        if (!resetHistoryBtn) {
-            console.warn('Reset history button not found');
-            return;
-        }
-
-        // Setup interrupt button
-        const interruptBtn = document.getElementById('interrupt-btn');
-        if (interruptBtn) {
-            this.setupInterruptButton(interruptBtn);
-        } else {
-            console.warn('Interrupt button not found');
-        }
-
-        resetHistoryBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            // Show custom reset confirmation dialog with stopwatch
-            this.showResetConfirmationDialog().then((confirmed) => {
-            if (confirmed) {
-                // Send reset command to backend
-                if (this.wsManager && this.wsManager.isConnected()) {
-                    this.wsManager.sendMessage('/reset');
-
-                    // Visual feedback
-                    const originalText = resetHistoryBtn.querySelector('.reset-text').textContent;
-                    resetHistoryBtn.querySelector('.reset-text').textContent = 'Resetting...';
-                    resetHistoryBtn.disabled = true;
-
-                    // Clear UI immediately for instant feedback
-                    const contentWrapper = document.getElementById('content-wrapper');
-                    if (contentWrapper) {
-                        contentWrapper.innerHTML = '';
-                    }
-
-                    // Clear local storage
-                    this.clearMessageHistory();
-
-                    // Reset button state after delay
-                    setTimeout(() => {
-                        resetHistoryBtn.querySelector('.reset-text').textContent = originalText;
-                        resetHistoryBtn.disabled = false;
-                    }, 2000);
-
-                    console.log('Agent reset requested by user');
-                } else {
-                    // Fallback to UI-only clear if WebSocket not available
-                    console.warn('WebSocket not connected, falling back to UI-only clear');
-
-                    const contentWrapper = document.getElementById('content-wrapper');
-                    if (contentWrapper) {
-                        contentWrapper.innerHTML = '';
-                    }
-                    this.clearMessageHistory();
-
-                    // Visual feedback for fallback
-                    const originalText = resetHistoryBtn.querySelector('.reset-text').textContent;
-                    resetHistoryBtn.querySelector('.reset-text').textContent = 'Reset (UI Only)';
-
-                    setTimeout(() => {
-                        resetHistoryBtn.querySelector('.reset-text').textContent = originalText;
-                    }, 2000);
-                }
-            }
-            }); // Close the promise callback
-        });
-    }
-
 
     setupInterruptButton(interruptBtn) {
         // Track agent state to show/hide button appropriately
@@ -2007,6 +1988,18 @@ class VisualResponseApp {
             });
         }
 
+        // Override LLM selector
+        const overrideContainer = document.getElementById('override-llm-selector');
+        if (overrideContainer) {
+            this.llmSelectors.override = new SearchableLLMSelectbox(overrideContainer, {
+                placeholder: 'Override LLM...',
+                id: 'llm-override',
+                includeNoneOption: true,
+                onSelectionChange: (model) => this.handleOverrideLLMSelectionChange(model),
+                onModelsLoaded: onModelsLoaded
+            });
+        }
+
         // Primary LLM selector
         const primaryContainer = document.getElementById('llm-selector-primary');
         if (primaryContainer) {
@@ -2078,6 +2071,18 @@ class VisualResponseApp {
             } else if (fallbackModels.length >= 1 && this.llmSelectors.planner) {
                 this.llmSelectors.planner.setSelectedModel(fallbackModels[0]);
                 console.log(`Set planner LLM selector to default (first fallback): ${fallbackModels[0]}`);
+            }
+
+            // Initialize override LLM from saved configuration, defaults to None
+            const savedOverrideLLM = this.systemConfiguration.override_llm;
+            if (this.llmSelectors.override) {
+                if (savedOverrideLLM) {
+                    this.llmSelectors.override.setSelectedModel(savedOverrideLLM);
+                    console.log(`Set override LLM selector to saved selection: ${savedOverrideLLM}`);
+                } else {
+                    this.llmSelectors.override.setSelectedModel(null);
+                    console.log(`Set override LLM selector to None (default)`);
+                }
             }
 
             // Display first 3 fallback models in the UI
@@ -2173,6 +2178,8 @@ class VisualResponseApp {
         } catch (e) {
             console.warn('Failed to save LLM selections to localStorage:', e);
         }
+
+        this.scheduleAutoSave();
     }
 
     /**
@@ -2209,6 +2216,8 @@ class VisualResponseApp {
         } catch (e) {
             console.warn('Failed to save router LLM selection to localStorage:', e);
         }
+
+        this.scheduleAutoSave();
     }
 
     /**
@@ -2250,6 +2259,51 @@ class VisualResponseApp {
         } catch (e) {
             console.warn('Failed to save planner LLM selection to localStorage:', e);
         }
+
+        this.scheduleAutoSave();
+    }
+
+    /**
+     * Handle override LLM selection changes
+     * @param {LLMModel|null} model - Selected override LLM model
+     */
+    handleOverrideLLMSelectionChange(model) {
+
+        // Guard against updates during initialization
+        if (this.isInitializing) {
+            return;
+        }
+
+        // Store current override selection
+        if (!this.overrideLLMSelection) {
+            this.overrideLLMSelection = null;
+        }
+        this.overrideLLMSelection = model;
+
+        // Send override LLM command as chat message
+        const modelKey = model?.id || 'none';
+        const command = `/override_llm ${modelKey}`;
+        console.log('📤 Sending override LLM change command:', command);
+
+        if (this.wsManager && this.wsManager.isConnected()) {
+            this.wsManager.sendMessage(command);
+        } else {
+            console.warn('WebSocket not connected, override LLM command not sent');
+        }
+
+        // Save to localStorage for persistence
+        try {
+            const overrideSelection = {
+                override_llm: model?.id || null,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('override-llm-selection', JSON.stringify(overrideSelection));
+            console.log('Override LLM selection saved to localStorage');
+        } catch (e) {
+            console.warn('Failed to save override LLM selection to localStorage:', e);
+        }
+
+        this.scheduleAutoSave();
     }
 
     /**
@@ -2288,6 +2342,163 @@ class VisualResponseApp {
         } catch (e) {
             console.warn('Failed to load LLM selections from localStorage:', e);
         }
+    }
+
+    setupProfileSlots() {
+        const profileSlots = document.querySelectorAll('.profile-slot');
+
+        profileSlots.forEach(slot => {
+            slot.addEventListener('click', () => {
+                const slotNumber = slot.dataset.slot;
+                this.handleProfileSlotClick(slotNumber);
+            });
+        });
+
+        this.loadProfileSlots();
+    }
+
+    async loadProfileSlots() {
+        try {
+            const response = await fetch('/api/profiles');
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                this.profileSlots = {};
+
+                data.profiles.forEach(profile => {
+                    this.profileSlots[profile.id] = profile;
+                });
+
+                this.updateProfileSlotUI();
+
+                if (data.active_profile) {
+                    this.activeProfileSlot = data.active_profile;
+                    this.markSlotAsActive(data.active_profile);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load profile slots:', error);
+        }
+    }
+
+    updateProfileSlotUI() {
+        const profileSlots = document.querySelectorAll('.profile-slot');
+
+        profileSlots.forEach(slot => {
+            const slotNumber = slot.dataset.slot;
+
+            if (this.profileSlots[slotNumber]) {
+                slot.classList.add('has-profile');
+            } else {
+                slot.classList.remove('has-profile');
+            }
+        });
+    }
+
+    markSlotAsActive(slotNumber) {
+        const profileSlots = document.querySelectorAll('.profile-slot');
+
+        profileSlots.forEach(slot => {
+            if (slot.dataset.slot === slotNumber) {
+                slot.classList.add('active');
+            } else {
+                slot.classList.remove('active');
+            }
+        });
+    }
+
+    async handleProfileSlotClick(slotNumber) {
+        const profile = this.profileSlots[slotNumber];
+
+        if (profile) {
+            await this.applyProfile(slotNumber);
+        } else {
+            await this.saveCurrentConfigToSlot(slotNumber);
+        }
+    }
+
+    async applyProfile(slotNumber) {
+        if (this.isInitializing) return;
+
+        if (this.wsManager && this.wsManager.isConnected()) {
+            this.wsManager.sendMessage(`/profile_load ${slotNumber}`);
+
+            this.activeProfileSlot = slotNumber;
+            this.markSlotAsActive(slotNumber);
+
+            setTimeout(async () => {
+                await this.loadProfileSlots();
+                await this.refreshSelectorsFromBackend();
+            }, 200);
+        }
+    }
+
+    async refreshSelectorsFromBackend() {
+        try {
+            const response = await fetch('/api/llms');
+            const data = await response.json();
+
+            if (data.status === 'success' && data.current_configuration) {
+                const config = data.current_configuration;
+
+                this.isInitializing = true;
+
+                if (this.llmSelectors.override) {
+                    this.llmSelectors.override.setSelectedModel(config.override_llm || null);
+                }
+
+                if (this.llmSelectors.router) {
+                    this.llmSelectors.router.setSelectedModel(config.router_llm || null);
+                }
+
+                if (this.llmSelectors.planner) {
+                    this.llmSelectors.planner.setSelectedModel(config.planner_llm || null);
+                }
+
+                if (config.selected_llms && config.selected_llms.length > 0) {
+                    if (this.llmSelectors.primary) {
+                        this.llmSelectors.primary.setSelectedModel(config.selected_llms[0] || null);
+                    }
+                    if (this.llmSelectors.fallback1) {
+                        this.llmSelectors.fallback1.setSelectedModel(config.selected_llms[1] || null);
+                    }
+                    if (this.llmSelectors.fallback2) {
+                        this.llmSelectors.fallback2.setSelectedModel(config.selected_llms[2] || null);
+                    }
+                }
+
+                this.isInitializing = false;
+
+                console.log('✅ Refreshed selectors from backend configuration');
+            }
+        } catch (error) {
+            console.error('Failed to refresh selectors from backend:', error);
+            this.isInitializing = false;
+        }
+    }
+
+    async saveCurrentConfigToSlot(slotNumber) {
+        if (this.wsManager && this.wsManager.isConnected()) {
+            this.wsManager.sendMessage(`/profile_save ${slotNumber}`);
+
+            setTimeout(async () => {
+                await this.loadProfileSlots();
+                this.activeProfileSlot = slotNumber;
+                this.markSlotAsActive(slotNumber);
+            }, 100);
+        }
+    }
+
+    scheduleAutoSave() {
+        if (!this.activeProfileSlot) return;
+
+        if (this.autoSaveTimeout) {
+            clearTimeout(this.autoSaveTimeout);
+        }
+
+        this.autoSaveTimeout = setTimeout(() => {
+            this.saveCurrentConfigToSlot(this.activeProfileSlot);
+        }, 2000);
     }
 
 }

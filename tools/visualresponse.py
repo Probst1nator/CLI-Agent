@@ -16,9 +16,14 @@ import webbrowser
 import socket
 import re # Import the regular expression module
 from pathlib import Path
-from typing import Optional, Set, Any, List, Dict
+from typing import Optional, Set, Any, List, Dict, TYPE_CHECKING
 from termcolor import colored
 from queue import Empty as QueueEmpty
+
+if TYPE_CHECKING:
+    from aiohttp import web as web_types
+else:
+    web_types = None
 
 # Set up tool-specific logging
 from shared.utils.tool_logging import get_logger_for_tool_module
@@ -141,7 +146,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         subprocess_logger.error(error_msg)
         print(f"[VisualServer] {error_msg}")
         return
-    clients: Set[web.WebSocketResponse] = set()
+    clients: Set[Any] = set()
     message_history: List[Any] = []
     async def broadcast_updates():
         while True:
@@ -181,7 +186,9 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         except Exception as e:
             subprocess_logger.debug(f"Error broadcasting console log: {e}")
 
-    async def websocket_handler(request: web.Request):
+    async def websocket_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         clients.add(ws)
@@ -220,7 +227,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 pass
         try:
             async for msg in ws:
-                if msg.type == web.WSMsgType.TEXT:
+                if web and msg.type == web.WSMsgType.TEXT:
                     # Parse message to distinguish between permission responses, interrupt signals, and regular user input
                     try:
                         message_data = json.loads(msg.data) if msg.data else {}
@@ -283,7 +290,8 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
                                 # Store tool configuration globally for tool discovery to access
                                 # This will be picked up by the agent's tool discovery system
-                                g.disabled_tools = disabled_tools
+                                if hasattr(g, 'disabled_tools'):
+                                    setattr(g, 'disabled_tools', disabled_tools)
 
                                 # Send only the user message content to maintain compatibility
                                 input_queue.put(user_message)
@@ -305,7 +313,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                         subprocess_logger.error(f"Error processing WebSocket message: {e}")
                         # Default to treating as user input
                         input_queue.put(msg.data)
-                elif msg.type == web.WSMsgType.ERROR:
+                elif web and msg.type == web.WSMsgType.ERROR:
                     subprocess_logger.error(f'WebSocket connection closed with exception {ws.exception()}')
         finally:
             subprocess_logger.info(f"Browser client disconnected: {request.remote}")
@@ -318,7 +326,9 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             except Exception as e:
                 subprocess_logger.warning(f"Failed to unregister client from connection monitor: {e}")
         return ws
-    async def index_handler(request: web.Request):
+    async def index_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
         response = web.FileResponse(ASSETS_DIR / 'index.html')
         response.headers['Content-Security-Policy'] = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.plot.ly https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src 'self' data: blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'")
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
@@ -326,12 +336,16 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
         return response
-    async def favicon_handler(request: web.Request):
+    async def favicon_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
         response = web.FileResponse(ASSETS_DIR / 'favicon.ico')
         response.headers['Cache-Control'] = 'public, max-age=86400'
         return response
-    async def llm_data_handler(request: web.Request):
+    async def llm_data_handler(request: Any) -> Any:
         """Serve available LLM models data for the frontend selectboxes."""
+        if web is None:
+            raise RuntimeError("aiohttp not available")
         try:
             # Import here to avoid circular imports and ensure g is initialized
             from core.llm import Llm
@@ -368,6 +382,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             selected_llms = g.SELECTED_LLMS
             planner_llm = g.planner_llm
             router_llm = g.router_llm
+            override_llm = g.override_llm
 
             selected_configs = []
             for model_key in selected_llms:
@@ -390,10 +405,13 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             response_config = {
                 'selected_llms': selected_llms,
                 'planner_llm': planner_llm,
-                'router_llm': router_llm
+                'router_llm': router_llm,
+                'override_llm': override_llm
             }
             subprocess_logger.info(f"🔍 FINAL API RESPONSE current_configuration: {response_config}")
 
+            if web is None:
+                raise RuntimeError("aiohttp not available")
             return web.json_response({
                 'status': 'success',
                 'models': llm_data,
@@ -401,20 +419,25 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 'current_configuration': {
                     'selected_llms': selected_llms,
                     'planner_llm': planner_llm,
-                    'router_llm': router_llm
+                    'router_llm': router_llm,
+                    'override_llm': override_llm
                 }
             })
 
         except Exception as e:
             logger.error(f"Failed to get LLM data: {e}", exc_info=True)
+            if web is None:
+                raise RuntimeError("aiohttp not available")
             return web.json_response({
                 'status': 'error',
                 'message': f'Failed to retrieve LLM data: {str(e)}',
                 'models': []
             }, status=500)
 
-    async def tools_handler(request: web.Request):
+    async def tools_handler(request: Any) -> Any:
         """Serve available tools data for the frontend tool manager."""
+        if web is None:
+            raise RuntimeError("aiohttp not available")
         try:
             # Import here to avoid circular imports
             import importlib
@@ -470,6 +493,8 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
             subprocess_logger.info(f"Served tools data: {len(tools_data)} tools discovered")
 
+            if web is None:
+                raise RuntimeError("aiohttp not available")
             return web.json_response({
                 'status': 'success',
                 'tools': tools_data,
@@ -478,13 +503,17 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
         except Exception as e:
             subprocess_logger.error(f"Failed to get tools data: {e}", exc_info=True)
+            if web is None:
+                raise RuntimeError("aiohttp not available")
             return web.json_response({
                 'status': 'error',
                 'message': f'Failed to retrieve tools data: {str(e)}',
                 'tools': []
             }, status=500)
 
-    async def upload_handler(request: web.Request):
+    async def upload_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
         try:
             reader = await request.multipart()
             uploaded_files = []
@@ -530,6 +559,8 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     uploaded_files.append(str(file_path.absolute()))
                     subprocess_logger.info(f"File uploaded: {final_filename} -> {file_path}")
 
+            if web is None:
+                raise RuntimeError("aiohttp not available")
             return web.json_response({
                 'status': 'success',
                 'files': uploaded_files,
@@ -538,21 +569,226 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
         except Exception as e:
             subprocess_logger.error(f"File upload error: {e}")
+            if web is None:
+                raise RuntimeError("aiohttp not available")
             return web.json_response({
                 'status': 'error',
                 'message': str(e)
             }, status=500)
+
+    async def profiles_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
+        """Serve LLM profiles data for the frontend."""
+        try:
+            from core.llm_profiles import get_profile_manager
+
+            manager = get_profile_manager()
+            profiles = manager.list_profiles()
+            active_profile = manager.get_active_profile()
+
+            profiles_data = [
+                {
+                    'id': profile.id,
+                    'override': profile.override,
+                    'router': profile.router,
+                    'planner': profile.planner,
+                    'fallbacks': profile.fallbacks,
+                    'is_active': profile.id == active_profile
+                }
+                for profile in profiles
+            ]
+
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'success',
+                'profiles': profiles_data,
+                'active_profile': active_profile
+            })
+
+        except Exception as e:
+            subprocess_logger.error(f"Failed to get profiles data: {e}", exc_info=True)
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'error',
+                'message': f'Failed to retrieve profiles data: {str(e)}',
+                'profiles': []
+            }, status=500)
+
+    async def chat_history_list_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
+        """List all archived chats."""
+        try:
+            from core.chat import Chat
+
+            chats = Chat.list_archived_chats()
+
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'success',
+                'chats': chats
+            })
+
+        except Exception as e:
+            subprocess_logger.error(f"Failed to list chat history: {e}", exc_info=True)
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'error',
+                'message': f'Failed to retrieve chat history: {str(e)}',
+                'chats': []
+            }, status=500)
+
+    async def chat_history_load_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
+        """Load a specific archived chat by ID."""
+        try:
+            from core.chat import Chat
+
+            chat_id = request.match_info.get('id')
+            if not chat_id:
+                if web is None:
+                    raise RuntimeError("aiohttp not available")
+                return web.json_response({
+                    'status': 'error',
+                    'message': 'Chat ID is required'
+                }, status=400)
+
+            chat = Chat.load_from_archive(chat_id)
+            chat_dict = chat._to_dict()
+
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'success',
+                'chat': chat_dict
+            })
+
+        except FileNotFoundError as e:
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'error',
+                'message': str(e)
+            }, status=404)
+        except Exception as e:
+            subprocess_logger.error(f"Failed to load chat: {e}", exc_info=True)
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'error',
+                'message': f'Failed to load chat: {str(e)}'
+            }, status=500)
+
+    async def chat_history_delete_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
+        """Delete a specific archived chat by ID."""
+        try:
+            from core.chat import Chat
+
+            chat_id = request.match_info.get('id')
+            if not chat_id:
+                if web is None:
+                    raise RuntimeError("aiohttp not available")
+                return web.json_response({
+                    'status': 'error',
+                    'message': 'Chat ID is required'
+                }, status=400)
+
+            success = Chat.delete_from_archive(chat_id)
+
+            if success:
+                if web is None:
+                    raise RuntimeError("aiohttp not available")
+                return web.json_response({
+                    'status': 'success',
+                    'message': f'Chat {chat_id} deleted successfully'
+                })
+            else:
+                if web is None:
+                    raise RuntimeError("aiohttp not available")
+                return web.json_response({
+                    'status': 'error',
+                    'message': f'Chat {chat_id} not found'
+                }, status=404)
+
+        except Exception as e:
+            subprocess_logger.error(f"Failed to delete chat: {e}", exc_info=True)
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'error',
+                'message': f'Failed to delete chat: {str(e)}'
+            }, status=500)
+
+    async def chat_history_search_handler(request: Any) -> Any:
+        if web is None:
+            raise RuntimeError("aiohttp not available")
+        """Search archived chats by query."""
+        try:
+            from core.chat import Chat
+
+            query = request.query.get('q', '').lower()
+            if not query:
+                if web is None:
+                    raise RuntimeError("aiohttp not available")
+                return web.json_response({
+                    'status': 'error',
+                    'message': 'Search query is required'
+                }, status=400)
+
+            chats = Chat.list_archived_chats()
+
+            # Filter chats by query in preview
+            filtered_chats = [
+                chat for chat in chats
+                if query in chat.get('preview', '').lower()
+            ]
+
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'success',
+                'chats': filtered_chats,
+                'query': query
+            })
+
+        except Exception as e:
+            subprocess_logger.error(f"Failed to search chats: {e}", exc_info=True)
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            return web.json_response({
+                'status': 'error',
+                'message': f'Failed to search chats: {str(e)}',
+                'chats': []
+            }, status=500)
+
     async def main():
+        if web is None:
+            raise RuntimeError("aiohttp not available")
         app = web.Application()
         app.router.add_get('/', index_handler)
         app.router.add_get('/ws', websocket_handler)
         app.router.add_get('/favicon.ico', favicon_handler)
         app.router.add_get('/api/llms', llm_data_handler)
         app.router.add_get('/api/tools', tools_handler)
+        app.router.add_get('/api/profiles', profiles_handler)
+        app.router.add_get('/api/chat_history', chat_history_list_handler)
+        app.router.add_get('/api/chat_history/{id}', chat_history_load_handler)
+        app.router.add_delete('/api/chat_history/{id}', chat_history_delete_handler)
+        app.router.add_get('/api/chat_history/search', chat_history_search_handler)
         app.router.add_post('/upload', upload_handler)
         app.router.add_static('/libs/', path=ASSETS_DIR / 'libs', name='libs')
         app.router.add_static('/css/', path=ASSETS_DIR / 'css', name='css')
         app.router.add_static('/js/', path=ASSETS_DIR / 'js', name='js')
+        if web is None:
+            raise RuntimeError("aiohttp not available")
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, SERVER_HOST, port)
@@ -639,7 +875,7 @@ class VisualServerSession:
         self.input_queue = self.ctx.Queue()
         self.process: Optional[multiprocessing.Process] = None
         self.port: Optional[int] = None
-        g.visual_input_queue = self.input_queue
+        setattr(g, 'visual_input_queue', self.input_queue)
         self.start()
         if register_cleanup:
             g.register_cleanup(self.close)
@@ -766,7 +1002,49 @@ class visualresponse:
             if visualresponse._session:
                 visualresponse._session.close()
             visualresponse._session = VisualServerSession(register_cleanup=False)
+        if visualresponse._session is None:
+            raise RuntimeError("Failed to create visual server session")
         return visualresponse._session
+
+    @staticmethod
+    def get_speech_text(content: str) -> Optional[str]:
+        """
+        Optional method to provide custom TTS text for this tool.
+
+        Returns:
+            - String to speak via TTS
+            - None to skip TTS entirely
+            - If not implemented, default XML filtering is used
+
+        This is part of Tier 3 custom tool speech generation.
+        """
+        try:
+            # Extract type from visualresponse content
+            type_match = re.search(r'<type>(.*?)</type>', content, re.IGNORECASE | re.DOTALL)
+            if type_match:
+                viz_type = type_match.group(1).strip().lower()
+
+                # Skip TTS for visual-only content
+                if viz_type in ['html', 'code', 'javascript', 'css']:
+                    return None
+
+                # For markdown, extract and clean the text content
+                elif viz_type == 'markdown':
+                    content_match = re.search(r'<content>(.*?)</content>', content, re.IGNORECASE | re.DOTALL)
+                    if content_match:
+                        markdown_text = content_match.group(1).strip()
+                        # Remove CDATA wrapper if present
+                        if markdown_text.startswith('<![CDATA['):
+                            markdown_text = markdown_text[9:-3].strip()
+                        # Remove markdown formatting
+                        markdown_text = re.sub(r'[#*_`]', '', markdown_text)
+                        return markdown_text
+
+            # Default: use standard XML filtering
+            return None
+        except Exception as e:
+            logger.debug(f"Error in get_speech_text: {e}")
+            return None
 
     @staticmethod
     def run(content: str) -> str:
@@ -962,7 +1240,7 @@ class FileBasedConsoleCapture:
     Redirects stdout/stderr to log files for real-time streaming to web interface.
     """
 
-    def __init__(self, log_dir: str = None):
+    def __init__(self, log_dir: Optional[str] = None):
         self.original_stdout = sys.stdout
         self.original_stderr = sys.stderr
         self.enabled = False

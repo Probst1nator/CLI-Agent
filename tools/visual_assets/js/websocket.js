@@ -239,6 +239,21 @@ class WebSocketManager {
         }
     }
 
+    handleScreenshotEvent(data) {
+        this.logger.debug('Received screenshot event', { action: data.action, status: data.status });
+
+        // Forward to main app for screenshot button state management
+        if (this.app) {
+            if (data.action === 'captured' || data.status === 'ready') {
+                this.app.setScreenshotReady();
+            } else if (data.action === 'failed' || data.status === 'error') {
+                this.app.resetScreenshotState();
+            }
+        } else {
+            this.logger.warn('No app reference available for screenshot state management');
+        }
+    }
+
 
     createUserMessageFallback(message) {
         // Fallback implementation in case app.displayUserMessage is not available
@@ -346,6 +361,11 @@ class WebSocketManager {
             return;
         }
 
+        // Handle screenshot events
+        if (data.type === 'screenshot') {
+            this.handleScreenshotEvent(data);
+            return;
+        }
 
         // Handle live tool notifications (legacy)
         if (data.action === 'tool_start') {

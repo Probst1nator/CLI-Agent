@@ -64,7 +64,7 @@ The Visual Response System now uses a unified command-based approach for LLM sel
 - **Planner LLM**: `/planner_llm {model_key}` - Set the planner LLM model
 - **Router LLM**: `/router_llm {model_key}` - Set the router LLM model
 - **Fallback Models**: `/fallbacks {model1} {model2} {model3}` - Set fallback LLM models
-- **Reset**: `/reset` - Complete agent reset (replaces clear button)
+- **New Chat**: `/new_chat` or `/new` - Start a new chat (archives current conversation)
 
 #### Implementation Details
 

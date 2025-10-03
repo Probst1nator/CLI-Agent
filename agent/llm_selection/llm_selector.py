@@ -47,7 +47,7 @@ class LlmSelector:
         self.data = []
         self.filtered_data = []  # Data after applying search filter
         self.current_row = 0
-        self.current_col = 0  # 0: Router, 1: Planner, 2: Fallback, 3: Provider, 4: Model, 5: Host
+        self.current_col = 0  # 0: Override, 1: Router, 2: Planner, 3: Fallback, 4: Provider, 5: Model, 6: Host
         self.editing = False
         self.scroll_offset = 0  # For viewport scrolling
         self.edit_buffer = ""
@@ -138,6 +138,7 @@ class LlmSelector:
             'model': 35,           # "Model" (base)
             'router': 7,          # "Router"
             'planner': 8,         # "Planner"
+            'override': 9,        # "Override"
             'fallback': 8,        # "Fallback"
             'host': 20,           # "Host" (base)
             'pricing': 9,        # "Pricing"
@@ -637,13 +638,13 @@ class LlmSelector:
         widths = self._get_dynamic_column_widths()
 
         # Top border of the table
-        top_border = f"{'┌' + '─' * widths['cursor']}{'┬' + '─' * widths['router']}{'┬' + '─' * widths['planner']}{'┬' + '─' * widths['fallback']}{'┬' + '─' * widths['provider']}{'┬' + '─' * widths['model']}{'┬' + '─' * widths['host']}{'┬' + '─' * widths['pricing']}{'┬' + '─' * widths['vision']}{'┬' + '─' * widths['context']}{'┬' + '─' * widths['status']}┐"
+        top_border = f"{' ' * widths['cursor']}│{'─' * widths['override']}│{'─' * widths['router']}│{'─' * widths['planner']}│{'─' * widths['fallback']}│{'─' * widths['provider']}│{'─' * widths['model']}│{'─' * widths['host']}│{'─' * widths['pricing']}│{'─' * widths['vision']}│{'─' * widths['context']}│{'─' * widths['status']}   "
         all_fragments.extend(to_formatted_text(HTML(f"<b>{top_border}</b>")))
         all_fragments.append(('', '\n'))
 
         header_str = (
             f"{' ':{widths['cursor']}}│"
-            f"{'Router':<{widths['router']}}│{'Planner':<{widths['planner']}}│{'Fallback':<{widths['fallback']}}│"
+            f"{'Override':<{widths['override']}}│{'Router':<{widths['router']}}│{'Planner':<{widths['planner']}}│{'Fallback':<{widths['fallback']}}│"
             f"{'Provider':<{widths['provider']}}│{'Model':<{widths['model']}}│"
             f"{'Host':<{widths['host']}}│{'Pricing':<{widths['pricing']}}│{'Vision':<{widths['vision']}}│{'Context':<{widths['context']}}│{'Status':<{widths['status']}}   "
         )
@@ -651,7 +652,7 @@ class LlmSelector:
         all_fragments.append(('', '\n'))
 
         # Header separator with proper grid formatting
-        header_separator = f"{'├' + '─' * widths['cursor']}{'┼' + '─' * widths['router']}{'┼' + '─' * widths['planner']}{'┼' + '─' * widths['fallback']}{'┼' + '─' * widths['provider']}{'┼' + '─' * widths['model']}{'┼' + '─' * widths['host']}{'┼' + '─' * widths['pricing']}{'┼' + '─' * widths['vision']}{'┼' + '─' * widths['context']}{'┼' + '─' * widths['status']}┤"
+        header_separator = f"{' ' * widths['cursor']}│{'─' * widths['override']}│{'─' * widths['router']}│{'─' * widths['planner']}│{'─' * widths['fallback']}│{'─' * widths['provider']}│{'─' * widths['model']}│{'─' * widths['host']}│{'─' * widths['pricing']}│{'─' * widths['vision']}│{'─' * widths['context']}│{'─' * widths['status']}   "
         all_fragments.extend(to_formatted_text(HTML(f"<b>{header_separator}</b>")))
         all_fragments.append(('', '\n'))
 
@@ -676,6 +677,7 @@ class LlmSelector:
 
             cursor = "▶" if actual_row_index == self.current_row else " "
 
+            override_text_base = "✓" if row.get('override', 0) > 0 else " "
             router_text_base = "✓" if row.get('router', 0) > 0 else " "
             planner_text_base = "✓" if row.get('planner', 0) > 0 else " "
             fallback_text_base = "✓" if row.get('fallback', 0) > 0 else " "
@@ -683,14 +685,16 @@ class LlmSelector:
             if self.editing and actual_row_index == self.current_row:
                 edit_display = f"[{self.edit_buffer}_]"
                 if self.current_col == 0:
-                    router_text_base = edit_display
+                    override_text_base = edit_display
                 elif self.current_col == 1:
-                    planner_text_base = edit_display
+                    router_text_base = edit_display
                 elif self.current_col == 2:
+                    planner_text_base = edit_display
+                elif self.current_col == 3:
                     fallback_text_base = edit_display
 
             style_map = {
-                'provider': 'provider', 'model': 'model', 'router': 'router', 'planner': 'planner', 'fallback': 'fallback', 'pricing': 'pricing', 'vision': 'vision', 'context': 'context'
+                'provider': 'provider', 'model': 'model', 'router': 'router', 'planner': 'planner', 'override': 'override', 'fallback': 'fallback', 'pricing': 'pricing', 'vision': 'vision', 'context': 'context'
             }
             # This block was removed to prevent non-local LLMs from being grayed out.
             # The force_local_mode flag still correctly auto-selects local models,
@@ -706,6 +710,7 @@ class LlmSelector:
                 host_text = f"<{style_map['provider']}>{host_value:<{widths['host']}}</{style_map['provider']}>"
             else:
                 host_text = f"<ansigreen>{host_value:<{widths['host']}}</ansigreen>"
+            override_text = f"<{style_map['override']}>{override_text_base:<{widths['override']}}</{style_map['override']}>"
             router_text = f"<{style_map['router']}>{router_text_base:<{widths['router']}}</{style_map['router']}>"
             planner_text = f"<{style_map['planner']}>{planner_text_base:<{widths['planner']}}</{style_map['planner']}>"
             fallback_text = f"<{style_map['fallback']}>{fallback_text_base:<{widths['fallback']}}</{style_map['fallback']}>"
@@ -727,36 +732,32 @@ class LlmSelector:
 
             if actual_row_index == self.current_row and not self.editing:
                 if self.current_col == 0:
-                    router_text = f"<reverse>{router_text_base:<{widths['router']}}</reverse>"
+                    override_text = f"<reverse>{override_text_base:<{widths['override']}}</reverse>"
                 elif self.current_col == 1:
-                    planner_text = f"<reverse>{planner_text_base:<{widths['planner']}}</reverse>"
+                    router_text = f"<reverse>{router_text_base:<{widths['router']}}</reverse>"
                 elif self.current_col == 2:
-                    fallback_text = f"<reverse>{fallback_text_base:<{widths['fallback']}}</reverse>"
+                    planner_text = f"<reverse>{planner_text_base:<{widths['planner']}}</reverse>"
                 elif self.current_col == 3:
-                    provider_text = f"<reverse>{row.get('provider', ''):<{widths['provider']}}</reverse>"
+                    fallback_text = f"<reverse>{fallback_text_base:<{widths['fallback']}}</reverse>"
                 elif self.current_col == 4:
-                    model_text = f"<reverse>{row.get('model_key', ''):<{widths['model']}}</reverse>"
+                    provider_text = f"<reverse>{row.get('provider', ''):<{widths['provider']}}</reverse>"
                 elif self.current_col == 5:
+                    model_text = f"<reverse>{row.get('model_key', ''):<{widths['model']}}</reverse>"
+                elif self.current_col == 6:
                     host_text = f"<reverse>{row.get('assigned_host', 'localhost:11434'):<{widths['host']}}</reverse>"
 
             line_str = (
                 f"{cursor}│"
-                f"{router_text}│{planner_text}│{fallback_text}│"
+                f"{override_text}│{router_text}│{planner_text}│{fallback_text}│"
                 f"{provider_text}│{model_text}│"
                 f"{host_text}│{pricing_text}│{vision_text}│{context_text}│{status_text}   "
             )
             all_fragments.extend(to_formatted_text(HTML(line_str)))
             all_fragments.append(('', '\n'))
 
-            # Add horizontal separator between rows
-            if actual_row_index < len(self.filtered_data) - 1:  # Don't add after last row
-                separator_line = f"{'├' + '─' * widths['cursor']}{'┼' + '─' * widths['router']}{'┼' + '─' * widths['planner']}{'┼' + '─' * widths['fallback']}{'┼' + '─' * widths['provider']}{'┼' + '─' * widths['model']}{'┼' + '─' * widths['host']}{'┼' + '─' * widths['pricing']}{'┼' + '─' * widths['vision']}{'┼' + '─' * widths['context']}{'┼' + '─' * widths['status']}┤"
-                all_fragments.extend(to_formatted_text(HTML(f"<separator>{separator_line}</separator>")))
-                all_fragments.append(('', '\n'))
-
         # Add bottom border of the table
         if self.filtered_data:  # Only if there are rows
-            bottom_border = f"{'└' + '─' * widths['cursor']}{'┴' + '─' * widths['router']}{'┴' + '─' * widths['planner']}{'┴' + '─' * widths['fallback']}{'┴' + '─' * widths['provider']}{'┴' + '─' * widths['model']}{'┴' + '─' * widths['host']}{'┴' + '─' * widths['pricing']}{'┴' + '─' * widths['vision']}{'┴' + '─' * widths['context']}{'┴' + '─' * widths['status']}┘"
+            bottom_border = f"{' ' * widths['cursor']}│{'─' * widths['override']}│{'─' * widths['router']}│{'─' * widths['planner']}│{'─' * widths['fallback']}│{'─' * widths['provider']}│{'─' * widths['model']}│{'─' * widths['host']}│{'─' * widths['pricing']}│{'─' * widths['vision']}│{'─' * widths['context']}│{'─' * widths['status']}   "
             all_fragments.extend(to_formatted_text(HTML(f"<b>{bottom_border}</b>")))
             all_fragments.append(('', '\n'))
 

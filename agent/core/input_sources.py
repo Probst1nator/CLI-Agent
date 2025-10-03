@@ -529,7 +529,7 @@ class VoiceInputSource(InputSource_ABC):
                 self.logger.info(f"🎤 Asking: \"{clean_prompt}\"")
                 text_to_speech(text=clean_prompt, speed=0.8, volume=0.7, use_piper=True)
             else:
-                self.logger.info(f"🎤 Listening...")
+                self.logger.info("🎤 Listening...")
 
             # Listen for response
             transcription, _, _ = listen_microphone(

@@ -61,11 +61,11 @@ File: `core/globals.py` - `load_llm_roles()` method
 if not selected_models and not config.get('__planner_llm__') and not config.get('__router_llm__'):
     logging.info("🔧 No existing configuration found, applying default LLM configuration")
     self.llm_roles['planner'] = 'gemini-2.5-pro'
-    self.llm_roles['router'] = 'gemini-2.5-flash-lite-preview-06-17'
+    self.llm_roles['router'] = 'gemini-flash-lite-latest'
     self.llm_roles['fallbacks'] = [
-        'gemini-2.5-flash-preview-05-20',
-        'gemini-2.5-flash', 
-        'gemini-2.5-flash-lite-preview-06-17'
+        'gemini-flash-latest',
+        'gemini-flash-lite-latest',
+        'mistral-small3.2:latest'
     ]
 ```
 

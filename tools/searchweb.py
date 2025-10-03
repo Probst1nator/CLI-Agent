@@ -76,7 +76,7 @@ class searchweb:
         return clean_text.strip()
 
     @staticmethod
-    def result_to_source(result, date = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')) -> str:
+    def result_to_source(result: dict, date: str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')) -> str:
         snippets = result.get('extra_snippets', [])
         title = result.get('title', [])
         url = result.get('url', [])
@@ -88,7 +88,7 @@ class searchweb:
         return ""
 
     @staticmethod
-    async def _format_text_summary(results: list, query: str, use_cache: bool = True) -> str:
+    async def _format_text_summary(results: list[dict], query: str, use_cache: bool = True) -> str:
         """ The original functionality: returns a single condensed string. """
         if not results:
             return "No web search results found."
@@ -334,7 +334,7 @@ class searchweb:
             if need_brave_api:
                 api_key = os.getenv("BRAVE_API_KEY")
                 if not api_key:
-                    if cached_results_with_scores:
+                    if results_list:
                         print("⚠️ No BRAVE_API_KEY found, using cached results only")
                         need_brave_api = False
                     else:

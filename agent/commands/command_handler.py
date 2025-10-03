@@ -41,8 +41,11 @@ class CommandHandler:
             PrintCommand, YoloCommand, VoiceCommand, LocalCommand,
             OnlineCommand, FullOutputCommand, LlmCommand,
             PermissionCommand, SaveCommand, CompactCommand,
-            PlannerLlmCommand, RouterLlmCommand, FallbacksCommand, ConfigCommand,
+            PlannerLlmCommand, RouterLlmCommand, OverrideLlmCommand, FallbacksCommand, ConfigCommand,
             ToolsCommand
+        )
+        from agent.commands.profile_commands import (
+            ProfileSaveCommand, ProfileLoadCommand, ProfileListCommand, ProfileDeleteCommand
         )
 
         # Register all commands
@@ -66,9 +69,14 @@ class CommandHandler:
             CompactCommand(self.context),
             PlannerLlmCommand(self.context),
             RouterLlmCommand(self.context),
+            OverrideLlmCommand(self.context),
             FallbacksCommand(self.context),
             ConfigCommand(self.context),
             ToolsCommand(self.context),
+            ProfileSaveCommand(self.context),
+            ProfileLoadCommand(self.context),
+            ProfileListCommand(self.context),
+            ProfileDeleteCommand(self.context),
         ]
 
         for command in commands:
@@ -190,7 +198,7 @@ class CommandHandler:
         categories = {
             "Core Commands": ["/h", "/help", "/e", "/exit"],
             "Input & Media": ["/m", "/message", "/img", "/screenshot", "/v", "/voice"],
-            "Chat Management": ["/r", "/regenerate", "/p", "/print", "/clear", "/reset", "/compact", "/unsay"],
+            "Chat Management": ["/r", "/regenerate", "/p", "/print", "/clear", "/new_chat", "/new", "/compact", "/unsay"],
             "Configuration": ["/l", "/local", "/o", "/online", "/yolo", "/y", "/fo", "/full_output", "/config", "/c"],
             "LLM Management": ["/llm", "/planner_llm", "/router_llm", "/fallbacks", "/s", "/save"],
             "Permissions": ["/perms", "/permissions"]

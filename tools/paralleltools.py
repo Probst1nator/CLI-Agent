@@ -141,10 +141,13 @@ class paralleltools:
                         tool_was_executed = True
                         # Run the first block found for this tool
                         block_content = blocks[0]
-                        tool_result = tool_class.run(block_content)
+                        tool_result_raw = tool_class.run(block_content)
 
-                        if asyncio.iscoroutine(tool_result):
-                            tool_result = await tool_result
+                        tool_result: str = ""
+                        if asyncio.iscoroutine(tool_result_raw):
+                            tool_result = await tool_result_raw
+                        else:
+                            tool_result = tool_result_raw
 
                         if tool_result:
                             context_msg = f"<context>\n{tool_result}\n</context>"
@@ -196,13 +199,13 @@ class paralleltools:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # 4. Aggregate and format the results
-        output_parts = ["Parallel execution finished. Aggregating results:\n"]
+        output_parts: list[str] = ["Parallel execution finished. Aggregating results:\n"]
         for path, result in zip(paths, results):
             output_parts.append(f"--- Results for path: {path} ---")
             if isinstance(result, Exception):
                 output_parts.append(f"Error: {str(result)}")
             else:
-                output_parts.append(result)
+                output_parts.append(str(result))
             output_parts.append("--- End of Results ---")
 
         return "\n\n".join(output_parts)

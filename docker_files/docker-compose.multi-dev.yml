@@ -19,6 +19,8 @@ services:
       - MAX_INSTANCES=3
       - INSTANCE_TIMEOUT=1800  # 30 minutes
       - BASE_PORT=7871         # Start dev instances at 7871
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health", "||", "exit", "1"]
       interval: 30s
@@ -158,14 +160,6 @@ services:
 networks:
   cli-agent-multi-dev-net:
     driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: cli-agent-multi-dev-br0
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.32.0.0/24
-          gateway: 172.32.0.1
-    internal: false  # Allow internet access
 
 # Development volumes with unique names
 volumes:

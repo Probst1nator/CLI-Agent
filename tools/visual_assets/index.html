@@ -16,6 +16,11 @@
     <script src="/libs/3Dmol-min.js"></script>
     <script src="/libs/svg-pan-zoom.min.js"></script>
 
+    <!-- KaTeX for LaTeX rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+
     <!-- Modern Framework Libraries (CDN) - Production Builds -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -26,6 +31,34 @@
     <div class="header">
         <div><div id="header-text">Agent's Live Visual Response</div><div id="status" style="color: var(--status-connecting);">Connecting to agent...</div></div>
         <div class="header-controls">
+            <div class="profile-slots-container">
+                <div class="profile-slots-grid">
+                    <div class="profile-slot" data-slot="1" title="Profile Slot 1">
+                        <span class="profile-slot-number">1</span>
+                    </div>
+                    <div class="profile-slot" data-slot="2" title="Profile Slot 2">
+                        <span class="profile-slot-number">2</span>
+                    </div>
+                    <div class="profile-slot" data-slot="3" title="Profile Slot 3">
+                        <span class="profile-slot-number">3</span>
+                    </div>
+                    <div class="profile-slot" data-slot="4" title="Profile Slot 4">
+                        <span class="profile-slot-number">4</span>
+                    </div>
+                    <div class="profile-slot" data-slot="5" title="Profile Slot 5">
+                        <span class="profile-slot-number">5</span>
+                    </div>
+                    <div class="profile-slot" data-slot="6" title="Profile Slot 6">
+                        <span class="profile-slot-number">6</span>
+                    </div>
+                </div>
+            </div>
+            <div class="override-llm-container">
+                <span class="override-llm-label">Override:</span>
+                <div class="override-llm-selector-wrapper" title="Override LLM: When set, always uses this model, bypassing router/planner selection.">
+                    <div id="override-llm-selector"></div>
+                </div>
+            </div>
             <div class="router-llm-container">
                 <span class="router-llm-label">Router:</span>
                 <div class="router-llm-selector-wrapper" title="Router LLM: Used for routing decisions. Can be set to None to disable routing.">
@@ -55,10 +88,6 @@
                     </div>
                 </div>
             </div>
-            <button id="reset-history-btn" class="reset-history-button" title="Reset message history">
-                <span class="reset-icon">🔄</span>
-                <span class="reset-text">Reset</span>
-            </button>
             <button id="global-js-toggle" class="js-enabled" title="Toggle JavaScript for all messages">
                 <span class="js-icon">⚡</span>
                 <span class="js-text">JS Enabled</span>
@@ -72,6 +101,28 @@
 
     <div class="container">
         <div class="main-content-area">
+            <div id="chat-history-sidebar" class="chat-history-sidebar">
+                <div class="chat-history-resize-handle" id="chat-history-resize-handle"></div>
+                <div class="chat-history-header">
+                    <button id="chat-history-toggle-btn" class="chat-history-toggle-btn" title="Toggle chat history sidebar">
+                        <span class="hamburger-icon">☰</span>
+                    </button>
+                    <h3>Chat History</h3>
+                </div>
+                <div class="chat-history-new-chat-container">
+                    <button id="new-chat-btn" class="new-chat-button" title="Start new chat">
+                        <span class="new-chat-icon">+</span>
+                        <span class="new-chat-text">New Chat</span>
+                    </button>
+                </div>
+                <div class="chat-history-search">
+                    <input type="text" id="chat-history-search-input" placeholder="Search chats..." />
+                </div>
+                <div id="chat-history-content" class="chat-history-content">
+                    <!-- Chat list will be populated here -->
+                </div>
+            </div>
+
             <div id="content-wrapper">
                 <!-- Dynamic content will be inserted here -->
             </div>
@@ -146,6 +197,7 @@
     <script src="/js/websocket.js"></script>
     <script src="/js/llm-selector.js"></script>
     <script src="/js/tool-manager.js"></script>
+    <script src="/js/chat-history.js"></script>
     <script src="/js/main.js"></script>
 </body>
 </html>

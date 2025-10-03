@@ -256,7 +256,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
 
     // Add CSP meta tag and base tag to iframe content to allow external scripts and fix source maps
     const baseTag = `<base href="${window.location.href}">`;
-    const cspMetaTag = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\' \'unsafe-inline\' \'unsafe-eval\' https://unpkg.com https://cdn.plot.ly https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src \'self\' data: blob:; connect-src \'self\' ws: wss:; object-src \'none\'; base-uri \'self\'; form-action \'self\'">';
+    const cspMetaTag = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\' \'unsafe-inline\' \'unsafe-eval\' https://unpkg.com https://cdn.plot.ly https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src \'self\' \'unsafe-inline\' https://cdn.jsdelivr.net; font-src \'self\' data: https://cdn.jsdelivr.net; img-src \'self\' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src \'self\' data: blob:; connect-src \'self\' ws: wss:; object-src \'none\'; base-uri \'self\'; form-action \'self\'">';
 
     // Add CSS to fix text color inheritance and disable source maps
     const colorFixCSS = `
@@ -614,7 +614,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
 }
 
 /**
- * Renders Markdown content, including support for Mermaid diagrams.
+ * Renders Markdown content, including support for Mermaid diagrams and LaTeX.
  * @param {HTMLElement} targetElement - The container element to render into.
  * @param {string} markdownContent - The Markdown string.
  */
@@ -626,6 +626,7 @@ function renderMarkdown(targetElement, markdownContent) {
     }
     targetElement.innerHTML = marked.parse(markdownContent);
     renderMermaidDiagrams(targetElement);
+    renderLatex(targetElement);
 }
 
 /**
@@ -647,6 +648,32 @@ async function renderMermaidDiagrams(targetElement) {
         }
     } catch (error) {
         window.visualLogger.error("Failed to render Mermaid diagram.", { error: error.message });
+    }
+}
+
+/**
+ * Renders LaTeX math expressions using KaTeX.
+ * @param {HTMLElement} targetElement - The element to scan for LaTeX expressions.
+ */
+function renderLatex(targetElement) {
+    if (typeof renderMathInElement === 'undefined') {
+        window.visualLogger.warn("KaTeX auto-render not loaded. Skipping LaTeX rendering.");
+        return;
+    }
+    try {
+        renderMathInElement(targetElement, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\[', right: '\\]', display: true},
+                {left: '\\(', right: '\\)', display: false}
+            ],
+            throwOnError: false,
+            strict: false
+        });
+        window.visualLogger.debug('LaTeX expressions rendered successfully.');
+    } catch (error) {
+        window.visualLogger.error("Failed to render LaTeX expressions.", { error: error.message });
     }
 }
 
