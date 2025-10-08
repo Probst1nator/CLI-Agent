@@ -1138,6 +1138,17 @@ def create_interruption_callback(
                         tool_match = XML_TOOL_BLOCK_REGEX.search(current_buffer)
                         if tool_match:
                             full_block = tool_match.group(0).strip()
+
+                            # Special case: if this is inside an unclosed <paralleltools> block,
+                            # don't interrupt yet - wait for the outer </paralleltools> tag
+                            paralleltools_start = current_buffer.find('<paralleltools')
+                            if paralleltools_start != -1:
+                                # Check if we have a closing </paralleltools> tag
+                                paralleltools_end = current_buffer.find('</paralleltools>')
+                                if paralleltools_end == -1:
+                                    # paralleltools is still open, don't interrupt on inner tools
+                                    continue
+
                             raise StreamInterruptedException(full_block)
 
     return _callback
@@ -1223,7 +1234,7 @@ The following loop is a suggestion of how to behave effectively, you may freely 
 1.  **DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.
 2.  **PLAN & TRACK**: Display/update your <todos>...</todos> to align your next step(s) with the stated long term goal(s).'''
 
-    step_4 = "4.  **OBSERVE & ATTEND**: After executing a tool, mindfully attend to it with the <think> and <todos> tags to integrate your observations into your long term strategy. When you have finished your tasks or need intermittent information from the user, please prompt him with <response>."
+    step_4 = "4.  **OBSERVE & ATTEND**: Regularly use the <think> and <todos> tools, especially after you've received a new <context>, to make your observations explicit and guide your current actions. When you need to respond to the user, please prompt him with <response>."
 
     # Get disabled tools from global state (set by visual interface)
     user_disabled_tools = getattr(g, 'disabled_tools', [])
@@ -2166,9 +2177,11 @@ async def main(  # type: ignore[misc]
                                         "context_length": len(str(tool_result)) if tool_result else 0
                                     }
 
-                                    # Add model key to tool info at creation time
+                                    # Add model key to tool info - use the model that generated this response
                                     try:
-                                        used_model = LlmRouter.get_last_used_model()
+                                        # Use g.current_llm_model which was set when the LLM response was generated
+                                        # (not get_last_used_model which might be from a later LLM call)
+                                        used_model = g.current_llm_model if hasattr(g, 'current_llm_model') else LlmRouter.get_last_used_model()
                                         tool_info["model"] = used_model
                                         if used_model and used_model != 'unknown':
                                             logging.debug(f"✓ Added model '{used_model}' to tool_info for {tool_name}")
@@ -2216,13 +2229,13 @@ async def main(  # type: ignore[misc]
 
 Resource ID: {resource_id}
 
-Use <searchtext><resource_id>{resource_id}</resource_id><pattern>YOUR_PATTERN</pattern></searchtext> to search this content.
-Use <searchtext><resource_id>{resource_id}</resource_id><lines>1-50</lines></searchtext> to view specific line ranges.
+Use <searchresource><resource_id>{resource_id}</resource_id><search>YOUR_PATTERN</search></searchresource> to search this content.
+Use <searchresource><resource_id>{resource_id}</resource_id><lines>1-50</lines></searchresource> to view specific line ranges.
 
 Examples:
-- Search for errors: <searchtext><resource_id>{resource_id}</resource_id><pattern>error|failed|exception</pattern><context_lines>2</context_lines></searchtext>
-- View beginning: <searchtext><resource_id>{resource_id}</resource_id><lines>1-20</lines></searchtext>
-- View end: <searchtext><resource_id>{resource_id}</resource_id><lines>{max(1, lines_count-19)}-{lines_count}</lines></searchtext>"""
+- Search for errors: <searchresource><resource_id>{resource_id}</resource_id><search>error|failed|exception</search><context>2</context></searchresource>
+- View beginning: <searchresource><resource_id>{resource_id}</resource_id><lines>1-20</lines></searchresource>
+- View end: <searchresource><resource_id>{resource_id}</resource_id><lines>{max(1, lines_count-19)}-{lines_count}</lines></searchresource>"""
                                             except Exception as e:
                                                 # Fallback to truncation if resource creation fails
                                                 chunk_size = readfile.CHUNK_LIMIT//4
@@ -2276,7 +2289,7 @@ Examples:
                                         try:
                                             from api.server import broadcast_message_added
                                             await broadcast_message_added(context_chat.messages[-1])
-                                            logging.debug(f"Broadcasted updated assistant message")
+                                            logging.debug("Broadcasted updated assistant message")
                                         except Exception:
                                             pass
 

@@ -203,7 +203,7 @@ class searchweb:
 
             response += "\n\nAccess individual sources using:"
             response += "\n• Read full source: <readfile>{resource_id}</readfile>"
-            response += "\n• Search within source: <searchtext><resource_id>{resource_id}</resource_id><pattern>your search term</pattern></searchtext>"
+            response += "\n• Search within source: <searchresource><resource_id>{resource_id}</resource_id><search>your search term</search></searchresource>"
 
             new_count = sum(1 for r in created_resources if r['is_new'])
             existing_count = len(created_resources) - new_count

@@ -25,7 +25,7 @@ class ToolManager {
     /**
      * Initialize the tool manager
      */
-    initialize() {
+    async initialize() {
         this.containerElement = document.getElementById('tool-toggles');
 
         if (!this.containerElement) {
@@ -33,51 +33,20 @@ class ToolManager {
             return;
         }
 
-        // Tools will be dynamically fetched from the server
-        this.tools = [];
-
-        // Fetch tools from server and then create toggles
-        this.fetchAvailableTools().then(() => {
-            this.createToolToggles();
-            window.visualLogger?.info('ToolManager initialized with', this.tools.length, 'tools from server');
-        }).catch(error => {
-            console.error('Failed to fetch tools, falling back to default list:', error);
+        if (window.ToolRegistry) {
+            await window.ToolRegistry.waitForReady();
+            this.tools = window.ToolRegistry.getTools();
+            window.visualLogger?.info('ToolManager initialized with', this.tools.length, 'tools from ToolRegistry');
+        } else {
+            window.visualLogger?.warn('ToolRegistry not available, using fallback');
             this.fallbackToDefaultTools();
-            this.createToolToggles();
-            window.visualLogger?.warn('ToolManager initialized with', this.tools.length, 'fallback tools');
-        });
-    }
-
-    /**
-     * Fetch available tools from the server
-     */
-    async fetchAvailableTools() {
-        try {
-            const response = await fetch('/api/tools');
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-
-            if (data.tools && Array.isArray(data.tools)) {
-                this.tools = data.tools.map(tool => ({
-                    name: tool.name || tool.delim,
-                    displayName: tool.displayName || tool.info?.name
-                }));
-
-                window.visualLogger?.info(`Fetched ${this.tools.length} tools from server:`, this.tools.map(t => t.name));
-            } else {
-                throw new Error('Invalid tools data format received from server');
-            }
-        } catch (error) {
-            window.visualLogger?.error('Error fetching tools from server:', error);
-            throw error;
         }
+
+        this.createToolToggles();
     }
 
     /**
-     * Fallback to a default set of common tools if server fetch fails
+     * Fallback to a default set of common tools if ToolRegistry is unavailable
      */
     fallbackToDefaultTools() {
         this.tools = [
@@ -93,7 +62,7 @@ class ToolManager {
             { name: 'insertline', displayName: 'Insert Line' },
             { name: 'deletelines', displayName: 'Delete Lines' },
             { name: 'paralleltools', displayName: 'Parallel Tools' },
-            { name: 'searchtext', displayName: 'Search Text' },
+            { name: 'searchresource', displayName: 'Search Resource' },
             { name: 'viewpermissions', displayName: 'View Permissions' }
         ];
 

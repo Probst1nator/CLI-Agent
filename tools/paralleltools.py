@@ -1,25 +1,19 @@
 # tools/paralleltools.py
 """
-This file implements the 'paralleltools' tool. It allows an agent to specify
-multiple file paths and a single prompt, then spawns concurrent, read-only
-sub-agents to execute that prompt on each path.
+This file implements the 'paralleltools' tool. It allows an agent to execute
+multiple arbitrary tools in parallel and return their results in a single
+context block with markdown-style section headers.
 """
 
-import os
-import re
 import asyncio
-from typing import Dict, Any
+from typing import Any, List, Tuple
 
 from core.globals import g
-from core.chat import Chat, Role
-from core.llm_router import LlmRouter
-from shared.common_utils import extract_blocks
 from termcolor import colored
 
 class paralleltools:
     """
-    A tool to execute a single prompt across multiple directories in parallel
-    using sandboxed, read-only sub-agents.
+    A tool to execute multiple tools in parallel and aggregate their results.
     """
 
     @staticmethod
@@ -32,180 +26,190 @@ class paralleltools:
         """Provides standardized documentation for this tool."""
         return {
             "name": "paralleltools",
-            "description": "Executes a single prompt on a list of directories in parallel. Each directory is processed by an independent, read-only agent. Useful for applying the same analysis or task across multiple components of a codebase.",
+            "description": (
+                "Executes multiple tools in parallel and returns their combined results "
+                "in a single context block with markdown section headers. Place any valid "
+                "tool invocations inside the paralleltools tags using their native XML format. "
+                "Results are returned with headers like '## toolname' for easy parsing. "
+            ),
             "example": (
                 "<paralleltools>\n"
-                "  <path>./src/api</path>\n"
-                "  <path>./src/ui</path>\n"
-                "  <prompt>Analyze the code in this directory and write a short summary of its purpose and key dependencies.</prompt>\n"
+                "  <readfile>./src/main.py</readfile>\n"
+                "  <grepsearch>\n"
+                "    <pattern>async def</pattern>\n"
+                "    <path>./src</path>\n"
+                "  </grepsearch>\n"
+                "  <bash>git status</bash>\n"
                 "</paralleltools>"
             )
         }
 
     @staticmethod
-    def _get_readonly_tools() -> Dict[str, Any]:
+    def _extract_tool_calls(content: str) -> List[Tuple[str, str]]:
         """
-        Filters the globally available tools to a safe, read-only subset for sub-agents.
+        Extract all tool invocations from the paralleltools content.
+        Returns a list of (tool_name, tool_content) tuples.
+
+        This uses a simpler approach: find opening tags at the root level
+        and extract their full content including nested tags.
         """
-        # This function relies on the main agent having already discovered all tools
-        # and populated g.tool_classes.
-        if not hasattr(g, 'tool_classes') or not g.tool_classes:
-            return {}
+        tool_calls = []
 
-        allowed_tool_names = [
-            'readfile', 'grepsearch', 'searchweb', 'think',
-            'response', 'todos', 'viewpermissions', 'getuserfiles'
-        ]
+        # Remove the outer paralleltools tags to get inner content
+        content = content.strip()
 
-        readonly_tools = {
-            name: cls for name, cls in g.tool_classes.items()
-            if name in allowed_tool_names
-        }
-        return readonly_tools
+        # Find all top-level tool tags
+        # We need to handle nested tags, so we can't use simple regex
+        # Instead, we'll parse iteratively
+        i = 0
+        while i < len(content):
+            # Skip whitespace
+            while i < len(content) and content[i].isspace():
+                i += 1
+
+            if i >= len(content):
+                break
+
+            # Look for opening tag
+            if content[i] == '<':
+                # Find tag name
+                tag_start = i + 1
+                tag_end = tag_start
+                while tag_end < len(content) and content[tag_end] not in ('>', ' ', '\t', '\n'):
+                    tag_end += 1
+
+                if tag_end >= len(content):
+                    break
+
+                tag_name = content[tag_start:tag_end]
+
+                # Skip if this is a closing tag
+                if tag_name.startswith('/'):
+                    i = tag_end + 1
+                    continue
+
+                # Find the matching closing tag
+                closing_tag = f'</{tag_name}>'
+                tag_content_start = content.find('>', tag_end) + 1
+
+                # Count nested tags to find the right closing tag
+                depth = 1
+                search_pos = tag_content_start
+                content_end = tag_content_start
+
+                while depth > 0 and search_pos < len(content):
+                    open_match = content.find(f'<{tag_name}', search_pos)
+                    close_match = content.find(closing_tag, search_pos)
+
+                    if close_match == -1:
+                        break
+
+                    if open_match != -1 and open_match < close_match:
+                        depth += 1
+                        search_pos = open_match + len(tag_name) + 1
+                    else:
+                        depth -= 1
+                        if depth == 0:
+                            content_end = close_match
+                        search_pos = close_match + len(closing_tag)
+
+                if content_end > tag_content_start:
+                    tool_content = content[tag_content_start:content_end].strip()
+                    tool_calls.append((tag_name, tool_content))
+                    i = content_end + len(closing_tag)
+                else:
+                    i = tag_end + 1
+            else:
+                i += 1
+
+        return tool_calls
 
     @staticmethod
-    def _generate_readonly_system_prompt(readonly_tools: Dict[str, Any]) -> str:
+    async def _execute_tool(tool_name: str, tool_content: str, tool_class: Any) -> str:
         """
-        Constructs a system prompt specifically for the read-only sub-agents,
-        listing only the tools they are permitted to use.
+        Execute a single tool and return its result.
+        Handles both sync and async tools.
         """
-        base_instructions = (
-            "**SYSTEM: Read-Only Agent Protocol**\n\n"
-            "You are a specialized, read-only AI agent. Your capabilities are strictly limited to "
-            "observing and analyzing files and information. You CANNOT make any modifications.\n"
-            "Your goal is to follow the user's prompt within your designated directory.\n\n"
-            "### Guiding Principles (Your Core Logic)\n"
-            "1.  **OBSERVE & DECOMPOSE**: Analyze the user's request and break it down into the required steps. Start with: `<think>...</think>`.\n"
-            "2.  **PLAN & TRACK**: Use `<todos>...</todos>` to outline your plan and track your progress."
-        )
-
-        tool_docs_parts = []
-        # We only document executable tools, not cognitive/structural ones like think/todos/response.
-        documented_tools = {k: v for k, v in readonly_tools.items() if k not in ['think', 'todos', 'response']}
-
-        for tool_name, tool_class in sorted(documented_tools.items()):
-            info = tool_class.get_tool_info()
-            doc_string = f"- **{tool_name}**: {info['description']}\n  - *Example*: `{info['example']}`"
-            tool_docs_parts.append(doc_string)
-
-        tool_docs = "3. **EXECUTE**: Use one of the following tools to perform an action. Use only ONE tool at a time.\n\n" + "\n".join(tool_docs_parts)
-
-        final_step = "4.  **RESPOND**: Once you have gathered all necessary information, provide a final, comprehensive answer using the `<response>...</response>` tag. This tag concludes your work and terminates your session."
-
-        return f"{base_instructions}\n{tool_docs}\n{final_step}"
-
-    @staticmethod
-    async def _run_sub_agent(path: str, prompt: str, readonly_tools: Dict[str, Any], readonly_system_prompt: str) -> str:
-        """
-        The core logic for a single, isolated, read-only sub-agent.
-        """
-        original_cwd = os.getcwd()
         try:
-            # 1. Setup Environment
-            if not os.path.isdir(path):
-                return f"Error: Path '{path}' is not a valid directory."
-            os.chdir(path)
+            # Check if the tool's run method is async
+            result = tool_class.run(tool_content)
 
-            # 2. Initialize Chat and LLM Router
-            chat = Chat(debug_title=f"Sub-Agent({os.path.basename(path)})")
-            chat.set_instruction_message(readonly_system_prompt)
-            chat.add_message(Role.USER, prompt)
+            # If it's a coroutine, await it
+            if asyncio.iscoroutine(result):
+                result = await result
 
-            llm_router = LlmRouter()
-
-            # 3. Sub-agent Execution Loop
-            MAX_TURNS = 10
-            for _ in range(MAX_TURNS):
-                assistant_response = await llm_router.chat_with_retry(
-                    chat=chat,
-                    temperature=0.0, # Use low temperature for focused, deterministic sub-agents
-                    model_key=None # Use default model
-                )
-
-                if not assistant_response:
-                    return f"Sub-agent for '{path}' failed to generate a response."
-
-                chat.add_message(Role.ASSISTANT, assistant_response)
-
-                # Check for a final response, which terminates the loop
-                response_match = re.search(r'<response>(.*?)</response>', assistant_response, re.DOTALL)
-                if response_match:
-                    return response_match.group(1).strip()
-
-                # 4. Execute Tools
-                tool_was_executed = False
-                for tool_name, tool_class in readonly_tools.items():
-                    # extract_blocks returns the content *inside* the tags
-                    blocks = extract_blocks(assistant_response, [tool_name])
-                    if blocks:
-                        tool_was_executed = True
-                        # Run the first block found for this tool
-                        block_content = blocks[0]
-                        tool_result_raw = tool_class.run(block_content)
-
-                        tool_result: str = ""
-                        if asyncio.iscoroutine(tool_result_raw):
-                            tool_result = await tool_result_raw
-                        else:
-                            tool_result = tool_result_raw
-
-                        if tool_result:
-                            context_msg = f"<context>\n{tool_result}\n</context>"
-                            chat.add_message(Role.ASSISTANT, context_msg)
-
-                # If no tool was found, the agent might be stuck in a conversational loop.
-                # We break to return its last message instead of looping infinitely.
-                if not tool_was_executed:
-                    return f"Sub-agent for '{path}' finished without a final <response> tag. Last message was: {assistant_response}"
-
-            return f"Sub-agent for '{path}' exceeded maximum turn limit of {MAX_TURNS}."
-
+            return str(result)
         except Exception as e:
-            # Capture any unexpected errors during sub-agent execution.
-            return f"An unexpected error occurred in sub-agent for '{path}': {str(e)}"
-        finally:
-            # CRITICAL: Ensure we always return to the original working directory.
-            os.chdir(original_cwd)
+            return f"Error executing {tool_name}: {str(e)}"
 
     @staticmethod
     async def run(content: str) -> str:
         """
-        Parses the input, sets up, and runs the parallel sub-agents.
+        Parses the input to extract tool invocations, executes them in parallel,
+        and returns aggregated results with markdown headers.
         """
-        # 1. Parse paths and prompt from the input content
-        path_matches = re.findall(r'<path>(.*?)</path>', content, re.DOTALL)
-        prompt_match = re.search(r'<prompt>(.*?)</prompt>', content, re.DOTALL)
+        try:
+            # Extract all tool calls from the content
+            tool_calls = paralleltools._extract_tool_calls(content)
 
-        if not path_matches or not prompt_match:
-            return "Error: <paralleltools> requires one or more <path> tags and one <prompt> tag."
+            if not tool_calls:
+                return "Error: No tool invocations found inside <paralleltools> tags."
 
-        paths = [p.strip() for p in path_matches]
-        prompt = prompt_match.group(1).strip()
+            # Get available tools from global registry
+            if not hasattr(g, 'tool_classes') or not g.tool_classes:
+                return "Error: Tool registry not initialized. No tools available."
 
-        # 2. Setup the read-only environment for all sub-agents
-        readonly_tools = paralleltools._get_readonly_tools()
-        if not readonly_tools:
-            return "Error: Could not load read-only tools for sub-agents. Main agent may not be initialized correctly."
+            # Prepare tasks for parallel execution
+            tasks = []
+            task_metadata = []  # Track (tool_name, tool_class) for each task
 
-        readonly_system_prompt = paralleltools._generate_readonly_system_prompt(readonly_tools)
+            for tool_name, tool_content in tool_calls:
+                # Check for recursive paralleltools calls
+                if tool_name.lower() == 'paralleltools':
+                    # Prevent recursion - return error message
+                    async def make_recursion_error():
+                        return "Error: Nested paralleltools calls are not allowed. Use paralleltools only at the top level."
+                    tasks.append(make_recursion_error())
+                    task_metadata.append((tool_name, None))
+                    continue
 
-        # 3. Create and run all sub-agent tasks concurrently
-        tasks = [
-            paralleltools._run_sub_agent(path, prompt, readonly_tools, readonly_system_prompt)
-            for path in paths
-        ]
+                # Look up the tool class
+                tool_class = g.tool_classes.get(tool_name)
 
-        print(colored(f"🤖 Spawning {len(paths)} read-only sub-agents to work in parallel...", "cyan"))
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+                if not tool_class:
+                    # Tool not found - still create a task that returns an error
+                    async def make_error(name=tool_name):
+                        return f"Error: Tool '{name}' not found in registry."
+                    tasks.append(make_error())
+                    task_metadata.append((tool_name, None))
+                else:
+                    # Create task for this tool
+                    task = paralleltools._execute_tool(tool_name, tool_content, tool_class)
+                    tasks.append(task)
+                    task_metadata.append((tool_name, tool_class))
 
-        # 4. Aggregate and format the results
-        output_parts: list[str] = ["Parallel execution finished. Aggregating results:\n"]
-        for path, result in zip(paths, results):
-            output_parts.append(f"--- Results for path: {path} ---")
-            if isinstance(result, Exception):
-                output_parts.append(f"Error: {str(result)}")
-            else:
-                output_parts.append(str(result))
-            output_parts.append("--- End of Results ---")
+            # Execute all tools in parallel
+            print(colored(f"🔧 Executing {len(tasks)} tools in parallel...", "cyan"))
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        return "\n\n".join(output_parts)
+            # Format results with markdown headers
+            output_parts = []
+
+            for (tool_name, tool_class), result in zip(task_metadata, results):
+                # Add section header
+                output_parts.append(f"## {tool_name}")
+
+                # Handle exceptions that weren't caught in _execute_tool
+                if isinstance(result, Exception):
+                    output_parts.append(f"Error: {str(result)}")
+                else:
+                    output_parts.append(str(result))
+
+                # Add spacing between sections
+                output_parts.append("")
+
+            # Join all parts and return
+            return "\n".join(output_parts).strip()
+
+        except Exception as e:
+            return f"Fatal error in paralleltools: {str(e)}"

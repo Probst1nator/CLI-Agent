@@ -1,6 +1,6 @@
-# tools/searchtext.py
+# tools/searchresource.py
 """
-This file implements the 'searchtext' tool. It allows the agent to perform
+This file implements the 'searchresource' tool. It allows the agent to perform
 intelligent searches on large text resources managed by the TextResourceManager.
 
 The tool supports:
@@ -29,7 +29,7 @@ except ImportError:
     RESOURCE_MANAGER_AVAILABLE = False
 
 
-class searchtext:
+class searchresource:
     """
     A tool to search and navigate large text resources.
     Provides intelligent search capabilities over files and process outputs
@@ -39,21 +39,24 @@ class searchtext:
     @staticmethod
     def get_delim() -> str:
         """Provides the delimiter for this tool, used for parsing agent output."""
-        return 'searchtext'
+        return 'searchresource'
 
     @staticmethod
     def get_tool_info() -> dict:
         """Provides standardized documentation for this tool for the agent's system prompt."""
         return {
-            "name": "searchtext",
+            "name": "searchresource",
             "description": (
-                "The ONLY tool for inspecting large text content from files or process outputs. "
-                "When `readfile` or `taskmanager` provides a `resource_id` because the content was too large, "
-                "use this tool to search that content with a regex pattern or view specific line ranges."
+                "Search and inspect large text resources cached by TextResourceManager. "
+                "When `readfile`, `taskmanager`, or `readdirectory` provides a `resource_id` because content was too large, "
+                "use this tool to search with regex patterns or retrieve specific line ranges. "
+                "Supports GLOBAL SEARCH across all resources by omitting resource_id."
             ),
             "example": (
-                '<searchtext><resource_id>proc_a1b2c3d4</resource_id><pattern>error|failed</pattern><context_lines>3</context_lines></searchtext>\n'
-                '<searchtext><resource_id>file_e5f6g7h8</resource_id><lines>100-200</lines></searchtext>'
+                '<searchresource><search>error|failed</search><context>3</context></searchresource>  # Global search\n'
+                '<searchresource><resource_id>proc_abc123</resource_id><search>async.*error</search><context>2</context><limit>20</limit></searchresource>  # Search specific resource\n'
+                '<searchresource><resource_id>file_xyz789</resource_id><lines>100-200</lines></searchresource>  # View line range\n'
+                '<searchresource><list/></searchresource>  # List all resources'
             )
         }
 
@@ -67,31 +70,62 @@ class searchtext:
         if resource_match:
             tags['resource_id'] = resource_match.group(1).strip()
 
-        # Parse pattern for regex search
-        pattern_match = re.search(r'<pattern\s*>(.*?)</pattern>', content, re.DOTALL | re.IGNORECASE)
-        if pattern_match:
-            tags['pattern'] = pattern_match.group(1).strip()
+        # Parse search query (new: <search>, old: <pattern>)
+        search_match = re.search(r'<search\s*>(.*?)</search>', content, re.DOTALL | re.IGNORECASE)
+        if search_match:
+            tags['search'] = search_match.group(1).strip()
+        else:
+            # Backward compatibility: <pattern>
+            pattern_match = re.search(r'<pattern\s*>(.*?)</pattern>', content, re.DOTALL | re.IGNORECASE)
+            if pattern_match:
+                tags['search'] = pattern_match.group(1).strip()
+                tags['_deprecated_pattern'] = True
 
-        # Parse context_lines
-        context_match = re.search(r'<context_lines\s*>(.*?)</context_lines>', content, re.DOTALL | re.IGNORECASE)
+        # Parse mode (regex, bm25, hybrid)
+        mode_match = re.search(r'<mode\s*>(.*?)</mode>', content, re.DOTALL | re.IGNORECASE)
+        if mode_match:
+            tags['mode'] = mode_match.group(1).strip().lower()
+        else:
+            tags['mode'] = 'regex'  # Default to regex for backward compatibility
+
+        # Parse context lines (new: <context>, old: <context_lines>)
+        context_match = re.search(r'<context\s*>(.*?)</context>', content, re.DOTALL | re.IGNORECASE)
         if context_match:
             try:
-                tags['context_lines'] = int(context_match.group(1).strip())
+                tags['context'] = int(context_match.group(1).strip())
             except ValueError:
-                tags['context_lines'] = 0
+                tags['context'] = 0
+        else:
+            # Backward compatibility: <context_lines>
+            context_lines_match = re.search(r'<context_lines\s*>(.*?)</context_lines>', content, re.DOTALL | re.IGNORECASE)
+            if context_lines_match:
+                try:
+                    tags['context'] = int(context_lines_match.group(1).strip())
+                    tags['_deprecated_context_lines'] = True
+                except ValueError:
+                    tags['context'] = 0
 
         # Parse lines for range queries
         lines_match = re.search(r'<lines\s*>(.*?)</lines>', content, re.DOTALL | re.IGNORECASE)
         if lines_match:
             tags['lines'] = lines_match.group(1).strip()
 
-        # Parse max_results
-        max_match = re.search(r'<max_results\s*>(.*?)</max_results>', content, re.DOTALL | re.IGNORECASE)
-        if max_match:
+        # Parse result limit (new: <limit>, old: <max_results>)
+        limit_match = re.search(r'<limit\s*>(.*?)</limit>', content, re.DOTALL | re.IGNORECASE)
+        if limit_match:
             try:
-                tags['max_results'] = int(max_match.group(1).strip())
+                tags['limit'] = int(limit_match.group(1).strip())
             except ValueError:
-                tags['max_results'] = 50
+                tags['limit'] = 50
+        else:
+            # Backward compatibility: <max_results>
+            max_match = re.search(r'<max_results\s*>(.*?)</max_results>', content, re.DOTALL | re.IGNORECASE)
+            if max_match:
+                try:
+                    tags['limit'] = int(max_match.group(1).strip())
+                    tags['_deprecated_max_results'] = True
+                except ValueError:
+                    tags['limit'] = 50
 
         return tags
 
@@ -168,6 +202,50 @@ class searchtext:
         return "\n".join(output_lines)
 
     @staticmethod
+    def _format_global_search_results(search_query: str, all_results: List[Dict[str, Any]]) -> str:
+        """Format global search results across multiple resources."""
+        total_matches = sum(r['total_matches'] for r in all_results if 'total_matches' in r)
+        resources_with_matches = [r for r in all_results if r.get('total_matches', 0) > 0]
+
+        if not resources_with_matches:
+            return f"🔍 Global Search: No matches found for search '{search_query}' across {len(all_results)} resources"
+
+        # Build formatted output
+        output_lines = []
+        output_lines.append(f"🌐 Global Search Results for '{search_query}'")
+        output_lines.append(f"Found {total_matches} total matches across {len(resources_with_matches)} resources:\n")
+
+        for resource_result in resources_with_matches[:10]:  # Show first 10 resources with matches
+            source = resource_result.get('source', resource_result.get('resource_id', 'unknown'))
+            matches = resource_result.get('matches', [])
+            total = resource_result['total_matches']
+
+            output_lines.append(f"📄 {source} ({total} matches):")
+
+            # Show first 3 matches per resource
+            for i, match in enumerate(matches[:3], 1):
+                line_num = match['line_number']
+                preview = match.get('match_preview', match.get('matched_line', ''))
+
+                # Truncate very long lines
+                if len(preview) > 150:
+                    preview = preview[:150] + "..."
+
+                output_lines.append(f"  >>> Line {line_num}: {preview}")
+
+            if total > 3:
+                output_lines.append(f"  ... and {total - 3} more matches in this resource")
+
+            output_lines.append("")  # Empty line between resources
+
+        if len(resources_with_matches) > 10:
+            output_lines.append(f"... and {len(resources_with_matches) - 10} more resources with matches")
+
+        output_lines.append(f"\n💡 Use <searchresource><resource_id>RESOURCE_ID</resource_id><search>{search_query}</search></searchresource> to search a specific resource")
+
+        return "\n".join(output_lines)
+
+    @staticmethod
     def _format_line_range_results(results: Dict[str, Any]) -> str:
         """Format line range results for display."""
         if "error" in results:
@@ -213,7 +291,7 @@ class searchtext:
 
             output_lines.append(f"{resource_id:<18} | {source_type:<11} | {lines:>6} | {chars:>7} | {source}")
 
-        output_lines.append("\nUse <searchtext><resource_id>RESOURCE_ID</resource_id><pattern>PATTERN</pattern></searchtext> to search a resource")
+        output_lines.append("\nUse <searchresource><resource_id>RESOURCE_ID</resource_id><search>PATTERN</search></searchresource> to search a resource")
         return "\n".join(output_lines)
 
     @staticmethod
@@ -230,56 +308,87 @@ class searchtext:
         if not RESOURCE_MANAGER_AVAILABLE:
             return "❌ Error: TextResourceManager not available. This tool requires the text resource management system."
 
-        # Check for list resources command
-        if re.search(r'<list_resources\s*/>', content, re.IGNORECASE):
+        # Check for list resources command (both new <list/> and old <list_resources/>)
+        if re.search(r'<list\s*/>', content, re.IGNORECASE) or re.search(r'<list_resources\s*/>', content, re.IGNORECASE):
             try:
                 resource_manager = TextResourceManager._get_manager()
                 resources = resource_manager.list_resources()
-                return searchtext._format_resource_list(resources)
+                return searchresource._format_resource_list(resources)
             except NameError:
                 return "❌ Error: TextResourceManager not available. This tool requires the text resource management system."
 
         # Parse XML tags
-        tags = searchtext._parse_xml_tags(content)
+        tags = searchresource._parse_xml_tags(content)
 
         resource_id = tags.get('resource_id')
-        if not resource_id:
-            return "❌ Error: No resource_id specified. Use <resource_id>RESOURCE_ID</resource_id> to specify which resource to search."
+        search_query = tags.get('search')  # New parameter name
 
-        # Check if resource exists using lazy access
         try:
             resource_manager = TextResourceManager._get_manager()
-            metadata = resource_manager.get_metadata(resource_id)
-            if not metadata:
-                return f"❌ Error: Resource '{resource_id}' not found. Use <searchtext><list_resources/></searchtext> to see available resources."
         except NameError:
             return "❌ Error: TextResourceManager not available. This tool requires the text resource management system."
 
-        # Handle pattern search
-        pattern = tags.get('pattern')
-        if pattern:
-            context_lines = int(tags.get('context_lines', 0))
-            max_results = int(tags.get('max_results', 50))
+        # Handle GLOBAL SEARCH (no resource_id specified, but search query given)
+        if not resource_id and search_query:
+            context = int(tags.get('context', 0))
+            limit = int(tags.get('limit', 50))
+
+            # Get all available resources
+            all_resources = resource_manager.list_resources()
+            if not all_resources:
+                return "🔍 Global Search: No resources available to search"
+
+            # Search each resource
+            all_results = []
+            for resource in all_resources:
+                rid = resource['resource_id']
+                try:
+                    results = resource_manager.search_resource(
+                        resource_id=rid,
+                        pattern=search_query,
+                        context_lines=context,
+                        max_results=limit
+                    )
+                    all_results.append(results)
+                except Exception:
+                    # Skip resources that fail to search
+                    continue
+
+            return searchresource._format_global_search_results(search_query, all_results)
+
+        # Require resource_id for non-search operations
+        if not resource_id:
+            return "❌ Error: No resource_id specified. Use <resource_id>RESOURCE_ID</resource_id> to specify which resource to search, or omit it for global search with a search query."
+
+        # Check if resource exists
+        metadata = resource_manager.get_metadata(resource_id)
+        if not metadata:
+            return f"❌ Error: Resource '{resource_id}' not found. Use <searchresource><list/></searchresource> to see available resources."
+
+        # Handle search on specific resource
+        if search_query:
+            context = int(tags.get('context', 0))
+            limit = int(tags.get('limit', 50))
 
             results = resource_manager.search_resource(
                 resource_id=resource_id,
-                pattern=pattern,
-                context_lines=context_lines,
-                max_results=max_results
+                pattern=search_query,
+                context_lines=context,
+                max_results=limit
             )
-            return searchtext._format_search_results(results)
+            return searchresource._format_search_results(results)
 
         # Handle line range query
         lines_spec = tags.get('lines')
         if lines_spec:
             try:
-                start_line, end_line = searchtext._parse_line_range(lines_spec)
+                start_line, end_line = searchresource._parse_line_range(lines_spec)
                 results = resource_manager.get_line_range(
                     resource_id=resource_id,
                     start_line=start_line,
                     end_line=end_line
                 )
-                return searchtext._format_line_range_results(results)
+                return searchresource._format_line_range_results(results)
             except ValueError:
                 return f"❌ Error: Invalid line specification '{lines_spec}'. Use formats like '15', '10-20', '10-', or '-20'."
 
@@ -289,5 +398,5 @@ class searchtext:
                f"Type: {metadata['source_type']}\n" \
                f"Lines: {metadata['total_lines']:,}\n" \
                f"Characters: {metadata['total_chars']:,}\n\n" \
-               f"Use <searchtext><resource_id>{resource_id}</resource_id><pattern>SEARCH_PATTERN</pattern></searchtext> to search this resource.\n" \
-               f"Use <searchtext><resource_id>{resource_id}</resource_id><lines>START-END</lines></searchtext> to view specific lines."
+               f"Use <searchresource><resource_id>{resource_id}</resource_id><search>SEARCH_PATTERN</search></searchresource> to search this resource.\n" \
+               f"Use <searchresource><resource_id>{resource_id}</resource_id><lines>START-END</lines></searchresource> to view specific lines."

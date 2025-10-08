@@ -1,7 +1,7 @@
 """
 Test suite for the Text Resource System
 
-This module tests the TextResourceManager, searchtext tool, and integration
+This module tests the TextResourceManager, searchresource tool, and integration
 with taskmanager and readfile tools for handling large text content.
 """
 import os
@@ -16,7 +16,10 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from shared.utils.text_resource_manager import TextResourceManager
-from tools.searchtext import searchtext
+from tools.searchresource import searchresource
+
+# Backward compatibility alias for tests
+searchtext = searchresource
 
 
 class TestTextResourceManager(unittest.TestCase):
@@ -257,8 +260,8 @@ Line 5: Final line"""
         self.assertIsInstance(stats["max_age_seconds"], int)
 
 
-class TestSearchTextTool(unittest.TestCase):
-    """Test the searchtext tool functionality."""
+class TestSearchResourceTool(unittest.TestCase):
+    """Test the searchresource tool functionality."""
 
     def setUp(self):
         """Set up test environment."""
@@ -288,15 +291,15 @@ Line 8: Application crashed"""
 
     def test_get_delim(self):
         """Test tool delimiter."""
-        self.assertEqual(searchtext.get_delim(), "searchtext")
+        self.assertEqual(searchresource.get_delim(), "searchresource")
 
     def test_get_tool_info(self):
         """Test tool info structure."""
-        info = searchtext.get_tool_info()
+        info = searchresource.get_tool_info()
         self.assertIn("name", info)
         self.assertIn("description", info)
         self.assertIn("example", info)
-        self.assertEqual(info["name"], "searchtext")
+        self.assertEqual(info["name"], "searchresource")
 
     def test_list_resources(self):
         """Test listing resources."""
@@ -431,7 +434,7 @@ class TestIntegrationWithReadfile(unittest.TestCase):
             if len(large_content) > readfile.CHUNK_LIMIT:
                 self.assertIn("loaded into searchable resource", result)
                 self.assertIn("Resource ID:", result)
-                self.assertIn("searchtext", result)
+                self.assertIn("searchresource", result)
 
         finally:
             # Clean up temp file
@@ -479,7 +482,7 @@ class TestIntegrationWithTaskManager(unittest.TestCase):
         if len(large_output) > 4096:  # Default max_chars
             self.assertIn("loaded into searchable resource", result)
             self.assertIn("Resource ID:", result)
-            self.assertIn("searchtext", result)
+            self.assertIn("searchresource", result)
 
     def test_stats_and_cleanup(self):
         """Test resource manager stats and cleanup functionality."""
@@ -513,7 +516,7 @@ def test_level_0():
     suite.addTest(TestTextResourceManager('test_search_resource'))
     suite.addTest(TestTextResourceManager('test_get_line_range'))
 
-    # Core searchtext tool functionality
+    # Core searchresource tool functionality
     suite.addTest(TestSearchTextTool('test_search_pattern'))
     suite.addTest(TestSearchTextTool('test_line_range_query'))
 
@@ -529,7 +532,7 @@ def test_level_1():
     suite.addTest(TestTextResourceManager('test_list_resources'))
     suite.addTest(TestTextResourceManager('test_remove_resource'))
 
-    # Extended searchtext functionality
+    # Extended searchresource functionality
     suite.addTest(TestSearchTextTool('test_list_resources'))
     suite.addTest(TestSearchTextTool('test_resource_info'))
 

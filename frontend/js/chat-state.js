@@ -276,12 +276,20 @@ class ChatStateManager {
 
                 // Re-render the updated message
                 this.renderer.renderMessage(incomingMsg, messageIndex);
+
+                // Update interrupt button state based on whether response is complete
+                this.updateInterruptButtonState(incomingMsg);
             } else {
                 // New message (user message or new assistant response from agent loop)
                 console.log('Adding new message');
                 this.addMessage(incomingMsg);
                 const messageIndex = this.messages.length - 1;
                 this.renderer.renderMessage(incomingMsg, messageIndex);
+
+                // Show interrupt button for new assistant messages
+                if (incomingMsg.role === 'assistant') {
+                    this.showInterruptButton();
+                }
             }
         });
 
@@ -302,6 +310,43 @@ class ChatStateManager {
         });
 
         console.log('WebSocket handlers registered for chat sync');
+    }
+
+    /**
+     * Update interrupt button state based on message content
+     */
+    updateInterruptButtonState(message) {
+        // Check if message contains visualresponse (response is complete)
+        const hasVisualResponse = message.content && (
+            message.content.includes('<visualresponse>') ||
+            message.content.includes('<response>')
+        );
+
+        if (hasVisualResponse) {
+            // Response is complete, disable button visually (but keep it functional)
+            this.hideInterruptButton();
+        } else {
+            // Still generating, keep button active
+            this.showInterruptButton();
+        }
+    }
+
+    /**
+     * Show interrupt button (visually active)
+     */
+    showInterruptButton() {
+        if (window.app && typeof window.app.showInterruptButton === 'function') {
+            window.app.showInterruptButton();
+        }
+    }
+
+    /**
+     * Hide interrupt button (visually disabled, but still functional)
+     */
+    hideInterruptButton() {
+        if (window.app && typeof window.app.hideInterruptButton === 'function') {
+            window.app.hideInterruptButton();
+        }
     }
 
     /**

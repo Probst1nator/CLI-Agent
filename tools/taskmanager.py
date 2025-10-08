@@ -45,7 +45,7 @@ class taskmanager:
             "description": (
                 "Manages background processes started with <bash>. Allows listing, killing, and inspecting processes. "
                 "Large process outputs are automatically handled by the system - if content exceeds limits, "
-                "a resource_id is provided and you can use the `searchtext` tool to inspect the output."
+                "a resource_id is provided and you can use the `searchresource` tool to inspect the output."
             ),
             "example": (
                 "<taskmanager><list/></taskmanager>\n"
