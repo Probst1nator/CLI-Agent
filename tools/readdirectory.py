@@ -206,7 +206,7 @@ class readdirectory:
                     file_type = item['type'].upper()
                     output.append(f"- Path: {rel_path} (Type: {file_type}, Lines: {item['lines']})")
                     output.append(f"  Resource ID: {item['resource_id']}")
-                output.append("\nUse the <searchtext> tool to inspect these resources.")
+                output.append("\nUse the <searchresource> tool to inspect these resources.")
             else:
                 output.append("\nNo readable text or PDF files were found to ingest.")
 

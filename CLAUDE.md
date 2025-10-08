@@ -163,7 +163,7 @@ Unified input management supporting multiple sources:
 **Key tools**:
 - `bash.py`: Command execution with permission checks
 - `readfile.py`, `editfile.py`: File operations with path resolution
-- `grepsearch.py`, `searchtext.py`: Code search utilities
+- `grepsearch.py`, `searchresource.py`: Code search and resource inspection utilities
 - `searchweb.py`: Web search integration
 - `visualresponse.py`: Delegates to API server for visual UI rendering
 

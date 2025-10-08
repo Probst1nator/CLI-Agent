@@ -1667,10 +1667,8 @@ class VisualResponseApp {
             e.preventDefault();
             e.stopPropagation();
 
-            // Only process clicks when button is active
-            if (!interruptBtn.classList.contains('active')) {
-                return;
-            }
+            // Always allow interrupt - no state checks
+            // This ensures the system can always return to waiting for user input
 
             if (!this.wsManager || !this.wsManager.isConnected()) {
                 console.warn('Cannot send interrupt - WebSocket not connected');
@@ -1685,21 +1683,16 @@ class VisualResponseApp {
                 // Visual feedback
                 const originalIcon = interruptBtn.querySelector('.interrupt-icon').textContent;
 
-                interruptBtn.classList.remove('active');
                 interruptBtn.classList.add('processing');
                 interruptBtn.querySelector('.interrupt-icon').textContent = '⏳';
-                // Keep button clickable - users should be able to send multiple interrupts
 
-                // Reset button state after a delay (agent should stop soon)
+                // Reset button state after a delay
                 setTimeout(() => {
-                    this.hideInterruptButton();
-
-                    // Reset button state
-                    interruptBtn.classList.remove('processing');
+                    interruptBtn.classList.remove('processing', 'active');
                     interruptBtn.querySelector('.interrupt-icon').textContent = originalIcon;
-                }, 3000);
+                }, 2000);
 
-                console.log('Interrupt signal sent to agent');
+                console.log('Interrupt signal sent to agent - forcing return to user input state');
             } else {
                 this.showInterruptError('Failed to send interrupt signal');
             }
@@ -3639,8 +3632,13 @@ class ConsoleLogManager {
 // Global console log manager instance
 let consoleLogManager = null;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOM loaded, checking dependencies...');
+
+    if (window.ToolRegistry) {
+        console.log('Initializing ToolRegistry...');
+        await window.ToolRegistry.initialize();
+    }
 
     // Initialize console log manager
     consoleLogManager = new ConsoleLogManager();

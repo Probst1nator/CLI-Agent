@@ -1093,20 +1093,35 @@ class ContentRenderer {
     parseToolCallsFromXML(content) {
         const toolCalls = [];
 
-        // Common tool tags to look for
-        const toolTags = ['bash', 'readfile', 'writefile', 'editfile', 'grepsearch', 'searchweb',
-                          'viewpermissions', 'think', 'todos', 'visualresponse', 'insertline',
-                          'deletelines', 'readdirectory', 'searchtext', 'taskmanager', 'homeassistant',
-                          'paralleltools'];
+        const toolTags = window.ToolRegistry ? window.ToolRegistry.getToolNames() : [
+            'bash', 'readfile', 'writefile', 'editfile', 'grepsearch', 'searchweb',
+            'viewpermissions', 'think', 'todos', 'visualresponse', 'insertline',
+            'deletelines', 'readdirectory', 'searchresource', 'taskmanager', 'homeassistant',
+            'paralleltools'
+        ];
 
-        // Find all tool tags with their positions
+        // Step 1: Extract paralleltools blocks and mask their content to prevent nested tool detection
+        const parallelToolsBlocks = [];
+        let maskedContent = content.replace(
+            /<paralleltools[^>]*>([\s\S]*?)<\/paralleltools>/gi,
+            (match, innerContent) => {
+                parallelToolsBlocks.push({
+                    fullMatch: match,
+                    innerContent: innerContent.trim()
+                });
+                return `<paralleltools>__MASKED_${parallelToolsBlocks.length - 1}__</paralleltools>`;
+            }
+        );
+
+        // Find all tool tags with their positions (from masked content - won't see nested tools)
         const matches = [];
 
         toolTags.forEach(tag => {
             const pattern = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
             let match;
 
-            while ((match = pattern.exec(content)) !== null) {
+            // Parse from maskedContent to avoid detecting nested tools in paralleltools
+            while ((match = pattern.exec(maskedContent)) !== null) {
                 matches.push({
                     position: match.index,
                     name: tag,
@@ -1118,6 +1133,20 @@ class ContentRenderer {
 
         // Sort by position to maintain document order
         matches.sort((a, b) => a.position - b.position);
+
+        // Step 2: Restore paralleltools args (unmask)
+        matches.forEach(match => {
+            if (match.name === 'paralleltools') {
+                const maskMatch = match.args.match(/__MASKED_(\d+)__/);
+                if (maskMatch) {
+                    const index = parseInt(maskMatch[1]);
+                    if (parallelToolsBlocks[index]) {
+                        // Restore original inner content for display
+                        match.args = parallelToolsBlocks[index].innerContent.substring(0, 500);
+                    }
+                }
+            }
+        });
 
         // Convert to tool call objects
         matches.forEach(match => {

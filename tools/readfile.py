@@ -174,7 +174,7 @@ class readfile:
                 "PDFs are automatically extracted to text (with OCR fallback). "
                 "Images and PDF pages are registered for vision model analysis. "
                 "Large text files are automatically handled by the system - if content exceeds limits, "
-                "a resource_id is provided and you can use the `searchtext` tool to inspect the content."
+                "a resource_id is provided and you can use the `searchresource` tool to inspect the content."
             ),
             "example": (
                 "<readfile>./src/main.py</readfile>\n"
