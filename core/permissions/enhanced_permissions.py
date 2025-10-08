@@ -352,7 +352,6 @@ async def enhanced_permission_prompt(
                 if hasattr(g, 'visual_input_queue'):
                     try:
                         import json
-                        import queue
                         # Wait for permission response (with timeout)
                         timeout_seconds = 60  # 1 minute timeout
                         max_attempts = 3  # Allow multiple attempts to find valid permission response
@@ -368,7 +367,7 @@ async def enhanced_permission_prompt(
                                 pass  # Fallback if main import is not available
 
                             try:
-                                response_data = g.visual_input_queue.get(timeout=timeout_seconds)
+                                response_data = await asyncio.wait_for(g.visual_input_queue.get(), timeout=timeout_seconds)
 
                                 # Skip None or empty responses
                                 if not response_data:
@@ -391,7 +390,7 @@ async def enhanced_permission_prompt(
                                     else:
                                         # This is regular user input, not a permission response
                                         # Put it back in the queue for the main input handler
-                                        g.visual_input_queue.put(response_data)
+                                        g.visual_input_queue.put_nowait(response_data)
                                         print(f"🔄 Regular user input detected, re-queuing: '{response_data[:50]}...'")
                                         continue
                                 else:
@@ -435,7 +434,7 @@ async def enhanced_permission_prompt(
                                     print(f"⚠️  Unknown permission result: {permission_result}")
                                     continue
 
-                            except queue.Empty:
+                            except (asyncio.TimeoutError, asyncio.exceptions.TimeoutError):
                                 print(f"⏰ Permission request timed out (attempt {attempt + 1}/{max_attempts})")
                                 if attempt == max_attempts - 1:
                                     print("⏰ All permission response attempts timed out, falling back to CLI prompt")

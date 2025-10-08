@@ -1,0 +1,237 @@
+/**
+ * Loading Tools Component Styles
+ *
+ * Visual indicators for tool execution with expand/collapse details
+ */
+
+/* Container for all loading tool items */
+.loading-tools-header {
+    background: rgba(0, 122, 204, 0.05);
+    border: 1px solid rgba(0, 122, 204, 0.15);
+    border-radius: 8px;
+    margin: 16px 0;
+    padding: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+/* Individual tool item box */
+.loading-tool-item {
+    background: var(--code-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    margin: 0;
+    padding: 8px 12px;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    display: inline-block;
+    width: fit-content;
+    max-width: 100%;
+}
+
+.loading-tool-item.running {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 8px rgba(0, 122, 204, 0.2);
+}
+
+.loading-tool-item.completed {
+    border-color: #27ae60;
+    background: rgba(39, 174, 96, 0.05);
+}
+
+.loading-tool-item.failed {
+    border-color: #e74c3c;
+    background: rgba(231, 76, 60, 0.05);
+}
+
+.loading-tool-item.special-todos {
+    border-color: #ff8c00;
+    background: rgba(255, 140, 0, 0.08);
+}
+
+.loading-tool-item.special-think {
+    border-color: #9b59b6;
+    background: rgba(155, 89, 182, 0.08);
+}
+
+/* Main clickable area (tool name, model, status) */
+.loading-tool-main {
+    display: inline-block;
+    padding: 4px 0;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.loading-tool-main:hover {
+    background-color: rgba(0, 122, 204, 0.05);
+    border-radius: 4px;
+}
+
+/* Tool name */
+.loading-tool-name {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+    color: var(--text-color);
+    font-size: 0.9rem;
+    display: block;
+}
+
+/* Model label */
+.loading-tool-model {
+    font-family: 'Courier New', monospace;
+    font-weight: normal;
+    color: var(--text-color);
+    font-size: 0.75rem;
+    opacity: 0.7;
+    margin: 2px 0;
+    display: block;
+}
+
+/* Status indicator */
+.loading-tool-status {
+    font-size: 0.8rem;
+    display: block;
+    text-align: center;
+}
+
+.loading-tool-status.running {
+    color: var(--primary-color);
+}
+
+.loading-tool-status.success {
+    color: #27ae60;
+}
+
+.loading-tool-status.error {
+    color: #e74c3c;
+}
+
+/* Stopwatch timer */
+.loading-tool-stopwatch {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    text-align: center;
+}
+
+.loading-tool-stopwatch.frozen {
+    color: var(--text-color);
+    opacity: 0.9;
+}
+
+/* Spinner animation */
+.loading-tool-spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.loading-tool-indicator {
+    font-size: 1rem;
+    margin-right: 6px;
+}
+
+/* Expandable details section */
+.loading-tool-details {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.85rem;
+    overflow: hidden;
+    box-sizing: border-box;
+    transition: all 200ms ease-in-out;
+    transform-origin: top;
+}
+
+.loading-tool-details.collapsed {
+    display: none;
+}
+
+.loading-tool-details.expanded {
+    display: block;
+    max-height: 500px;
+    opacity: 1;
+    transform: scaleY(1);
+}
+
+/* Tool arguments section */
+.loading-tool-args {
+    background: rgba(0, 122, 204, 0.08);
+    padding: 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-family: 'Courier New', monospace;
+    color: var(--text-color);
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+/* Tool output section */
+.loading-tool-output {
+    background: var(--surface-color);
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    font-family: 'Courier New', monospace;
+    color: var(--text-color);
+    max-height: 200px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    box-sizing: border-box;
+}
+
+.loading-tool-output pre {
+    margin: 0;
+    font-family: inherit;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.loading-tool-output .error {
+    color: #e74c3c;
+    font-weight: 500;
+}
+
+/* Responsive design - mobile */
+@media (max-width: 768px) {
+    .loading-tools-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .loading-tool-item {
+        min-width: auto;
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .loading-tool-main {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .loading-tool-details {
+        margin-top: 8px;
+    }
+}

@@ -1,5 +1,33 @@
 # Project File Index
 
+## 🚀 Latest: Backend/Frontend Separation (2025-01)
+
+**NEW**: Clean separation of backend API and frontend assets for better maintainability and testability.
+
+- `api/` - **Backend API layer** (separate from tool system):
+  - `api/server.py` (~520 lines) - Web server with WebSocket, session management, audit logging, and state broadcasting
+  - `api/chat_api.py` (~330 lines) - Chat endpoints (load, new, archives, messages, BM25 search)
+  - `api/audio_api.py` (~180 lines) - Voice/audio endpoints (transcription, TTS)
+  - `api/agent_state_api.py` - Agent state endpoints (voice_mode, auto_execute, etc.) with real-time sync
+  - `api/tools_api.py` - Tool discovery and configuration endpoints
+  - `api/profile_api.py` - LLM profile management endpoints
+  - Auto-start/stop server logic (persist mode with `--gui` flag)
+  - Session audit logging (GDPR-compliant with content hashing)
+  - Standard error responses across all endpoints
+
+- `frontend/` - **Frontend assets** (moved from `tools/visual_assets/`):
+  - `frontend/index.html` - Main UI page
+  - `frontend/css/` - Stylesheets
+  - `frontend/js/` - JavaScript modules:
+    - `chat-state.js` (~230 lines) - Frontend state management, enables chat loading without page reload
+    - `audio-manager.js` (~300 lines) - Browser audio recording and TTS playback
+    - `websocket.js` (updated) - Event emitter pattern, session ID propagation
+    - `chat-history.js` (~320 lines) - Chat sidebar with BM25 search, snippet highlighting, and ChatStateManager integration
+    - `main.js`, `renderers.js`, `logger.js` - Core UI logic
+  - `frontend/libs/` - Third-party JavaScript libraries
+
+See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
+
 ## 🏗️ Modern Architecture (Post-Migration & Refactoring)
 
 ### 🎯 **RECENT MAJOR ARCHITECTURAL ACHIEVEMENT**: AppContext as Single Source of Truth
@@ -53,6 +81,30 @@
   - `gui/event_manager.py` - : Standardized GUI event handling and session management system providing unified event types, session lifecycle management, input coordination, and event processing for all GUI interfaces
   - `gui/__init__.py` - GUI package initialization providing clean imports for layout and widget components
   
+  **Web Backend API (Modern Architecture)**
+  - `api/server.py` - aiohttp web server with WebSocket support, session management, and audit logging. Auto-starts when visualresponse tool is called, auto-stops when last client disconnects (unless --gui flag persists it). Provides SessionAuditLogger for GDPR-compliant session tracking with IP, user-agent, and chat snapshots. Handles image_upload WebSocket messages for screen capture base64 transmission
+  - `api/chat_api.py` - Chat operations API providing endpoints for loading archived chats (`POST /api/chat/load/{id}`), starting new chats (`POST /api/chat/new`), fetching current chat state, listing archives, deleting chats, and **editing messages** (`POST /api/chat/message/edit`). Broadcasts WebSocket sync events (`chat_replaced`, `chat_cleared`, `message_edited`) for real-time frontend updates without page reloads
+  - `api/audio_api.py` - Voice and audio API providing browser microphone recording upload (`POST /api/audio/upload`), transcription using shared audio utilities, TTS generation with streaming (`POST /api/audio/tts`), and voice status endpoint. Enables full voice interaction from web browser
+  - `api/tools_api.py` - Tool configuration API for listing available tools (`GET /api/tools`), toggling tool enable/disable state (`POST /api/tools/toggle`), and handling file uploads from frontend tool manager
+  - `api/profile_api.py` - LLM profile management API providing endpoints to list saved profiles (`GET /api/profiles`), save current configuration to profile (`POST /api/profiles/save/{id}`), and load profile configuration (`POST /api/profiles/load/{id}`)
+  
+  **Web Frontend (Modern Architecture)**
+  - `frontend/index.html` - Main web UI entry point for browser-based agent interaction, includes chat interface, tool manager, voice controls, and LLM selector
+  - `frontend/css/main.css` - Core stylesheet for web UI with layout, themes, and base styles (~3,344 lines - refactored to modular architecture)
+  - `frontend/css/components/loading-tools.css` - Modular component styles for tool execution indicators with expand/collapse animations (~220 lines)
+  - `frontend/js/main.js` - Main JavaScript entry point coordinating all frontend modules, WebSocket connection, user interactions, and screen capture base64 transmission via handleScreenCaptureBase64()
+  - `frontend/js/screen-capture.js` - ScreenCaptureManager class for browser-based screen/window/tab capture using Screen Capture API with cross-browser support (Chrome, Firefox), permission handling, and base64 screenshot generation
+  - `frontend/js/chat-state.js` - ChatStateManager class providing frontend state management for messages, chat loading without page reload, WebSocket event handlers for sync (`chat_replaced`, `chat_cleared`), and error handling with user feedback
+  - `frontend/js/audio-manager.js` - AudioManager class for browser-based voice interaction using MediaRecorder API for microphone recording, audio upload with transcription via `/api/audio/upload`, TTS playback with conflict handling, and resource cleanup
+  - `frontend/js/websocket.js` - WebSocket connection handler with event emitter pattern, session initialization (stores session_id), event routing for message streaming (`message_start/chunk/end`) and chat sync (`chat_replaced/cleared`), and session ID propagation to HTTP requests
+  - `frontend/js/chat-history.js` - Chat history management delegating to ChatStateManager for loading archived chats and starting new chats, integrated with WebSocket sync events
+  - `frontend/js/llm-selector.js` - LLM selection interface for choosing models, managing planner/router/fallback configurations
+  - `frontend/js/tool-manager.js` - Tool configuration interface for enabling/disabling tools and managing tool permissions
+  - `frontend/js/renderers.js` - Content rendering for Markdown, code blocks, visualizations (Plotly, Mermaid, 3Dmol), and rich media
+  - `frontend/js/logger.js` - Frontend logging utility for debugging and error tracking
+  - `frontend/js/js-utils.js` - Shared JavaScript utilities and helper functions
+  - `frontend/libs/` - Third-party JavaScript libraries: jQuery, Marked (Markdown), Mermaid (diagrams), Plotly (charts), 3Dmol (molecular visualization), svg-pan-zoom
+  
   
   **Legacy Components (Pre-Refactor)**
   - `notebook/computational_notebook.py` - Jupyter-style code execution and cell management (migrated from py_classes)
@@ -79,6 +131,7 @@
   - `display_utils.py` - : UI and display utilities extracted from main.py including colorize_model_name(), print_startup_summary(), and show_unified_bindings_display() for consistent formatting across the application
   - `logging_utils.py` - : Logging formatters and configuration extracted from main.py. Provides ConsoleFormatter, SimpleFormatter, FileFormatter classes and setup_logging() function with retention management
 
+- `shared/audio_router.py` - **NEW**: Audio routing module for CLI-Agent that routes TTS audio playback between Python native playback (CLI mode) and WebSocket streaming to frontend (GUI/API mode). Provides `route_tts_audio()` for automatic routing based on `g.GUI_MODE`, `generate_tts_audio()` for audio generation without playback, and seamless integration with the visualresponse WebSocket system
 - `shared/audio/audio_utils.py` - Audio processing, TTS, and speech recognition (migrated from py_methods/utils)
 
 ## 📋 Legacy Structure (Deprecated)
@@ -106,7 +159,7 @@
 
 - `ARCHITECTURE.md` - Comprehensive analysis of the monorepo structure and detailed strategy for decomposing it into 3 separate projects corresponding to tools/* directories, including dependency mapping, migration complexity assessment, and recommended decomposition approaches.
 
-- `main.py` - **CURRENT/ACTIVE**: The main entrypoint and orchestration script for the CLI-Agent. Contains the main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. : Input system consolidated - removed unused `get_gui_input()` function and added consistent `get_cli_input()` function. All input now flows through the unified input management system. **FIXED**: Added router LLM initialization during startup (lines 1561-1574) to ensure `g.router_llm` is properly loaded from configuration, matching planner LLM initialization pattern. This is the **stable, production entry point** that should be used for all current development and deployment.
+- `main.py` - **CURRENT/ACTIVE**: The main entrypoint and orchestration script for the CLI-Agent. Contains the main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. : Input system consolidated - removed unused `get_gui_input()` function and added consistent `get_cli_input()` function. All input now flows through the unified input management system. **FIXED**: Added router LLM initialization during startup (lines 1561-1574) to ensure `g.router_llm` is properly loaded from configuration, matching planner LLM initialization pattern. **XML Error Handling**: Enhanced `detect_malformed_xml()` (lines 697-820) with pre-check for tag mismatches (e.g., `<type>...</content>`) providing specific error messages. Added frontend error notification (lines 2326-2345) when LLM fails to generate expected tool calls in GUI mode, broadcasting warning messages to web interface. This is the **stable, production entry point** that should be used for all current development and deployment.
 
 - `main_refactored.py` - **⚠️ EXPERIMENTAL**: Clean, modular main entrypoint demonstrating the future refactored architecture. At only ~188 lines, this showcases the new agent/core components with dependency injection and proper separation of concerns. **Status: Work in progress** - still depends on main.py imports and lacks recent bug fixes. For stable operation, use main.py instead.
 
@@ -134,7 +187,7 @@
 
 - `core/ai_strengths.py` - Enum definition for AI model capabilities, categorizing different strengths like UNCENSORED, VISION, and LOCAL processing with numeric values.
 
-- `core/chat.py` - Core Chat class for managing conversational AI interactions, supporting multiple message roles, colorized terminal output, debug windows, serialization, conversion to various AI API formats (Ollama, OpenAI, Groq, Gemini, Gemma), and LLM-based conversation compression with configurable density levels ('dense', 'detailed') and custom prompts.
+- `core/chat.py` - Core Chat class for managing conversational AI interactions, supporting multiple message roles, colorized terminal output, debug windows, **message editing with `update_message(index, content)`**, serialization with base64_images persistence for archived chats, conversion to various AI API formats (Ollama, OpenAI, Groq, Gemini, Gemma), and LLM-based conversation compression with configurable density levels ('dense', 'detailed') and custom prompts.
 
 - `core/globals.py` - Singleton global state manager handling application configuration, file paths, LLM settings, debug flags, model discovery caching, persistent storage with cross-platform compatibility, and enhanced temporary file cleanup using the integrated file manager.
 
@@ -188,15 +241,19 @@
 
 - `docs/NETWORK_ACCESS.md` - Container network access and security documentation detailing accessible ports, AI service connectivity, Ollama configuration, inter-container communication, security restrictions, and troubleshooting guide for the sandboxed container environment.
 
+- `docs/BACKEND_FRONTEND_ARCHITECTURE.md` - **Modern architecture documentation** for the refactored web backend/frontend separation. Covers the problems solved (visualresponse.py doing too much, no frontend state, CLI-only voice), the new API layer structure (api/server.py, chat_api.py, audio_api.py, tools_api.py, profile_api.py), frontend state management (ChatStateManager, AudioManager), WebSocket sync events (chat_replaced/cleared, message streaming), session audit logging (GDPR-compliant with IP/user-agent tracking), and implementation progress (Phase 1-2 complete, Phase 3 testing in progress)
+
 - `docs/CURRENT_AND_IDEAL_ARCHITECTURE.md` - Architecture analysis documenting duplicate files between py_classes and core directories, with findings on AI provider interfaces and proposed monorepo structure improvements.
 
 - `docs/SEARCHWEB_VECTOR_DB.md` - : Comprehensive documentation for SearchWeb vector database integration using ChromaDB and embeddinggemma:latest. Details semantic search architecture, two-collection system (search results + summaries), query flow, performance benefits, configuration, and troubleshooting for the intelligent caching system that reduces API calls and builds progressive knowledge base.
 
-- `docs/VISUALRESPONSE_ARCHITECTURE.md` - Comprehensive architecture documentation for the Visual Response system covering client-server architecture, multi-process event-driven design, WebSocket communication protocol, container orchestration, security implementation, and deployment patterns. Details server-side components (aiohttp web server, subprocess management), client-side architecture (modular JavaScript, content rendering, security sandboxing), and multi-instance scaling with session management.
+- `docs/VISUALRESPONSE_ARCHITECTURE.md` - **Legacy architecture documentation** for the original Visual Response system. Superseded by BACKEND_FRONTEND_ARCHITECTURE.md for modern web backend/frontend. Historical reference for multi-process event-driven design, subprocess management, and container orchestration patterns.
 
 - `docs/OLLAMA_INFO.md` - Documentation for Ollama integration, covering local model hosting, configuration, and offline LLM capabilities.
 
 - `docs/DEVELOPMENT_WORKFLOW.md` - Development workflow guide covering development mode (instant updates via bind mounts) vs production mode (isolated baked-in code), container deployment strategies, hybrid workflows, and quick reference commands for both docker-compose.multi-dev.yml and docker-compose.multi-simple.yml setups.
+
+- `docs/LOGGING.md` - **Comprehensive logging system documentation** covering debug logging, TTS flow tracing, log retention policies, tool-specific logging, and troubleshooting guides. Details automatic log rotation, retention periods (debug: 7 days, app: 30 days), debug flags (`--debug --log-file`), TTS debugging workflow, and programmatic log manager API for custom retention policies and cleanup operations.
 
 - `license` - GNU Affero General Public License v3 (AGPL-3.0) governing the distribution and modification of the CLI-Agent project as open source software.
 
@@ -360,7 +417,7 @@
 
 - `tools/visual_assets/js/websocket.js` - WebSocket communication manager for real-time bidirectional communication between the browser client and CLI-Agent server with connection management, message handling, and automatic reconnection.
 
-- `tools/visualresponse.py` - Visual Response server implementation providing a multi-process web interface for CLI-Agent with aiohttp web server, WebSocket communication, file upload handling, screenshot integration, profile management API endpoint (`/api/profiles`), and session management for browser-based agent interaction.
+- `tools/visualresponse.py` - **REFACTORED**: Now delegates to `api/server.py` for web server functionality. Tool handler for `<visualresponse>` tags only. Uses ServerAdapter pattern to bridge old interface to new API server architecture. Server auto-starts via async `_get_session_async()` method.
 
 - `tools/podcast_generator/main.py` - Podcast generation tool for creating audio content from text, managing podcast workflows, and automating audio content production.
 

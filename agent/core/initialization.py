@@ -42,11 +42,12 @@ def setup_logging(debug_mode: bool, log_file: Optional[str] = None, tui_mode: bo
 
     Args:
         debug_mode: Enable debug logging
-        log_file: Optional log file path
+        log_file: Optional custom log file path (uses default if None)
         tui_mode: Whether running in TUI mode
     """
     # Import here to avoid circular imports during startup
     from main import setup_logging as original_setup_logging
+    # log_file parameter kept for backwards compatibility but is optional
     original_setup_logging(debug_mode, log_file, tui_mode)
 
 def display_startup_header(tui_mode: bool = False) -> None:
@@ -135,13 +136,13 @@ def initialize_app(
     if tui_mode:
         if args is None:
             args = create_tui_args()
-        setup_logging(args.debug, args.log_file, tui_mode=True)
+        setup_logging(args.debug, tui_mode=True)
         display_startup_header(tui_mode=True)
     else:
         if args is None:
             from agent.core.cli_args import parse_cli_args
             args = parse_cli_args()
-        setup_logging(args.debug, args.log_file, tui_mode=False)
+        setup_logging(args.debug, tui_mode=False)
         context.settings.debug_mode = args.debug
         display_startup_header(tui_mode=False)
 
@@ -151,8 +152,11 @@ def initialize_app(
     # Update context from args
     if hasattr(args, 'yolo'):
         context.settings.auto_execute = args.yolo
-    if hasattr(args, 'voice'):
-        context.settings.voice_mode = args.voice
+    if hasattr(args, 'voice') or hasattr(args, 'speak'):
+        # Voice mode: full voice (mic + TTS) or TTS-only mode
+        context.settings.voice_mode = args.voice if hasattr(args, 'voice') else False
+        if hasattr(args, 'speak'):
+            context.settings.voice_mode = context.settings.voice_mode or args.speak
     if hasattr(args, 'local'):
         context.settings.local_mode = args.local
     if hasattr(args, 'online'):
@@ -164,6 +168,11 @@ def initialize_app(
     from core.globals import g
     g.auto_execute = context.settings.auto_execute
     g.voice_mode = context.settings.voice_mode
+    # Set TTS-only mode flag (for -s/--speak without -v)
+    if hasattr(args, 'speak') and hasattr(args, 'voice'):
+        g.tts_only_mode = args.speak and not args.voice
+    else:
+        g.tts_only_mode = False
     g.local_mode = context.settings.local_mode
     g.online_mode = context.settings.online_mode
 

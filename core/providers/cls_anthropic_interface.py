@@ -72,83 +72,53 @@ class AnthropicAPI(AIProviderInterface):
             prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
             g.debug_log(f"Anthropic-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str}...", "green", force_print=True, prefix=prefix)
 
-        # Define system content (if any)
         system_content = ""
-        # Copy image URLs
-        image_urls = []
-
-        if isinstance(chat, Chat):
-            # Extract the system prompt if it exists
-            if hasattr(chat, 'system_prompt') and chat.system_prompt:
-                system_content = chat.system_prompt
-
-            # Get any image URLs from the last user message
-            if chat.messages and chat.messages[-1][0] == Role.USER:
-                last_user_content = chat.messages[-1][1]
-                if isinstance(last_user_content, list):
-                    for item in last_user_content:
-                        if isinstance(item, dict) and item.get("type") == "image":
-                            # Extract the image URL
-                            image_url = item.get("image_url")
-                            if image_url and isinstance(image_url, dict) and "url" in image_url:
-                                image_urls.append(image_url["url"])
-
-        # Create messages array in Anthropic format
         anthropic_messages = []
 
         if isinstance(chat, Chat):
-            # Convert Chat object to Anthropic format
             for message in chat.messages:
-                # Extract role and content from the message tuple (role, content)
-                message_role = message[0]  # Role enum
-                message_content = message[1]  # Content string or list
+                if message.role == Role.SYSTEM:
+                    system_content = message.content
+                    continue
 
-                if message_role == Role.USER:
-                    # Handle user messages with potential images
-                    if image_urls and chat.messages[-1] == message:
-                        # This is the last user message and has images
+                if message.role == Role.USER:
+                    if message.images:
                         content = []
+                        if message.content:
+                            content.append({"type": "text", "text": message.content})
 
-                        # First add the text content
-                        text_content = message_content
-                        if isinstance(text_content, str) and text_content:
-                            content.append({"type": "text", "text": text_content})
+                        for image in message.images:
+                            mime_type = "image/jpeg"
+                            try:
+                                import base64
+                                image_data = base64.b64decode(image[:100])
+                                if image_data.startswith(b'\x89PNG'):
+                                    mime_type = "image/png"
+                                elif image_data.startswith(b'GIF8'):
+                                    mime_type = "image/gif"
+                                elif image_data.startswith(b'\xff\xd8\xff'):
+                                    mime_type = "image/jpeg"
+                                elif image_data.startswith(b'RIFF') and b'WEBP' in image_data[:20]:
+                                    mime_type = "image/webp"
+                            except Exception:
+                                pass
 
-                        # Then add each image
-                        for url in image_urls:
-                            if url.startswith("data:image"):
-                                # Handle base64 encoded images
-                                mime_type = url.split(";")[0].split(":")[1]
-                                base64_data = url.split(",")[1]
-                                content.append({
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": mime_type,
-                                        "data": base64_data
-                                    }
-                                })
-                            else:
-                                # Handle URL images
-                                content.append({
-                                    "type": "image",
-                                    "source": {
-                                        "type": "url",
-                                        "url": url
-                                    }
-                                })
+                            content.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": mime_type,
+                                    "data": image
+                                }
+                            })
 
                         anthropic_messages.append({"role": "user", "content": content})
                     else:
-                        # Regular text-only message
-                        anthropic_messages.append({"role": "user", "content": str(message_content)})
-                elif message_role == Role.ASSISTANT:
-                    anthropic_messages.append({"role": "assistant", "content": str(message_content)})
-                elif message_role == Role.SYSTEM:
-                    # Store system message separately
-                    system_content = str(message_content)
+                        anthropic_messages.append({"role": "user", "content": message.content})
+
+                elif message.role == Role.ASSISTANT:
+                    anthropic_messages.append({"role": "assistant", "content": message.content})
         else:
-            # If chat is a string, just use it as a user message
             anthropic_messages.append({"role": "user", "content": chat})
 
         # Create the stream with system prompt if provided

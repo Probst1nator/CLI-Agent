@@ -265,36 +265,71 @@ def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> Lis
             continue
 
         try:
-            # Parse the XML block using ElementTree
+            # Attempt to parse the XML block directly first
             root = ET.fromstring(xml_block)
+        except ET.ParseError:
+            # If parsing fails due to unescaped special characters, try to fix it
+            # This commonly happens with < and > in content (e.g., math expressions like $r < r_0$)
+            try:
+                import html
 
-            # Extract the inner XML content (everything between opening and closing tags)
-            # This preserves the XML structure for tools that expect XML content
-            if list(root):
-                # If there are child elements, reconstruct the inner XML
-                inner_content = ""
-                for child in root:
-                    inner_content += ET.tostring(child, encoding='unicode').strip()
-                # Also include any text content directly in the root
-                if root.text and root.text.strip():
-                    inner_content = root.text.strip() + inner_content
-                content = inner_content
-            else:
-                # If no child elements, just get the text content
-                content = root.text or ""
+                # Strategy: Use regex to identify XML tags vs content, then escape only content
+                # XML tags follow the pattern: <tagname ...> or </tagname>
+                # Everything else is content that needs escaping
 
-            blocks.append(content)
+                parts = []
+                last_end = 0
 
-        except ET.ParseError as e:
-            # Detailed error message with line and column information
-            error_msg = f"XML parsing failed for tag '<{tag_name}>' at line {e.lineno}, column {e.offset}: {e.msg}"
+                # Pattern to match XML tags (opening, closing, or self-closing)
+                tag_pattern = r'</?[a-zA-Z0-9_]+[^>]*?>'
 
-            # Log the error for debugging
-            import logging
-            logging.warning(f"{error_msg}\nMalformed XML block: {xml_block[:200]}...")
+                for tag_match in re.finditer(tag_pattern, xml_block):
+                    # Content before this tag needs escaping
+                    content_before = xml_block[last_end:tag_match.start()]
+                    if content_before:
+                        parts.append(html.escape(content_before, quote=False))
 
-            # Continue processing other blocks instead of failing completely
-            continue
+                    # The tag itself should not be escaped
+                    parts.append(tag_match.group(0))
+
+                    last_end = tag_match.end()
+
+                # Handle any remaining content after the last tag
+                remaining_content = xml_block[last_end:]
+                if remaining_content:
+                    parts.append(html.escape(remaining_content, quote=False))
+
+                fixed_xml = ''.join(parts)
+
+                # Try parsing again with escaped content
+                root = ET.fromstring(fixed_xml)
+
+                # Log that we had to fix the XML
+                import logging
+                logging.debug(f"Fixed malformed XML in tag '<{tag_name}>' by escaping special characters")
+            except ET.ParseError as e:
+                # If it still fails, log the error and skip this block
+                import logging
+                error_msg = f"XML parsing failed for tag '<{tag_name}>' at line {e.lineno}, column {e.offset}: {e.msg}"
+                logging.warning(f"{error_msg}\nMalformed XML block: {xml_block[:200]}...")
+                continue  # Skip this block and continue with next
+
+        # Extract the inner XML content (everything between opening and closing tags)
+        # This code runs for both successfully parsed XML and fixed XML
+        if list(root):
+            # If there are child elements, reconstruct the inner XML
+            inner_content = ""
+            for child in root:
+                inner_content += ET.tostring(child, encoding='unicode').strip()
+            # Also include any text content directly in the root
+            if root.text and root.text.strip():
+                inner_content = root.text.strip() + inner_content
+            content = inner_content
+        else:
+            # If no child elements, just get the text content
+            content = root.text or ""
+
+        blocks.append(content)
 
     return blocks
 

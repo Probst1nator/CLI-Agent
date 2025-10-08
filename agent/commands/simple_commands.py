@@ -123,6 +123,17 @@ class YoloCommand(BaseCommand):
 
         status = "enabled" if self.context.settings.auto_execute else "disabled"
         print(colored(f"# cli-agent: YOLO mode {status}.", "green"))
+
+        # Broadcast state change to frontend
+        try:
+            from api.server import get_server
+            import asyncio
+            server = get_server()
+            if server:
+                asyncio.create_task(server.broadcast_state_change())
+        except Exception:
+            pass  # Ignore if server not available
+
         return CommandResponse(result=CommandResult.CONTINUE)
 
 class VoiceCommand(BaseCommand):
@@ -145,6 +156,17 @@ class VoiceCommand(BaseCommand):
 
         status = "enabled" if self.context.settings.voice_mode else "disabled"
         print(colored(f"# cli-agent: Voice mode {status}.", "green"))
+
+        # Broadcast state change to frontend
+        try:
+            from api.server import get_server
+            import asyncio
+            server = get_server()
+            if server:
+                asyncio.create_task(server.broadcast_state_change())
+        except Exception:
+            pass  # Ignore if server not available
+
         return CommandResponse(result=CommandResult.CONTINUE)
 
 
@@ -169,6 +191,17 @@ class LocalCommand(BaseCommand):
 
         status = "enabled" if self.context.settings.local_mode else "disabled"
         print(colored(f"# cli-agent: Local mode {status}.", "green"))
+
+        # Broadcast state change to frontend
+        try:
+            from api.server import get_server
+            import asyncio
+            server = get_server()
+            if server:
+                asyncio.create_task(server.broadcast_state_change())
+        except Exception:
+            pass  # Ignore if server not available
+
         return CommandResponse(result=CommandResult.CONTINUE)
 
 class OnlineCommand(BaseCommand):
@@ -869,7 +902,7 @@ class ResetCommand(BaseCommand):
 
     @property
     def aliases(self) -> List[str]:
-        return ['/new_chat', '/new']
+        return ['/new_chat', '/new', '/clear', '/reset']
 
     @property
     def description(self) -> str:

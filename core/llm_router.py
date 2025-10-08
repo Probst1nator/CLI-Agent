@@ -557,7 +557,9 @@ class LlmRouter:
                         # Minimal check for immediate prompt blocking on the first chunk
                         if hasattr(chunk, 'prompt_feedback') and chunk.prompt_feedback and \
                            hasattr(chunk.prompt_feedback, 'block_reason') and chunk.prompt_feedback.block_reason:
-                            return ""  # Prompt was blocked, no content will follow.
+                            block_reason = chunk.prompt_feedback.block_reason
+                            logger.warning(f"Google API blocked prompt: {block_reason}")
+                            raise Exception(f"Google API blocked the prompt (reason: {block_reason})")
 
                     token_from_this_chunk = ""
                     try:
@@ -637,6 +639,11 @@ class LlmRouter:
         # If callback returned a final response string at any point (and broke the loop)
         if finished_response and isinstance(finished_response, str):
             return finished_response
+
+        # Check for empty response before returning
+        if not full_response or not full_response.strip():
+            logger.warning("Model returned empty response (generation failure or content blocking)")
+            raise Exception("Model returned empty response (generation failure or content blocking)")
 
         return full_response
 
@@ -883,9 +890,9 @@ class LlmRouter:
         strengths: List[AIStrengths] = [],
         temperature: float = 0,
         base64_images: List[str] = [],
-        force_local: bool = False,
+        force_local: bool = g.FORCE_LOCAL,
         force_free: bool = True,
-        force_preferred_model: bool = False,
+        force_preferred_model: bool = not g.FORCE_LOCAL, # If force local is on we may as well be greedy
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
         thinking_budget: Optional[int] = 4096,
@@ -922,10 +929,8 @@ class LlmRouter:
         # Check global force flags
         if g.LLM:
             preferred_models = [g.LLM]
-        if g.LLM_STRENGTHS:
-            strengths.extend(g.LLM_STRENGTHS)
 
-        # Local has higher priority than online
+        # Force means force
         if g.FORCE_LOCAL:
             force_local = True
 
@@ -1369,51 +1374,45 @@ class LlmRouter:
 
                 cls._handle_model_error(e, model, instance, chat)
 
-                # For force_preferred_model with a single model, don't retry indefinitely
-                # Instead, capture the original error and fail fast after a few attempts
-                if force_preferred_model and len(preferred_models) == 1:
-                    if retry_count == 0:
-                        # Store the original error from the first attempt
-                        instance._original_single_model_error = str(e)
-                        instance._failed_model_key = model.model_key if model else "unknown"
+                # Global retry limit: 3 attempts total
+                if retry_count >= 3:
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    failure_reason = getattr(instance, '_last_failure_reason', str(e))
+                    g.debug_log("Model generation failed after 3 retry attempts", "red", is_error=True, prefix=prefix)
+                    raise Exception(f"Model generation failed after 3 attempts: {failure_reason}")
 
-                    # Limit retries for single preferred model to avoid infinite loops
-                    if retry_count >= 2:  # Allow 3 total attempts (0, 1, 2)
-                        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                        original_error = getattr(instance, '_original_single_model_error', str(e))
-                        failed_model = getattr(instance, '_failed_model_key', 'unknown')
-                        g.debug_log(f"Model {failed_model} failed after 3 attempts", "red", is_error=True, prefix=prefix)
-                        raise Exception(f"Model {failed_model} failed: {original_error}")
-
-                # For multiple preferred models, try all models before giving up
-                elif force_preferred_model and len(preferred_models) > 1:
-                    # Allow more attempts when we have multiple fallback models to try
-                    max_attempts = len(preferred_models) * 2  # 2 attempts per model
-                    if retry_count >= max_attempts:
-                        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                        g.debug_log(f"All {len(preferred_models)} fallback models failed after {max_attempts} attempts", "red", is_error=True, prefix=prefix)
-                        failure_reason = getattr(instance, '_last_failure_reason', "All fallback models failed")
-                        raise Exception(f"Model generation failed: {failure_reason}")
-
-                # Increment retry count and use API-suggested delay or linear backoff
+                # Increment retry count
                 retry_count += 1
 
                 # Check if there's a suggested delay from the API (e.g., rate limiting)
                 suggested_delay = 0
                 try:
                     from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
-                    suggested_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(failed_model)
+                    suggested_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(model.model_key if model else "unknown")
                 except Exception:
-                    pass  # Fall back to linear backoff if rate tracker unavailable
+                    pass
 
-                wait_time = max(suggested_delay, retry_count) if suggested_delay > 0 else retry_count
+                # Determine wait time: 10s, 15s, 20s for attempts 1, 2, 3
+                base_delays = [10, 15, 20]
+                base_wait = base_delays[retry_count - 1] if retry_count <= 3 else 20
 
-                # Show retry message to user
-                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                if suggested_delay > retry_count:
-                    g.debug_log(f"🔄 Respecting API rate limit: waiting {wait_time}s (attempt #{retry_count})...", "cyan", force_print=True, prefix=prefix)
+                if suggested_delay > 0:
+                    if suggested_delay < 30:
+                        wait_time = suggested_delay + 1
+                    else:
+                        wait_time = suggested_delay
                 else:
-                    g.debug_log(f"🔄 Retrying in {wait_time}s (attempt #{retry_count})...", "cyan", force_print=True, prefix=prefix)
+                    wait_time = base_wait
+
+                # Show retry message to user with error details
+                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                error_msg = str(e)
+                if suggested_delay > 0 and suggested_delay < 30:
+                    g.debug_log(f"🔄 API suggested {suggested_delay}s wait, using {wait_time}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
+                elif suggested_delay >= 30:
+                    g.debug_log(f"🔄 Respecting API rate limit: waiting {wait_time}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
+                else:
+                    g.debug_log(f"🔄 Retrying in {wait_time}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
 
                 # Wait with API-suggested delay or linear backoff
                 import asyncio

@@ -141,10 +141,10 @@ class WebServer:
             # Add to visual input queue
             from core.globals import g
             if not hasattr(g, 'visual_input_queue'):
-                import queue
-                g.visual_input_queue = queue.Queue()
+                import asyncio
+                g.visual_input_queue = asyncio.Queue()
 
-            g.visual_input_queue.put(user_input)
+            g.visual_input_queue.put_nowait(user_input)
             return jsonify({'status': 'ok', 'message': 'Input received'})
 
     def add_message_to_chat(self, role: Role, content: str):

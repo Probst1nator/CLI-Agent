@@ -7,6 +7,7 @@ import time
 import tkinter as tk
 from enum import Enum
 from typing import Dict, List, Optional, Sequence, Tuple, Union, Any
+from dataclasses import dataclass, field
 import threading
 import queue
 from termcolor import colored
@@ -14,7 +15,7 @@ from termcolor import colored
 # This import is no longer strictly necessary for the modified save/load functions,
 # but might be used elsewhere in the project. We'll leave it for now.
 from core.globals import g
-from ollama._types import Message
+from ollama._types import Message as OllamaMessage, Image as OllamaImage
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,26 @@ logger = logging.getLogger(__name__)
 class Role(Enum):
     SYSTEM = "system"
     USER = "user"
-    IPYTHON = "ipython"
     ASSISTANT = "assistant"
+
+@dataclass
+class Message:
+    """
+    Represents a single message in a conversation.
+
+    This is a provider-agnostic message format that can be converted
+    to Ollama, Gemini, Anthropic, or OpenAI formats.
+
+    Attributes:
+        role: The role of the message sender (system, user, assistant, ipython)
+        content: The text content of the message
+        images: Optional list of base64-encoded images associated with this message
+        metadata: Optional metadata for the message (timestamps, IDs, etc.)
+    """
+    role: Role
+    content: str
+    images: List[str] = field(default_factory=list)
+    metadata: Optional[Dict[str, Any]] = field(default_factory=dict)
 
 class Chat:
     # Role-to-color mapping for terminal output
@@ -32,7 +51,6 @@ class Chat:
         Role.ASSISTANT: ('blue', 'cyan'),
         Role.SYSTEM: ('blue', 'cyan'),
         Role.USER: ('light_green', 'green'),
-        Role.IPYTHON: ('light_yellow', 'yellow'),
     }
     DEFAULT_COLORS = ('light_yellow', 'yellow')  # Fallback
 
@@ -43,14 +61,15 @@ class Chat:
         :param instruction_message: The initial system instruction message.
         :param debug_title: Optional title for the debug window.
         """
-        self.messages: List[Tuple[Role, str]] = []
-        self.base64_images: List[str] = []
+        self.messages: List[Message] = []
         self.metadata: Dict[str, Any] = {}  # Dictionary to store additional metadata
+        self.base64_images: List[str] = []  # DEPRECATED: Use Message.images instead
         self._window: Optional[tk.Tk] = None
         self._text_widget: Optional[tk.Text] = None
         self.debug_title: str = debug_title or instruction_message[:50].split("\n")[0] or "Unnamed Context"
         self._update_queue: Optional[queue.Queue] = None
         self._window_thread: Optional[threading.Thread] = None
+        self.is_main_context: bool = False  # Flag to mark this as the main context chat for broadcasting
         if instruction_message:
             self.add_message(Role.SYSTEM, instruction_message)
 
@@ -69,7 +88,7 @@ class Chat:
 
         :return: The total number of characters across all messages.
         """
-        return sum(len(content) for _, content in self.messages)
+        return sum(len(message.content) for message in self.messages)
 
     def _create_debug_window(self):
         """Creates and runs the debug window in a separate thread."""
@@ -101,13 +120,15 @@ class Chat:
             def check_queue():
                 try:
                     while True:  # Process all pending updates
-                        messages = self._update_queue.get_nowait()
-                        self._text_widget.delete('1.0', tk.END)
-                        for role, content in messages:
-                            role_str = f"{role.name}:\n"
-                            self._text_widget.insert(tk.END, role_str, 'bold')
-                            self._text_widget.insert(tk.END, f"{content}\n\n")
-                        self._text_widget.tag_configure('bold', font=('TkDefaultFont', 10, 'bold'))
+                        if self._update_queue:
+                            messages = self._update_queue.get_nowait()
+                            if self._text_widget:
+                                self._text_widget.delete('1.0', tk.END)
+                                for message in messages:
+                                    role_str = f"{message.role.name}:\n"
+                                    self._text_widget.insert(tk.END, role_str, 'bold')
+                                    self._text_widget.insert(tk.END, f"{message.content}\n\n")
+                                self._text_widget.tag_configure('bold', font=('TkDefaultFont', 10, 'bold'))
                 except queue.Empty:
                     pass
                 finally:
@@ -154,20 +175,22 @@ class Chat:
         :return: The updated Chat instance.
         """
         # Check if first message is a system message
-        if self.messages and self.messages[0][0] == Role.SYSTEM:
-            self.messages[0] = (Role.SYSTEM, instruction_message)
+        if self.messages and self.messages[0].role == Role.SYSTEM:
+            self.messages[0].content = instruction_message
         else:
-            self.messages.insert(0, (Role.SYSTEM, instruction_message))
+            self.messages.insert(0, Message(role=Role.SYSTEM, content=instruction_message))
 
         self._update_window_display()
         return self
 
-    def add_message(self, role: Role, content: str) -> "Chat":
+    def add_message(self, role: Role, content: str, images: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None) -> "Chat":
         """
         Adds a message to the chat.
 
         :param role: The role of the message sender.
         :param content: The content of the message.
+        :param images: Optional list of base64-encoded images to attach to this message.
+        :param metadata: Optional metadata dictionary (e.g., tool_info, model used, timestamps).
         :return: The updated Chat instance.
         """
         if not (content and role):
@@ -175,16 +198,56 @@ class Chat:
 
         # Ensure content is a string for consistent merging
         content = str(content)
+        images = images or []
+        metadata = metadata or {}
 
-        if self.messages and self.messages[-1][0] == role:
+        if self.messages and self.messages[-1].role == role and not images:
             # Append to the last message's content
-            self.messages[-1] = (role, self.messages[-1][1] + content)
+            self.messages[-1].content += content
+
+            # Merge metadata if both have it
+            if metadata:
+                if not self.messages[-1].metadata:
+                    self.messages[-1].metadata = {}
+
+                # Merge tool_info arrays if both exist
+                if 'tool_info' in metadata and 'tool_info' in self.messages[-1].metadata:
+                    self.messages[-1].metadata['tool_info'].extend(metadata['tool_info'])
+                elif 'tool_info' in metadata:
+                    self.messages[-1].metadata['tool_info'] = metadata['tool_info']
+
+                # For other metadata keys, prefer new values
+                for key, value in metadata.items():
+                    if key != 'tool_info':
+                        self.messages[-1].metadata[key] = value
         else:
-            # Add a new message tuple
-            self.messages.append((role, content))
+            # Add a new message
+            self.messages.append(Message(role=role, content=content, images=images, metadata=metadata))
 
         self._update_window_display()
         return self
+
+    def update_message(self, index: int, new_content: str) -> bool:
+        """
+        Update the content of a message at the specified index.
+
+        :param index: The index of the message to update (0-based).
+        :param new_content: The new content for the message.
+        :return: True if successful, False if index invalid or system message.
+        """
+        if not new_content or not new_content.strip():
+            return False
+
+        if index < 0 or index >= len(self.messages):
+            return False
+
+        if index == 0 and self.messages[0].role == Role.SYSTEM:
+            return False
+
+        # Update the message content while keeping role and images
+        self.messages[index].content = new_content
+        self._update_window_display()
+        return True
 
     def get_messages_as_string(self, start_index: int, end_index: Optional[int] = None) -> str:
         """
@@ -212,11 +275,9 @@ class Chat:
         # Build the string representation
         message_strings = []
         for message in selected_messages:
-            if isinstance(message, (list, tuple)) and len(message) >= 2:
-                sender = message[0]
-                content = message[1]
-                sender_name = sender.name if hasattr(sender, 'name') else str(sender)
-                message_strings.append(f"{sender_name}: {content}")
+            if isinstance(message, Message):
+                sender_name = message.role.name if hasattr(message.role, 'name') else str(message.role)
+                message_strings.append(f"{sender_name}: {message.content}")
             else:
                 # Handle potential malformed messages
                 message_strings.append(str(message))
@@ -231,10 +292,12 @@ class Chat:
         """
         if isinstance(key, (int, slice)):
             sliced_messages = self.messages[key]
-            if isinstance(sliced_messages, tuple):
+            if isinstance(sliced_messages, Message):
                 sliced_messages = [sliced_messages]
             new_chat = Chat()
-            new_chat.messages = sliced_messages
+            if isinstance(sliced_messages, list):
+                for msg in sliced_messages:
+                    new_chat.messages.append(msg)
             return new_chat
         elif isinstance(key, tuple):
             new_chat = Chat()
@@ -289,18 +352,18 @@ class Chat:
         joined_string = ""
 
         # Print the selected messages with appropriate formatting
-        for role, content in selected_messages:
-            role_value = role.value if isinstance(role, Role) else role
+        for message in selected_messages:
+            role_value = message.role.value if isinstance(message.role, Role) else message.role
 
             # Get colors from the mapping
-            role_color, content_color = self.ROLE_COLORS.get(role, self.DEFAULT_COLORS)
+            role_color, content_color = self.ROLE_COLORS.get(message.role, self.DEFAULT_COLORS)
 
             formatted_role = colored(f"{role_value.upper()}:\n", role_color, attrs=['bold', "underline"])
-            formatted_content = colored(content, content_color)
+            formatted_content = colored(message.content, content_color)
 
             if not return_only:
                 print(f"{formatted_role} {formatted_content}")
-            joined_string += f"{role_value.upper()}:\n {content}\n"
+            joined_string += f"{role_value.upper()}:\n {message.content}\n"
         return joined_string.strip()
 
     def save_to_json(self, file_name: str = "recent_chat.json", merge: bool = False, also_archive: bool = True):
@@ -324,8 +387,8 @@ class Chat:
             try:
                 # Load from the same CWD-based path
                 few_shot_prompts = Chat.load_from_json(file_name)
-                few_shot_prompts.add_message(self.messages[0][0], self.messages[0][1])
-                few_shot_prompts.add_message(self.messages[1][0], self.messages[1][1])
+                few_shot_prompts.add_message(self.messages[0].role, self.messages[0].content)
+                few_shot_prompts.add_message(self.messages[1].role, self.messages[1].content)
             except FileNotFoundError:
                 # If the file doesn't exist when merging, start a new one
                 few_shot_prompts = self
@@ -362,14 +425,19 @@ class Chat:
         """
         Converts the chat instance to a dictionary.
 
-        :return: A dictionary representing the chat instance including messages and metadata.
+        :return: A dictionary representing the chat instance including messages, metadata, and images.
         """
         return {
             "messages": [
-                {"role": role.value, "content": content}
-                for role, content in self.messages
+                {
+                    "role": message.role.value,
+                    "content": message.content,
+                    "metadata": message.metadata or {}
+                }
+                for message in self.messages
             ],
-            "metadata": self.metadata
+            "metadata": self.metadata,
+            "base64_images": self.base64_images
         }
 
     @classmethod
@@ -377,7 +445,7 @@ class Chat:
         """
         Creates a Chat instance from a dictionary.
 
-        :param data_dict: A dictionary containing chat messages and metadata.
+        :param data_dict: A dictionary containing chat messages, metadata, and images.
         :return: The created Chat instance.
         """
         chat_instance = cls()
@@ -388,11 +456,16 @@ class Chat:
             for message in messages:
                 role = Role[message["role"].upper()]
                 content = message["content"]
-                chat_instance.add_message(role, content)
+                msg_metadata = message.get("metadata", {})
+                chat_instance.add_message(role, content, metadata=msg_metadata)
 
         # Add metadata if present
         if "metadata" in data_dict:
             chat_instance.metadata = data_dict["metadata"]
+
+        # Add base64 images if present
+        if "base64_images" in data_dict:
+            chat_instance.base64_images = data_dict["base64_images"]
 
         return chat_instance
 
@@ -460,9 +533,9 @@ class Chat:
 
         # Create hash from timestamp + first user message
         hash_input = timestamp_str
-        for role, content in self.messages:
-            if role == Role.USER:
-                hash_input += content[:100]
+        for message in self.messages:
+            if message.role == Role.USER:
+                hash_input += message.content[:100]
                 break
         chat_hash = hashlib.md5(hash_input.encode()).hexdigest()[:4]
 
@@ -502,12 +575,19 @@ class Chat:
         with open(chat_path, "r") as f:
             chat_data = json.load(f)
 
-        # Extract preview from first user message
+        # Extract preview from the last message in the chat
         preview = ""
         message_count = len(chat_data.get("messages", []))
-        for msg in chat_data.get("messages", []):
-            if msg.get("role") == "user":
-                preview = msg.get("content", "")[:100]
+
+        # Get last non-system message
+        for msg in reversed(chat_data.get("messages", [])):
+            if msg.get("role") != "system":
+                content = msg.get("content", "")
+                # Take last 150 characters for preview
+                if len(content) > 150:
+                    preview = "..." + content[-150:]
+                else:
+                    preview = content
                 break
 
         # Add to index
@@ -615,17 +695,186 @@ class Chat:
 
         return False
 
+    @staticmethod
+    def search_chats(query: str, top_k: int = 20) -> List[Dict[str, Any]]:
+        """
+        Searches through all archived chats using BM25 ranking algorithm.
 
+        :param query: The search query string.
+        :param top_k: Maximum number of results to return.
+        :return: List of chat metadata with scores, sorted by relevance.
+        """
+        import re
+        from collections import Counter
 
+        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        index_path = os.path.join(storage_path, "index.json")
+
+        if not os.path.exists(index_path):
+            return []
+
+        # Load index
+        with open(index_path, "r") as f:
+            index = json.load(f)
+
+        chats = index.get("chats", [])
+        if not chats:
+            return []
+
+        # Tokenize query
+        def tokenize(text: str) -> List[str]:
+            return re.findall(r'\w+', text.lower())
+
+        def generate_ngrams(token: str, n: int = 3) -> List[str]:
+            """Generate character n-grams for fuzzy matching"""
+            if len(token) < n:
+                return [token]
+            return [token[i:i+n] for i in range(len(token) - n + 1)]
+
+        def simple_stem(word: str) -> str:
+            """Simple stemming - removes common suffixes"""
+            suffixes = ['ung', 'heit', 'keit', 'isch', 'lich', 'en', 'er', 'es', 'e', 's']
+            word_lower = word.lower()
+            for suffix in suffixes:
+                if word_lower.endswith(suffix) and len(word_lower) > len(suffix) + 2:
+                    return word_lower[:-len(suffix)]
+            return word_lower
+
+        query_tokens = tokenize(query)
+        if not query_tokens:
+            return []
+
+        # Create stemmed versions and n-grams for fuzzy matching
+        query_stems = [simple_stem(token) for token in query_tokens]
+        query_ngrams = {}
+        for token in query_tokens:
+            if len(token) >= 3:  # Only use n-grams for words with 3+ chars
+                query_ngrams[token] = set(generate_ngrams(token))
+
+        # BM25 parameters
+        k1 = 1.5
+        b = 0.75
+
+        # Calculate document stats
+        doc_contents = []
+        doc_lengths = []
+
+        for chat in chats:
+            chat_path = os.path.join(storage_path, chat['filename'])
+            try:
+                with open(chat_path, 'r') as f:
+                    chat_data = json.load(f)
+
+                # Extract all message content
+                content_parts = []
+                for msg in chat_data.get('messages', []):
+                    if msg.get('content'):
+                        content_parts.append(str(msg['content']))
+
+                full_content = ' '.join(content_parts)
+                tokens = tokenize(full_content)
+                doc_contents.append(tokens)
+                doc_lengths.append(len(tokens))
+            except Exception as e:
+                logger.warning(f"Failed to load chat {chat['id']} for search: {e}")
+                doc_contents.append([])
+                doc_lengths.append(0)
+
+        if not doc_lengths or sum(doc_lengths) == 0:
+            return []
+
+        avgdl = sum(doc_lengths) / len(doc_lengths)
+        N = len(chats)
+
+        # Calculate document frequencies (including stems)
+        df = Counter()
+        df_stem = Counter()
+        for doc_tokens in doc_contents:
+            unique_tokens = set(doc_tokens)
+            unique_stems = set(simple_stem(t) for t in doc_tokens)
+            for token in unique_tokens:
+                df[token] += 1
+            for stem in unique_stems:
+                df_stem[stem] += 1
+
+        # Calculate BM25 scores with fuzzy matching and stemming
+        scores = []
+        for i, (chat, doc_tokens) in enumerate(zip(chats, doc_contents)):
+            if doc_lengths[i] == 0:
+                scores.append(0.0)
+                continue
+
+            doc_freq = Counter(doc_tokens)
+            doc_stems = Counter(simple_stem(t) for t in doc_tokens)
+            score = 0.0
+
+            for j, term in enumerate(query_tokens):
+                term_score = 0.0
+
+                # 1. Exact match (highest weight)
+                if term in doc_freq:
+                    idf = math.log((N - df[term] + 0.5) / (df[term] + 0.5) + 1.0)
+                    tf = doc_freq[term]
+                    numerator = tf * (k1 + 1)
+                    denominator = tf + k1 * (1 - b + b * doc_lengths[i] / avgdl)
+                    term_score += idf * (numerator / denominator)
+
+                # 2. Stem match (medium weight - 0.7x)
+                stem = query_stems[j]
+                if stem in doc_stems and term not in doc_freq:
+                    idf = math.log((N - df_stem[stem] + 0.5) / (df_stem[stem] + 0.5) + 1.0)
+                    tf = doc_stems[stem]
+                    numerator = tf * (k1 + 1)
+                    denominator = tf + k1 * (1 - b + b * doc_lengths[i] / avgdl)
+                    term_score += 0.7 * idf * (numerator / denominator)
+
+                # 3. Fuzzy n-gram match (lower weight - 0.4x)
+                if term in query_ngrams and term not in doc_freq and stem not in doc_stems:
+                    query_grams = query_ngrams[term]
+                    for doc_token in set(doc_tokens):
+                        if len(doc_token) >= 3:
+                            doc_grams = set(generate_ngrams(doc_token))
+                            overlap = len(query_grams & doc_grams)
+                            if overlap > 0:
+                                # Jaccard similarity
+                                similarity = overlap / len(query_grams | doc_grams)
+                                if similarity > 0.5:  # At least 50% overlap
+                                    tf = doc_freq[doc_token]
+                                    # Use a default IDF for fuzzy matches
+                                    idf = 2.0
+                                    numerator = tf * (k1 + 1)
+                                    denominator = tf + k1 * (1 - b + b * doc_lengths[i] / avgdl)
+                                    term_score += 0.4 * similarity * idf * (numerator / denominator)
+                                    break  # Only count best fuzzy match per query term
+
+                score += term_score
+
+            scores.append(score)
+
+        # Create results with scores and matching snippets
+        results = []
+        for i, (chat, score) in enumerate(zip(chats, scores)):
+            if score > 0:
+                result = chat.copy()
+                result['score'] = score
+
+                # Find best matching snippet (with fuzzy/stem matching)
+                snippet = _find_best_snippet(doc_contents[i], query_tokens, query_stems, query_ngrams, chat['filename'], storage_path)
+                result['search_snippet'] = snippet
+
+                results.append(result)
+
+        # Sort by score descending
+        results.sort(key=lambda x: x['score'], reverse=True)
+
+        return results[:top_k]
 
     def joined_messages(self) -> str:
         """
         Returns all messages joined with "\n".
         :return: The joined messages as a single string.
         """
-        # Join only the content (second element) from each message tuple
-        # Each message is a tuple of (Role, content)
-        return "\n".join(str(message[1]) for message in self.messages)
+        return "\n".join(str(message.content) for message in self.messages)
 
     def count_tokens(self, encoding_name: str = "cl100k_base") -> int:
         """
@@ -636,22 +885,36 @@ class Chat:
         """
         return math.floor(len(self.joined_messages())/4)
 
-    def to_ollama(self) -> Sequence[Message]:
+    def to_ollama(self) -> Sequence[OllamaMessage]:
         """
         Converts chat messages to Ollama format.
         :return: The chat messages in Ollama format.
         """
-        message_sequence = [
-            Message(role=message[0].value, content=message[1])
-            for message in self.messages
-        ]
+        message_sequence = []
+        for message in self.messages:
+            images = None
+            if message.images:
+                images = [OllamaImage(value=img) for img in message.images]
 
-        # Make sure there are base64_images to decode and assign
+            ollama_msg = OllamaMessage(
+                role=message.role.value,
+                content=message.content,
+                images=images
+            )
+            message_sequence.append(ollama_msg)
+
+        # DEPRECATED: Support old base64_images for backward compatibility
         if self.base64_images:
-            message = message_sequence[-1]
-            message["images"] = [image for image in self.base64_images]
-            message_sequence[-1] = message
-            self.base64_images = [] # Reset base64_images
+            if message_sequence:
+                last_msg = message_sequence[-1]
+                existing_images = list(last_msg.images) if last_msg.images else []
+                existing_images.extend([OllamaImage(value=img) for img in self.base64_images])
+                message_sequence[-1] = OllamaMessage(
+                    role=last_msg.role,
+                    content=last_msg.content,
+                    images=existing_images
+                )
+            self.base64_images = []
 
         return message_sequence
 
@@ -663,10 +926,10 @@ class Chat:
         """
         result = []
         for i, message in enumerate(self.messages):
-            if message[0].value == "ipython" and i > 0:
-                result[-1]["content"] += f"\n\n{message[1]}"
+            if message.role.value == "ipython" and i > 0:
+                result[-1]["content"] += f"\n\n{message.content}"
             else:
-                result.append({"role": message[0].value, "content": message[1]})
+                result.append({"role": message.role.value, "content": message.content})
         return result
 
     def to_groq(self) -> List[Dict[str, str]]:
@@ -678,16 +941,15 @@ class Chat:
         """
         groq_messages = []
 
-        for role, content in self.messages:
-            if role == Role.SYSTEM:
-                groq_messages.append({"role": "system", "content": content})
-            elif role == Role.USER:
-                groq_messages.append({"role": "user", "content": content})
-            elif role == Role.ASSISTANT:
-                groq_messages.append({"role": "assistant", "content": content})
+        for message in self.messages:
+            if message.role == Role.SYSTEM:
+                groq_messages.append({"role": "system", "content": message.content})
+            elif message.role == Role.USER:
+                groq_messages.append({"role": "user", "content": message.content})
+            elif message.role == Role.ASSISTANT:
+                groq_messages.append({"role": "assistant", "content": message.content})
             else:
-                # For any other role, treat as a user message
-                groq_messages.append({"role": "user", "content": content})
+                groq_messages.append({"role": "user", "content": message.content})
 
         return groq_messages
 
@@ -701,96 +963,47 @@ class Chat:
         Returns:
             List[Dict[str, Any]]: The chat messages formatted for Gemini's API.
         """
-        gemini_messages = []
+        gemini_messages: List[Dict[str, Any]] = []
 
-        # Use local base64_images if provided, otherwise use self.base64_images
-        images_to_include = base64_images if base64_images is not None else self.base64_images
-
-        # Handle system prompt separately
         system_prompt = None
-        for role, content in self.messages:
-            if role == Role.SYSTEM:
-                system_prompt = content
+        for message in self.messages:
+            if message.role == Role.SYSTEM:
+                system_prompt = message.content
                 break
 
-        for role, content in self.messages:
-            if role == Role.USER:
-                # Handle user messages, which might contain images
-                if isinstance(content, list):
-                    # Multimodal content
-                    content_parts = []
+        for message in self.messages:
+            if message.role == Role.USER:
+                parts: List[Any] = [str(message.content)]
 
-                    for item in content:
-                        if isinstance(item, dict):
-                            if item.get("type") == "text":
-                                content_parts.append(item.get("text", ""))
-                            elif item.get("type") == "image":
-                                image_url = item.get("image_url", {}).get("url", "")
-                                if image_url.startswith("data:image"):
-                                    # Handle base64 encoded images
-                                    try:
-                                        import base64
-                                        import google.generativeai as genai
-                                        image_data = image_url.split(",")[1]
-                                        mime_type = image_url.split(";")[0].split(":")[1]
-                                        decoded_image = base64.b64decode(image_data)
-                                        content_parts.append(genai.Part.from_data(decoded_image, mime_type=mime_type))
-                                    except Exception:
-                                        # Fallback for when genai isn't available
-                                        content_parts.append("[Image data]")
-                                elif image_url.startswith("http"):
-                                    # Handle URL images
-                                    try:
-                                        import google.generativeai as genai
-                                        content_parts.append(genai.Part.from_uri(image_url))
-                                    except Exception:
-                                        # Fallback for when genai isn't available
-                                        content_parts.append(f"[Image URL: {image_url}]")
-                        else:
-                            # Simple text message
-                            content_parts.append(str(item))
+                if message.images:
+                    for image in message.images:
+                        mime_type = "image/jpeg"
+                        try:
+                            import base64
+                            image_data = base64.b64decode(image[:100])
+                            if image_data.startswith(b'\x89PNG'):
+                                mime_type = "image/png"
+                            elif image_data.startswith(b'GIF8'):
+                                mime_type = "image/gif"
+                            elif image_data.startswith(b'\xff\xd8\xff'):
+                                mime_type = "image/jpeg"
+                            elif image_data.startswith(b'RIFF') and b'WEBP' in image_data[:20]:
+                                mime_type = "image/webp"
+                        except Exception:
+                            pass
 
-                    gemini_messages.append({"role": "user", "parts": content_parts})
-                else:
-                    # Simple text message
-                    gemini_messages.append({"role": "user", "parts": [str(content)]})
+                        parts.append({
+                            "inline_data": {
+                                "mime_type": mime_type,
+                                "data": image
+                            }
+                        })
 
-                    # Add any images attached to the message
-                    if images_to_include:
-                        current_message = gemini_messages[-1]
-                        for image in images_to_include:
-                            # Detect MIME type from base64 header or default to jpeg
-                            mime_type = "image/jpeg"  # default
-                            try:
-                                import base64
-                                # Try to detect format from magic bytes
-                                image_data = base64.b64decode(image[:100])  # Just first few bytes for detection
-                                if image_data.startswith(b'\x89PNG'):
-                                    mime_type = "image/png"
-                                elif image_data.startswith(b'GIF8'):
-                                    mime_type = "image/gif"
-                                elif image_data.startswith(b'\xff\xd8\xff'):
-                                    mime_type = "image/jpeg"
-                                elif image_data.startswith(b'RIFF') and b'WEBP' in image_data[:20]:
-                                    mime_type = "image/webp"
-                            except Exception:
-                                pass  # Keep default
+                gemini_messages.append({"role": "user", "parts": parts})
 
-                            current_message["parts"].append({
-                                "inline_data": {
-                                    "mime_type": mime_type,
-                                    "data": image
-                                }
-                            })
-                        images_to_include = []  # Clear images after adding them
+            elif message.role == Role.ASSISTANT:
+                gemini_messages.append({"role": "model", "parts": [str(message.content)]})
 
-            elif role == Role.ASSISTANT:
-                # Assistant messages are always text
-                gemini_messages.append({"role": "model", "parts": [str(content)]})
-
-            # System messages are handled separately (above)
-
-        # Add system prompt if present (prepend to the first user message)
         if system_prompt and gemini_messages and gemini_messages[0]["role"] == "user":
             first_message = gemini_messages[0]
             first_message["parts"].insert(0, f"System instruction: {system_prompt}\n\n")
@@ -809,46 +1022,31 @@ class Chat:
 
         :return: The chat messages in Gemma format.
         """
-        # Start with the <bos> tag
         gemma_format = "<bos>"
 
-        for role, content in self.messages:
-            # Skip system messages as they don't have a direct equivalent in Gemma format
-            if role == Role.SYSTEM:
+        for message in self.messages:
+            if message.role == Role.SYSTEM:
                 continue
 
-            # Map the role to Gemma's expected format
-            if role == Role.USER:
+            if message.role == Role.USER:
                 gemma_role = "user"
-            elif role == Role.ASSISTANT:
+            elif message.role == Role.ASSISTANT:
                 gemma_role = "model"
-            elif role == Role.IPYTHON:
-                # Handle IPython as part of the user message
-                # This might need adjustment based on your specific needs
-                gemma_role = "ipython"
             else:
-                # Skip any unrecognized roles
                 continue
 
-            # Start a new turn
             gemma_format += f"<start_of_turn>{gemma_role}\n"
 
-            # Process content, handling any possible images
-            processed_content = content
-            if role == Role.USER and self.base64_images and gemma_role == "user":
-                # If there are base64_images and this is a user message,
-                # we need to embed them using <img> tags
+            processed_content = message.content
+            if message.role == Role.USER and self.base64_images and gemma_role == "user":
                 for i, image in enumerate(self.base64_images):
-                    # Look for image placeholders in the pattern "Image X: "
                     image_placeholder = f"Image {chr(65+i)}: "
                     if image_placeholder in processed_content:
-                        # Replace the placeholder with the image tag
                         processed_content = processed_content.replace(
                             image_placeholder,
                             f"Image {chr(65+i)}: <img>\n"
                         )
 
-            # Add the processed content and end the turn
             gemma_format += f"{processed_content}<end_of_turn>\n"
 
         return gemma_format
@@ -873,17 +1071,16 @@ class Chat:
         :return: The updated Chat instance.
         """
         messages_to_add = []
-        if chat.messages[0][0] == Role.SYSTEM:
+        if chat.messages[0].role == Role.SYSTEM:
             messages_to_add = chat.messages[1:]
         else:
             messages_to_add = chat.messages
-        # Doing it like this will take care of duplicate roles
+
         for message_to_add in messages_to_add:
-            self.add_message(message_to_add[0], message_to_add[1])
+            self.add_message(message_to_add.role, message_to_add.content)
 
         self.base64_images.extend(chat.base64_images)
 
-        # Merge metadata, prioritizing values from the current chat instance
         if hasattr(chat, 'metadata') and chat.metadata:
             for key, value in chat.metadata.items():
                 if key not in self.metadata:
@@ -898,10 +1095,9 @@ class Chat:
         :param new_content: The new content to replace the latest user message with
         :return: The updated Chat instance
         """
-        # Find the last user message index
         for i in range(len(self.messages) - 1, -1, -1):
-            if self.messages[i][0] == Role.USER:
-                self.messages[i] = (Role.USER, new_content)
+            if self.messages[i].role == Role.USER:
+                self.messages[i].content = new_content
                 self._update_window_display()
                 break
         return self
@@ -915,26 +1111,23 @@ class Chat:
         :param model: Optional specific model to use (defaults to system configuration)
         :return: A new Chat instance with compacted conversation
         """
-        # Lazy import to avoid circular imports
         try:
             from core.llm_router import LlmRouter
         except ImportError:
             logger.warning("LlmRouter not available for compression, returning copy of original chat")
             return self.deep_copy()
 
-        # Validate level parameter
         if level not in ['dense', 'detailed']:
             logger.warning(f"Invalid compression level '{level}', defaulting to 'detailed'")
             level = 'detailed'
 
-        # Create compression prompt based on level
         if level == 'dense':
             compression_instruction = (
                 "Create a brief, essential summary of this conversation. "
                 "Focus on key decisions, important facts, and critical context needed to continue the discussion. "
                 "Be concise but preserve the most important information."
             )
-        else:  # detailed
+        else:
             compression_instruction = (
                 "Create a comprehensive summary of this conversation that maintains all important details, "
                 "decisions, technical context, and key points. The summary should provide full context "
@@ -945,29 +1138,28 @@ class Chat:
         chat.add_message(Role.USER, f"{prompt}\n\nConversation:\n{self.print_chat()}")
 
         try:
-            router = LlmRouter.get_instance()
-            response = router.generate_response(chat, model_name=model if model else None, stream=False)
+            import asyncio
+            preferred_models = [model] if model else []
+            response = asyncio.run(LlmRouter.generate_completion(chat, preferred_models=preferred_models))
         except Exception as e:
             logger.error(f"LLM compression failed: {e}")
             return self.deep_copy()
 
         system_msg = ""
-        if self.messages and self.messages[0][0] == Role.SYSTEM:
-            system_msg = self.messages[0][1]
+        if self.messages and self.messages[0].role == Role.SYSTEM:
+            system_msg = self.messages[0].content
 
         memory_delimiter_prefix: str = "\n<context>"
         memory_delimiter_suffix: str = "</context>"
 
-        if (memory_delimiter_prefix in system_msg): # cleanup previous chat memory in sys_msg
+        if (memory_delimiter_prefix in system_msg):
             system_msg = system_msg.split(memory_delimiter_prefix)[0]
 
         system_msg += memory_delimiter_prefix + response + memory_delimiter_suffix
 
-        # Create new compressed chat
         compressed_chat = Chat()
         compressed_chat.set_instruction_message(system_msg)
 
-        # Add compression metadata
         compressed_chat.metadata['compression'] = {
             'original_length': len(self),
             'compressed_length': len(compressed_chat),
@@ -978,3 +1170,109 @@ class Chat:
         }
 
         return compressed_chat
+
+def _find_best_snippet(doc_tokens: List[str], query_tokens: List[str], query_stems: List[str], query_ngrams: Dict[str, set], filename: str, storage_path: str, context_words: int = 10) -> str:
+    """
+    Finds the best matching snippet from the document that contains query terms.
+    Now supports fuzzy matching and stemming.
+
+    :param doc_tokens: Tokenized document
+    :param query_tokens: Tokenized query
+    :param query_stems: Stemmed query tokens
+    :param query_ngrams: N-grams for each query token
+    :param filename: Chat filename for loading original text
+    :param storage_path: Path to chat storage
+    :param context_words: Number of words to show around matches
+    :return: Text snippet with matches
+    """
+    if not doc_tokens or not query_tokens:
+        return ""
+
+    def simple_stem(word: str) -> str:
+        """Simple stemming - removes common suffixes"""
+        suffixes = ['ung', 'heit', 'keit', 'isch', 'lich', 'en', 'er', 'es', 'e', 's']
+        word_lower = word.lower()
+        for suffix in suffixes:
+            if word_lower.endswith(suffix) and len(word_lower) > len(suffix) + 2:
+                return word_lower[:-len(suffix)]
+        return word_lower
+
+    def generate_ngrams(token: str, n: int = 3) -> set:
+        """Generate character n-grams for fuzzy matching"""
+        if len(token) < n:
+            return {token}
+        return set(token[i:i+n] for i in range(len(token) - n + 1))
+
+    def matches_query(doc_token: str) -> bool:
+        """Check if doc token matches any query term (exact, stem, or fuzzy)"""
+        # Exact match
+        if doc_token in query_tokens:
+            return True
+
+        # Stem match
+        doc_stem = simple_stem(doc_token)
+        if doc_stem in query_stems:
+            return True
+
+        # Fuzzy match
+        if len(doc_token) >= 3:
+            doc_grams = generate_ngrams(doc_token)
+            for term, term_grams in query_ngrams.items():
+                if term_grams:
+                    overlap = len(term_grams & doc_grams)
+                    similarity = overlap / len(term_grams | doc_grams) if term_grams | doc_grams else 0
+                    if similarity > 0.5:
+                        return True
+
+        return False
+
+    # Find positions of query terms in document (with fuzzy/stem matching)
+    match_positions = []
+
+    for idx, token in enumerate(doc_tokens):
+        if matches_query(token):
+            match_positions.append(idx)
+
+    if not match_positions:
+        return ""
+
+    # Find the region with most matches (clustering)
+    best_start = match_positions[0]
+    best_count = 1
+
+    for i in range(len(match_positions)):
+        window_start = match_positions[i]
+        count = 1
+
+        for j in range(i + 1, len(match_positions)):
+            if match_positions[j] - window_start < context_words * 2:
+                count += 1
+            else:
+                break
+
+        if count > best_count:
+            best_count = count
+            best_start = window_start
+
+    # Extract snippet around best match region
+    snippet_start = max(0, best_start - context_words)
+    snippet_end = min(len(doc_tokens), best_start + context_words)
+
+    snippet_tokens = doc_tokens[snippet_start:snippet_end]
+
+    # Reconstruct original text (approximation by joining tokens)
+    snippet = ' '.join(snippet_tokens)
+
+    # Add ellipsis if truncated
+    if snippet_start > 0:
+        snippet = '...' + snippet
+    if snippet_end < len(doc_tokens):
+        snippet = snippet + '...'
+
+    # Limit length
+    if len(snippet) > 200:
+        snippet = snippet[:200] + '...'
+
+    return snippet
+
+

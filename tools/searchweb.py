@@ -159,8 +159,8 @@ class searchweb:
         chat = Chat()
         chat.add_message(Role.USER, f"The search query is: {query}\nJudge and compare these different web sources and summarize: {joined_text}")
 
-        # Use await for async LLM completion
-        summary = await LlmRouter.generate_completion(chat)
+        # Use await for async LLM completion (force_preferred_model=False to allow any free model)
+        summary = await LlmRouter.generate_completion(chat, force_preferred_model=False)
 
         # Store the generated summary in the vector database with enhanced metadata (only if caching enabled)
         if use_cache:

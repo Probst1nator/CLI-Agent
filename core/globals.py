@@ -176,13 +176,11 @@ class Globals:
         # --- Forcing Flags (runtime modifiers) ---
         import time
         import_start = time.time()
-        from core.ai_strengths import AIStrengths # Local import
         import_time = (time.time() - import_start) * 1000
         if import_time > 1:  # Only log if > 1ms
             logging.info(f"🚀 GLOBALS: AIStrengths import took {import_time:.1f}ms")
 
         self.FORCE_LOCAL: bool = False
-        self.LLM_STRENGTHS: List[AIStrengths] = []
 
         # --- Debug and UI Flags ---
         self.DEBUG_CHATS: bool = False
@@ -227,8 +225,8 @@ class Globals:
         self.current_images: List[str] = []  # Current images for vision models
 
         # --- GUI Communication ---
-        import queue
-        self.visual_input_queue: queue.Queue = queue.Queue()  # Queue for visual input from web interface
+        import asyncio
+        self.visual_input_queue: asyncio.Queue = asyncio.Queue()  # Async queue for visual input from web interface
 
         # --- TTS Configuration ---
         # Default: Local models first, then remote APIs (prioritize privacy and offline capability)

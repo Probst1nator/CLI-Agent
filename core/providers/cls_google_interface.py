@@ -89,8 +89,8 @@ class GoogleAPI(AIProviderInterface):
             print(f"🔍 GOOGLE API ENTRY: model={model_key}, temp={temperature}, chat_type={type(chat).__name__}")
             if hasattr(chat, 'messages'):
                 print(f"🔍 CHAT MESSAGES: {len(chat.messages)} messages")
-                for i, (role, content) in enumerate(chat.messages):
-                    print(f"🔍   MSG {i}: {role.value} -> {len(str(content))} chars")
+                for i, message in enumerate(chat.messages):
+                    print(f"🔍   MSG {i}: {message.role.value} -> {len(str(message.content))} chars")
             if hasattr(chat, 'base64_images'):
                 print(f"🔍 BASE64 IMAGES: {len(chat.base64_images)} images")
                 for i, img in enumerate(chat.base64_images):
@@ -135,9 +135,9 @@ class GoogleAPI(AIProviderInterface):
             text_content = str(chat)
             token_cost = len(text_content) // 4
             # Count images in chat
-            for role, content in chat.messages:
-                if isinstance(content, dict) and 'images' in content:
-                    image_count += len(content['images'])
+            for message in chat.messages:
+                if message.images:
+                    image_count += len(message.images)
 
         # Check if request can be made with enhanced rate limiting
         # With lazy initialization, models without configured limits are allowed through
@@ -384,10 +384,13 @@ class GoogleAPI(AIProviderInterface):
                     retry_delay=extra_info.get('api_suggested_delay', 0)
                 )
 
-                # Show user-friendly message
+                # Show user-friendly message with API error details
                 if not silent_reason:
                     limit_name = limit_type.value.replace('_', ' ').title()
                     g.debug_log(f"⚡ {limit_name} limit reached for {model_key} - retry in {cooldown_seconds:.1f}s", "yellow", force_print=True, prefix=prefix)
+                    # Show actual API error for debugging
+                    api_error_summary = error_str.split('\n')[0][:200]  # First line, max 200 chars
+                    g.debug_log(f"   API Error: {api_error_summary}", "yellow", force_print=True, prefix=prefix)
 
                 # Mark the exception as already logged and raise as RateLimitException
                 setattr(e, 'already_logged', True)

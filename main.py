@@ -102,9 +102,9 @@ from pyfiglet import figlet_format
 # Import with suppression in non-debug mode
 if '--debug' not in sys.argv:
     with suppress_stderr_completely():
-        from tools.viewpermissions import viewpermissions
+        pass
 else:
-    from tools.viewpermissions import viewpermissions
+    pass
 
 start_time = time.time() # Global timer for startup and operations
 
@@ -124,7 +124,6 @@ if str(project_root) not in sys.path:
 from core.tool_context import tool_context
 from tools.primitives.todos import todos
 from tools.readfile import readfile
-from tools.bash import bash
 
 # Import TextResourceManager for general resource creation
 try:
@@ -358,10 +357,10 @@ class InputCollector:
                     elif isinstance(user_input, dict):
                         # Dict objects should be handled by permissions system, not regular input
                         # Put it back for proper handling
-                        g.visual_input_queue.put(user_input)
+                        g.visual_input_queue.put_nowait(user_input)
                     else:
                         logging.debug(f"Unexpected input type in visual queue: {type(user_input)}")
-            except queue.Empty:
+            except asyncio.QueueEmpty:
                 pass
 
     def _check_cli_input(self):
@@ -436,7 +435,7 @@ class InputCollector:
                     # Set interrupt flag to break out of waiting states immediately
                     self._set_command_interrupt()
 
-            except queue.Empty:
+            except asyncio.QueueEmpty:
                 break
 
     def _set_command_interrupt(self):
@@ -527,6 +526,8 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Regenerate the last response.")
     parser.add_argument("-v", "--voice", action="store_true", default=False,
                         help="Enable microphone input and text-to-speech output.")
+    parser.add_argument("-s", "--speak", action="store_true", default=False,
+                        help="Enable text-to-speech output only (no microphone input).")
     parser.add_argument("--online_voice", action="store_true", default=False,
                         help="Enable cloud-based speech transcription and TTS (Groq/OpenAI/ElevenLabs) with local fallback. By default, uses local engines only.")
 
@@ -541,7 +542,9 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Specify the LLM model key to use (e.g., 'gemini-2.5-flash', 'gemma3n:e2b'). Use without value to open selection menu.")
 
     parser.add_argument("--gui", action="store_true", default=False,
-                        help="Open a web interface for the chat")
+                        help="Open a web interface for the chat (opens browser automatically)")
+    parser.add_argument("--api", action="store_true", default=False,
+                        help="Start API server without opening browser (for headless/remote use)")
     parser.add_argument("--debug-chats", action="store_true", default=False,
                         help="Enable debug windows for chat contexts without full debug logging. Sets g.DEBUG_CHATS=True.")
     parser.add_argument("--private_remote_wake_detection", action="store_true", default=False,
@@ -550,9 +553,12 @@ def parse_cli_args() -> argparse.Namespace:
     # --- Logging Arguments ---
     parser.add_argument("--debug", action="store_true", default=False,
                         help="Enable detailed debug logging to the console.")
-    parser.add_argument("--log-file", type=str, default=None,
-                        help="Path to a file to write detailed logs.")
+    # NOTE: File logging is ALWAYS enabled at DEBUG level to ~/.cli-agent/logs/session.log
+    # This ensures production issues can always be diagnosed from logs
     # --- End Logging Arguments ---
+
+    parser.add_argument("--clear-cache", type=int, nargs='?', const=2, default=None, metavar='DAYS',
+                        help="Clear LLM cache entries older than N days (default: 2 days). Use --clear-cache 365 to clear the recent year. Exits after clearing.")
 
     parser.add_argument("-e", "--exit", action="store_true", default=False,
                         help="Exit after all automatic messages have been parsed successfully")
@@ -573,6 +579,36 @@ def parse_cli_args() -> argparse.Namespace:
 # --- Eager setup of args ---
 # This is done before heavy imports to allow --help to work quickly.
 args = parse_cli_args()
+
+# --- Handle Cache Clearing ---
+# Clear cache and exit if --clear-cache was specified
+if args.clear_cache is not None:
+    from core.cache.llm_cache_manager import LLMCacheManager
+    import os
+
+    cache_db_path = os.path.join(g.CLIAGENT_CACHE_DIR, "llm_cache.db")
+    cache_manager = LLMCacheManager(cache_db_path)
+
+    # Get stats before clearing
+    stats_before = cache_manager.get_cache_statistics()
+
+    # Clear entries older than specified days
+    removed = cache_manager.cleanup_expired_entries(max_age_days=args.clear_cache)
+
+    # Vacuum database to reclaim space
+    cache_manager.vacuum_database()
+
+    # Get stats after clearing
+    stats_after = cache_manager.get_cache_statistics()
+
+    # Print summary
+    print("\n✅ Cache Cleanup Summary:")
+    print(f"   Removed: {removed} entries older than {args.clear_cache} days")
+    print(f"   Before: {stats_before.get('total_entries', 0)} entries, {stats_before.get('db_file_size_bytes', 0) / (1024*1024):.2f} MB")
+    print(f"   After:  {stats_after.get('total_entries', 0)} entries, {stats_after.get('db_file_size_bytes', 0) / (1024*1024):.2f} MB")
+    print(f"   Space reclaimed: {(stats_before.get('db_file_size_bytes', 0) - stats_after.get('db_file_size_bytes', 0)) / (1024*1024):.2f} MB\n")
+
+    sys.exit(0)
 
 # Store continue flag in global state for access by tools
 g.CONTINUE_CONVERSATION = args.c
@@ -663,6 +699,7 @@ def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
 
     This function uses xml.etree.ElementTree to properly validate XML syntax
     and provides detailed error messages with line and column information.
+    Also detects tag mismatches like <type>...</content>.
 
     Args:
         text (str): The text to analyze for malformed XML
@@ -673,6 +710,11 @@ def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
     import xml.etree.ElementTree as ET
 
     errors = []
+
+    # NOTE: Pre-check for mismatched tags removed due to false positives with nested XML
+    # The regex pattern r'<tag>(.*?)</different_tag>' will incorrectly match nested structures
+    # Example: <outer><inner>...</inner></outer> matches as <outer>...</inner> (false positive)
+    # Instead, we rely solely on the XML parser below to detect malformed XML
 
     # Find potential XML blocks using regex
     xml_pattern = r'<([a-zA-Z0-9_]+)[^>]*>.*?</\1>'
@@ -686,36 +728,74 @@ def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
             ET.fromstring(xml_block)
             # If we get here, the XML is well-formed
 
-        except ET.ParseError as e:
-            # Get the position of the error in the original text
-            match_start = match.start()
-            text_before_match = text[:match_start]
-            line_number = text_before_match.count('\n') + 1
+        except ET.ParseError:
+            # Try to fix the XML with automatic escaping (same logic as extract_blocks)
+            try:
+                import html
 
-            # Calculate relative position within the XML block
-            xml_lines = xml_block.split('\n')
-            error_line_in_block = getattr(e, 'lineno', 1) or 1
-            error_col_in_block = getattr(e, 'offset', 1) or 1
+                # Strategy: Use regex to identify XML tags vs content, then escape only content
+                parts = []
+                last_end = 0
 
-            # Get context around the error
-            context_start = max(0, error_line_in_block - 2)
-            context_end = min(len(xml_lines), error_line_in_block + 2)
-            context_lines = xml_lines[context_start:context_end]
+                # Pattern to match XML tags (opening, closing, or self-closing)
+                tag_pattern = r'</?[a-zA-Z0-9_]+[^>]*?>'
 
-            # Build detailed error information
-            error_info = {
-                'type': 'xml_parse_error',
-                'tag_name': tag_name,
-                'error_description': f"XML parsing failed: {e.msg}",
-                'line_number': line_number + (error_line_in_block - 1),
-                'column_number': error_col_in_block,
-                'error_line_content': xml_lines[error_line_in_block - 1] if error_line_in_block <= len(xml_lines) else "",
-                'context_lines': context_lines,
-                'full_xml_block': xml_block,
-                'suggested_fix': _get_xml_fix_suggestion(e.msg, xml_block)
-            }
+                for tag_match in re.finditer(tag_pattern, xml_block):
+                    # Content before this tag needs escaping
+                    content_before = xml_block[last_end:tag_match.start()]
+                    if content_before:
+                        parts.append(html.escape(content_before, quote=False))
 
-            errors.append(error_info)
+                    # The tag itself should not be escaped
+                    parts.append(tag_match.group(0))
+
+                    last_end = tag_match.end()
+
+                # Handle any remaining content after the last tag
+                remaining_content = xml_block[last_end:]
+                if remaining_content:
+                    parts.append(html.escape(remaining_content, quote=False))
+
+                fixed_xml = ''.join(parts)
+
+                # Try parsing again with escaped content
+                ET.fromstring(fixed_xml)
+
+                # If we get here, the XML is valid after escaping - don't report as error
+                logging.debug(f"XML in tag '<{tag_name}>' auto-fixed with content escaping")
+                continue  # Skip adding to errors list
+
+            except ET.ParseError as e:
+                # Even after escaping, it still fails - report the error
+                # Get the position of the error in the original text
+                match_start = match.start()
+                text_before_match = text[:match_start]
+                line_number = text_before_match.count('\n') + 1
+
+                # Calculate relative position within the XML block
+                xml_lines = xml_block.split('\n')
+                error_line_in_block = getattr(e, 'lineno', 1) or 1
+                error_col_in_block = getattr(e, 'offset', 1) or 1
+
+                # Get context around the error
+                context_start = max(0, error_line_in_block - 2)
+                context_end = min(len(xml_lines), error_line_in_block + 2)
+                context_lines = xml_lines[context_start:context_end]
+
+                # Build detailed error information
+                error_info = {
+                    'type': 'xml_parse_error',
+                    'tag_name': tag_name,
+                    'error_description': f"XML parsing failed: {e.msg}",
+                    'line_number': line_number + (error_line_in_block - 1),
+                    'column_number': error_col_in_block,
+                    'error_line_content': xml_lines[error_line_in_block - 1] if error_line_in_block <= len(xml_lines) else "",
+                    'context_lines': context_lines,
+                    'full_xml_block': xml_block,
+                    'suggested_fix': _get_xml_fix_suggestion(e.msg, xml_block)
+                }
+
+                errors.append(error_info)
 
     return errors
 
@@ -976,6 +1056,9 @@ def create_interruption_callback(
     tool_tag_pattern = "|".join(re.escape(d) for d in interrupting_delimiters)
     XML_TOOL_BLOCK_REGEX = re.compile(f"<({tool_tag_pattern})[^>]*>.*?</\\1>", re.DOTALL) if tool_tag_pattern else None
 
+    # Repetition detection state (detects when model loops on same 1-5 chars)
+    repetition_state = {'pattern': '', 'count': 0, 'check_pos': 0}
+
     async def _callback(chunk: str):
         # Check for user interrupt immediately at start of callback for faster response
         if check_interrupt():
@@ -1016,6 +1099,29 @@ def create_interruption_callback(
 
                 # Clear batch
                 char_batch = []
+
+                # Check for repetition loops (model stuck repeating same 1-5 chars)
+                buffer_len = len(current_buffer)
+                if buffer_len > repetition_state['check_pos'] + 100:  # Check every 100 chars
+                    # Look at last 100 characters
+                    recent = current_buffer[-100:]
+                    # Try patterns of length 1-5
+                    for pattern_len in range(1, 6):
+                        if len(recent) < pattern_len * 20:  # Need at least 20 repetitions
+                            continue
+                        pattern = recent[-pattern_len:]
+                        # Count how many times this pattern repeats at the end
+                        count = 0
+                        pos = len(recent) - pattern_len
+                        while pos >= 0 and recent[pos:pos+pattern_len] == pattern:
+                            count += 1
+                            pos -= pattern_len
+
+                        if count >= 20:  # Pattern repeats 20+ times
+                            logging.error(colored(f"\n⚠️  Model repetition loop detected: '{pattern}' repeated {count} times", "red"))
+                            raise StreamInterruptedException(f"[REPETITION_LOOP_DETECTED: '{pattern}' x{count}]")
+
+                    repetition_state['check_pos'] = buffer_len
 
                 # Check for interruption conditions when we encounter special characters
                 if char in '`><':
@@ -1098,10 +1204,14 @@ async def get_cli_input(prompt: str = " Enter your request: ") -> str:
 
 
 
-async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False) -> Chat:
+async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False, add_bootstrap: bool = True) -> Chat:
     """
     Constructs the initial Chat object with a dynamically generated system prompt.
     This prompt includes the agent's core principles and a list of available tools.
+
+    :param voice_agent: Whether voice mode is enabled
+    :param gui_mode: Whether GUI mode is enabled
+    :param add_bootstrap: Whether to add bootstrap messages (file list + permissions)
     """
     voice_mode_text = 'The user is interacting with you in speech mode, please be aware of potential transcription issues. Provide concise responses and be helpful to the user.\n' if voice_agent else ''
     base_instructions = f'''**SYSTEM: Agent Protocol & Capabilities**
@@ -1137,7 +1247,77 @@ The following loop is a suggestion of how to behave effectively, you may freely 
 
     # Create and configure the new Chat object
     context_chat = Chat(debug_title="Main Context Chat")
+    context_chat.is_main_context = True  # Mark as main context for WebSocket broadcasting
     context_chat.set_instruction_message(default_inst)
+
+    # Add bootstrap messages if requested
+    if add_bootstrap:
+        from tools.bash import bash
+        from tools.viewpermissions import viewpermissions
+
+        context_chat.add_message(Role.USER, "Please list the 5 most recently modified files of the cwd")
+
+        if gui_mode:
+            bootstrap_message_1 = f"""<think>
+To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
+</think><todos>
+- [ ] List 5 most recently modified files.
+</todos><bash>
+ls -tp | grep -v /$ | head -5
+</bash><context>
+{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
+</context><todos>
+- [x] List 5 most recently modified files.
+</todos><visualresponse>
+  <action>create</action>
+  <type>markdown</type>
+  <content>
+### Most Recently Modified Files:
+{await bash.run_silent("ls -tp | grep -v /$ | head -5 | sed 's/^/- /'")}
+  </content>
+</visualresponse>"""
+            bootstrap_message_2 = """<visualresponse>
+  <action>create</action>
+  <type>markdown</type>
+  <content>
+I have successfully viewed my permissions. Is there anything else I can assist you with?
+  </content>
+</visualresponse>"""
+        else:
+            bootstrap_message_1 = f"""<think>
+To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
+</think><todos>
+- [ ] List 5 most recently modified files.
+</todos><bash>
+ls -tp | grep -v /$ | head -5
+</bash><context>
+{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
+</context><todos>
+- [x] List 5 most recently modified files.
+</todos><response>
+The 5 most recently modified files have been listed. Would you like me to inspect any of them?
+</response>"""
+            bootstrap_message_2 = """<response>
+I have successfully viewed my permissions. Is there anything else I can assist you with?
+</response>"""
+
+        context_chat.add_message(Role.ASSISTANT, bootstrap_message_1)
+        permissions_str = viewpermissions.run()
+        if "No automatic permissions set" not in permissions_str:
+            context_chat.add_message(Role.USER, "view your permissions")
+            context_chat.add_message(Role.ASSISTANT, f"""<think>
+This task can be completed using the viewpermssions tool.</think><todos>
+- [ ] View permissions.
+</todos><viewpermissions>
+</viewpermissions><context>
+{permissions_str}
+</context><todos>
+- [x] View permissions.
+</todos>""" + bootstrap_message_2)
+
+        # Store count of bootstrap messages in metadata (includes system message)
+        message_count_after = len(context_chat.messages)
+        context_chat.metadata['bootstrap_message_count'] = message_count_after
 
     return context_chat
 
@@ -1168,8 +1348,8 @@ async def reset_agent_state(args: argparse.Namespace, context_chat: Chat) -> Cha
     # Clear reset flag
     g.AGENT_RESET_REQUESTED = False
 
-    # Reconstruct fresh engineered prompt
-    fresh_context_chat = await construct_engineered_prompt(args.voice, args.gui)
+    # Reconstruct fresh engineered prompt (without bootstrap on reset)
+    fresh_context_chat = await construct_engineered_prompt(args.voice, args.gui, add_bootstrap=False)
 
     # Clear visual interface
     try:
@@ -1245,7 +1425,7 @@ async def main(  # type: ignore[misc]
             )
 
             # Setup logging properly for TUI mode (output goes through print/stdout)
-            setup_logging(args.debug, args.log_file, tui_mode=True)
+            setup_logging(args.debug, tui_mode=True)
 
             # Setup signal handlers for graceful interruption
             setup_signal_handlers()
@@ -1260,12 +1440,14 @@ async def main(  # type: ignore[misc]
 
         # If not in TUI mode, display the header and perform standard logging setup.
         elif not tui_callback:
-            setup_logging(args.debug, args.log_file)
+            setup_logging(args.debug)
             g.DEBUG_MODE = args.debug
 
             # Sync command line args to global state
             g.auto_execute = args.yolo
-            g.voice_mode = args.voice
+            # Voice mode: full voice (mic input + TTS) or TTS-only mode
+            g.voice_mode = args.voice or args.speak
+            g.tts_only_mode = args.speak and not args.voice  # TTS without mic input
             g.local_mode = args.local
             g.online_mode = args.online
 
@@ -1304,17 +1486,20 @@ async def main(  # type: ignore[misc]
             stderr_buffer += text
 
         web_server = None
-        if args.gui:
+        if args.gui or args.api:
             # Set GUI mode flag for behavior modifications
             g.GUI_MODE = True
 
-            # Auto-start visualresponse server for GUI mode (this opens the main interface)
+            # Auto-start visualresponse server for GUI mode
             try:
                 from tools.visualresponse import visualresponse
-                logging.info(colored("🌐 Starting GUI mode - opening visualresponse interface...", "blue"))
-                # Get a session which will start the server and open the browser
-                session = visualresponse._get_session()
-                logging.info(colored(f"✅ GUI mode active - interface available at http://127.0.0.1:{session.port}", "green"))
+                open_browser = args.gui and not args.api  # Only open browser with --gui, not --api
+                mode_msg = "🌐 Starting GUI mode - opening browser..." if open_browser else "🌐 Starting API server (headless mode)..."
+                logging.info(colored(mode_msg, "blue"))
+
+                # Get a session which will start the server (async version for use in async context)
+                session = await visualresponse._get_session_async(open_browser=open_browser)
+                logging.info(colored(f"✅ Server active - interface available at http://127.0.0.1:{session.port}", "green"))
 
                 # Enable console capture for real-time log streaming to web interface
                 try:
@@ -1332,6 +1517,11 @@ async def main(  # type: ignore[misc]
         if args.c or args.regenerate:
             try:
                 context_chat = Chat.load_from_json()
+
+                # Reset bootstrap_message_count for loaded chats since they have grown beyond bootstrap
+                if context_chat and 'bootstrap_message_count' in context_chat.metadata:
+                    context_chat.metadata['bootstrap_message_count'] = 0
+
                 if args.regenerate:
                     if not tui_callback: logging.info(colored("Loading previous chat for regeneration.", "green"))
                     if not context_chat or len(context_chat.messages) < 2:
@@ -1350,10 +1540,17 @@ async def main(  # type: ignore[misc]
                     if not tui_callback: logging.warning(colored("No previous chat found. Starting a new chat.", "yellow") )
                     context_chat = None
 
-        base64_images: List[str] = []
+        images_for_message: List[str] = []
+
+        # Add any images from web UI uploads
+        if hasattr(g, 'current_images') and g.current_images:
+            images_for_message.extend(g.current_images)
+            g.current_images = []
+            logging.debug(f"Added {len(images_for_message)} images from web UI uploads")
+
         if args.image:
             if not tui_callback: logging.info(colored("# cli-agent: Taking screenshot due to --img flag...", "green"))
-            base64_images.extend(await handle_screenshot_capture())
+            images_for_message.extend(await handle_screenshot_capture())
             args.image = False
 
         if tui_callback:
@@ -1420,7 +1617,12 @@ async def main(  # type: ignore[misc]
                 logging.info(colored("Tools ready.", "blue"))
 
         if context_chat is None:
-            context_chat = await construct_engineered_prompt(args.voice, args.gui)
+            # Only add bootstrap if not using -c or --regenerate flags
+            add_bootstrap = not (args.c or args.regenerate)
+            context_chat = await construct_engineered_prompt(args.voice, args.gui, add_bootstrap)
+
+        # Set global chat reference for API/web interface
+        g.chat = context_chat
 
         # Install visual input bridge for browser integration
         try:
@@ -1446,64 +1648,6 @@ async def main(  # type: ignore[misc]
             input_collector.start()
 
         user_interrupt = False
-        if not (args.c or args.regenerate):
-            context_chat.add_message(Role.USER, "Please list the 5 most recently modified files of the cwd")
-            if (args.gui):
-                bootstrap_message_1 = f"""<think>
-To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
-</think><todos>
-- [ ] List 5 most recently modified files.
-</todos><bash>
-ls -tp | grep -v /$ | head -5
-</bash><context>
-{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
-</context><todos>
-- [x] List 5 most recently modified files.
-</todos><visualresponse>
-  <action>create</action>
-  <type>markdown</type>
-  <content>
-### Most Recently Modified Files:
-{await bash.run_silent("ls -tp | grep -v /$ | head -5 | sed 's/^/- /'")}
-  </content>
-</visualresponse>"""
-                bootstrap_message_2 = """<visualresponse>
-  <action>create</action>
-  <type>markdown</type>
-  <content>
-I have successfully viewed my permissions. Is there anything else I can assist you with?
-  </content>
-</visualresponse>"""
-            else:
-                bootstrap_message_1 = f"""<think>
-To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
-</think><todos>
-- [ ] List 5 most recently modified files.
-</todos><bash>
-ls -tp | grep -v /$ | head -5
-</bash><context>
-{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
-</context><todos>
-- [x] List 5 most recently modified files.
-</todos><response>
-The 5 most recently modified files have been listed. Would you like me to inspect any of them?
-</response>"""
-                bootstrap_message_2 = """<response>
-I have successfully viewed my permissions. Is there anything else I can assist you with?
-</response>"""
-
-            context_chat.add_message(Role.ASSISTANT, bootstrap_message_1)
-            permissions_str = viewpermissions.run()
-            if ("No automatic permissions set" not in permissions_str):
-                context_chat.add_message(Role.USER, "view your permissions")
-                context_chat.add_message(Role.ASSISTANT, f"""<todos>
-- [ ] View permissions.
-</todos><viewpermissions>
-</viewpermissions><context>
-{permissions_str}
-</context><todos>
-- [x] View permissions.
-</todos>""" + bootstrap_message_2)
 
         assistant_response = ""
 
@@ -1518,12 +1662,22 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
         # CommandHandler already initialized above - no need to reinitialize
 
+        # Give WebSocket server time to accept connections before processing queued messages
+        # This ensures frontend can load chat/config before LLM call starts
+        if args.gui and args.message:
+            await asyncio.sleep(0.5)
+            logging.debug("Allowed WebSocket connection time before processing queued messages")
+
         while True:
             from core.llm_router import LlmRouter
             router = LlmRouter()
             router.failed_models.clear()
-            g.LLM_STRENGTHS = []
             assistant_response = ""
+
+            # Sync context_chat with g.chat (in case API updated it)
+            if hasattr(g, 'chat') and g.chat is not context_chat:
+                context_chat = g.chat
+                logging.info("Synced context_chat with g.chat (updated via API)")
 
             g.FORCE_LOCAL = args.local
             g.DEBUG_CHATS = args.debug_chats
@@ -1541,7 +1695,13 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
             # --- UNIFIED COMMAND & IMAGE PROCESSING ---
             if new_images:
-                base64_images.extend(new_images)
+                images_for_message.extend(new_images)
+
+            # Add any images from web UI uploads
+            if hasattr(g, 'current_images') and g.current_images:
+                images_for_message.extend(g.current_images)
+                g.current_images = []
+                logging.debug(f"Added {len(images_for_message)} images from web UI uploads")
 
             if user_input and user_input.startswith('/'):
                 response = await command_handler.handle_command(
@@ -1549,7 +1709,7 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                 )
                 if response.result == CommandResult.EXIT: exit(0)
                 if response.result == CommandResult.ERROR: logging.error(colored(f"# cli-agent: {response.message}", "red"))
-                continue # Always get next input after a command
+                continue
 
             # Skip adding system commands to chat history
             if (user_input) and not (
@@ -1557,7 +1717,17 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                 (isinstance(user_input, str) and 'llm_selection_update' in user_input and user_input.strip().startswith('{')) or
                 (isinstance(user_input, str) and user_input.strip() == '__AGENT_RESET__')
             ):
-                context_chat.add_message(Role.USER, user_input)
+                context_chat.add_message(Role.USER, user_input, images=images_for_message if images_for_message else None)
+
+                # Broadcast user message to frontend
+                if args.gui:
+                    try:
+                        from api.server import broadcast_message_added
+                        await broadcast_message_added(context_chat.messages[-1])
+                    except Exception:
+                        pass
+
+                images_for_message = []
             else:
                 continue
 
@@ -1577,28 +1747,32 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                 try:
                     if assistant_response:
                         context_chat.add_message(Role.ASSISTANT, assistant_response)
+
+                        # Broadcast initial assistant response
+                        if args.gui:
+                            try:
+                                from api.server import broadcast_message_added
+                                await broadcast_message_added(context_chat.messages[-1])
+                            except Exception:
+                                pass
+
                         assistant_response = ""
 
                     if context_chat:
                         context_chat.save_to_json()
 
-                    UNCOMPRESSED_HISTORY = 4 # Compresses reasoning traces after x messages
+                    UNCOMPRESSED_HISTORY = 4
                     if (len(context_chat.messages) > UNCOMPRESSED_HISTORY):
-                        for i in range(UNCOMPRESSED_HISTORY,UNCOMPRESSED_HISTORY+1): # do prompt engineering to the 7th and 8th messages automatically
-                            role = context_chat.messages[-i][0]
-                            msg = context_chat.messages[-i][1]
-                            if "<think>" in msg:
-                                # Extract content within <think> tags
-                                think_content_match = re.search(r'<think>(.*?)</think>', msg, re.DOTALL)
+                        for i in range(UNCOMPRESSED_HISTORY,UNCOMPRESSED_HISTORY+1):
+                            message = context_chat.messages[-i]
+                            if "<think>" in message.content:
+                                think_content_match = re.search(r'<think>(.*?)</think>', message.content, re.DOTALL)
                                 if think_content_match:
                                     think_content = think_content_match.group(1).strip()
-                                    # Find the first line until a newline
                                     first_line_match = re.match(r'^([^\n]*)', think_content)
                                     if first_line_match:
                                         first_line = first_line_match.group(1).strip()
-                                        # Replace the original <think> content with only the first line
-                                        msg = re.sub(r'<think>(.*?)</think>', f'<think>\n{first_line}\n</think>', msg, flags=re.DOTALL)
-                            context_chat.messages[-i] = (role, msg)
+                                        message.content = re.sub(r'<think>(.*?)</think>', f'<think>\n{first_line}\n</think>', message.content, flags=re.DOTALL)
 
                     llm_config = g.get_llm_config()
 
@@ -1616,23 +1790,30 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             selected_models = [g.override_llm] + g.FALLBACK_MODELS
                         # Use router for complexity assessment if available
                         elif g.router_llm:
-                            difficulty_chat = Chat("Act as a complexity assessment assistant. You view the users provided context and respond with a percentage value from 1-100 indicating the difficulty of formulating the next assistant response.")
-                            difficulty_chat.add_message(Role.USER, "Hi, please think about the following conversation and assess the difficulty of responding:\n" + context_chat.print_chat(-3, None, True))
+                            difficulty_chat = Chat("You are a complexity assessment assistant. Analyze the conversations needs and respond with a chain of thought followed by a score.")
+                            difficulty_chat.add_message(Role.USER, "Analyze the complexity of formulating the next response in this conversation. Here are some few shot examples for you to reenact: The user provided a simple greeting (Complexity: 1%), A fileread of a known filepath is needed for the next step (15%), searching the web or filesystem (35%), applying edits to a file (50%), managing running processes (60%), authoring a new file (80%), implementing a script (90%), implementing a visualization (100%). Based on your level of uncertainty about the next action regress your score to 50%.\nProvide *brief* reasoning, then end with: COMPLEXITY_SCORE: [number 1-100]\n\nConversation:\n" + context_chat.print_chat(-3, None, True))
                             # In local mode, don't force preferred models since they might be cloud models
-                            router_preferred = [] if g.FORCE_LOCAL else [g.router_llm] + g.FALLBACK_MODELS
-                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=router_preferred, force_preferred_model=False, force_free=False, force_local=g.FORCE_LOCAL)
-                            # extract last number found in the response string
+                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm] + g.FALLBACK_MODELS, hidden_reason="Complexity Assessment")
+                            # Extract complexity score from formatted response
                             response_complexity: int = 50 # Default fallback
-                            match = re.findall(r'\d+', response)
-                            if match:
+                            score_match = re.search(r'COMPLEXITY_SCORE:\s*(\d+)', response)
+                            if score_match:
                                 try:
-                                    response_complexity = int(match[-1])
+                                    response_complexity = int(score_match.group(1))
                                 except ValueError:
-                                    logging.warning(f"Could not convert '{match[-1]}' to int for complexity score. Using default.")
-
-                            if response_complexity > 85:
+                                    logging.warning(f"Could not convert '{score_match.group(1)}' to int for complexity score. Using default.")
+                            else:
+                                # Fallback: extract last number if formatted score not found
+                                match = re.findall(r'\d+', response)
+                                if match:
+                                    try:
+                                        response_complexity = int(match[-1])
+                                    except ValueError:
+                                        pass
+                            print(f"Score match: {score_match}")
+                            if response_complexity >= 85:
                                 selected_models = [g.planner_llm] + g.FALLBACK_MODELS if g.planner_llm else g.FALLBACK_MODELS
-                            elif response_complexity > 20:
+                            elif response_complexity >= 20:
                                 selected_models = g.FALLBACK_MODELS
                             else:
                                 selected_models = [g.router_llm] + g.FALLBACK_MODELS
@@ -1640,16 +1821,14 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                             selected_models = g.FALLBACK_MODELS
 
                         # Generate single response
-                        # In local mode, don't force preferred models since they might be cloud models
-                        main_preferred = [] if g.FORCE_LOCAL else selected_models
                         # Add the thinking prefix to the chat directly
-                        context_chat.add_message(Role.ASSISTANT, "<think>")
+                        # context_chat.add_message(Role.ASSISTANT, "<think>\n")
+                        # context_chat.add_message(Role.ASSISTANT, "<think>")
+                        # context_chat.add_message(Role.ASSISTANT, "<think>")
+                        # context_chat.add_message(Role.ASSISTANT, "<think>")
                         assistant_response = await LlmRouter.generate_completion(
                             chat=context_chat,
-                            preferred_models=main_preferred,
-                            force_preferred_model=not g.FORCE_LOCAL,
-                            force_local=g.FORCE_LOCAL,
-                            base64_images=base64_images,
+                            preferred_models=selected_models,
                             generation_stream_callback=interruption_callback
                         )
 
@@ -1687,12 +1866,11 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         assistant_response = e.response
                         # Continue normal flow with the extracted tool block
 
-                        # Add model information to previously stored tool execution info
-                        if hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
-                            used_model = LlmRouter.get_last_used_model()
-                            for tool_info in g.last_executed_tools_info:
-                                tool_info['model'] = used_model
-                            logging.debug(f"Updated execution info with model: {used_model}")
+                        # Store current model for tool execution (same as line 1812)
+                        g.current_llm_model = LlmRouter.get_last_used_model()
+
+                        # Store current model for tool execution
+                        # (tool_info will be created and broadcast after tools actually execute)
 
                         base64_images = []
 
@@ -1715,7 +1893,16 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         stall_counter, last_action_signature = 0, None
                         break
 
-                    context_chat.add_message(Role.ASSISTANT, assistant_response)
+                    # Track model used for this LLM response
+                    metadata = {}
+                    try:
+                        response_model = g.current_llm_model if hasattr(g, 'current_llm_model') and g.current_llm_model else LlmRouter.get_last_used_model()
+                        if response_model:
+                            metadata['response_model'] = response_model
+                    except Exception as e:
+                        logging.debug(f"Could not get response model: {e}")
+
+                    context_chat.add_message(Role.ASSISTANT, assistant_response, metadata=metadata)
                     # Note: AI response to visual interface will be sent after tool execution
                     # to properly detect if visualresponse was used
 
@@ -1749,11 +1936,12 @@ I have successfully viewed my permissions. Is there anything else I can assist y
                         if re.search(f'<{tool_class.get_delim()}[> ]', assistant_response, re.DOTALL):
                             tool_tags_found.append(tool_class)
 
+                    # Store original response for TTS (ALWAYS, not just when tools found)
+                    # This ensures TTS works for all responses including visualresponse-only
+                    original_assistant_response = assistant_response
+
                     # If any tool tags are found, process them
                     if tool_tags_found:
-                        # Store original response for TTS after tool execution
-                        original_assistant_response = assistant_response
-
                         # --- Enhanced Path-Aware Permission Checking ---
                         # Check permissions using path detection for tools with file operations
                         should_execute = False
@@ -1980,15 +2168,14 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 
                                     # Add model key to tool info at creation time
                                     try:
-                                        # Use stored current model from LLM response
-                                        if hasattr(g, 'current_llm_model') and g.current_llm_model:
-                                            tool_info["model"] = g.current_llm_model
+                                        used_model = LlmRouter.get_last_used_model()
+                                        tool_info["model"] = used_model
+                                        if used_model and used_model != 'unknown':
+                                            logging.debug(f"✓ Added model '{used_model}' to tool_info for {tool_name}")
                                         else:
-                                            # Fallback to get_last_used_model
-                                            used_model = LlmRouter.get_last_used_model()
-                                            tool_info["model"] = used_model if used_model else "unknown"
+                                            logging.warning(f"⚠ No model available for tool {tool_name}, using 'unknown'")
                                     except Exception as e:
-                                        logging.debug(f"Could not get model for tool {tool_name}: {e}")
+                                        logging.error(f"❌ Could not get model for tool {tool_name}: {e}")
                                         tool_info["model"] = "unknown"
 
                                     executed_tools_info.append(tool_info)
@@ -2074,13 +2261,24 @@ Examples:
 
                                 # Store tool execution info in global context for visual response
                                 if executed_tools_info:
-                                    # Store tool execution info (model info will be added after LLM response)
                                     g.last_executed_tools_info = executed_tools_info
                                     logging.debug(f"Stored execution info for {len(executed_tools_info)} tools")
 
-                                # Note: Automatic AI responses removed - only explicit visualresponse tool calls appear in interface
+                                # Add tool results to chat - this appends to existing assistant message
                                 if (len(returned_context) > 0):
-                                    context_chat.add_message(Role.ASSISTANT, returned_context)
+                                    metadata = {}
+                                    if executed_tools_info:
+                                        metadata['tool_info'] = executed_tools_info
+                                    context_chat.add_message(Role.ASSISTANT, returned_context, metadata=metadata)
+
+                                    # Broadcast the updated assistant message (content has grown)
+                                    if args.gui:
+                                        try:
+                                            from api.server import broadcast_message_added
+                                            await broadcast_message_added(context_chat.messages[-1])
+                                            logging.debug(f"Broadcasted updated assistant message")
+                                        except Exception:
+                                            pass
 
                                     # Check for images from tool context and add them to the chat
                                     if tool_context.has_images():
@@ -2088,63 +2286,103 @@ Examples:
                                         logging.info(colored(f"📸 Added {len(tool_context.get_images())} image(s) to chat context for vision analysis", "blue"))
                                         tool_context.clear_images()  # Clear images after adding them
                                     assistant_response = ""
-                                    if ("response" in tool_name and "error" not in returned_context.lower()):
-                                        # Break and wait for user input instead of continuing the loop
-                                        break
 
                                 # --- TTS: Speak the response after tools have executed ---
                                 # This ensures visualresponse content is processed before TTS
                                 # Use original_assistant_response since assistant_response was cleared
-                                if g.voice_mode and 'original_assistant_response' in locals() and original_assistant_response.strip():
+                                # IMPORTANT: This must run BEFORE the break statement to ensure TTS for visualresponse!
+                                # Skip backend TTS in GUI mode - frontend handles it via /api/audio/tts endpoint
+                                if g.voice_mode and not g.GUI_MODE and 'original_assistant_response' in locals() and original_assistant_response.strip():
                                     try:
-                                        from shared.utils_audio import text_to_speech, filter_latex_for_tts
+                                        from shared.utils_audio import filter_latex_for_tts
+                                        from shared.audio_router import route_tts_audio, generate_tts_audio
                                         # Note: re is already imported at module level (line 90)
+
+                                        logging.debug(f"TTS: Starting TTS processing (voice_mode={g.voice_mode})")
+                                        logging.debug(f"TTS: Response length: {len(original_assistant_response)} chars")
 
                                         # --- TIER 1: Tool-Aware Content Filtering ---
                                         # Check if visualresponse tool is being used
                                         skip_tts = False
                                         response_text = None
 
-                                        # Detect visualresponse tool call
-                                        visualresponse_match = re.search(r'<visualresponse>(.*?)</visualresponse>', original_assistant_response, re.DOTALL | re.IGNORECASE)
-                                        if visualresponse_match:
-                                            visualresponse_content = visualresponse_match.group(1)
+                                        # Detect visualresponse tool call using extract_blocks for proper parsing
+                                        visualresponse_blocks = get_extract_blocks()(original_assistant_response, ['visualresponse'])
+                                        if visualresponse_blocks:
+                                            logging.debug(f"TTS: Found {len(visualresponse_blocks)} visualresponse blocks")
+                                            # Parse the visualresponse content (which is now the inner XML)
+                                            visualresponse_content = visualresponse_blocks[0]
                                             # Check the type tag inside visualresponse
                                             type_match = re.search(r'<type>(.*?)</type>', visualresponse_content, re.DOTALL | re.IGNORECASE)
                                             if type_match:
                                                 viz_type = type_match.group(1).strip().lower()
+                                                logging.debug(f"TTS: Visualresponse type: {viz_type}")
                                                 if viz_type in ['html', 'code', 'javascript', 'css']:
                                                     # Skip TTS for visual-only content types
                                                     skip_tts = True
+                                                    logging.debug(f"TTS: Skipping TTS for visual-only type: {viz_type}")
                                                 elif viz_type == 'markdown':
                                                     # For markdown, extract the content and speak it
-                                                    content_match = re.search(r'<content>(.*?)</content>', visualresponse_content, re.DOTALL | re.IGNORECASE)
-                                                    if content_match:
-                                                        markdown_content = content_match.group(1).strip()
+                                                    # Use extract_blocks on the inner content to handle escaped chars
+                                                    content_blocks = get_extract_blocks()(visualresponse_content, ['content'])
+                                                    if content_blocks:
+                                                        markdown_content = content_blocks[0].strip()
+                                                        logging.debug(f"TTS: Extracted markdown content ({len(markdown_content)} chars)")
                                                         # Remove CDATA wrapper if present
                                                         if markdown_content.startswith('<![CDATA['):
                                                             markdown_content = markdown_content[9:-3].strip()
                                                         # Note: markdown formatting will be removed by filter_latex_for_tts()
                                                         response_text = markdown_content
+                                                    else:
+                                                        logging.debug("TTS: No content blocks found in visualresponse")
+                                        else:
+                                            logging.debug("TTS: No visualresponse blocks found")
 
                                         if not skip_tts and response_text is None:
                                             # Extract text from <response> tags if present, otherwise use full response
                                             response_match = re.search(r'<response>(.*?)</response>', original_assistant_response, re.DOTALL)
                                             if response_match:
                                                 response_text = response_match.group(1).strip()
+                                                logging.debug(f"TTS: Extracted from <response> tag ({len(response_text)} chars)")
                                             else:
                                                 # Remove all XML tags for TTS
                                                 response_text = re.sub(r'<[^>]+>', '', original_assistant_response).strip()
+                                                logging.debug(f"TTS: Extracted by stripping XML tags ({len(response_text)} chars)")
 
                                         # --- TIER 2: LaTeX/Math Formula Filtering ---
                                         if not skip_tts and response_text:
+                                            original_length = len(response_text)
                                             response_text = filter_latex_for_tts(response_text)
+                                            logging.debug(f"TTS: After LaTeX filtering: {len(response_text)} chars (was {original_length})")
 
-                                        # Speak the filtered text
+                                        # Speak the filtered text using audio router
                                         if not skip_tts and response_text:
-                                            text_to_speech(text=response_text, speed=0.9, volume=0.8, use_piper=True)
+                                            logging.debug(f"TTS: Speaking {len(response_text)} chars: '{response_text[:100]}...'")
+                                            # Generate audio first
+                                            audio_data = await generate_tts_audio(
+                                                text=response_text,
+                                                speed=0.9,
+                                                volume=0.8,
+                                                use_piper=True
+                                            )
+                                            # Route audio to appropriate playback mechanism
+                                            if audio_data:
+                                                await route_tts_audio(
+                                                    text=response_text,
+                                                    audio_data=audio_data,
+                                                    speed=0.9,
+                                                    volume=0.8
+                                                )
+                                        else:
+                                            logging.debug(f"TTS: Not speaking (skip_tts={skip_tts}, response_text={'None' if response_text is None else f'{len(response_text)} chars'})")
                                     except Exception as e:
                                         logging.warning(f"Failed to speak response via TTS: {e}")
+                                        logging.debug(f"TTS error traceback: {traceback.format_exc()}")
+
+                                # Now check if we should break (after TTS has been processed)
+                                if (tool_name in ["response", "visualresponse"] and "error" not in returned_context.lower()):
+                                    # Break and wait for user input instead of continuing the loop
+                                    break
 
                                 continue # Continue the agent loop for the next action
                             except Exception:
@@ -2184,6 +2422,23 @@ Examples:
 
                     else:
                         # No tools or code found, this is a conversational response.
+                        # In GUI mode, notify frontend if we expected tool calls
+                        if hasattr(g, 'GUI_MODE') and g.GUI_MODE and assistant_response.strip():
+                            try:
+                                from tools.visualresponse import visualresponse
+                                session = visualresponse._get_session()
+                                if session:
+                                    import time
+                                    await session.broadcast({
+                                        'type': 'assistant_message',
+                                        'action': 'display',
+                                        'message': '<context>\n⚠️ Warning: Expected tool call but received plain text response.\nThe model may have failed to use required tools.\n\nResponse received:\n' + assistant_response[:200] + ('...' if len(assistant_response) > 200 else '') + '\n</context>',
+                                        'id': int(time.time()),
+                                        'timestamp': time.time()
+                                    })
+                                    logging.warning("Sent 'no tool call' warning to frontend")
+                            except Exception as e:
+                                logging.debug(f"Failed to send warning to frontend: {e}")
                         break # Ask for user input
                 except (KeyboardInterrupt, UserInterruptedException):
                     user_interrupt = True
