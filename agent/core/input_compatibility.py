@@ -113,14 +113,18 @@ async def get_user_input_with_bindings_unified(
 
     # Check both command line args and runtime toggle state
     voice_mode_active = args.voice if hasattr(args, 'voice') else False
+    tts_only_mode = False
     try:
         from core.globals import g
         if hasattr(g, 'voice_mode'):
             voice_mode_active = g.voice_mode
+        if hasattr(g, 'tts_only_mode'):
+            tts_only_mode = g.tts_only_mode
     except ImportError:
         pass
 
-    if voice_mode_active and is_main_prompt:
+    # Only use voice input if not in TTS-only mode
+    if voice_mode_active and is_main_prompt and not tts_only_mode:
         from agent.core.input_manager import InputSource
         source = InputSource.VOICE
 

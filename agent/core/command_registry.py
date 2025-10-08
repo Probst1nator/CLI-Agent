@@ -129,9 +129,41 @@ class CommandRegistry:
                 category="configuration"
             ),
             CommandDefinition(
+                canonical="override_llm",
+                aliases=["/override_llm"],
+                description="Override the LLM model selection",
+                category="configuration"
+            ),
+            CommandDefinition(
                 canonical="config",
                 aliases=["/config", "/c"],
                 description="Display current agent and model configuration",
+                category="configuration"
+            ),
+
+            # Profile management
+            CommandDefinition(
+                canonical="profile_save",
+                aliases=["/profile_save", "/psave"],
+                description="Save current LLM configuration as a profile",
+                category="configuration"
+            ),
+            CommandDefinition(
+                canonical="profile_load",
+                aliases=["/profile_load", "/pload"],
+                description="Load a saved LLM configuration profile",
+                category="configuration"
+            ),
+            CommandDefinition(
+                canonical="profile_list",
+                aliases=["/profile_list", "/plist", "/profiles"],
+                description="List all saved LLM configuration profiles",
+                category="configuration"
+            ),
+            CommandDefinition(
+                canonical="profile_delete",
+                aliases=["/profile_delete", "/pdelete"],
+                description="Delete a saved LLM configuration profile",
                 category="configuration"
             ),
 

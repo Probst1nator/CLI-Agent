@@ -63,7 +63,7 @@ class ToolManager {
             if (data.tools && Array.isArray(data.tools)) {
                 this.tools = data.tools.map(tool => ({
                     name: tool.name || tool.delim,
-                    displayName: tool.displayName || tool.info?.name || this.formatDisplayName(tool.name || tool.delim)
+                    displayName: tool.displayName || tool.info?.name
                 }));
 
                 window.visualLogger?.info(`Fetched ${this.tools.length} tools from server:`, this.tools.map(t => t.name));
@@ -101,44 +101,6 @@ class ToolManager {
     }
 
     /**
-     * Format a tool name into a readable display name
-     */
-    formatDisplayName(toolName) {
-        if (!toolName) return 'Unknown Tool';
-
-        // Handle special cases
-        const specialNames = {
-            'searchweb': 'Web Search',
-            'bash': 'Terminal',
-            'readfile': 'Read File',
-            'writefile': 'Write File',
-            'editfile': 'Edit File',
-            'grepsearch': 'Text Search',
-            'visualresponse': 'Visual Response',
-            'taskmanager': 'Task Manager',
-            'readdirectory': 'Read Directory',
-            'insertline': 'Insert Line',
-            'deletelines': 'Delete Lines',
-            'paralleltools': 'Parallel Tools',
-            'searchtext': 'Search Text',
-            'viewpermissions': 'View Permissions'
-        };
-
-        if (specialNames[toolName]) {
-            return specialNames[toolName];
-        }
-
-        // Convert camelCase/snake_case to Title Case
-        return toolName
-            .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase to space separated
-            .replace(/_/g, ' ') // snake_case to space separated
-            .toLowerCase()
-            .split(' ')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ');
-    }
-
-    /**
      * Create the tool toggle checkboxes
      */
     createToolToggles() {
@@ -146,6 +108,12 @@ class ToolManager {
 
         // Clear existing content
         this.containerElement.innerHTML = '';
+
+        // Add "Tools:" header as first item
+        const headerItem = document.createElement('div');
+        headerItem.className = 'tool-toggle-item';
+        headerItem.textContent = 'Tools:';
+        this.containerElement.appendChild(headerItem);
 
         this.tools.forEach(tool => {
             const isEnabled = !this.disabledTools.has(tool.name);

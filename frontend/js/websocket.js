@@ -21,12 +21,33 @@ class WebSocketManager {
         this.logger = window.visualLogger;
         this.app = null; // Reference to main app for loading indicator control
 
+        this.eventHandlers = {};
+
         this.logger.info('WebSocketManager initialized', {
             reconnectDelay: this.reconnectDelay,
             maxReconnectAttempts: this.maxReconnectAttempts
         });
 
         this.connect();
+    }
+
+    on(event, callback) {
+        if (!this.eventHandlers[event]) {
+            this.eventHandlers[event] = [];
+        }
+        this.eventHandlers[event].push(callback);
+    }
+
+    emit(event, data) {
+        if (this.eventHandlers[event]) {
+            for (const callback of this.eventHandlers[event]) {
+                try {
+                    callback(data);
+                } catch (error) {
+                    this.logger.error(`Error in ${event} handler:`, {}, error);
+                }
+            }
+        }
     }
 
     /**
@@ -91,8 +112,34 @@ class WebSocketManager {
         }
     }
 
+    handleSessionInit(data) {
+        this.logger.info('Session initialized', { session_id: data.session_id });
+
+        window.sessionId = data.session_id;
+
+        this.statusElement.textContent = '🟢 Connected to Agent';
+        this.statusElement.style.color = 'var(--status-connected)';
+
+        this.logger.info('Session ID stored for HTTP requests', { session_id: data.session_id });
+
+        this.emit('session_init', data);
+    }
+
     handleConnectionConfig(data) {
-        this.logger.info('Received connection configuration', { continue_mode: data.continue_mode });
+        this.logger.info('Received connection configuration', { continue_mode: data.continue_mode, clear_history: data.clear_history });
+
+        // Clear history if requested (fresh chat)
+        if (data.clear_history) {
+            this.logger.info('Clearing message history (fresh chat detected)');
+            try {
+                localStorage.removeItem('agent-message-history');
+                if (this.app && this.app.messageHistory) {
+                    this.app.messageHistory = [];
+                }
+            } catch (e) {
+                this.logger.warn('Failed to clear message history:', e);
+            }
+        }
 
         // Update status element to show session type
         if (data.continue_mode) {
@@ -331,6 +378,61 @@ class WebSocketManager {
     async handleMessage(data) {
         this.logger.debug('Received WebSocket message', { type: data.type, action: data.action, id: data.id, model: data.model });
 
+        if (data.type === 'session_init') {
+            this.handleSessionInit(data);
+            return;
+        }
+
+        if (data.type === 'chat_replaced') {
+            this.emit('chat_replaced', data);
+            return;
+        }
+
+        if (data.type === 'chat_cleared') {
+            this.emit('chat_cleared', data);
+            return;
+        }
+
+        if (data.type === 'chat_truncated') {
+            this.emit('chat_truncated', data);
+            return;
+        }
+
+        if (data.type === 'message_added') {
+            this.emit('message_added', data);
+            return;
+        }
+
+        if (data.type === 'message_deleted') {
+            this.emit('message_deleted', data);
+            return;
+        }
+
+        if (data.type === 'state_changed') {
+            this.emit('state_changed', data);
+            return;
+        }
+
+        if (data.type === 'message_edited') {
+            this.handleMessageEdited(data);
+            return;
+        }
+
+        if (data.type === 'message_start') {
+            this.emit('message_start', data);
+            return;
+        }
+
+        if (data.type === 'message_chunk') {
+            this.emit('message_chunk', data);
+            return;
+        }
+
+        if (data.type === 'message_end') {
+            this.emit('message_end', data);
+            return;
+        }
+
         // Handle configuration messages
         if (data.type === 'config' && data.action === 'connection_init') {
             this.handleConnectionConfig(data);
@@ -390,6 +492,12 @@ class WebSocketManager {
             return;
         }
 
+        // Handle WebSocket TTS audio streaming
+        if (data.action === 'audio_tts' && data.type === 'audio') {
+            this.handleWebSocketAudio(data);
+            return;
+        }
+
         // Hide loading indicator when regular message is received from the agent
         if (this.app && typeof this.app.hideLoadingIndicator === 'function') {
             this.app.hideLoadingIndicator();
@@ -410,6 +518,14 @@ class WebSocketManager {
         setTimeout(() => {
             this.performMaintenanceCleanup();
         }, 500);
+
+        // If ChatStateManager exists, skip legacy rendering entirely
+        // ChatStateManager will handle message rendering via message_added events
+        // The legacy renderer is only for fallback when ChatStateManager is not present
+        if (window.chatState && typeof window.chatState.addMessage === 'function') {
+            this.logger.debug('ChatStateManager present, skipping legacy message renderer');
+            return;
+        }
 
         const messageId = 'message-' + data.id;
         const existingBlock = document.getElementById(messageId);
@@ -480,57 +596,6 @@ class WebSocketManager {
         timestampDiv.innerHTML = timestampContent;
         messageBlock.appendChild(timestampDiv);
 
-        // Add detailed tool info section (initially hidden)
-        if (data.tool_info && Array.isArray(data.tool_info) && data.tool_info.length > 0) {
-            const toolDetails = document.createElement('div');
-            toolDetails.className = 'tool-details hidden';
-
-            let detailsHTML = '<div class="tool-details-header">Tool Execution Details:</div>';
-            data.tool_info.forEach((tool, index) => {
-                const statusIcon = tool.status === 'success' ? '✅' : '❌';
-                const errorText = tool.error ? ` (${tool.error})` : '';
-                const argsPreview = tool.args ? (tool.args.length > 100 ? tool.args.substring(0, 100) + '...' : tool.args) : 'No arguments';
-                const contextPreview = tool.context_returned ? (tool.context_returned.length > 100 ? tool.context_returned.substring(0, 100) + '...' : tool.context_returned) : 'No output';
-                const contextLength = tool.context_length || 0;
-                const modelDisplay = tool.model ? ` <span class="model-key" title="Model used for this tool call">[${tool.model}]</span>` : '';
-
-                const toolDetailId = `tool-detail-${data.id}-${index}`;
-
-                detailsHTML += `
-                    <div class="tool-detail-item">
-                        <div class="tool-summary" onclick="toggleToolDetail('${toolDetailId}')">
-                            ${statusIcon} <strong>${tool.name}</strong> - ${tool.duration_ms}ms${errorText}${modelDisplay}
-                            <span class="tool-toggle">▼</span>
-                        </div>
-                        <div class="tool-detail-expanded" id="${toolDetailId}" style="display: none;">
-                            <div class="tool-detail-section">
-                                <strong>Arguments:</strong>
-                                <pre class="tool-code">${this.escapeHtml(tool.args || 'No arguments')}</pre>
-                            </div>
-                            <div class="tool-detail-section">
-                                <strong>Context Returned (${contextLength} chars):</strong>
-                                <pre class="tool-code">${this.escapeHtml(tool.context_returned || 'No output')}</pre>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-
-            toolDetails.innerHTML = detailsHTML;
-            messageBlock.appendChild(toolDetails);
-
-            // Add click handler to toggle tool details
-            const toolSummary = timestampDiv.querySelector('.tool-info-summary');
-            if (toolSummary) {
-                toolSummary.addEventListener('click', () => {
-                    toolDetails.classList.toggle('hidden');
-                    const isHidden = toolDetails.classList.contains('hidden');
-                    toolSummary.style.backgroundColor = isHidden ? '' : 'rgba(100, 149, 237, 0.2)';
-                });
-                toolSummary.style.cursor = 'pointer';
-            }
-        }
-
         const messageContent = document.createElement('div');
         messageContent.className = 'message-content';
         messageBlock.appendChild(messageContent);
@@ -542,8 +607,11 @@ class WebSocketManager {
         if (this.app && typeof this.app.saveMessageToHistory === 'function' && !this.app.isRestoring) {
             // Filter out transient message types that should not be persisted
             // FIXED: Removed 'user_message' from transient types - this was incorrectly preventing user message storage
-            const transientTypes = ['permission_request', 'config'];
-            if (!transientTypes.includes(data.type)) {
+            // Audio types excluded to prevent replaying all audio on page reload
+            const transientTypes = ['permission_request', 'config', 'tts_chunk'];
+            const isAudioMessage = data.action === 'audio_tts' && data.type === 'audio';
+
+            if (!transientTypes.includes(data.type) && !isAudioMessage) {
                 this.app.saveMessageToHistory('agent', {
                     originalId: data.id,
                     timestamp: Date.now(),
@@ -604,6 +672,27 @@ class WebSocketManager {
         }
         this.logger.warn('Cannot send message - WebSocket not connected.');
         return false;
+    }
+
+    handleMessageEdited(data) {
+        const {message} = data;
+        if (!message) return;
+
+        const messageBlock = document.querySelector(`[data-message-index="${message.index}"]`);
+        if (!messageBlock) {
+            console.warn('Message block not found for index:', message.index);
+            return;
+        }
+
+        const contentDiv = messageBlock.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.textContent = message.content;
+
+            messageBlock.classList.add('message-edited');
+            setTimeout(() => messageBlock.classList.remove('message-edited'), 2000);
+
+            this.logger.info('Message edited remotely', {index: message.index});
+        }
     }
 
     isConnected() {
@@ -811,19 +900,27 @@ class WebSocketManager {
                     <span class="loading-tool-stopwatch">0.0s</span>
                 </span>
             </div>
-            <div class="loading-tool-details" style="display: none;">
+            <div class="loading-tool-details collapsed">
                 <div class="loading-tool-args">${this.escapeHtml(data.tool_args || 'No arguments')}</div>
                 <div class="loading-tool-output">Output will appear here...</div>
             </div>
         `;
 
-        // Add click handler for expandable details
+        // Add click handler for expandable details with smooth animation
         const mainDiv = toolItem.querySelector('.loading-tool-main');
-        mainDiv.style.cursor = 'pointer';
         mainDiv.addEventListener('click', () => {
             const details = toolItem.querySelector('.loading-tool-details');
-            const isVisible = details.style.display !== 'none';
-            details.style.display = isVisible ? 'none' : 'block';
+            const isCollapsed = details.classList.contains('collapsed');
+
+            if (isCollapsed) {
+                // Expand
+                details.classList.remove('collapsed');
+                details.classList.add('expanded');
+            } else {
+                // Collapse
+                details.classList.remove('expanded');
+                details.classList.add('collapsed');
+            }
         });
 
         loadingToolsHeader.appendChild(toolItem);
@@ -841,6 +938,26 @@ class WebSocketManager {
         }, 100);
 
         toolItem.dataset.stopwatchTimer = stopwatchTimer;
+    }
+
+    /**
+     * Handle WebSocket TTS audio
+     * @param {Object} data - Audio payload
+     */
+    handleWebSocketAudio(data) {
+        this.logger.info('Received WebSocket TTS audio', {
+            text: data.text?.substring(0, 50) + '...',
+            format: data.audio_format,
+            duration: data.duration,
+            language: data.language
+        });
+
+        // Forward to AudioManager if available
+        if (window.audioManager && typeof window.audioManager.playWebSocketAudio === 'function') {
+            window.audioManager.playWebSocketAudio(data);
+        } else {
+            this.logger.warn('AudioManager not available for WebSocket audio playback');
+        }
     }
 
     handleLoadingToolComplete(data) {

@@ -205,23 +205,14 @@ class WebInputSource(InputSource_ABC):
                     args.message.remove(user_input)
                     print(colored(f"💬 Processing message: {user_input}" + (f" (⏳ {len(args.message)} more queued)" if args.message else ""), 'blue', attrs=['bold']), flush=True)
 
-                    # Send user message to Visual Response System if in GUI mode
+                    # Note: User messages are automatically displayed via chat state sync
+                    # No need to manually broadcast them to avoid duplicates
                     try:
                         from core.globals import g
-                        if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
-                            print(f"[DEBUG] GUI mode detected, sending user message: {user_input}")
-                            from tools.visualresponse import visualresponse
-                            success = visualresponse.send_user_message(user_input)
-                            if success:
-                                print(f"[DEBUG] ✅ Sent user message to Visual Response System: {user_input[:50]}...")
-                            else:
-                                print("[DEBUG] ❌ Failed to send user message to Visual Response System")
-                        else:
-                            from core.globals import g
-                            if g.DEBUG_MODE:
-                                print("[DEBUG] GUI mode not active, not sending user message")
+                        if g.DEBUG_MODE:
+                            print("[DEBUG] Message will be displayed when added to chat via state sync")
                     except Exception as e:
-                        print(f"[DEBUG] ❌ Error sending user message to Visual Response System: {e}")
+                        print(f"[DEBUG] ❌ Error processing user message: {e}")
                         import traceback
                         traceback.print_exc()
 
@@ -243,7 +234,6 @@ class WebInputSource(InputSource_ABC):
 
             # If no legacy messages, proceed with polling the new visual_input_queue.
             from core.globals import g
-            from queue import Empty
 
             if not hasattr(g, 'visual_input_queue'):
                 raise RuntimeError("Visual input queue not available")
@@ -270,7 +260,7 @@ class WebInputSource(InputSource_ABC):
 
                 try:
                     # Wait for input from the browser with a timeout to remain responsive
-                    raw_input = g.visual_input_queue.get(timeout=0.1)
+                    raw_input = await asyncio.wait_for(g.visual_input_queue.get(), timeout=0.1)
 
                     # Handle structured interrupt commands
                     if isinstance(raw_input, dict) and raw_input.get('type') == 'interrupt_command':
@@ -450,7 +440,7 @@ class WebInputSource(InputSource_ABC):
                         self.logger.warning(f"Received non-string input: {type(raw_input)} - {raw_input}")
                         continue
 
-                except Empty:
+                except (asyncio.TimeoutError, asyncio.exceptions.TimeoutError):
                     # Timeout occurred, loop again. This allows us to re-check for legacy messages
                     # if they arrive while waiting.
                     if timeout and (time.time() - start_time) >= timeout:
@@ -671,19 +661,16 @@ class QueueInputSource(InputSource_ABC):
                     pass
 
                 if not is_system_message:
-                    print(f"[DEBUG] GUI mode detected, sending queued user message: {message}")
-                    from tools.visualresponse import visualresponse
-                    success = visualresponse.send_user_message(message)
-                    if success:
-                        print(f"[DEBUG] ✅ Sent queued user message to Visual Response System: {message[:50]}...")
-                    else:
-                        print("[DEBUG] ❌ Failed to send queued user message to Visual Response System")
+                    # Note: User messages are automatically displayed via chat state sync
+                    from core.globals import g
+                    if g.DEBUG_MODE:
+                        print(f"[DEBUG] Queued message will be displayed when added to chat: {message[:50]}...")
             else:
                 from core.globals import g
                 if g.DEBUG_MODE:
-                    print("[DEBUG] GUI mode not active, not sending queued user message")
+                    print("[DEBUG] GUI mode not active")
         except Exception as e:
-            print(f"[DEBUG] ❌ Error sending queued user message to Visual Response System: {e}")
+            print(f"[DEBUG] ❌ Error processing queued user message: {e}")
             import traceback
             traceback.print_exc()
 

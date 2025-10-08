@@ -47,7 +47,7 @@ from core.tool_context import tool_context
 SERVER_HOST = "0.0.0.0"  # Changed from 127.0.0.1 for Docker compatibility
 PORT_RANGE_START = 7860
 PORT_RANGE_END = 7870
-ASSETS_DIR = Path(__file__).parent / "visual_assets"
+ASSETS_DIR = Path(__file__).parent.parent / "frontend"
 
 # --- All code from find_open_port to the VisualServerSession class remains unchanged ---
 def find_open_port(start_port, end_port, host="127.0.0.1"):
@@ -156,13 +156,18 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     break
 
                 message_history.append(message)
+                msg_type = message.get('type', 'unknown')
+                subprocess_logger.debug(f"📨 Added message to history: type={msg_type}, clients={len(clients)}, total_history={len(message_history)}")
+
                 if clients:
                     payload = json.dumps(message)
-
                     tasks = [asyncio.create_task(ws.send_str(payload)) for ws in clients]
                     await asyncio.gather(*tasks, return_exceptions=True)
+                    subprocess_logger.debug(f"✅ Broadcasted {msg_type} to {len(clients)} client(s)")
+                else:
+                    subprocess_logger.debug(f"⏸️  No clients connected, message queued (type={msg_type})")
             except QueueEmpty:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.01)  # 10ms polling for near-instant updates
         for ws in clients:
             await ws.close(code=1000, message=b'Server shutdown')
 
@@ -206,25 +211,52 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         try:
             from core.globals import g
             continue_mode = getattr(g, 'CONTINUE_CONVERSATION', False)
+
+            # Check if this is a fresh chat (empty or only has system message)
+            is_fresh_chat = True
+            if hasattr(g, 'chat') and g.chat and hasattr(g.chat, 'messages'):
+                # Consider it fresh only if it has 0-1 messages (just system prompt)
+                is_fresh_chat = len(g.chat.messages) <= 1
+
+            # Clear server-side message history ONLY if we're loading from a saved chat (-c flag)
+            # Don't clear if it's a fresh session with queued messages from current run
+            if is_fresh_chat and not continue_mode and len(message_history) > 0:
+                # Check if messages are from a previous session (have old timestamps)
+                # Only clear if first message is older than 30 seconds
+                first_msg_time = message_history[0].get('timestamp', time.time()) if message_history else time.time()
+                age_seconds = time.time() - first_msg_time
+                if age_seconds > 30:
+                    msg_count = len(message_history)
+                    message_history.clear()
+                    subprocess_logger.info(f"🗑️  Cleared {msg_count} old messages (age: {age_seconds:.1f}s)")
+                else:
+                    subprocess_logger.info(f"💾 Preserving {len(message_history)} recent messages (age: {age_seconds:.1f}s)")
+
             config_message = {
                 "type": "config",
                 "action": "connection_init",
-                "continue_mode": continue_mode,
+                "continue_mode": continue_mode and not is_fresh_chat,  # Don't continue if fresh
+                "clear_history": is_fresh_chat,  # Tell frontend to clear localStorage
                 "id": f"config-{int(time.time() * 1000)}"
             }
             await ws.send_str(json.dumps(config_message))
-            subprocess_logger.info(f"Sent continue_mode={continue_mode} to new client")
+            subprocess_logger.info(f"Sent continue_mode={continue_mode and not is_fresh_chat}, clear_history={is_fresh_chat} to new client")
         except Exception as e:
             subprocess_logger.warning(f"Failed to send continue mode config: {e}")
 
         if message_history:
             try:
+                subprocess_logger.info(f"📤 Sending {len(message_history)} historical messages to new client")
                 for i, message in enumerate(message_history):
+                    msg_type = message.get('type', 'unknown')
+                    subprocess_logger.debug(f"  [{i+1}/{len(message_history)}] Sending {msg_type}")
                     await ws.send_str(json.dumps(message))
-                subprocess_logger.info(f"Successfully sent all {len(message_history)} messages to new client")
+                subprocess_logger.info(f"✅ Successfully sent all {len(message_history)} messages to new client")
             except ConnectionResetError:
                 subprocess_logger.warning("Connection reset while sending history to new client")
                 pass
+        else:
+            subprocess_logger.info("📭 No message history to send to new client")
         try:
             async for msg in ws:
                 if web and msg.type == web.WSMsgType.TEXT:
@@ -787,6 +819,24 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         app.router.add_static('/libs/', path=ASSETS_DIR / 'libs', name='libs')
         app.router.add_static('/css/', path=ASSETS_DIR / 'css', name='css')
         app.router.add_static('/js/', path=ASSETS_DIR / 'js', name='js')
+
+        # Serve files from the working directory (where main.py was started)
+        working_dir = Path.cwd()
+        app.router.add_static('/files/', path=working_dir, name='working_dir', show_index=False)
+
+        # Also serve .xyz files from root for convenience
+        async def xyz_handler(request: Any) -> Any:
+            if web is None:
+                raise RuntimeError("aiohttp not available")
+            filename = request.match_info['filename']
+            if not filename.endswith('.xyz'):
+                return web.Response(status=404, text='Not found')
+            filepath = working_dir / filename
+            if not filepath.exists() or not filepath.is_file():
+                return web.Response(status=404, text='Not found')
+            return web.FileResponse(filepath)
+
+        app.router.add_get('/{filename}.xyz', xyz_handler)
         if web is None:
             raise RuntimeError("aiohttp not available")
         runner = web.AppRunner(app)
@@ -970,7 +1020,7 @@ class visualresponse:
         return {
             "name": "visualresponse",
             "description": (
-                "Create content in a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. IDs are auto-generated.\n"
+                "Create content in a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. Prefer dark theme.\n"
                 "PARAMETERS:\n"
                 "- `<type>`: Must be either `html` or `markdown`.\n"
                 "- `<content>`: The full HTML document or Markdown text. For HTML, you can wrap content in <![CDATA[...]]> to ensure correct parsing."
@@ -989,22 +1039,96 @@ class visualresponse:
                 "</body></html>\n"
                 "]]></content></visualresponse>\n\n"
                 "// Create a simple markdown panel\n"
-                "<visualresponse><type>markdown</type><content># Analysis Complete</content></visualresponse>"
+                "<visualresponse><type>markdown</type><content># hello world</content></visualresponse>"
             )
         }
 
     @staticmethod
+    async def _get_or_create_server(open_browser: bool = True):
+        """Get or create the new API server"""
+        from api.server import get_or_create_server
+        from core.globals import g
+
+        persist_mode = hasattr(g, 'GUI_MODE') and g.GUI_MODE
+        server = await get_or_create_server(persist_mode=persist_mode, open_browser=open_browser)
+        return server
+
+    @staticmethod
+    async def _get_session_async(open_browser: bool = True) -> VisualServerSession:
+        """Async version - creates/gets the API server"""
+        server = await visualresponse._get_or_create_server(open_browser=open_browser)
+
+        class ServerAdapter:
+            """Adapter to make new server look like old session"""
+            def __init__(self, srv):
+                self.server = srv
+                self.port = srv.port
+
+            def is_healthy(self):
+                return self.server is not None
+
+            async def send_update_async(self, payload):
+                await self.server.broadcast(payload)
+
+            def send_update(self, payload):
+                """Synchronous wrapper for send_update"""
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.ensure_future(self.send_update_async(payload), loop=loop)
+                except RuntimeError:
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.run_coroutine_threadsafe(self.send_update_async(payload), loop)
+                        else:
+                            loop.create_task(self.send_update_async(payload))
+                    except Exception as e:
+                        logger.error(f"Failed to send update: {e}")
+
+            def close(self):
+                pass
+
+            def get_status(self):
+                return {
+                    'port': self.port,
+                    'clients': len(self.server.websocket_clients),
+                    'persist_mode': self.server.persist_mode
+                }
+
+        if not hasattr(visualresponse, '_adapter') or visualresponse._adapter is None:
+            visualresponse._adapter = ServerAdapter(server)
+
+        return visualresponse._adapter
+
+    @staticmethod
     def _get_session() -> VisualServerSession:
-        session_dead = (visualresponse._session is None or
-                        visualresponse._session.process is None or
-                        not visualresponse._session.process.is_alive())
-        if session_dead:
-            if visualresponse._session:
-                visualresponse._session.close()
-            visualresponse._session = VisualServerSession(register_cleanup=False)
-        if visualresponse._session is None:
-            raise RuntimeError("Failed to create visual server session")
-        return visualresponse._session
+        """Legacy sync method - wraps async version"""
+        import asyncio
+
+        # Check if we already have an adapter
+        if hasattr(visualresponse, '_adapter') and visualresponse._adapter is not None:
+            return visualresponse._adapter
+
+        # Try to use running event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context - this shouldn't be called
+            # But if it is, we need to raise an error because we can't block
+            raise RuntimeError("Cannot call _get_session() from async context - use _get_session_async() instead")
+        except RuntimeError:
+            # No running loop - we're in sync context, safe to create one
+            pass
+
+        # Get or create event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        # Run the async version
+        return loop.run_until_complete(visualresponse._get_session_async())
 
     @staticmethod
     def get_speech_text(content: str) -> Optional[str]:
@@ -1134,8 +1258,8 @@ class visualresponse:
                 if file_path.exists(): diagnostics.append(f"  ✅ {file_name} ({file_path.stat().st_size} bytes)")
                 else: diagnostics.append(f"  ❌ {file_name} missing")
         else: diagnostics.append(f"❌ Assets directory missing: {ASSETS_DIR}")
-        if visualresponse._session:
-            status = visualresponse._session.get_status()
+        if hasattr(visualresponse, '_adapter') and visualresponse._adapter:
+            status = visualresponse._adapter.get_status()
             diagnostics.append("\n📊 Current Session Status:")
             for key, value in status.items(): diagnostics.append(f"  {key.replace('_', ' ').title()}: {value}")
         else: diagnostics.append("\n📊 No active session")

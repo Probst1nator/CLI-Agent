@@ -14,11 +14,11 @@ services:
     networks:
       - cli-agent-multi-dev-net
     ports:
-      - "7870:8000"    # Different port for dev (7870)
+      - "7860:8000"    # Dev on main port (7860)
     environment:
       - MAX_INSTANCES=3
       - INSTANCE_TIMEOUT=1800  # 30 minutes
-      - BASE_PORT=7871         # Start dev instances at 7871
+      - BASE_PORT=7861         # Start dev instances at 7861
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
@@ -37,7 +37,7 @@ services:
     networks:
       - cli-agent-multi-dev-net
     ports:
-      - "7871:7860"  # Dev instance 1 direct access
+      - "7861:7860"  # Dev instance 1 direct access
     environment:
       - CLI_AGENT_GUI_MODE=true
       - CLI_AGENT_HOST=0.0.0.0
@@ -80,7 +80,7 @@ services:
     networks:
       - cli-agent-multi-dev-net
     ports:
-      - "7872:7860"  # Dev instance 2 direct access
+      - "7862:7860"  # Dev instance 2 direct access
     environment:
       - CLI_AGENT_GUI_MODE=true
       - CLI_AGENT_HOST=0.0.0.0
@@ -123,7 +123,7 @@ services:
     networks:
       - cli-agent-multi-dev-net
     ports:
-      - "7873:7860"  # Dev instance 3 direct access
+      - "7863:7860"  # Dev instance 3 direct access
     environment:
       - CLI_AGENT_GUI_MODE=true
       - CLI_AGENT_HOST=0.0.0.0

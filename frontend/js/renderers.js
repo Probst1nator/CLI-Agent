@@ -366,8 +366,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
                 estimatedHeight += 100; // Reduced from 200px
             }
 
-            // Don't exceed reasonable bounds
-            estimatedHeight = Math.min(estimatedHeight, 600);
+            // No max height limit - let content expand fully
 
             iframe.style.height = estimatedHeight + 'px';
             lastHeight = estimatedHeight; // Update lastHeight for container sizing
@@ -501,7 +500,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
     messageListener = (event) => {
         if (event.source === iframe.contentWindow && event.data.type === 'resize') {
             const rawHeight = event.data.height;
-            const newHeight = Math.max(150, Math.min(1200, rawHeight + 10)); // Reduce padding from 20px to 10px
+            const newHeight = Math.max(150, rawHeight + 10); // No max height limit - expand to full content
 
             // Only adjust if height difference is meaningful
             const heightDifference = Math.abs(newHeight - lastHeight);
@@ -564,8 +563,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
                 estimatedHeight += 100; // Reduced from 200px
             }
 
-            // Don't exceed reasonable bounds
-            estimatedHeight = Math.min(estimatedHeight, 600);
+            // No max height limit - let content expand fully
 
             iframe.style.height = estimatedHeight + 'px';
             lastHeight = estimatedHeight; // Update lastHeight for container sizing
@@ -682,6 +680,10 @@ function renderLatex(targetElement) {
 const renderers = {
     'html': renderHTML,
     'markdown': renderMarkdown,
+    'image_upload_ack': (container, content) => {
+        // Silent acknowledgment - no visual output needed
+        console.log('Image upload acknowledged:', content);
+    }
 };
 
 /**
@@ -771,6 +773,416 @@ class ContentRenderer {
                 renderer(container, data.content);
             }
         }
+    }
+
+
+    /**
+     * Render a message to the chat interface
+     * This is a convenience wrapper for ChatStateManager compatibility
+     * @param {Object} message - Message object with type, content, etc.
+     * @param {number} messageIndex - Index of message in chat history (for edit functionality)
+     */
+    async renderMessage(message, messageIndex) {
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper) {
+            console.error('Content wrapper not found');
+            return;
+        }
+
+        // Determine if this is a user message
+        const isUserMessage = message.role === 'user';
+
+        // Create message block structure similar to WebSocketManager
+        const messageBlock = document.createElement('div');
+        messageBlock.className = isUserMessage ? 'message-block user-message' : 'message-block agent-message';
+
+        // Assign message index for edit functionality
+        if (messageIndex !== undefined) {
+            messageBlock.dataset.messageIndex = messageIndex;
+        }
+
+        const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        messageBlock.id = messageId;
+
+        // Create timestamp header with flex layout (using same style for both user and assistant messages)
+        const timestampDiv = document.createElement('div');
+        timestampDiv.className = 'agent-msg-head';
+
+        // Left: timestamp
+        const timestampText = document.createElement('span');
+        timestampText.className = 'timestamp-text';
+        timestampText.textContent = new Date().toLocaleTimeString();
+        timestampDiv.appendChild(timestampText);
+
+        messageBlock.appendChild(timestampDiv);
+
+        // Add loading-tools-header for loaded messages (same structure as real-time)
+        // Always parse XML to find tool calls, then enhance with metadata
+        let toolInfo = [];
+        let visualResponseTool = null;
+        if (!isUserMessage && message.content) {
+            const xmlToolCalls = this.parseToolCallsFromXML(message.content);
+            const metadataToolInfo = message.metadata && message.metadata.tool_info ? message.metadata.tool_info : null;
+            toolInfo = this.mergeToolInfoWithMetadata(xmlToolCalls, metadataToolInfo);
+
+            // Extract visualresponse/response tool for model display before filtering
+            visualResponseTool = toolInfo.find(tool => ['visualresponse', 'response'].includes(tool.name));
+
+            // Filter out user-facing tags (visualresponse, response) - they're rendered as content, not tool boxes
+            toolInfo = toolInfo.filter(tool => !['visualresponse', 'response'].includes(tool.name));
+        }
+
+        // Center: model info (from visualresponse tool_info or response_model metadata)
+        const modelSpan = document.createElement('span');
+        modelSpan.className = 'message-model-info';
+        modelSpan.style.color = '#888';
+        modelSpan.style.fontSize = '0.9em';
+        modelSpan.style.flex = '1';
+        modelSpan.style.textAlign = 'center';
+
+        // Try visualResponseTool.model first, then fallback to metadata.response_model
+        const modelToDisplay = (visualResponseTool && visualResponseTool.model)
+            || (message.metadata && message.metadata.response_model);
+
+        if (modelToDisplay) {
+            modelSpan.textContent = `[${modelToDisplay}]`;
+        }
+        timestampDiv.appendChild(modelSpan);
+
+        // Right: button container
+        const buttonContainer = document.createElement('span');
+        buttonContainer.className = 'message-buttons';
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.gap = '4px';
+        buttonContainer.style.alignItems = 'center';
+        timestampDiv.appendChild(buttonContainer);
+
+        if (!isUserMessage && toolInfo && Array.isArray(toolInfo) && toolInfo.length > 0) {
+            const toolsHeader = document.createElement('div');
+            toolsHeader.className = 'loading-tools-header';
+
+            toolInfo.forEach((tool, index) => {
+                const toolItem = document.createElement('div');
+
+                let itemClass = tool.status === 'success' ? 'loading-tool-item completed' : 'loading-tool-item failed';
+
+                // Apply special styling for think and todos tags
+                if (tool.name === 'todos') {
+                    itemClass += ' special-todos';
+                } else if (tool.name === 'think') {
+                    itemClass += ' special-think';
+                }
+
+                toolItem.className = itemClass;
+                toolItem.id = `loading-tool-${messageId}-${index}`;
+
+                const statusIcon = tool.status === 'success' ? '✅' : '❌';
+                const modelDisplay = tool.model ? `<span class="loading-tool-model">[${this.escapeHtml(tool.model)}]</span>` : '';
+                const durationDisplay = tool.duration_ms ? `${tool.duration_ms}ms` : '0ms';
+
+                toolItem.innerHTML = `
+                    <div class="loading-tool-main">
+                        <span class="loading-tool-name">${this.escapeHtml(tool.name)}</span>
+                        ${modelDisplay}
+                        <span class="loading-tool-status completed">
+                            <span class="loading-tool-icon">${statusIcon}</span>
+                            <span class="loading-tool-duration">${durationDisplay}</span>
+                        </span>
+                    </div>
+                    <div class="loading-tool-details collapsed">
+                        <div class="loading-tool-args">${this.escapeHtml(tool.args || 'No arguments')}</div>
+                        <div class="loading-tool-output">${this.escapeHtml(tool.context_returned || 'No output')}</div>
+                    </div>
+                `;
+
+                // Add click handler for expandable details
+                const mainDiv = toolItem.querySelector('.loading-tool-main');
+                mainDiv.addEventListener('click', () => {
+                    const details = toolItem.querySelector('.loading-tool-details');
+                    const isCollapsed = details.classList.contains('collapsed');
+
+                    if (isCollapsed) {
+                        details.classList.remove('collapsed');
+                        details.classList.add('expanded');
+                    } else {
+                        details.classList.remove('expanded');
+                        details.classList.add('collapsed');
+                    }
+                });
+
+                toolsHeader.appendChild(toolItem);
+            });
+
+            messageBlock.appendChild(toolsHeader);
+        }
+
+        // Create content container
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+
+        // For user messages, use simple text content
+        if (isUserMessage) {
+            messageContent.textContent = message.content || '';
+        }
+
+        messageBlock.appendChild(messageContent);
+
+        // Add buttons to the button container in the header
+        if (messageIndex !== undefined && window.agentInterface) {
+            // Add edit button for all messages (user and assistant)
+            const editBtn = document.createElement('button');
+            editBtn.className = 'message-edit-btn';
+            editBtn.innerHTML = '✏️';
+            editBtn.title = 'Edit message';
+            editBtn.onclick = () => window.agentInterface.handleMessageEdit(messageBlock, messageIndex);
+            buttonContainer.appendChild(editBtn);
+
+            // Add delete button for all messages
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'message-delete-btn';
+            deleteBtn.innerHTML = '🗑️';
+            deleteBtn.title = 'Delete message';
+            deleteBtn.onclick = () => window.agentInterface.handleMessageDelete(messageIndex);
+            buttonContainer.appendChild(deleteBtn);
+
+            // Add reload button for all messages (to continue from this point)
+            const reloadBtn = document.createElement('button');
+            reloadBtn.className = 'message-reload-btn';
+            reloadBtn.innerHTML = '🔄';
+            reloadBtn.title = 'Continue from here';
+            reloadBtn.onclick = () => window.agentInterface.handleMessageReload(messageIndex);
+            buttonContainer.appendChild(reloadBtn);
+        }
+
+        // Add raw/rendered view toggle button for assistant messages
+        if (!isUserMessage && messageIndex !== undefined) {
+            const toggleViewBtn = document.createElement('button');
+            toggleViewBtn.className = 'message-view-toggle-btn';
+            toggleViewBtn.innerHTML = '📄';
+            toggleViewBtn.title = 'Toggle raw/rendered view';
+            toggleViewBtn.dataset.showingRaw = 'false';
+            buttonContainer.appendChild(toggleViewBtn);
+        }
+
+        // Append to content wrapper
+        contentWrapper.appendChild(messageBlock);
+
+        // Create raw content container (hidden by default)
+        const rawContent = document.createElement('div');
+        rawContent.className = 'message-raw-content';
+        rawContent.style.display = 'none';
+        rawContent.style.whiteSpace = 'pre-wrap';
+        rawContent.style.fontFamily = 'monospace';
+        rawContent.style.fontSize = '12px';
+        rawContent.style.padding = '10px';
+        rawContent.style.background = 'rgba(0,0,0,0.05)';
+        rawContent.style.borderRadius = '4px';
+        rawContent.style.marginTop = '8px';
+        rawContent.textContent = message.content || '';
+        messageBlock.appendChild(rawContent);
+
+        // Render the actual content (for agent messages)
+        if (!isUserMessage) {
+            // If message has a type field (visual response), use renderContent
+            // Otherwise, check if we should hide raw XML when tool_info is present
+            if (message.type) {
+                await this.renderContent(messageContent, message, messageId, timestampDiv);
+            } else if (toolInfo && toolInfo.length > 0) {
+                // Message has tool executions - strip tool XML tags but preserve user-facing content
+                let cleanedContent = message.content || '';
+
+                // Remove tool XML tags (but NOT visualresponse/response which contain user content)
+                const userFacingTags = ['visualresponse', 'response'];
+                toolInfo.forEach(tool => {
+                    // Skip user-facing tags - they should be rendered, not hidden
+                    if (userFacingTags.includes(tool.name)) {
+                        return;
+                    }
+
+                    // Remove both empty and non-empty versions of the tag
+                    const emptyPattern = new RegExp(`<${tool.name}\\s*/>`, 'gi');
+                    const fullPattern = new RegExp(`<${tool.name}[^>]*>[\\s\\S]*?</${tool.name}>`, 'gi');
+                    cleanedContent = cleanedContent.replace(emptyPattern, '');
+                    cleanedContent = cleanedContent.replace(fullPattern, '');
+                });
+
+                // Also remove <context> blocks as they're shown in tool details
+                cleanedContent = cleanedContent.replace(/<context>\s*[\s\S]*?\s*<\/context>/gi, '');
+
+                // Check if there's visualresponse or response content to render
+                // Pattern handles optional <action> tag and any whitespace/newlines
+                const visualResponseMatch = /<visualresponse>\s*(?:<action>.*?<\/action>\s*)?<type>(.*?)<\/type>\s*<content>([\s\S]*?)<\/content>\s*<\/visualresponse>/i.exec(message.content);
+                const responseMatch = /<response>(.*?)<\/response>/is.exec(message.content);
+
+                // Skip rendering visualresponse content if it's in tool_info (payload will handle display)
+                const hasVisualResponseInTools = message.tool_info && Array.isArray(message.tool_info) &&
+                    message.tool_info.some(tool => ['visualresponse', 'response'].includes(tool.tool_name?.toLowerCase()));
+
+                if (visualResponseMatch && !hasVisualResponseInTools) {
+                    // Render visualresponse content (HTML or markdown)
+                    const vizType = visualResponseMatch[1].trim();
+                    const vizContent = visualResponseMatch[2].trim();
+                    await this.renderContent(messageContent, {type: vizType, content: vizContent}, messageId, timestampDiv);
+                } else if (responseMatch && !hasVisualResponseInTools) {
+                    // Render plain response text
+                    messageContent.textContent = responseMatch[1].trim();
+                } else if (cleanedContent.trim()) {
+                    // Show remaining text content (if any) after removing tool tags
+                    messageContent.textContent = cleanedContent.trim();
+                } else {
+                    // No content left after removing tool tags
+                    messageContent.style.display = 'none';
+                }
+            } else {
+                // Plain text assistant message - render exactly as received
+                messageContent.textContent = message.content || '';
+            }
+
+            // Add toggle functionality
+            const toggleViewBtn = messageBlock.querySelector('.message-view-toggle-btn');
+            const toolsHeader = messageBlock.querySelector('.loading-tools-header');
+
+            if (toggleViewBtn) {
+                toggleViewBtn.addEventListener('click', () => {
+                    const isShowingRaw = toggleViewBtn.dataset.showingRaw === 'true';
+
+                    if (isShowingRaw) {
+                        // Switch to rendered view
+                        messageContent.style.display = '';
+                        rawContent.style.display = 'none';
+                        if (toolsHeader) toolsHeader.style.display = '';
+                        toggleViewBtn.dataset.showingRaw = 'false';
+                        toggleViewBtn.innerHTML = '📄';
+                        toggleViewBtn.title = 'Show raw XML';
+                    } else {
+                        // Switch to raw view
+                        messageContent.style.display = 'none';
+                        rawContent.style.display = 'block';
+                        if (toolsHeader) toolsHeader.style.display = 'none';
+                        toggleViewBtn.dataset.showingRaw = 'true';
+                        toggleViewBtn.innerHTML = '🎨';
+                        toggleViewBtn.title = 'Show rendered view';
+                    }
+                });
+            }
+        }
+
+        // Scroll to bottom
+        contentWrapper.scrollTop = contentWrapper.scrollHeight;
+    }
+
+    clearContent() {
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (contentWrapper) {
+            contentWrapper.innerHTML = '';
+            window.visualLogger.debug('Chat content cleared');
+        }
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Parse XML tool calls from message content
+     * Returns array of tool info objects with name, args, and context
+     * Preserves original document order
+     */
+    parseToolCallsFromXML(content) {
+        const toolCalls = [];
+
+        // Common tool tags to look for
+        const toolTags = ['bash', 'readfile', 'writefile', 'editfile', 'grepsearch', 'searchweb',
+                          'viewpermissions', 'think', 'todos', 'visualresponse', 'insertline',
+                          'deletelines', 'readdirectory', 'searchtext', 'taskmanager', 'homeassistant',
+                          'paralleltools'];
+
+        // Find all tool tags with their positions
+        const matches = [];
+
+        toolTags.forEach(tag => {
+            const pattern = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+            let match;
+
+            while ((match = pattern.exec(content)) !== null) {
+                matches.push({
+                    position: match.index,
+                    name: tag,
+                    args: match[1].trim().substring(0, 500),
+                    fullMatch: match[0]
+                });
+            }
+        });
+
+        // Sort by position to maintain document order
+        matches.sort((a, b) => a.position - b.position);
+
+        // Convert to tool call objects
+        matches.forEach(match => {
+            toolCalls.push({
+                name: match.name,
+                args: match.args,
+                status: 'success',
+                duration_ms: null,
+                model: null,
+                context_returned: '',
+                context_length: 0
+            });
+        });
+
+        // Parse <context> blocks and match with non-visualresponse tools in order
+        const contextPattern = /<context>\s*([\s\S]*?)\s*<\/context>/gi;
+        let contextMatch;
+        let nonVisualToolIndex = 0;
+
+        while ((contextMatch = contextPattern.exec(content)) !== null) {
+            const contextContent = contextMatch[1].trim();
+
+            // Find the next non-visualresponse tool to attach this context to
+            while (nonVisualToolIndex < toolCalls.length) {
+                if (toolCalls[nonVisualToolIndex].name !== 'visualresponse' &&
+                    toolCalls[nonVisualToolIndex].name !== 'think' &&
+                    toolCalls[nonVisualToolIndex].name !== 'todos') {
+                    toolCalls[nonVisualToolIndex].context_returned = contextContent.substring(0, 500);
+                    toolCalls[nonVisualToolIndex].context_length = contextContent.length;
+                    nonVisualToolIndex++;
+                    break;
+                }
+                nonVisualToolIndex++;
+            }
+        }
+
+        return toolCalls;
+    }
+
+    /**
+     * Merge parsed XML tool calls with metadata
+     * Metadata provides timing and model info, XML provides structure
+     */
+    mergeToolInfoWithMetadata(xmlToolCalls, metadata) {
+        if (!metadata || !Array.isArray(metadata)) {
+            return xmlToolCalls;
+        }
+
+        // Match by index and merge information
+        return xmlToolCalls.map((xmlTool, index) => {
+            const metadataTool = metadata[index];
+
+            if (metadataTool && metadataTool.name === xmlTool.name) {
+                // Metadata takes precedence for timing/model info
+                return {
+                    ...xmlTool,
+                    duration_ms: metadataTool.duration_ms || xmlTool.duration_ms,
+                    model: metadataTool.model || xmlTool.model,
+                    status: metadataTool.status || xmlTool.status,
+                    error: metadataTool.error || xmlTool.error
+                };
+            }
+
+            return xmlTool;
+        });
     }
 }
 

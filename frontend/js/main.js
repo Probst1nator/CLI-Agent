@@ -209,10 +209,421 @@ class VisualResponseApp {
         this.checkLibraries();
         this.initializeComponents();
         this.setupEventListeners();
+        this.setupStateSync();
         this.setDarkTheme();
-        this.loadMessageHistory();
+        // loadMessageHistory() is now triggered by the WebSocket config message from server
+        // This ensures we respect the continue/clear_history flags from the CLI
         console.log('✅ Visual Response App initialized successfully');
         console.groupEnd();
+    }
+
+    setupStateSync() {
+        // Listen for state changes from backend
+        if (this.wsManager) {
+            this.wsManager.on('state_changed', (data) => {
+                console.log('📡 State changed:', data.state);
+                this.updateButtonStates(data.state);
+            });
+
+            // Listen for message completion to trigger TTS
+            this.wsManager.on('message_end', async (data) => {
+                if (this.speakModeEnabled && data.content) {
+                    console.log('🔊 Message ended, speak mode active - triggering TTS');
+
+                    // Extract text from visualresponse or response tags first
+                    const content = data.content;
+                    const visualResponseMatch = /<visualresponse>\s*(?:<action>.*?<\/action>\s*)?<type>.*?<\/type>\s*<content>([\s\S]*?)<\/content>\s*<\/visualresponse>/i.exec(content);
+                    const responseMatch = /<response>(.*?)<\/response>/is.exec(content);
+
+                    let text = '';
+                    if (visualResponseMatch) {
+                        text = visualResponseMatch[1].trim();
+                        // Strip HTML and markdown
+                        text = text.replace(/<[^>]+>/g, ' ').replace(/[#*_`]/g, '');
+                    } else if (responseMatch) {
+                        text = responseMatch[1].trim();
+                    } else {
+                        // Fallback to extractTextContent for non-visualresponse messages
+                        text = this.extractTextContent(content);
+                    }
+
+                    text = text.replace(/\s+/g, ' ').trim();
+
+                    if (text && text.trim()) {
+                        try {
+                            await this.audioManager.playTTS(text, 'auto');
+                        } catch (error) {
+                            console.error('TTS playback failed:', error);
+                        }
+                    }
+                }
+            });
+        }
+
+        // Fetch initial state when connected
+        this.fetchAgentState();
+    }
+
+    async fetchAgentState() {
+        try {
+            const response = await fetch('/api/agent/state');
+            const data = await response.json();
+            if (data.status === 'success' && data.state) {
+                console.log('📥 Initial state loaded:', data.state);
+                this.updateButtonStates(data.state);
+            }
+        } catch (error) {
+            console.warn('Failed to fetch agent state:', error);
+        }
+    }
+
+    updateButtonStates(state) {
+        // Update voice button
+        if (this.voiceBtn) {
+            if (state.voice_mode && !state.tts_only_mode) {
+                this.voiceBtn.classList.add('active');
+                this.speakBtn.classList.remove('active');
+            } else {
+                this.voiceBtn.classList.remove('active');
+            }
+        }
+
+        // Update speak button and sync frontend state
+        if (this.speakBtn) {
+            if (state.tts_only_mode) {
+                this.speakBtn.classList.add('active');
+                this.voiceBtn.classList.remove('active');
+                this.speakModeEnabled = true;
+            } else {
+                this.speakBtn.classList.remove('active');
+                this.speakModeEnabled = false;
+            }
+        }
+
+        // Note: auto_execute, online_mode, local_mode don't have visible buttons in the UI
+        // but you can add them here if needed
+    }
+
+    extractTextContent(content) {
+        /**
+         * Extract plain text from agent response, stripping XML tags and other markup.
+         * Used for TTS to get clean readable text.
+         */
+        if (!content || typeof content !== 'string') {
+            return '';
+        }
+
+        let text = content;
+
+        // Remove visualresponse XML blocks
+        text = text.replace(/<visualresponse>[\s\S]*?<\/visualresponse>/gi, '');
+
+        // Remove other common XML-like tags
+        text = text.replace(/<[^>]+>/g, '');
+
+        // Remove code blocks
+        text = text.replace(/```[\s\S]*?```/g, '');
+
+        // Remove inline code
+        text = text.replace(/`[^`]+`/g, '');
+
+        // Clean up extra whitespace
+        text = text.replace(/\s+/g, ' ').trim();
+
+        return text;
+    }
+
+    async speakLatestResponse() {
+        /**
+         * Extract and speak the latest assistant message's visualresponse content.
+         * This is called when the volume button is toggled on.
+         */
+        if (!this.chatState || !this.chatState.messages) {
+            console.warn('No chat state available');
+            return;
+        }
+
+        // Find the last assistant message
+        const messages = this.chatState.messages;
+        let lastAssistantMessage = null;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'assistant') {
+                lastAssistantMessage = messages[i];
+                break;
+            }
+        }
+
+        if (!lastAssistantMessage || !lastAssistantMessage.content) {
+            console.warn('No assistant message found to speak');
+            return;
+        }
+
+        // Extract text from visualresponse content
+        const content = lastAssistantMessage.content;
+
+        // Try to extract visualresponse content first
+        const visualResponseMatch = /<visualresponse>\s*(?:<action>.*?<\/action>\s*)?<type>.*?<\/type>\s*<content>([\s\S]*?)<\/content>\s*<\/visualresponse>/i.exec(content);
+        const responseMatch = /<response>(.*?)<\/response>/is.exec(content);
+
+        let textToSpeak = '';
+
+        if (visualResponseMatch) {
+            // Extract from visualresponse
+            textToSpeak = visualResponseMatch[1].trim();
+            // If it's HTML or markdown, strip tags
+            textToSpeak = textToSpeak.replace(/<[^>]+>/g, ' ').replace(/[#*_`]/g, '');
+        } else if (responseMatch) {
+            // Extract from response tag
+            textToSpeak = responseMatch[1].trim();
+        } else {
+            // Fallback: use extractTextContent to clean the entire message
+            textToSpeak = this.extractTextContent(content);
+        }
+
+        // Clean up whitespace
+        textToSpeak = textToSpeak.replace(/\s+/g, ' ').trim();
+
+        if (textToSpeak && this.audioManager) {
+            console.log('🔊 Speaking latest response:', textToSpeak.substring(0, 100) + '...');
+            try {
+                await this.audioManager.playTTS(textToSpeak, 'auto');
+            } catch (error) {
+                console.error('Failed to play TTS:', error);
+            }
+        } else {
+            console.warn('No text to speak or audio manager not available');
+        }
+    }
+
+    handleMessageEdit(messageBlock, messageIndex) {
+        const contentDiv = messageBlock.querySelector('.message-content');
+        if (!contentDiv) return;
+
+        // Get raw content from chat state instead of rendered text
+        let originalContent = contentDiv.textContent;
+        if (this.chatState && this.chatState.messages && this.chatState.messages[messageIndex]) {
+            // Use the raw message content from chat state (includes XML for assistant messages)
+            originalContent = this.chatState.messages[messageIndex].content || originalContent;
+        }
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'message-edit-textarea';
+        textarea.value = originalContent;
+
+        // Auto-resize function
+        const autoResize = () => {
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
+        };
+
+        // Auto-resize on input
+        textarea.addEventListener('input', autoResize);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'message-edit-save';
+        saveBtn.textContent = '✓ Save';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'message-edit-cancel';
+        cancelBtn.textContent = '✗ Cancel';
+
+        const btnContainer = document.createElement('div');
+        btnContainer.className = 'message-edit-buttons';
+        btnContainer.appendChild(saveBtn);
+        btnContainer.appendChild(cancelBtn);
+
+        contentDiv.replaceWith(textarea);
+        messageBlock.appendChild(btnContainer);
+
+        // Set initial height after adding to DOM
+        setTimeout(() => {
+            autoResize();
+            textarea.focus();
+        }, 0);
+
+        const saveEdit = async () => {
+            const newContent = textarea.value.trim();
+            if (!newContent || newContent === originalContent) {
+                cancelEdit();
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/chat/message/edit', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message_index: parseInt(messageBlock.dataset.messageIndex),
+                        new_content: newContent
+                    })
+                });
+
+                const data = await response.json();
+                if (data.status === 'success') {
+                    // Update chat state with new content
+                    if (this.chatState && this.chatState.messages && this.chatState.messages[messageIndex]) {
+                        this.chatState.messages[messageIndex].content = newContent;
+                    }
+
+                    // Re-render the entire message properly
+                    btnContainer.remove();
+                    if (this.chatState) {
+                        await this.chatState.renderAll();
+                    } else {
+                        // Fallback: just replace with text content
+                        const newContentDiv = document.createElement('div');
+                        newContentDiv.className = 'message-content';
+                        newContentDiv.textContent = newContent;
+                        textarea.replaceWith(newContentDiv);
+                    }
+
+                    messageBlock.classList.add('message-edited');
+                    setTimeout(() => messageBlock.classList.remove('message-edited'), 2000);
+                } else {
+                    alert('Failed to save edit: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Edit save error:', error);
+                alert('Failed to save edit');
+            }
+        };
+
+        const cancelEdit = async () => {
+            // Re-render the message properly instead of just showing text
+            btnContainer.remove();
+            if (this.chatState) {
+                await this.chatState.renderAll();
+            } else {
+                // Fallback: just replace with text content
+                const newContentDiv = document.createElement('div');
+                newContentDiv.className = 'message-content';
+                newContentDiv.textContent = originalContent;
+                textarea.replaceWith(newContentDiv);
+            }
+        };
+
+        saveBtn.onclick = saveEdit;
+        cancelBtn.onclick = cancelEdit;
+
+        textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                cancelEdit();
+            } else if (e.key === 'Enter' && e.ctrlKey) {
+                saveEdit();
+            }
+        });
+    }
+
+    async handleMessageDelete(messageIndex) {
+        const confirmed = confirm(
+            `Delete this message?\n\n` +
+            `This will permanently remove this message from the chat history.\n\n` +
+            `Are you sure?`
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/chat/message/delete/${messageIndex}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                console.log(`Message deleted at index ${messageIndex}`);
+
+                // Remove the message block from DOM
+                const contentWrapper = document.getElementById('content-wrapper');
+                if (contentWrapper) {
+                    const messageBlocks = contentWrapper.querySelectorAll('.message-block');
+                    if (messageBlocks[messageIndex]) {
+                        messageBlocks[messageIndex].remove();
+
+                        // Update data-message-index for all subsequent messages
+                        messageBlocks.forEach((block, index) => {
+                            if (index > messageIndex) {
+                                block.dataset.messageIndex = index - 1;
+                            }
+                        });
+                    }
+                }
+
+                const notification = document.createElement('div');
+                notification.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #dc3545; color: white; padding: 12px 20px; border-radius: 4px; z-index: 10000; font-size: 14px;';
+                notification.textContent = `✓ Message deleted`;
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.remove();
+                }, 2000);
+            } else {
+                alert('Failed to delete message: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Failed to delete message:', error);
+            alert('Failed to delete message. Check console for details.');
+        }
+    }
+
+    async handleMessageReload(messageIndex) {
+        const confirmed = confirm(
+            `Continue from this message?\n\n` +
+            `This will remove all messages after this point and allow you to continue the conversation from here.\n\n` +
+            `Are you sure?`
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/chat/truncate/${messageIndex}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                console.log(`Chat truncated to ${data.new_length} messages (removed ${data.removed_count})`);
+
+                const contentWrapper = document.getElementById('content-wrapper');
+                if (contentWrapper) {
+                    const messageBlocks = contentWrapper.querySelectorAll('.message-block');
+                    messageBlocks.forEach((block, index) => {
+                        if (index > messageIndex) {
+                            block.remove();
+                        }
+                    });
+                }
+
+                this.chatInput.focus();
+
+                const notification = document.createElement('div');
+                notification.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 12px 20px; border-radius: 4px; z-index: 10000; font-size: 14px;';
+                notification.textContent = `✓ Chat truncated. ${data.removed_count} message(s) removed. Continue your conversation...`;
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.remove();
+                }, 3000);
+            } else {
+                alert('Failed to truncate chat: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Failed to truncate chat:', error);
+            alert('Failed to truncate chat. Check console for details.');
+        }
     }
 
     displayInstanceInfo() {
@@ -303,6 +714,24 @@ class VisualResponseApp {
         // Expose WebSocket manager globally for permission responses
         window.wsManager = this.wsManager;
 
+        // Initialize ChatStateManager for new API integration
+        if (typeof ChatStateManager !== 'undefined') {
+            this.chatState = new ChatStateManager(this.wsManager, this.renderer);
+            window.chatState = this.chatState;
+            this.logger.info('ChatStateManager initialized');
+        } else {
+            this.logger.warn('ChatStateManager not available');
+        }
+
+        // Initialize AudioManager for voice features
+        if (typeof AudioManager !== 'undefined') {
+            this.audioManager = new AudioManager();
+            window.audioManager = this.audioManager;
+            this.logger.info('AudioManager initialized');
+        } else {
+            this.logger.warn('AudioManager not available');
+        }
+
         // Get chat elements
         this.chatForm = document.getElementById('chat-form');
         this.chatInput = document.getElementById('chat-input');
@@ -311,7 +740,16 @@ class VisualResponseApp {
         this.fileInput = document.getElementById('file-input');
         this.fileUploadBtn = document.getElementById('file-upload-btn');
         this.screenshotBtn = document.getElementById('screenshot-btn');
+        this.screenCaptureBtn = document.getElementById('screen-capture-btn');
         this.voiceBtn = document.getElementById('voice-btn');
+        this.speakBtn = document.getElementById('speak-btn');
+
+        // Initialize screen capture manager
+        this.screenCaptureManager = new ScreenCaptureManager();
+        this.screenCaptureEnabled = false;
+
+        // Frontend-controlled speak mode state
+        this.speakModeEnabled = false;
 
         // Initialize LLM selectors
         this.initializeLLMSelectors();
@@ -415,8 +853,14 @@ class VisualResponseApp {
         // Screenshot button event listener
         this.setupScreenshot();
 
+        // Screen capture button event listener
+        this.setupScreenCaptureButton();
+
         // Voice button event listener
         this.setupVoiceButton();
+
+        // Speak button event listener
+        this.setupSpeakButton();
 
         // Global JS toggle event listener
         this.setupGlobalJSToggle();
@@ -438,21 +882,36 @@ class VisualResponseApp {
         this.setupProfileSlots();
     }
 
-    handleChatSubmit() {
+    async handleChatSubmit() {
         const message = this.chatInput.value.trim();
 
         if (message && this.wsManager.isConnected()) {
+            const images = [];
+
+            // Capture screen if continuous capture is enabled
+            if (this.screenCaptureEnabled) {
+                try {
+                    console.log('📸 Capturing screenshot from continuous stream...');
+                    const screenshot = await this.screenCaptureManager.captureFromStream();
+                    images.push(screenshot);
+                    console.log('✅ Screenshot captured');
+                } catch (error) {
+                    console.error('❌ Screenshot capture failed:', error);
+                }
+            }
+
             // Display user message immediately
-            this.displayUserMessage(message);
+            await this.displayUserMessage(message);
 
             // Only show interrupt button for non-command messages (commands don't generate agent responses)
             if (!message.startsWith('/')) {
                 this.showInterruptButton();
             }
 
-            // Send the message with tool configuration
+            // Send the message with images and tool configuration
             const messageWithConfig = {
                 message: message,
+                images: images,
                 toolConfig: window.ToolManager ? window.ToolManager.getToolConfiguration() : null
             };
             this.wsManager.sendMessage(JSON.stringify(messageWithConfig));
@@ -479,7 +938,7 @@ class VisualResponseApp {
      * Display a user message in the chat
      * @param {string} message - User's message text
      */
-    displayUserMessage(message) {
+    async displayUserMessage(message) {
         const contentWrapper = document.getElementById('content-wrapper');
         if (!contentWrapper) return;
 
@@ -488,6 +947,25 @@ class VisualResponseApp {
         // Create message block
         const messageBlock = document.createElement('div');
         messageBlock.className = 'message-block user-message';
+
+        // Fetch current chat state to get accurate message count (including system messages)
+        let messageIndex;
+        try {
+            const response = await fetch('/api/chat/current');
+            const data = await response.json();
+            if (data.status === 'success' && data.chat && data.chat.messages) {
+                // The new message will be at the current length index (after it's added by backend)
+                messageIndex = data.chat.messages.length;
+            } else {
+                // Fallback
+                messageIndex = contentWrapper.querySelectorAll('.message-block').length + 1;
+            }
+        } catch (error) {
+            console.warn('Failed to fetch chat state for message index:', error);
+            // Fallback: assume 1 system message + visible messages
+            messageIndex = contentWrapper.querySelectorAll('.message-block').length + 1;
+        }
+        messageBlock.dataset.messageIndex = messageIndex;
 
         // Create timestamp
         const timestamp = document.createElement('div');
@@ -499,9 +977,17 @@ class VisualResponseApp {
         content.className = 'message-content';
         content.textContent = message;
 
+        // Create edit button
+        const editBtn = document.createElement('button');
+        editBtn.className = 'message-edit-btn';
+        editBtn.innerHTML = '✏️';
+        editBtn.title = 'Edit message';
+        editBtn.onclick = () => this.handleMessageEdit(messageBlock, messageIndex);
+
         // Assemble message
         messageBlock.appendChild(timestamp);
         messageBlock.appendChild(content);
+        messageBlock.appendChild(editBtn);
 
         // Add to content wrapper
         contentWrapper.appendChild(messageBlock);
@@ -692,6 +1178,57 @@ class VisualResponseApp {
         console.log('📸 Screenshot state reset to default');
     }
 
+    setupScreenCaptureButton() {
+        if (!this.screenCaptureBtn) {
+            console.error('Screen capture button not found');
+            return;
+        }
+
+        // Check if screen capture is supported
+        if (!this.screenCaptureManager.isSupported()) {
+            this.screenCaptureBtn.disabled = true;
+            this.screenCaptureBtn.title = 'Screen capture not supported in this browser';
+            this.screenCaptureBtn.style.opacity = '0.5';
+            console.warn('Screen capture API not supported');
+            return;
+        }
+
+        // Screen capture button click - toggle continuous capture mode
+        this.screenCaptureBtn.addEventListener('click', async () => {
+            console.log('🎥 Screen capture button clicked');
+
+            if (this.screenCaptureEnabled) {
+                // Disable continuous capture mode
+                this.screenCaptureEnabled = false;
+                this.screenCaptureManager.stopCapture();
+                this.screenCaptureBtn.classList.remove('enabled');
+                this.screenCaptureBtn.title = 'Enable screen capture - captures on message send';
+                console.log('🔴 Screen capture disabled');
+            } else {
+                // Enable continuous capture mode
+                try {
+                    // Start continuous stream
+                    await this.screenCaptureManager.startContinuousCapture({
+                        audio: false,
+                        preferCurrentTab: false
+                    });
+
+                    // Permission granted, enable auto-capture
+                    this.screenCaptureEnabled = true;
+                    this.screenCaptureBtn.classList.add('enabled');
+                    this.screenCaptureBtn.title = 'Screen capture enabled - click to disable';
+                    console.log('🟢 Continuous screen capture enabled - will capture on message send');
+
+                } catch (error) {
+                    console.error('❌ Screen capture failed:', error);
+                    alert(`Screen capture failed: ${error.message}`);
+                    this.screenCaptureEnabled = false;
+                    this.screenCaptureBtn.classList.remove('enabled');
+                }
+            }
+        });
+    }
+
     setupVoiceButton() {
         if (!this.voiceBtn) {
             console.error('Voice button not found');
@@ -699,7 +1236,7 @@ class VisualResponseApp {
         }
 
         // Voice button click
-        this.voiceBtn.addEventListener('click', () => {
+        this.voiceBtn.addEventListener('click', async () => {
             console.log('🎤 Voice button clicked');
 
             // Send voice command to agent
@@ -707,12 +1244,47 @@ class VisualResponseApp {
                 this.wsManager.sendMessage('/voice');
 
                 // Visual feedback - toggle active state
+                const wasActive = this.voiceBtn.classList.contains('active');
                 this.voiceBtn.classList.toggle('active');
+                const isActive = this.voiceBtn.classList.contains('active');
+
+                // If voice is activated, enable speak mode
+                if (isActive) {
+                    this.speakModeEnabled = true;
+                    this.speakBtn.classList.add('active');
+                    this.speakBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 5L6 9H2V15H6L11 19V5Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15.54 8.46C16.4774 9.39764 17.0039 10.6692 17.0039 11.995C17.0039 13.3208 16.4774 14.5924 15.54 15.53" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.07 5.93C19.9447 7.80528 20.9979 10.3453 20.9979 13C20.9979 15.6547 19.9447 18.1947 18.07 20.07" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+                    this.speakBtn.title = 'Speak mode enabled - click to disable';
+                    console.log('🔊 Speak mode auto-enabled with voice mode');
+                }
+
+                // Handle microphone recording
+                if (this.audioManager) {
+                    if (isActive) {
+                        // Start recording
+                        try {
+                            await this.audioManager.startRecording();
+                            console.log('🎤 Microphone recording started');
+                        } catch (error) {
+                            console.error('Failed to start recording:', error);
+                            // Revert button state on error
+                            this.voiceBtn.classList.remove('active');
+                            return;
+                        }
+                    } else {
+                        // Stop recording and send audio
+                        try {
+                            const transcription = await this.audioManager.stopRecording();
+                            console.log('🎤 Recording stopped, transcription:', transcription);
+                            if (transcription && this.wsManager) {
+                                this.wsManager.sendMessage(transcription);
+                            }
+                        } catch (error) {
+                            console.error('Failed to stop recording:', error);
+                        }
+                    }
+                }
 
                 // Change icon based on state
-                const isActive = this.voiceBtn.classList.contains('active');
-                const originalIcon = this.voiceBtn.innerHTML;
-
                 if (isActive) {
                     // Show microphone with "active" styling
                     this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" fill="currentColor"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
@@ -720,7 +1292,7 @@ class VisualResponseApp {
                 } else {
                     // Show regular microphone icon
                     this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
-                    this.voiceBtn.title = 'Toggle voice mode (/voice)';
+                    this.voiceBtn.title = 'Toggle voice mode (mic input + TTS) - /voice';
                 }
 
                 // Brief feedback animation
@@ -742,6 +1314,86 @@ class VisualResponseApp {
                     this.voiceBtn.style.borderColor = '';
                 }, 1500);
             }
+        });
+
+        this.setupVolumeSlider();
+    }
+
+    setupVolumeSlider() {
+        const volumeSlider = document.getElementById('tts-volume-slider');
+        const volumeLabel = document.querySelector('.volume-label');
+
+        if (!volumeSlider || !volumeLabel) {
+            console.warn('Volume slider elements not found');
+            return;
+        }
+
+        volumeSlider.addEventListener('input', (e) => {
+            const volume = parseInt(e.target.value);
+            volumeLabel.textContent = `${volume}%`;
+
+            const percentage = volume / 100;
+            e.target.style.background = `linear-gradient(to top, var(--primary-color) 0%, var(--primary-color) ${volume}%, var(--border-color) ${volume}%)`;
+
+            if (this.audioManager) {
+                this.audioManager.setVolume(volume);
+            }
+        });
+
+        volumeSlider.value = 100;
+        volumeLabel.textContent = '100%';
+        volumeSlider.style.background = `linear-gradient(to top, var(--primary-color) 0%, var(--primary-color) 100%, var(--border-color) 100%)`;
+
+        console.log('Volume slider initialized');
+    }
+
+    setupSpeakButton() {
+        if (!this.speakBtn) {
+            console.error('Speak button not found');
+            return;
+        }
+
+        // Speak button click
+        this.speakBtn.addEventListener('click', async () => {
+            console.log('🔊 Speak button clicked');
+
+            // Toggle frontend state (no backend command needed)
+            this.speakModeEnabled = !this.speakModeEnabled;
+
+            // Visual feedback - toggle active state
+            this.speakBtn.classList.toggle('active', this.speakModeEnabled);
+
+            // If speak is activated, deactivate voice mode
+            if (this.speakModeEnabled) {
+                this.voiceBtn.classList.remove('active');
+                console.log('🔊 Speak mode enabled (TTS auto-play on)');
+
+                // Speak the latest assistant visualresponse content
+                await this.speakLatestResponse();
+            } else {
+                // If speak is deactivated, stop all playing audio
+                if (this.audioManager && typeof this.audioManager.stopAudio === 'function') {
+                    this.audioManager.stopAudio();
+                    console.log('🔇 Speak mode disabled (stopped audio playback)');
+                }
+            }
+
+            // Change icon based on state
+            if (this.speakModeEnabled) {
+                // Show speaker with "active" styling (filled)
+                this.speakBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 5L6 9H2V15H6L11 19V5Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15.54 8.46C16.4774 9.39764 17.0039 10.6692 17.0039 11.995C17.0039 13.3208 16.4774 14.5924 15.54 15.53" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.07 5.93C19.9447 7.80528 20.9979 10.3453 20.9979 13C20.9979 15.6547 19.9447 18.1947 18.07 20.07" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+                this.speakBtn.title = 'Speak mode enabled - click to disable';
+            } else {
+                // Show regular speaker icon
+                this.speakBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 5L6 9H2V15H6L11 19V5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15.54 8.46C16.4774 9.39764 17.0039 10.6692 17.0039 11.995C17.0039 13.3208 16.4774 14.5924 15.54 15.53" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.07 5.93C19.9447 7.80528 20.9979 10.3453 20.9979 13C20.9979 15.6547 19.9447 18.1947 18.07 20.07" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+                this.speakBtn.title = 'Enable speak mode (TTS auto-play)';
+            }
+
+            // Brief feedback animation
+            this.speakBtn.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.speakBtn.style.transform = '';
+            }, 150);
         });
     }
 
@@ -841,6 +1493,27 @@ class VisualResponseApp {
         if (statusDiv) {
             statusDiv.style.display = 'none';
         }
+    }
+
+    async handleScreenCaptureBase64(base64Image) {
+        if (!this.wsManager || !this.wsManager.isConnected()) {
+            throw new Error('WebSocket not connected');
+        }
+
+        const imageUploadMessage = {
+            type: 'image_upload',
+            image: base64Image,
+            timestamp: Date.now(),
+            source: 'screen_capture'
+        };
+
+        const success = this.wsManager.sendMessage(JSON.stringify(imageUploadMessage));
+
+        if (!success) {
+            throw new Error('Failed to send image via WebSocket');
+        }
+
+        console.log('📤 Screen capture base64 sent via WebSocket');
     }
 
     setupGlobalJSToggle() {
@@ -2521,7 +3194,9 @@ function initializeApp() {
     }
 
     console.log('All dependencies loaded, initializing app...');
-    new VisualResponseApp();
+    const app = new VisualResponseApp();
+    window.VisualResponseApp = app;
+    window.agentInterface = app;  // For message edit/delete buttons
 }
 
 /**

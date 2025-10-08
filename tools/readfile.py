@@ -170,7 +170,9 @@ class readfile:
         return {
             "name": "readfile",
             "description": (
-                "Supports text and image files. "
+                "Supports text, PDF, and image files. "
+                "PDFs are automatically extracted to text (with OCR fallback). "
+                "Images and PDF pages are registered for vision model analysis. "
                 "Large text files are automatically handled by the system - if content exceeds limits, "
                 "a resource_id is provided and you can use the `searchtext` tool to inspect the content."
             ),
@@ -178,8 +180,141 @@ class readfile:
                 "<readfile>./src/main.py</readfile>\n"
                 "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>\n"
                 "<readfile>./screenshot.png</readfile>\n"
+                "<readfile>./document.pdf</readfile>\n"
             )
         }
+
+    @staticmethod
+    def is_pdf_file(filepath: str) -> bool:
+        """Check if the file is a PDF based on its extension and magic bytes."""
+        _, ext = os.path.splitext(filepath.lower())
+        if ext == '.pdf':
+            return True
+
+        # Check magic bytes
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(5)
+            return header.startswith(b'%PDF-')
+        except Exception:
+            return False
+
+    @staticmethod
+    def process_pdf_file(filepath: str) -> str:
+        """
+        Process a PDF file by extracting text and images.
+
+        Tries multiple methods in order:
+        1. PyPDF2 for text extraction
+        2. pdftotext command-line tool
+        3. OCR with pytesseract as fallback
+
+        Also extracts embedded images and registers them.
+
+        Args:
+            filepath: Path to the PDF file
+
+        Returns:
+            Extracted text content with metadata
+        """
+        import subprocess
+
+        filename = os.path.basename(filepath)
+        file_size = os.path.getsize(filepath) / 1024  # KB
+
+        extracted_text = None
+        method_used = None
+        images_extracted = 0
+
+        # Method 1: Try PyPDF2
+        try:
+            import PyPDF2
+            with open(filepath, 'rb') as f:
+                pdf_reader = PyPDF2.PdfReader(f)
+                num_pages = len(pdf_reader.pages)
+                text_parts = []
+
+                for page_num, page in enumerate(pdf_reader.pages, 1):
+                    page_text = page.extract_text()
+                    if page_text.strip():
+                        text_parts.append(f"\n{'='*60}\nPage {page_num}/{num_pages}\n{'='*60}\n{page_text}")
+
+                if text_parts:
+                    extracted_text = '\n'.join(text_parts)
+                    method_used = "PyPDF2"
+        except ImportError:
+            pass
+        except Exception:
+            # PyPDF2 failed, will try other methods
+            pass
+
+        # Method 2: Try pdftotext command-line tool
+        if not extracted_text:
+            try:
+                result = subprocess.run(
+                    ['pdftotext', '-layout', filepath, '-'],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    extracted_text = result.stdout
+                    method_used = "pdftotext"
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                pass
+
+        # Method 3: OCR fallback with pdf2image + pytesseract
+        if not extracted_text:
+            try:
+                from pdf2image import convert_from_path
+                import pytesseract
+                from PIL import Image
+
+                # Convert PDF to images
+                images = convert_from_path(filepath, dpi=200, fmt='png')
+                text_parts = []
+
+                for i, image in enumerate(images, 1):
+                    # Extract text via OCR
+                    page_text = pytesseract.image_to_string(image, lang='deu+eng')
+                    if page_text.strip():
+                        text_parts.append(f"\n{'='*60}\nPage {i}/{len(images)} (OCR)\n{'='*60}\n{page_text}")
+
+                    # Register image with tool context for vision model
+                    if TOOL_CONTEXT_AVAILABLE and i <= 5:  # Limit to first 5 pages
+                        import io
+                        img_byte_arr = io.BytesIO()
+                        image.save(img_byte_arr, format='PNG')
+                        img_data = img_byte_arr.getvalue()
+                        base64_data = base64.b64encode(img_data).decode('utf-8')
+                        tool_context.add_base64_image(base64_data, f"{filename} - Page {i}")
+                        images_extracted += 1
+
+                if text_parts:
+                    extracted_text = '\n'.join(text_parts)
+                    method_used = "OCR (pytesseract)"
+
+            except ImportError:
+                pass
+            except Exception:
+                pass
+
+        # If all methods failed
+        if not extracted_text:
+            return (f"📄 PDF file detected: {filename} ({file_size:.1f} KB)\n\n"
+                   f"⚠️  Could not extract text from PDF. Missing dependencies:\n"
+                   f"  - Install PyPDF2: pip install PyPDF2\n"
+                   f"  - Install pdftotext: apt-get install poppler-utils\n"
+                   f"  - Install OCR tools: pip install pdf2image pytesseract && apt-get install tesseract-ocr tesseract-ocr-deu\n\n"
+                   f"Try using the bash tool to convert:\n"
+                   f"<bash>pdftotext \"{filename}\" output.txt && cat output.txt</bash>")
+
+        # Success - return extracted content
+        header = f"📄 PDF: {filename} ({file_size:.1f} KB) - Extracted via {method_used}"
+        if images_extracted > 0:
+            header += f"\n📸 {images_extracted} page images extracted for vision analysis"
+
+        return f"{header}\n\n{extracted_text}"
 
     @staticmethod
     def is_image_file(filepath: str) -> bool:
@@ -335,6 +470,11 @@ class readfile:
                     return f"Error: File '{filename_to_find}' not found at specified path. Found multiple possible matches in '{search_root}':\n - {paths_str}\nPlease provide a more specific path."
                 else:
                      return f"Error: File not found at '{full_path}' (and not found in a recursive search from '{search_root}')."
+
+            # Check if this is a PDF file
+            if readfile.is_pdf_file(full_path):
+                pdf_result = readfile.process_pdf_file(full_path)
+                return search_message + pdf_result
 
             # Check if this is an image file
             if readfile.is_image_file(full_path):

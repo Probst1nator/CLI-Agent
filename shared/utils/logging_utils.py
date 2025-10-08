@@ -69,11 +69,14 @@ class FileFormatter(logging.Formatter):
 
 def setup_logging(debug_mode: bool, log_file: Optional[str] = None, tui_mode: bool = False) -> None:
     """
-    Configure the root logger for console and optional file output with automatic retention.
+    Configure the root logger for console and file output with automatic retention.
+
+    Always logs to file at DEBUG level for production issue diagnosis.
+    Uses default location ~/.cli-agent/logs/session.log if no log_file specified.
 
     Args:
-        debug_mode: Enable debug logging level
-        log_file: Optional path to log file
+        debug_mode: Enable DEBUG level console output (INFO by default)
+        log_file: Optional custom path to log file (overrides default)
         tui_mode: Whether running in TUI mode (affects formatting)
     """
     logger = logging.getLogger() # Get root logger
@@ -97,47 +100,62 @@ def setup_logging(debug_mode: bool, log_file: Optional[str] = None, tui_mode: bo
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
-    # --- File Handler with Automatic Retention ---
-    if log_file:
-        try:
-            # Import log manager for retention features
-            from shared.utils.log_manager import get_log_manager
+    # --- File Handler with Automatic Retention (ALWAYS ENABLED) ---
+    # Use default location if not specified
+    if not log_file:
+        from pathlib import Path
+        default_log_dir = Path.home() / ".cli-agent" / "logs"
+        default_log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = str(default_log_dir / "session.log")
 
-            log_manager = get_log_manager()
+    try:
+        # Import log manager for retention features
+        from shared.utils.log_manager import get_log_manager
 
-            # Determine policy based on file name and debug mode
-            if 'debug' in log_file.lower() or debug_mode:
-                policy_name = 'debug'
-            elif 'tui' in log_file.lower() or tui_mode:
-                policy_name = 'tui'
-            else:
-                policy_name = 'application'
+        log_manager = get_log_manager()
 
-            # Create rotating file handler with retention
-            file_handler = log_manager.create_rotating_handler(log_file, policy_name)
-            file_handler.setLevel(logging.DEBUG) # Always log everything to the file
-            file_formatter = FileFormatter("%(elapsed)s [%(levelname)-8s] %(message)s")
-            file_handler.setFormatter(file_formatter)
-            logger.addHandler(file_handler)
+        # Determine policy based on file name and mode
+        if 'debug' in log_file.lower():
+            policy_name = 'debug'
+        elif 'tui' in log_file.lower() or tui_mode:
+            policy_name = 'tui'
+        else:
+            policy_name = 'application'
 
-            # Start periodic cleanup in background
-            log_manager.start_periodic_cleanup()
+        # Create rotating file handler with retention
+        file_handler = log_manager.create_rotating_handler(log_file, policy_name)
+        file_handler.setLevel(logging.DEBUG) # ALWAYS log everything to file, regardless of console level
+        file_formatter = FileFormatter("%(elapsed)s [%(levelname)-8s] %(message)s")
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
 
-            # Perform immediate cleanup of old files on startup
-            cleanup_stats = log_manager.cleanup_old_logs()
-            if cleanup_stats['files_removed'] > 0:
-                logging.info(colored(f"🧹 Cleaned up {cleanup_stats['files_removed']} old log files ({cleanup_stats['bytes_freed'] / 1024:.1f} KB freed)", "cyan"))
+        # Start periodic cleanup in background
+        log_manager.start_periodic_cleanup()
 
-            logging.info(colored(f"📝 Logging to file with retention: {log_file} (policy: {policy_name})", "magenta"))
+        # Perform immediate cleanup of old files on startup
+        cleanup_stats = log_manager.cleanup_old_logs()
+        if cleanup_stats['files_removed'] > 0:
+            logging.info(colored(f"🧹 Cleaned up {cleanup_stats['files_removed']} old log files ({cleanup_stats['bytes_freed'] / 1024:.1f} KB freed)", "cyan"))
 
-        except ImportError:
-            # Fallback to basic file handler if log manager is not available
-            file_handler = logging.FileHandler(log_file, mode='w')
-            file_handler.setLevel(logging.DEBUG)
-            file_formatter = FileFormatter("%(elapsed)s [%(levelname)-8s] %(message)s")
-            file_handler.setFormatter(file_formatter)
-            logger.addHandler(file_handler)
-            logging.info(colored(f"Logging to file: {log_file}", "magenta"))
+        if debug_mode:
+            # Only show file location in debug mode to avoid clutter
+            logging.info(colored(f"📝 Logging to file: {log_file} (policy: {policy_name})", "magenta"))
+        else:
+            # Silently log to file in production
+            logging.debug(f"Logging to file: {log_file} (policy: {policy_name})")
+
+    except ImportError:
+        # Fallback to basic file handler if log manager is not available
+        file_handler = logging.FileHandler(log_file, mode='a')  # Append mode
+        file_handler.setLevel(logging.DEBUG)
+        file_formatter = FileFormatter("%(elapsed)s [%(levelname)-8s] %(message)s")
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+
+        if debug_mode:
+            logging.info(colored(f"📝 Logging to file: {log_file} (basic mode)", "magenta"))
+        else:
+            logging.debug(f"Logging to file: {log_file} (basic mode)")
 
     # --- FIX: Silence Noisy Loggers (Always, even in debug mode) ---
     # These libraries produce networking/infrastructure logs we don't need
