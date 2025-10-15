@@ -57,10 +57,36 @@ class WebSocketManager {
         this.app = app;
     }
 
-    connect() {
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsPort = window.location.port || (wsProtocol === 'wss:' ? 443 : 80);
-        const wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}/ws`;
+    async connect() {
+        // Wait for backend connector to be ready (max 10 seconds)
+        if (!window.backendConnector) {
+            let waitCount = 0;
+            while (!window.backendConnector && waitCount < 50) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                waitCount++;
+            }
+        }
+
+        // Get WebSocket URL from BackendConnector if available
+        let wsUrl;
+        if (window.backendConnector) {
+            try {
+                wsUrl = await window.backendConnector.getWebSocketURL();
+                this.logger.info('Got WebSocket URL from backend connector', { wsUrl });
+            } catch (error) {
+                this.logger.error('Backend discovery failed, falling back to default URL', {}, error);
+                // Fallback to default local URL
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsPort = window.location.port || (wsProtocol === 'wss:' ? 443 : 80);
+                wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}/ws`;
+            }
+        } else {
+            // Legacy mode: no backend connector (local mode)
+            this.logger.warn('No backend connector found, using default WebSocket URL');
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsPort = window.location.port || (wsProtocol === 'wss:' ? 443 : 80);
+            wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}/ws`;
+        }
 
         this.logger.startTiming('websocket_connection');
         this.logger.info('Attempting WebSocket connection', { fullUrl: wsUrl, attempt: this.reconnectAttempts + 1 });

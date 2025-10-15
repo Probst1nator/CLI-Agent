@@ -42,6 +42,10 @@ class StreamInterruptedException(Exception):
         self.response = response
         super().__init__("Stream completion signal: complete tool block detected")
 
+class ModelGenerationFailedException(Exception):
+    """Exception raised when model generation fails after all retry attempts."""
+    pass
+
 class LlmRouter:
     """
     Singleton class for routing and managing LLM requests.
@@ -551,6 +555,9 @@ class LlmRouter:
         elif isinstance(provider, GoogleAPI):
             try:
                 first_chunk_processed = False
+                last_finish_reason = None
+                last_safety_ratings = None
+
                 for chunk in stream:  # chunk is a GenerateContentResponse
                     if not first_chunk_processed:
                         first_chunk_processed = True
@@ -560,6 +567,29 @@ class LlmRouter:
                             block_reason = chunk.prompt_feedback.block_reason
                             logger.warning(f"Google API blocked prompt: {block_reason}")
                             raise Exception(f"Google API blocked the prompt (reason: {block_reason})")
+
+                    # Track finish_reason and safety_ratings from all chunks
+                    if hasattr(chunk, 'candidates') and chunk.candidates:
+                        candidate = chunk.candidates[0]
+                        if hasattr(candidate, 'finish_reason') and candidate.finish_reason:
+                            last_finish_reason = candidate.finish_reason
+                        if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
+                            last_safety_ratings = candidate.safety_ratings
+
+                        # Check for safety blocking (finish_reason == 3 is SAFETY, 4 is RECITATION)
+                        if last_finish_reason in [3, 4]:
+                            reason_name = "SAFETY" if last_finish_reason == 3 else "RECITATION"
+                            safety_details = ""
+                            if last_safety_ratings:
+                                blocked_categories = [
+                                    str(rating.category).replace('HarmCategory.', '').replace('HARM_CATEGORY_', '')
+                                    for rating in last_safety_ratings
+                                    if hasattr(rating, 'blocked') and rating.blocked
+                                ]
+                                if blocked_categories:
+                                    safety_details = f" - Blocked categories: {', '.join(blocked_categories)}"
+                            logger.warning(f"Google API blocked generation: {reason_name}{safety_details}")
+                            raise Exception(f"Google API content blocked: {reason_name}{safety_details}")
 
                     token_from_this_chunk = ""
                     try:
@@ -590,6 +620,21 @@ class LlmRouter:
                 # If callback signaled to finish early
                 if finished_response and isinstance(finished_response, str):
                     return finished_response
+
+                # Check if stream ended with no content but has blocking info
+                if (not full_response or not full_response.strip()) and last_finish_reason in [3, 4]:
+                    reason_name = "SAFETY" if last_finish_reason == 3 else "RECITATION"
+                    safety_details = ""
+                    if last_safety_ratings:
+                        blocked_categories = [
+                            str(rating.category).replace('HarmCategory.', '').replace('HARM_CATEGORY_', '')
+                            for rating in last_safety_ratings
+                            if hasattr(rating, 'blocked') and rating.blocked
+                        ]
+                        if blocked_categories:
+                            safety_details = f" - Blocked categories: {', '.join(blocked_categories)}"
+                    logger.warning(f"Google API blocked generation: {reason_name}{safety_details}")
+                    raise Exception(f"Google API content blocked: {reason_name}{safety_details}")
 
             except StopIteration:
                 pass  # Normal end of stream
@@ -1379,7 +1424,7 @@ class LlmRouter:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                     failure_reason = getattr(instance, '_last_failure_reason', str(e))
                     g.debug_log("Model generation failed after 3 retry attempts", "red", is_error=True, prefix=prefix)
-                    raise Exception(f"Model generation failed after 3 attempts: {failure_reason}")
+                    raise ModelGenerationFailedException(f"Model generation failed after 3 attempts: {failure_reason}")
 
                 # Increment retry count
                 retry_count += 1
@@ -1408,11 +1453,11 @@ class LlmRouter:
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                 error_msg = str(e)
                 if suggested_delay > 0 and suggested_delay < 30:
-                    g.debug_log(f"🔄 API suggested {suggested_delay}s wait, using {wait_time}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
+                    g.debug_log(f"🔄 API suggested {suggested_delay:.0f}s wait, using {wait_time:.0f}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
                 elif suggested_delay >= 30:
-                    g.debug_log(f"🔄 Respecting API rate limit: waiting {wait_time}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
+                    g.debug_log(f"🔄 Respecting API rate limit: waiting {wait_time:.0f}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
                 else:
-                    g.debug_log(f"🔄 Retrying in {wait_time}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
+                    g.debug_log(f"🔄 Retrying in {wait_time:.0f}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
 
                 # Wait with API-suggested delay or linear backoff
                 import asyncio

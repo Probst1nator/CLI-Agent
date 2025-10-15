@@ -76,10 +76,11 @@ def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
     failed_tools = []
     skipped_tools = []
 
-    # Scan both main tools directory and optional subdirectory
+    # Scan main tools directory and subdirectories
     tool_directories = [
         (tools_dir, "tools"),
-        (tools_dir / "optional", "tools.optional")
+        (tools_dir / "optional", "tools.optional"),
+        (tools_dir / "primitives", "tools.primitives")
     ]
 
     for directory, module_prefix in tool_directories:

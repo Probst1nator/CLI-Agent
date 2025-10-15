@@ -132,7 +132,7 @@ try:
 except ImportError:
     RESOURCE_MANAGER_AVAILABLE = False
 from core.globals import g
-from core.llm_router import LlmRouter, StreamInterruptedException, UserInterruptedException
+from core.llm_router import LlmRouter, StreamInterruptedException, UserInterruptedException, ModelGenerationFailedException
 from core.chat import Chat, Role
 from core.permissions.enhanced_permissions import enhanced_permission_prompt
 from shared.common_utils import extract_blocks
@@ -345,7 +345,7 @@ class InputCollector:
                 time.sleep(0.5)  # Longer sleep on error
 
     def _check_gui_input(self):
-        """Check for GUI input from visual_input_queue."""
+        """Check for GUI input from visual_input_queue with session context support."""
         if hasattr(g, 'visual_input_queue') and not g.visual_input_queue.empty():
             try:
                 user_input = g.visual_input_queue.get_nowait()
@@ -355,9 +355,24 @@ class InputCollector:
                         if user_input.strip():
                             self.input_queue.put(user_input.strip())
                     elif isinstance(user_input, dict):
-                        # Dict objects should be handled by permissions system, not regular input
-                        # Put it back for proper handling
-                        g.visual_input_queue.put_nowait(user_input)
+                        # Extract session_id if present
+                        session_id = user_input.get('session_id')
+
+                        # Set active session for tool routing
+                        if session_id:
+                            g.set_active_session(session_id)
+                            logging.debug(f"Set active session to {session_id}")
+
+                        # Check if it's a regular message or system message
+                        if 'message' in user_input:
+                            message = user_input['message']
+                            if isinstance(message, str) and message.strip():
+                                self.input_queue.put(message.strip())
+                        elif user_input.get('type') in ['permission_response', 'interrupt_command']:
+                            # System messages - put back for proper handling
+                            g.visual_input_queue.put_nowait(user_input)
+                        else:
+                            logging.debug(f"Unexpected dict structure in visual queue: {user_input.keys()}")
                     else:
                         logging.debug(f"Unexpected input type in visual queue: {type(user_input)}")
             except asyncio.QueueEmpty:
@@ -708,6 +723,7 @@ def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
         List[Dict[str, str]]: List of detected malformed XML issues with detailed error info
     """
     import xml.etree.ElementTree as ET
+    from shared.common_utils import _mask_quoted_xml_tags
 
     errors = []
 
@@ -716,10 +732,14 @@ def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
     # Example: <outer><inner>...</inner></outer> matches as <outer>...</inner> (false positive)
     # Instead, we rely solely on the XML parser below to detect malformed XML
 
-    # Find potential XML blocks using regex
+    # Mask quoted XML tags before validation to prevent false positives
+    # e.g., "<bash>" in think tags should not be validated as XML
+    masked_text, quote_replacements = _mask_quoted_xml_tags(text)
+
+    # Find potential XML blocks using regex (now on masked text)
     xml_pattern = r'<([a-zA-Z0-9_]+)[^>]*>.*?</\1>'
 
-    for match in re.finditer(xml_pattern, text, re.DOTALL):
+    for match in re.finditer(xml_pattern, masked_text, re.DOTALL):
         xml_block = match.group(0)
         tag_name = match.group(1)
 
@@ -1040,14 +1060,15 @@ def create_interruption_callback(
     # Dynamically build a regex for registered tool blocks. This is more robust
     # and prevents premature interruption on non-tool XML tags like <filepath>.
     # Define tags that should NOT interrupt the stream, allowing the agent to output them fully before pausing.
-    non_interrupting_tags = {'think', 'todos'}
+    # non_interrupting_tags = {'think', 'todos'}
+    non_interrupting_tags = {}
 
     # Get all tool delimiters and add the final <response> tag.
-    all_delimiters = list(getattr(g, 'tool_classes', {}).keys()) + ['response']
+    all_delimiters = list(getattr(g, 'tool_classes', {}).keys())
 
     # In GUI mode, also exclude 'response' from interrupting since we want visualresponse only
-    if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
-        non_interrupting_tags = non_interrupting_tags.union({'response'})
+    # if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+    #     non_interrupting_tags = non_interrupting_tags.union({'response'})
 
     # Filter this list to get only the tags that SHOULD cause an interruption.
     interrupting_delimiters = [d for d in all_delimiters if d not in non_interrupting_tags]
@@ -1085,13 +1106,12 @@ def create_interruption_callback(
             if should_process_batch:
                 batch_str = ''.join(char_batch)
 
-                # Print the batch
-                if  g.DEBUG_MODE:
-                    if lock:
-                        async with lock:
-                            print(painter.apply_color(batch_str), end="", flush=True)
-                    else:
+                # Print the batch (always show streaming output)
+                if lock:
+                    async with lock:
                         print(painter.apply_color(batch_str), end="", flush=True)
+                else:
+                    print(painter.apply_color(batch_str), end="", flush=True)
 
                 # Append batch to shared buffer
                 response_buffer[0] += batch_str
@@ -1105,11 +1125,27 @@ def create_interruption_callback(
                 if buffer_len > repetition_state['check_pos'] + 100:  # Check every 100 chars
                     # Look at last 100 characters
                     recent = current_buffer[-100:]
+
+                    # Look at a wider context (last 500 chars) to check for mixed content
+                    # This helps distinguish legitimate code indentation from pure spam
+                    wider_context = current_buffer[-500:] if len(current_buffer) >= 500 else current_buffer
+                    context_non_whitespace = len(wider_context.strip())
+                    context_total = len(wider_context)
+
+                    # If the wider context has >10% non-whitespace chars, likely legitimate code
+                    has_mixed_content = context_total > 0 and (context_non_whitespace / context_total) > 0.1
+
                     # Try patterns of length 1-5
                     for pattern_len in range(1, 6):
                         if len(recent) < pattern_len * 20:  # Need at least 20 repetitions
                             continue
                         pattern = recent[-pattern_len:]
+
+                        # Skip whitespace-only patterns if there's mixed content in wider context
+                        # This allows legitimate indentation while catching pure whitespace spam
+                        if pattern.strip() == '' and has_mixed_content:
+                            continue
+
                         # Count how many times this pattern repeats at the end
                         count = 0
                         pos = len(recent) - pattern_len
@@ -1360,7 +1396,7 @@ async def reset_agent_state(args: argparse.Namespace, context_chat: Chat) -> Cha
     g.AGENT_RESET_REQUESTED = False
 
     # Reconstruct fresh engineered prompt (without bootstrap on reset)
-    fresh_context_chat = await construct_engineered_prompt(args.voice, args.gui, add_bootstrap=False)
+    fresh_context_chat = await construct_engineered_prompt(args.voice, args.gui or args.api, add_bootstrap=False)
 
     # Clear visual interface
     try:
@@ -1507,10 +1543,12 @@ async def main(  # type: ignore[misc]
                 open_browser = args.gui and not args.api  # Only open browser with --gui, not --api
                 mode_msg = "🌐 Starting GUI mode - opening browser..." if open_browser else "🌐 Starting API server (headless mode)..."
                 logging.info(colored(mode_msg, "blue"))
+                logging.debug(f"About to call visualresponse._get_session_async(open_browser={open_browser})")
 
                 # Get a session which will start the server (async version for use in async context)
                 session = await visualresponse._get_session_async(open_browser=open_browser)
                 logging.info(colored(f"✅ Server active - interface available at http://127.0.0.1:{session.port}", "green"))
+                logging.debug(f"Session created: {session}, server instance: {session.server if hasattr(session, 'server') else 'N/A'}")
 
                 # Enable console capture for real-time log streaming to web interface
                 try:
@@ -1521,8 +1559,12 @@ async def main(  # type: ignore[misc]
                     logging.warning(colored(f"⚠️  Could not enable console capture: {e}", "yellow"))
             except ImportError as e:
                 logging.error(colored(f"❌ Could not start visualresponse server: {e}", "red"))
+                import traceback
+                logging.error(traceback.format_exc())
             except Exception as e:
                 logging.error(colored(f"❌ Error starting visualresponse: {e}", "red"))
+                import traceback
+                logging.error(traceback.format_exc())
 
         context_chat: Optional[Chat] = None
         if args.c or args.regenerate:
@@ -1553,11 +1595,17 @@ async def main(  # type: ignore[misc]
 
         images_for_message: List[str] = []
 
-        # Add any images from web UI uploads
-        if hasattr(g, 'current_images') and g.current_images:
+        # Add any images from session context (web UI uploads)
+        session = g.get_active_session()
+        if session and session.current_images:
+            images_for_message.extend(session.current_images)
+            session.clear_images()
+            logging.debug(f"Added {len(images_for_message)} images from session {session.session_id}")
+        # Backward compat: also check legacy global
+        elif hasattr(g, 'current_images') and g.current_images:
             images_for_message.extend(g.current_images)
             g.current_images = []
-            logging.debug(f"Added {len(images_for_message)} images from web UI uploads")
+            logging.debug(f"Added {len(images_for_message)} images from legacy global")
 
         if args.image:
             if not tui_callback: logging.info(colored("# cli-agent: Taking screenshot due to --img flag...", "green"))
@@ -1627,10 +1675,21 @@ async def main(  # type: ignore[misc]
                 # Fallback if detailed tool info is not available
                 logging.info(colored("Tools ready.", "blue"))
 
-        if context_chat is None:
+        if args.c or args.regenerate:
+            # Try to restore previous chat state for persistent conversation across restarts
+            storage_path = os.path.join(os.getcwd(), ".cli-agent", "recent_chat.json")
+
+            if os.path.exists(storage_path):
+                try:
+                    context_chat = Chat.load_from_json()
+                    logging.info(colored(f"📚 Restored previous chat with {len(context_chat.messages)} messages", "green"))
+                except Exception as e:
+                    logging.warning(colored(f"⚠️  Failed to load saved chat: {e}, creating new one", "yellow"))
+                    context_chat = None
+        else:
             # Only add bootstrap if not using -c or --regenerate flags
-            add_bootstrap = not (args.c or args.regenerate)
-            context_chat = await construct_engineered_prompt(args.voice, args.gui, add_bootstrap)
+            context_chat = await construct_engineered_prompt(args.voice, args.gui or args.api, True)
+            logging.info(colored("✨ Created new chat session", "green"))
 
         # Set global chat reference for API/web interface
         g.chat = context_chat
@@ -1686,9 +1745,15 @@ async def main(  # type: ignore[misc]
             assistant_response = ""
 
             # Sync context_chat with g.chat (in case API updated it)
-            if hasattr(g, 'chat') and g.chat is not context_chat:
-                context_chat = g.chat
-                logging.info("Synced context_chat with g.chat (updated via API)")
+            # Only sync if g.chat has more messages (legitimate update), not if it's a fresh/empty chat
+            if hasattr(g, 'chat') and g.chat is not None and g.chat is not context_chat:
+                if len(g.chat.messages) >= len(context_chat.messages):
+                    context_chat = g.chat
+                    logging.info("Synced context_chat with g.chat (updated via API)")
+                else:
+                    # g.chat has fewer messages - API created a new chat but we should keep our context
+                    g.chat = context_chat
+                    logging.debug("Ignored g.chat sync - has fewer messages than current context")
 
             g.FORCE_LOCAL = args.local
             g.DEBUG_CHATS = args.debug_chats
@@ -1704,15 +1769,24 @@ async def main(  # type: ignore[misc]
             # Reset user_interrupt flag after successful input to allow queue processing
             user_interrupt = False
 
+            # Reset tools executed flag for new user input
+            tools_executed_this_turn = False
+
             # --- UNIFIED COMMAND & IMAGE PROCESSING ---
             if new_images:
                 images_for_message.extend(new_images)
 
-            # Add any images from web UI uploads
-            if hasattr(g, 'current_images') and g.current_images:
+            # Add any images from session context (web UI uploads)
+            session = g.get_active_session()
+            if session and session.current_images:
+                images_for_message.extend(session.current_images)
+                session.clear_images()
+                logging.debug(f"Added {len(images_for_message)} images from session {session.session_id}")
+            # Backward compat: also check legacy global
+            elif hasattr(g, 'current_images') and g.current_images:
                 images_for_message.extend(g.current_images)
                 g.current_images = []
-                logging.debug(f"Added {len(images_for_message)} images from web UI uploads")
+                logging.debug(f"Added {len(images_for_message)} images from legacy global")
 
             if user_input and user_input.startswith('/'):
                 response = await command_handler.handle_command(
@@ -1728,10 +1802,19 @@ async def main(  # type: ignore[misc]
                 (isinstance(user_input, str) and 'llm_selection_update' in user_input and user_input.strip().startswith('{')) or
                 (isinstance(user_input, str) and user_input.strip() == '__AGENT_RESET__')
             ):
-                context_chat.add_message(Role.USER, user_input, images=images_for_message if images_for_message else None)
+                context_chat.add_message(
+                    Role.USER,
+                    user_input,
+                    images=images_for_message if images_for_message else None
+                )
 
-                # Broadcast user message to frontend
-                if args.gui:
+                # Auto-save after user message
+                try:
+                    context_chat.save_to_json(also_archive=False)
+                except Exception as e:
+                    logging.debug(f"Failed to auto-save chat: {e}")
+
+                if args.gui or args.api:
                     try:
                         from api.server import broadcast_message_added
                         await broadcast_message_added(context_chat.messages[-1])
@@ -1749,6 +1832,7 @@ async def main(  # type: ignore[misc]
             text_stream_painter = TextStreamPainter()
 
             # Agent loop
+            tools_executed_this_turn = False  # Track if tools were executed in this conversation turn
             while True:
                 # Check for interrupt at the start of each loop iteration
                 if check_interrupt():
@@ -1760,7 +1844,7 @@ async def main(  # type: ignore[misc]
                         context_chat.add_message(Role.ASSISTANT, assistant_response)
 
                         # Broadcast initial assistant response
-                        if args.gui:
+                        if args.gui or args.api:
                             try:
                                 from api.server import broadcast_message_added
                                 await broadcast_message_added(context_chat.messages[-1])
@@ -1885,13 +1969,16 @@ async def main(  # type: ignore[misc]
 
                         base64_images = []
 
+                    except ModelGenerationFailedException as e:
+                        print(colored(f"Model generation failed: {e}", "red"))
+                        break
                     except Exception as e:
                         print(colored(f"An Exception was raised, e: {e}", "red"))
                         traceback.print_exc()
                         break
 
-                    if not assistant_response:
-                        break
+                    # Don't check "if not assistant_response" here - it gets cleared after tool execution
+                    # The actual break logic is at line ~2402 when response/visualresponse tools execute
 
                     if last_action_signature and assistant_response == last_action_signature:
                         stall_counter += 1
@@ -1903,6 +1990,11 @@ async def main(  # type: ignore[misc]
                         print(colored("The agent is spamming its last tool use. Aborting...", "red"))
                         stall_counter, last_action_signature = 0, None
                         break
+
+                    # If assistant_response is empty (after tool execution cleared it), skip processing and continue loop
+                    # This allows the agent to generate the next response without treating empty string as "no tools found"
+                    if not assistant_response.strip():
+                        continue  # Go back to top of agent loop to generate next response
 
                     # Track model used for this LLM response
                     metadata = {}
@@ -1917,9 +2009,8 @@ async def main(  # type: ignore[misc]
                     # Note: AI response to visual interface will be sent after tool execution
                     # to properly detect if visualresponse was used
 
-                    # Display the response in summary mode (since streaming doesn't show it)
-                    if assistant_response.strip():
-                        print(assistant_response)
+                    # # Display the response in summary mode (since streaming doesn't show it)
+                    # print(assistant_response)
 
                     # --- INTELLIGENT CORRECTION & VALIDATION ---
                     # 1. Proactively auto-correct common HTML tags to be XML-compliant
@@ -1943,8 +2034,12 @@ async def main(  # type: ignore[misc]
                     tool_classes = getattr(g, 'tool_classes', {})
                     tool_tags_found = []
                     for tool_name, tool_class in tool_classes.items():
-                        # Use a more robust regex to find any instance of the tool tag
-                        if re.search(f'<{tool_class.get_delim()}[> ]', assistant_response, re.DOTALL):
+                        delim = tool_class.get_delim()
+                        # Check for XML tags: <bash>...</bash>
+                        has_xml_tag = re.search(f'<{delim}[> ]', assistant_response, re.DOTALL)
+                        # Check for markdown code blocks: ```bash...```
+                        has_markdown = re.search(rf'```{delim}\s*\n', assistant_response, re.DOTALL)
+                        if has_xml_tag or has_markdown:
                             tool_tags_found.append(tool_class)
 
                     # Store original response for TTS (ALWAYS, not just when tools found)
@@ -2045,6 +2140,7 @@ async def main(  # type: ignore[misc]
                             try:
                                 tool_results = []
                                 executed_tools_info = []  # Track tool execution info for visual interface
+                                tools_executed_this_turn = True  # Mark that tools were executed
                                 for tool_class in tool_tags_found:
                                     tool_name = tool_class.get_delim()
                                     blocks = get_extract_blocks()(assistant_response, [tool_name])
@@ -2285,7 +2381,7 @@ Examples:
                                     context_chat.add_message(Role.ASSISTANT, returned_context, metadata=metadata)
 
                                     # Broadcast the updated assistant message (content has grown)
-                                    if args.gui:
+                                    if args.gui or args.api:
                                         try:
                                             from api.server import broadcast_message_added
                                             await broadcast_message_added(context_chat.messages[-1])
@@ -2298,7 +2394,9 @@ Examples:
                                         context_chat.base64_images.extend(tool_context.get_images())
                                         logging.info(colored(f"📸 Added {len(tool_context.get_images())} image(s) to chat context for vision analysis", "blue"))
                                         tool_context.clear_images()  # Clear images after adding them
-                                    assistant_response = ""
+
+                                # Clear assistant_response before checking if we should break/continue
+                                assistant_response = ""
 
                                 # --- TTS: Speak the response after tools have executed ---
                                 # This ensures visualresponse content is processed before TTS
@@ -2435,14 +2533,14 @@ Examples:
 
                     else:
                         # No tools or code found, this is a conversational response.
-                        # In GUI mode, notify frontend if we expected tool calls
-                        if hasattr(g, 'GUI_MODE') and g.GUI_MODE and assistant_response.strip():
+                        # In GUI mode, notify frontend if we expected tool calls (but only if no tools were executed this turn)
+                        if hasattr(g, 'GUI_MODE') and g.GUI_MODE and assistant_response.strip() and not tools_executed_this_turn:
                             try:
                                 from tools.visualresponse import visualresponse
                                 session = visualresponse._get_session()
                                 if session:
                                     import time
-                                    await session.broadcast({
+                                    await session.send_update_async({
                                         'type': 'assistant_message',
                                         'action': 'display',
                                         'message': '<context>\n⚠️ Warning: Expected tool call but received plain text response.\nThe model may have failed to use required tools.\n\nResponse received:\n' + assistant_response[:200] + ('...' if len(assistant_response) > 200 else '') + '\n</context>',

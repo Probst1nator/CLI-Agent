@@ -1,0 +1,61 @@
+# Traefik Dynamic Configuration
+# Middlewares and routing rules for CLI-Agent
+
+http:
+  middlewares:
+    # Rate limiting to prevent abuse
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 200
+        period: 1m
+
+    # Security headers
+    security-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        sslRedirect: false  # Set true in production with TLS
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        customResponseHeaders:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+
+    # Compression
+    compress:
+      compress: true
+    
+    # Strip /api/manager prefix for Container Manager
+    strip-manager-prefix:
+      stripPrefix:
+        prefixes:
+          - "/api/manager"
+
+  routers:
+    # Container Manager API
+    # Handles both /api/manager/* and /api/backend/* (WebSocket + HTTP proxy)
+    container-manager:
+      rule: "PathPrefix(`/api/manager`) || PathPrefix(`/api/backend`)"
+      service: container-manager
+      priority: 10  # Higher than frontend (priority 1)
+      entryPoints:
+        - web
+      middlewares:
+        - strip-manager-prefix
+        - rate-limit
+        - security-headers
+        - compress
+
+  services:
+    container-manager:
+      loadBalancer:
+        servers:
+          - url: "http://cli-agent-container-manager:8080"
+        healthCheck:
+          path: /health
+          interval: 30s
+          timeout: 10s

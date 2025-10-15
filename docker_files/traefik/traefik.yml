@@ -1,0 +1,53 @@
+# Traefik Static Configuration
+# CLI-Agent Multi-User Architecture
+
+api:
+  dashboard: true
+  insecure: true  # Dashboard on :8080 (disable in production)
+
+entryPoints:
+  web:
+    address: ":80"
+    # Redirect to HTTPS (uncomment for production with TLS)
+    # http:
+    #   redirections:
+    #     entryPoint:
+    #       to: websecure
+    #       scheme: https
+
+  websecure:
+    address: ":443"
+    # TLS configuration (uncomment for production)
+    # http:
+    #   tls:
+    #     certResolver: letsencrypt
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: cli-agent-network
+    watch: true
+    endpoint: "unix:///var/run/docker.sock"
+
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+# Logging
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  filePath: "/var/log/traefik/access.log"
+  format: json
+  bufferingSize: 100
+
+# Let's Encrypt (uncomment for production SSL)
+# certificatesResolvers:
+#   letsencrypt:
+#     acme:
+#       email: admin@example.com
+#       storage: /letsencrypt/acme.json
+#       httpChallenge:
+#         entryPoint: web

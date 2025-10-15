@@ -20,33 +20,17 @@ class ToolRegistry {
         this.isLoading = false;
         this.loadPromise = null;
 
-        this.fallbackTools = [
-            { name: 'searchweb', displayName: 'Web Search' },
-            { name: 'bash', displayName: 'Terminal' },
-            { name: 'readfile', displayName: 'Read File' },
-            { name: 'writefile', displayName: 'Write File' },
-            { name: 'editfile', displayName: 'Edit File' },
-            { name: 'grepsearch', displayName: 'Text Search' },
-            { name: 'visualresponse', displayName: 'Visual Response' },
-            { name: 'taskmanager', displayName: 'Task Manager' },
-            { name: 'readdirectory', displayName: 'Read Directory' },
-            { name: 'insertline', displayName: 'Insert Line' },
-            { name: 'deletelines', displayName: 'Delete Lines' },
-            { name: 'paralleltools', displayName: 'Parallel Tools' },
-            { name: 'searchresource', displayName: 'Search Resource' },
-            { name: 'viewpermissions', displayName: 'View Permissions' },
-            { name: 'homeassistant', displayName: 'Home Assistant' },
-            { name: 'think', displayName: 'Think' },
-            { name: 'todos', displayName: 'Todos' }
-        ];
+        // No more hardcoded fallback list - we'll use empty array and let
+        // the system discover tools dynamically from XML content
+        this.fallbackTools = [];
     }
 
-    async initialize() {
-        if (this.isReady) {
+    async initialize(force = false) {
+        if (this.isReady && !force) {
             return this.tools;
         }
 
-        if (this.isLoading) {
+        if (this.isLoading && !force) {
             return this.loadPromise;
         }
 
@@ -64,7 +48,9 @@ class ToolRegistry {
 
     async fetchTools() {
         try {
-            const response = await fetch('/api/tools');
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/tools') : '/api/tools';
+            console.log('[ToolRegistry] Fetching tools from:', url);
+            const response = await fetch(url);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
@@ -86,40 +72,51 @@ class ToolRegistry {
                 });
 
                 this.isReady = true;
+                const wasFailedInitially = this._failedInitially;
+                this._failedInitially = false;
+                
                 window.visualLogger?.info(`ToolRegistry: Loaded ${this.tools.length} tools from server`);
+                console.log('[ToolRegistry] Successfully loaded', this.tools.length, 'tools');
+                
+                // Notify that tools are ready (especially important if we failed initially)
+                if (wasFailedInitially && window.ToolManager) {
+                    console.log('[ToolRegistry] Retried after initial failure - refreshing ToolManager');
+                    window.ToolManager.refresh();
+                }
             } else {
                 throw new Error('Invalid tools data format received from server');
             }
         } catch (error) {
+            console.error('[ToolRegistry] Fetch failed:', error);
             window.visualLogger?.error('ToolRegistry: Error fetching tools from server:', error);
             this.useFallbackTools();
         }
     }
 
     useFallbackTools() {
-        this.tools = this.fallbackTools;
-        this.toolNames = this.tools.map(t => t.name);
-
-        this.tools.forEach(tool => {
-            this.toolMap.set(tool.name, tool);
-        });
+        // No hardcoded fallback list anymore - start with empty array
+        // Tools will be discovered dynamically from XML content via generic pattern matching
+        this.tools = [];
+        this.toolNames = [];
+        this.toolMap.clear();
 
         this.isReady = true;
-        window.visualLogger?.warn(`ToolRegistry: Using fallback tool list with ${this.tools.length} tools`);
+        this._failedInitially = true; // Mark that we failed, will retry when backend ready
+        window.visualLogger?.warn('ToolRegistry: API fetch failed, will use dynamic tool discovery from XML content');
     }
 
     getToolNames() {
         if (!this.isReady) {
-            window.visualLogger?.warn('ToolRegistry: getToolNames called before ready, returning fallback names');
-            return this.fallbackTools.map(t => t.name);
+            window.visualLogger?.warn('ToolRegistry: getToolNames called before ready, returning empty array (will use dynamic discovery)');
+            return [];
         }
         return this.toolNames;
     }
 
     getTools() {
         if (!this.isReady) {
-            window.visualLogger?.warn('ToolRegistry: getTools called before ready, returning fallback tools');
-            return this.fallbackTools;
+            window.visualLogger?.warn('ToolRegistry: getTools called before ready, returning empty array (will use dynamic discovery)');
+            return [];
         }
         return this.tools;
     }
@@ -143,6 +140,14 @@ class ToolRegistry {
         }
 
         await this.initialize();
+    }
+    
+    async retryIfFailed() {
+        // If we failed initially, retry now that backend might be ready
+        if (this._failedInitially) {
+            console.log('[ToolRegistry] Retrying after initial failure...');
+            await this.initialize(true); // Force re-init
+        }
     }
 }
 

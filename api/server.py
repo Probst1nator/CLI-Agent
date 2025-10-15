@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import socket
 import time
 import webbrowser
@@ -229,6 +230,9 @@ class VisualServer:
         audit_base = Path(g.CONFIG_DIR if hasattr(g, 'CONFIG_DIR') else Path.home() / ".cli-agent")
         self.audit_logger = SessionAuditLogger(audit_base)
 
+        # Background cleanup task
+        self._cleanup_task: Optional[asyncio.Task] = None
+
         # Setup routes and middleware
         self.setup_routes()
         self.setup_middleware()
@@ -250,13 +254,17 @@ class VisualServer:
         # Main HTML page
         self.app.router.add_get('/', self.index_handler)
 
+        # Health check endpoint
+        self.app.router.add_get('/api/health', self.health_handler)
+
         # Register API routes
-        from api import chat_api, audio_api, tools_api, profile_api, agent_state_api
+        from api import chat_api, audio_api, tools_api, profile_api, agent_state_api, logs_api
         chat_api.setup_routes(self.app)
         audio_api.setup_routes(self.app)
         tools_api.setup_routes(self.app)
         profile_api.setup_routes(self.app)
         agent_state_api.setup_routes(self.app)
+        logs_api.setup_routes(self.app)
 
         logger.info("All routes registered")
 
@@ -293,8 +301,21 @@ class VisualServer:
         response.headers['Expires'] = '0'
         return response
 
+    async def health_handler(self, request):
+        """Health check endpoint for Docker healthcheck and monitoring"""
+        from core.globals import g
+
+        health_data = {
+            "status": "healthy",
+            "mode": "containerized" if os.getenv("CLI_AGENT_MODE") == "containerized" else "local",
+            "active_sessions": len(g.sessions) if hasattr(g, 'sessions') else 0,
+            "websocket_clients": len(self.websocket_clients)
+        }
+
+        return web.json_response(health_data)
+
     async def websocket_handler(self, request):
-        """Handle WebSocket connections"""
+        """Handle WebSocket connections with session-scoped state"""
         ws = web.WebSocketResponse()
         await ws.prepare(request)
 
@@ -307,6 +328,10 @@ class VisualServer:
         session_id = self.audit_logger.start_session(client_ip, user_agent, forwarded_for)
         self.session_map[ws] = session_id
 
+        # CREATE SESSION CONTEXT for multi-tab support
+        from core.globals import g
+        session_context = g.create_session(session_id)
+
         # Send session init message
         await ws.send_json({
             'type': 'session_init',
@@ -318,13 +343,12 @@ class VisualServer:
         self.websocket_clients.add(ws)
         logger.info(f"WebSocket client connected (session: {session_id}). Total clients: {len(self.websocket_clients)}")
 
-        # Send current agent state to new client
+        # Send current SESSION state to new client
         try:
-            from core.globals import g
             state = {
-                'voice_mode': getattr(g, 'voice_mode', False),
-                'tts_only_mode': getattr(g, 'tts_only_mode', False),
-                'auto_execute': getattr(g, 'auto_execute', False),
+                'voice_mode': session_context.voice_mode,
+                'tts_only_mode': session_context.tts_only_mode,
+                'auto_execute': session_context.auto_execute,
                 'online_mode': getattr(g, 'online_mode', False),
                 'local_mode': getattr(g, 'local_mode', False)
             }
@@ -336,18 +360,30 @@ class VisualServer:
         except Exception as e:
             logger.warning(f"Failed to send initial state to client: {e}")
 
-        # Send message history to new client
-        for message in self.message_history:
-            try:
-                await ws.send_json(message)
-            except Exception as e:
-                logger.warning(f"Failed to send history message: {e}")
-                break
+        # Send message history to new client from SESSION's chat
+        if session_context.chat and session_context.chat.messages:
+            for message in session_context.chat.messages:
+                try:
+                    msg_dict = {
+                        'role': message.role.name.lower() if hasattr(message.role, 'name') else str(message.role),
+                        'content': message.content,
+                        'images': message.images if hasattr(message, 'images') else [],
+                        'metadata': message.metadata if hasattr(message, 'metadata') else {}
+                    }
+                    await ws.send_json({
+                        'type': 'message_added',
+                        'message': msg_dict
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to send history message: {e}")
+                    break
 
         try:
             # Handle incoming messages
             async for msg in ws:
                 if msg.type == aiohttp.WSMsgType.TEXT:
+                    # UPDATE ACTIVITY on every message
+                    session_context.update_activity()
                     await self.handle_websocket_message(ws, session_id, msg.data)
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.error(f'WebSocket error: {ws.exception()}')
@@ -360,17 +396,19 @@ class VisualServer:
             self.websocket_clients.discard(ws)
             logger.info(f"WebSocket client disconnected (session: {session_id}). Remaining clients: {len(self.websocket_clients)}")
 
-            # End session and archive chat
-            from core.globals import g
+            # End session and archive SESSION's chat
             chat_path = None
-            if hasattr(g, 'chat') and g.chat:
+            if session_context.chat:
                 try:
-                    g.chat.save_to_json(also_archive=True)
+                    session_context.chat.save_to_json(also_archive=True)
                     chat_path = f"chat_{session_id}.json"
                 except Exception as e:
                     logger.warning(f"Failed to archive chat: {e}")
 
             self.audit_logger.end_session(session_id, chat_path)
+
+            # CLEANUP SESSION CONTEXT
+            g.cleanup_session(session_id)
 
             # Auto-stop server if no clients remain (unless persist mode)
             if not self.persist_mode and len(self.websocket_clients) == 0:
@@ -380,9 +418,16 @@ class VisualServer:
         return ws
 
     async def handle_websocket_message(self, ws: web.WebSocketResponse, session_id: str, data: str):
-        """Handle incoming WebSocket messages"""
+        """Handle incoming WebSocket messages with session context"""
         try:
             message_data = json.loads(data) if data else {}
+
+            # GET SESSION CONTEXT
+            from core.globals import g
+            session = g.get_session(session_id)
+            if not session:
+                logger.error(f"Session {session_id} not found!")
+                return
 
             # Handle different message types
             if isinstance(message_data, dict):
@@ -390,53 +435,45 @@ class VisualServer:
 
                 if message_type == 'permission_response':
                     # Permission response - forward to input queue
-                    from core.globals import g
                     if hasattr(g, 'visual_input_queue'):
                         g.visual_input_queue.put_nowait(message_data)
 
                 elif message_type == 'interrupt_signal':
                     # Interrupt signal
                     logger.info(f"Interrupt signal received from session {session_id}")
-                    from core.globals import g
                     if hasattr(g, 'visual_input_queue'):
                         g.visual_input_queue.put_nowait({
                             'type': 'interrupt_command',
                             'source': 'web_ui',
+                            'session_id': session_id,
                             'timestamp': time.time()
                         })
 
                 elif message_type == 'image_upload':
                     # Screen capture image upload
                     logger.info(f"Image upload received from session {session_id}")
-                    from core.globals import g
 
                     base64_image = message_data.get('image')
                     if base64_image:
-                        # Strip data URI prefix if present (data:image/png;base64,)
+                        # Strip data URI prefix if present
                         if base64_image.startswith('data:image'):
                             base64_image = base64_image.split(',', 1)[1]
-                            logger.debug(f"Stripped data URI prefix, now {len(base64_image)} chars")
 
-                        # Validate base64 length (must be multiple of 4)
+                        # Validate base64 length
                         if len(base64_image) % 4 != 0:
-                            # Pad with = to make it valid base64
                             padding_needed = 4 - (len(base64_image) % 4)
                             base64_image = base64_image + ('=' * padding_needed)
-                            logger.debug(f"Padded base64 image with {padding_needed} = characters")
 
-                        # Add to chat's base64_images for archival
-                        if hasattr(g, 'chat') and g.chat:
-                            if not hasattr(g.chat, 'base64_images'):
-                                g.chat.base64_images = []
-                            g.chat.base64_images.append(base64_image)
-                            logger.info(f"Added base64 image to chat archive ({len(base64_image)} chars)")
+                        # Add to SESSION's images (not global)
+                        session.add_image(base64_image)
+                        logger.info(f"Added image to session {session_id} ({len(base64_image)} chars)")
 
-                        # Add to current_images for immediate LLM use
-                        if not hasattr(g, 'current_images'):
-                            g.current_images = []
-                        g.current_images.append(base64_image)
+                        # Also add to chat for archival
+                        if not hasattr(session.chat, 'base64_images'):
+                            session.chat.base64_images = []
+                        session.chat.base64_images.append(base64_image)
 
-                        # Send confirmation back to client
+                        # Send confirmation
                         await ws.send_json({
                             'type': 'image_upload_ack',
                             'status': 'success',
@@ -452,23 +489,24 @@ class VisualServer:
                     images = message_data.get('images', [])
 
                     if user_message:
-                        logger.info(f"Received user message via WebSocket: {user_message[:50]}... with {len(images)} images")
-                        from core.globals import g
+                        logger.info(f"Received user message via WebSocket (session {session_id}): {user_message[:50]}... with {len(images)} images")
 
                         if images:
-                            if not hasattr(g, 'current_images'):
-                                g.current_images = []
                             for image in images:
                                 if image.startswith('data:image'):
                                     image = image.split(',', 1)[1]
                                 if len(image) % 4 != 0:
                                     padding_needed = 4 - (len(image) % 4)
                                     image = image + ('=' * padding_needed)
-                                g.current_images.append(image)
-                            logger.info(f"Added {len(images)} images to current_images")
+                                session.add_image(image)
+                            logger.info(f"Added {len(images)} images to session {session_id}")
 
                         if hasattr(g, 'visual_input_queue'):
-                            g.visual_input_queue.put_nowait(user_message)
+                            # Include session_id in message for routing
+                            g.visual_input_queue.put_nowait({
+                                'message': user_message,
+                                'session_id': session_id
+                            })
                             logger.info("Message added to visual_input_queue")
 
                         # Log chat message
@@ -481,16 +519,21 @@ class VisualServer:
                 else:
                     # Unknown message - treat as text input
                     logger.info(f"Received unknown message type, treating as text: {str(data)[:50]}...")
-                    from core.globals import g
                     if hasattr(g, 'visual_input_queue'):
-                        g.visual_input_queue.put_nowait(data)
+                        g.visual_input_queue.put_nowait({
+                            'message': data,
+                            'session_id': session_id
+                        })
 
         except json.JSONDecodeError:
             # Not JSON - treat as plain text
             logger.info(f"Received non-JSON message, treating as plain text: {str(data)[:50]}...")
             from core.globals import g
             if hasattr(g, 'visual_input_queue'):
-                g.visual_input_queue.put_nowait(data)
+                g.visual_input_queue.put_nowait({
+                    'message': data,
+                    'session_id': session_id
+                })
         except Exception as e:
             logger.error(f"Error handling WebSocket message: {e}")
 
@@ -573,11 +616,34 @@ class VisualServer:
         except Exception as e:
             logger.warning(f"Failed to cleanup old logs: {e}")
 
+        # Start background session cleanup task
+        self._cleanup_task = asyncio.create_task(self.session_cleanup_loop())
+        logger.info("Started background session cleanup task")
+
         return url
+
+    async def session_cleanup_loop(self):
+        """Periodically clean up expired sessions"""
+        while True:
+            await asyncio.sleep(300)  # Every 5 minutes
+
+            try:
+                from core.globals import g
+                g.cleanup_expired_sessions(timeout_seconds=3600)  # 1 hour timeout
+            except Exception as e:
+                logger.error(f"Session cleanup error: {e}")
 
     async def stop(self):
         """Stop the server"""
         logger.info("Stopping server...")
+
+        # Cancel cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
 
         # Close all WebSocket connections
         for ws in list(self.websocket_clients):
@@ -612,8 +678,15 @@ async def get_or_create_server(persist_mode: bool = False, open_browser: bool = 
     global _server_instance
 
     if _server_instance is None:
+        print(f"[DEBUG get_or_create_server] Creating new VisualServer instance (persist_mode={persist_mode})", flush=True)
+        logger.info(f"Creating new VisualServer instance (persist_mode={persist_mode})")
         _server_instance = VisualServer(persist_mode=persist_mode)
         await _server_instance.start(open_browser=open_browser)
+        print(f"[DEBUG get_or_create_server] Server instance created: {_server_instance}", flush=True)
+        logger.info(f"Server instance created and registered: {_server_instance}")
+    else:
+        print(f"[DEBUG get_or_create_server] Returning existing server: {_server_instance}", flush=True)
+        logger.debug(f"Returning existing server instance: {_server_instance}")
 
     return _server_instance
 
@@ -636,6 +709,7 @@ async def broadcast_message_added(message) -> None:
     """
     server = get_server()
     if not server:
+        logger.warning(f"broadcast_message_added: No server instance available (_server_instance={_server_instance})")
         return
 
     try:

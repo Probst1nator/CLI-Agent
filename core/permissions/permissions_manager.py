@@ -107,7 +107,7 @@ class PermissionsManager:
 
         return False, ""
 
-    def is_always_allowed(self, tool_name: str, file_path: str = None, command_hash: str = None, xml_content: str = None) -> Tuple[bool, Optional[str]]:
+    def is_always_allowed(self, tool_name: str, file_path: Optional[str] = None, command_hash: Optional[str] = None, xml_content: Optional[str] = None) -> Tuple[bool, Optional[str]]:
         """
         Check if a tool/path/command combination is always allowed.
 
@@ -237,7 +237,7 @@ class PermissionsManager:
 
         return False, None
 
-    def is_always_denied(self, tool_name: str, file_path: str = None) -> bool:
+    def is_always_denied(self, tool_name: str, file_path: Optional[str] = None) -> bool:
         """Check if a tool/path combination is always denied."""
         tool_permissions = self.permissions.get("always_deny_tools", {}).get(tool_name, [])
 
@@ -259,7 +259,7 @@ class PermissionsManager:
 
         return False
 
-    def add_always_allow(self, tool_name: str, file_path: str = None, pattern: str = None, command_hash: str = None, group_name: str = None, dev_tool_category: str = None, command_pattern: str = None, scope_path: str = None):
+    def add_always_allow(self, tool_name: str, file_path: Optional[str] = None, pattern: Optional[str] = None, command_hash: Optional[str] = None, group_name: Optional[str] = None, dev_tool_category: Optional[str] = None, command_pattern: Optional[str] = None, scope_path: Optional[str] = None):
         """Add an always-allow permission for a tool/path/command/group/dev_tool/pattern combination."""
         if command_pattern:
             # Add pattern-based permission (e.g., "bash:ls*" with scope "/current/path/*")
@@ -326,7 +326,7 @@ class PermissionsManager:
                 self.permissions["always_allow_tools"][tool_name].append(permission_target)
                 self._save_permissions()
 
-    def add_always_deny(self, tool_name: str, file_path: str = None):
+    def add_always_deny(self, tool_name: str, file_path: Optional[str] = None):
         """Add an always-deny permission for a tool/path combination."""
         if "always_deny_tools" not in self.permissions:
             self.permissions["always_deny_tools"] = {}
@@ -355,7 +355,7 @@ class PermissionsManager:
             self.permissions[permission_key][tool_name].remove(permission_target)
             self._save_permissions()
 
-    def get_permission_suggestions(self, tool_name: str, file_path: str = None, command_pattern: str = None, has_paths: bool = False) -> List[str]:
+    def get_permission_suggestions(self, tool_name: str, file_path: Optional[str] = None, command_pattern: Optional[str] = None, has_paths: bool = False) -> List[str]:
         """Get suggested permission patterns based on file path or command pattern."""
         suggestions = []
 
@@ -392,7 +392,6 @@ class PermissionsManager:
                 base_command = command_pattern.split()[0] if command_pattern.split() else ""
                 if base_command:
                     # Pattern suggestions for current directory tree
-                    current_dir = os.getcwd()
                     suggestions.append(f"All \"{base_command}*\" commands in current directory tree")
                     suggestions.append(f"All \"{base_command}*\" commands globally")
                     suggestions.append(f"Exact command: {command_pattern}")
@@ -413,7 +412,7 @@ class PermissionsManager:
 
         return suggestions
 
-    def is_smart_action_already_permitted(self, smart_action: dict, tool_name: str, file_path: str = None) -> bool:
+    def is_smart_action_already_permitted(self, smart_action: dict, tool_name: str, file_path: Optional[str] = None) -> bool:
         """
         Check if a smart action category is already covered by existing permissions.
 

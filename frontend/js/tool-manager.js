@@ -46,34 +46,25 @@ class ToolManager {
     }
 
     /**
-     * Fallback to a default set of common tools if ToolRegistry is unavailable
+     * Fallback to empty tool list if ToolRegistry is unavailable
+     * Tools will be discovered dynamically as they are used
      */
     fallbackToDefaultTools() {
-        this.tools = [
-            { name: 'searchweb', displayName: 'Web Search' },
-            { name: 'bash', displayName: 'Terminal' },
-            { name: 'readfile', displayName: 'Read File' },
-            { name: 'writefile', displayName: 'Write File' },
-            { name: 'editfile', displayName: 'Edit File' },
-            { name: 'grepsearch', displayName: 'Text Search' },
-            { name: 'visualresponse', displayName: 'Visual Response' },
-            { name: 'taskmanager', displayName: 'Task Manager' },
-            { name: 'readdirectory', displayName: 'Read Directory' },
-            { name: 'insertline', displayName: 'Insert Line' },
-            { name: 'deletelines', displayName: 'Delete Lines' },
-            { name: 'paralleltools', displayName: 'Parallel Tools' },
-            { name: 'searchresource', displayName: 'Search Resource' },
-            { name: 'viewpermissions', displayName: 'View Permissions' }
-        ];
-
-        window.visualLogger?.warn('Using fallback tool list with', this.tools.length, 'tools');
+        this.tools = [];
+        window.visualLogger?.warn('ToolRegistry unavailable - tool manager will remain empty (tools discovered dynamically)');
     }
 
     /**
      * Create the tool toggle checkboxes
      */
     createToolToggles() {
-        if (!this.containerElement) return;
+        console.log('[ToolManager] createToolToggles called with', this.tools.length, 'tools');
+        console.log('[ToolManager] containerElement:', this.containerElement);
+        
+        if (!this.containerElement) {
+            console.error('[ToolManager] No container element found!');
+            return;
+        }
 
         // Clear existing content
         this.containerElement.innerHTML = '';
@@ -84,6 +75,8 @@ class ToolManager {
         headerItem.textContent = 'Tools:';
         this.containerElement.appendChild(headerItem);
 
+        console.log('[ToolManager] About to create toggles for tools:', this.tools.map(t => t.name));
+        
         this.tools.forEach(tool => {
             const isEnabled = !this.disabledTools.has(tool.name);
 
@@ -190,6 +183,22 @@ class ToolManager {
      */
     resetToDefaults() {
         this.enableAllTools();
+    }
+
+    /**
+     * Refresh tool list from ToolRegistry
+     */
+    async refresh() {
+        console.log('[ToolManager] refresh() called');
+        if (window.ToolRegistry) {
+            await window.ToolRegistry.waitForReady();
+            this.tools = window.ToolRegistry.getTools();
+            console.log('[ToolManager] Got tools from registry:', this.tools);
+            this.createToolToggles();
+            window.visualLogger?.info('ToolManager refreshed with', this.tools.length, 'tools');
+        } else {
+            console.error('[ToolManager] ToolRegistry not available in refresh()');
+        }
     }
 
     /**

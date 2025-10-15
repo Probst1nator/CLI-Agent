@@ -176,7 +176,7 @@ class PathDetector:
         return False
 
     @staticmethod
-    def get_smart_quick_action(tool_name: str, command_pattern: str, file_path: str = None) -> Optional[Dict[str, Any]]:
+    def get_smart_quick_action(tool_name: str, command_pattern: str, file_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Get a smart quick action suggestion for this command.
 

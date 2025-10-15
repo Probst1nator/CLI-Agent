@@ -222,7 +222,11 @@ class Globals:
         # --- Tool and Agent State ---
         self.last_executed_tools_info: Optional[Any] = None  # Stores information about last executed tools
         self.loaded_tool_info: Optional[Dict[str, Any]] = None  # Stores information about loaded tools
-        self.current_images: List[str] = []  # Current images for vision models
+        self.current_images: List[str] = []  # Current images for vision models (legacy, use session context)
+
+        # --- Session Management (Multi-Tab Support) ---
+        self.sessions: Dict[str, Any] = {}  # Session ID -> SessionContext mapping
+        self._active_session_id: Optional[str] = None  # Active session for CLI mode
 
         # --- GUI Communication ---
         import asyncio
@@ -1209,6 +1213,96 @@ class Globals:
         """Force cleanup of all services, including persistent ones."""
         logging.warning("Forcing cleanup of all services including persistent ones...")
         self._run_cleanup(force_all=True)
+
+    # --- Session Management Methods ---
+
+    def create_session(self, session_id: str, chat: Optional[Any] = None) -> Any:
+        """
+        Create new session context for multi-tab support
+
+        Args:
+            session_id: Unique session identifier
+            chat: Optional existing chat instance
+
+        Returns:
+            SessionContext instance
+        """
+        from core.session_context import SessionContext
+
+        if chat is None:
+            from core.chat import Chat
+            chat = Chat()
+
+        context = SessionContext(
+            session_id=session_id,
+            chat=chat
+        )
+        self.sessions[session_id] = context
+
+        # Set as active session for CLI mode if none exists
+        if self._active_session_id is None:
+            self._active_session_id = session_id
+
+        logging.info(f"Created session: {session_id}")
+        return context
+
+    def get_session(self, session_id: str) -> Optional[Any]:
+        """Get session context by ID"""
+        return self.sessions.get(session_id)
+
+    def get_active_session(self) -> Optional[Any]:
+        """Get active session (for CLI mode compatibility)"""
+        if self._active_session_id:
+            return self.sessions.get(self._active_session_id)
+        return None
+
+    def set_active_session(self, session_id: str) -> None:
+        """Set active session (for CLI mode)"""
+        if session_id in self.sessions:
+            self._active_session_id = session_id
+            logging.debug(f"Set active session: {session_id}")
+
+    def cleanup_session(self, session_id: str) -> None:
+        """Remove session and free memory"""
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+            logging.info(f"Cleaned up session: {session_id}")
+
+            # Clear active session if it was the one cleaned up
+            if self._active_session_id == session_id:
+                # Set active to any remaining session, or None
+                self._active_session_id = next(iter(self.sessions.keys()), None)
+
+    def cleanup_expired_sessions(self, timeout_seconds: int = 3600) -> None:
+        """
+        Clean up sessions that have been idle too long
+
+        Args:
+            timeout_seconds: Inactivity timeout in seconds (default: 1 hour)
+        """
+        expired = [
+            sid for sid, ctx in self.sessions.items()
+            if ctx.is_expired(timeout_seconds)
+        ]
+
+        for sid in expired:
+            self.cleanup_session(sid)
+
+        if expired:
+            logging.info(f"Cleaned up {len(expired)} expired sessions")
+
+    @property
+    def chat(self):
+        """Backward compat: Get active session's chat"""
+        session = self.get_active_session()
+        return session.chat if session else None
+
+    @chat.setter
+    def chat(self, value):
+        """Backward compat: Set active session's chat"""
+        session = self.get_active_session()
+        if session:
+            session.chat = value
 
 # --- Type Validation Helpers ---
 

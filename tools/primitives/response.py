@@ -27,13 +27,58 @@ class response:
         }
 
     @staticmethod
-    def run(content: str = "") -> None:
+    def run(content: str = "") -> str:
         """
-        The response tool is a structural placeholder. It performs no action and
-        returns no output to the agent's context. Its content is the final
-        message delivered to the user.
+        The response tool delivers the final message to the user.
+
+        In GUI/API mode: Broadcasts content as a text message to frontend.
+        In CLI mode: Returns empty string (main loop displays content directly).
+
+        Args:
+            content: The text content to display to the user
+
+        Returns:
+            The content string in GUI/API mode, empty string in CLI mode
         """
-        # This tool is a no-op by design. The main loop will display the
-        # content within the <response> tags to the user, and this tool's
-        # execution produces no further output for the agent's context.
-        return None
+        try:
+            from core.globals import g
+            import logging
+
+            # Check if we're in GUI or API mode
+            gui_mode = getattr(g, 'GUI_MODE', False)
+            api_mode = getattr(g, 'API_MODE', False)
+
+            if gui_mode or api_mode:
+                # In GUI/API mode, broadcast the content to frontend
+                try:
+                    from tools.visualresponse import visualresponse
+                    import time
+
+                    session = visualresponse._get_session()
+                    if session and session.is_healthy():
+                        payload = {
+                            'type': 'assistant_message',
+                            'action': 'display',
+                            'message': content,
+                            'id': int(time.time() * 1000000),
+                            'timestamp': time.time()
+                        }
+
+                        # Use sync send_update which handles async properly
+                        session.send_update(payload)
+
+                        logging.debug(f"Response tool: Broadcasted text message to frontend ({len(content)} chars)")
+
+                        # Return content so it gets added to chat context
+                        return content
+
+                except Exception as e:
+                    logging.debug(f"Response tool: Failed to broadcast to frontend: {e}")
+
+            # In CLI mode or if broadcast failed, return empty string
+            # Main loop will display the content from the <response> tags directly
+            return ""
+
+        except Exception:
+            # If anything fails, maintain backward compatibility
+            return ""

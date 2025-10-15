@@ -273,23 +273,72 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
         </style>
     `;
 
-    // Add script to disable source map loading and handle console errors
+    // Add script to disable source map loading, handle console errors, and capture console output
     const sourceMapDisableScript = `
         <script>
-            // Override console.error to suppress source map warnings
-            const originalError = console.error;
-            console.error = function(...args) {
-                const message = args[0];
-                if (typeof message === 'string' && (
-                    message.includes('Source map error') ||
-                    message.includes('DevTools failed to load') ||
-                    message.includes('sourceMappingURL') ||
-                    message.includes('Failed to load source map')
-                )) {
-                    return; // Suppress source map errors
-                }
-                return originalError.apply(console, args);
-            };
+            // Console capture array
+            window.__consoleCapture = [];
+
+            // Intercept all console methods
+            ['log', 'error', 'warn', 'info', 'debug'].forEach(method => {
+                const original = console[method];
+                console[method] = function(...args) {
+                    // Suppress source map warnings for console.error
+                    if (method === 'error') {
+                        const message = args[0];
+                        if (typeof message === 'string' && (
+                            message.includes('Source map error') ||
+                            message.includes('DevTools failed to load') ||
+                            message.includes('sourceMappingURL') ||
+                            message.includes('Failed to load source map')
+                        )) {
+                            return; // Suppress source map errors
+                        }
+                    }
+
+                    // Capture the console output
+                    const timestamp = new Date().toLocaleTimeString('en-US', {
+                        hour12: false,
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        fractionalSecondDigits: 3
+                    });
+
+                    // Serialize arguments for display
+                    const serializedArgs = args.map(arg => {
+                        if (typeof arg === 'object') {
+                            try {
+                                return JSON.stringify(arg, null, 2);
+                            } catch(e) {
+                                return String(arg);
+                            }
+                        }
+                        return String(arg);
+                    });
+
+                    window.__consoleCapture.push({
+                        method: method,
+                        args: serializedArgs,
+                        timestamp: timestamp
+                    });
+
+                    // Send to parent window
+                    try {
+                        window.parent.postMessage({
+                            type: 'console',
+                            method: method,
+                            args: serializedArgs,
+                            timestamp: timestamp
+                        }, '*');
+                    } catch(e) {
+                        // Ignore postMessage errors
+                    }
+
+                    // Call original console method
+                    return original.apply(console, args);
+                };
+            });
 
             // Disable source map loading by overriding fetch for .map files
             const originalFetch = window.fetch;
@@ -493,47 +542,112 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
     resizableContainer.appendChild(iframe);
     resizableContainer.appendChild(resizeHandle);
 
-    // Append container to target element
+    // Create console output display box
+    const consoleBox = document.createElement('div');
+    consoleBox.className = 'iframe-console-output';
+    consoleBox.style.cssText = `
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 12px;
+        padding: 8px;
+        margin-top: 4px;
+        border: 1px solid #3e3e3e;
+        border-radius: 4px;
+        max-height: 50vh;
+        overflow-y: auto;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        display: none;
+    `;
+
+    // Append container and console box to target element
     targetElement.appendChild(resizableContainer);
+    targetElement.appendChild(consoleBox);
 
-    // Now create the message listener with access to resizableContainer
+    // Helper function to format and display console messages
+    function appendConsoleMessage(method, args, timestamp) {
+        // Show console box if it has content
+        if (consoleBox.style.display === 'none') {
+            consoleBox.style.display = 'block';
+        }
+
+        // Create console entry
+        const entry = document.createElement('div');
+        entry.style.cssText = 'margin-bottom: 4px; border-left: 3px solid; padding-left: 6px;';
+
+        // Color code based on method
+        const colors = {
+            log: '#d4d4d4',
+            error: '#f48771',
+            warn: '#dcdcaa',
+            info: '#4fc1ff',
+            debug: '#808080'
+        };
+        entry.style.borderLeftColor = colors[method] || '#d4d4d4';
+
+        // Format timestamp and method
+        const header = document.createElement('span');
+        header.style.cssText = 'color: #808080; font-size: 10px;';
+        header.textContent = `[${timestamp}] [${method.toUpperCase()}] `;
+        entry.appendChild(header);
+
+        // Format arguments
+        const content = document.createElement('span');
+        content.style.color = colors[method] || '#d4d4d4';
+        content.textContent = args.join(' ');
+        entry.appendChild(content);
+
+        consoleBox.appendChild(entry);
+
+        // Auto-scroll to bottom
+        consoleBox.scrollTop = consoleBox.scrollHeight;
+    }
+
+    // Now create the message listener with access to resizableContainer and consoleBox
     messageListener = (event) => {
-        if (event.source === iframe.contentWindow && event.data.type === 'resize') {
-            const rawHeight = event.data.height;
-            const newHeight = Math.max(150, rawHeight + 10); // No max height limit - expand to full content
+        if (event.source === iframe.contentWindow) {
+            if (event.data.type === 'console') {
+                // Handle console output
+                appendConsoleMessage(event.data.method, event.data.args, event.data.timestamp);
+            } else if (event.data.type === 'resize') {
+                const rawHeight = event.data.height;
+                const newHeight = Math.max(150, rawHeight + 10); // No max height limit - expand to full content
 
-            // Only adjust if height difference is meaningful
-            const heightDifference = Math.abs(newHeight - lastHeight);
-            if (heightDifference < 8 && heightAdjustmentCount > 1) {
-                window.visualLogger.debug(`Skipping height adjustment: difference too small (${heightDifference}px)`);
-                return;
+                // Only adjust if height difference is meaningful
+                const heightDifference = Math.abs(newHeight - lastHeight);
+                if (heightDifference < 8 && heightAdjustmentCount > 1) {
+                    window.visualLogger.debug(`Skipping height adjustment: difference too small (${heightDifference}px)`);
+                    return;
+                }
+
+                // Allow more adjustments but with exponential backoff for later ones
+                if (heightAdjustmentCount >= MAX_HEIGHT_ADJUSTMENTS) {
+                    window.visualLogger.debug(`Maximum height adjustments reached (${MAX_HEIGHT_ADJUSTMENTS}), ignoring further changes`);
+                    return;
+                }
+
+                // Clear existing timeout and set new one with dynamic delay
+                if (heightDebounceTimeout) {
+                    clearTimeout(heightDebounceTimeout);
+                }
+
+                // Use shorter delay for early adjustments, longer for later ones
+                const dynamicDelay = Math.min(HEIGHT_DEBOUNCE_MS * (1 + heightAdjustmentCount * 0.3), 500);
+
+                heightDebounceTimeout = setTimeout(() => {
+                    // Update iframe height
+                    iframe.style.height = newHeight + 'px';
+                    lastHeight = newHeight;
+                    heightAdjustmentCount++;
+
+                    // Also update container height to accommodate iframe + handle (12px)
+                    resizableContainer.style.height = (newHeight + 12) + 'px';
+
+                    window.visualLogger.debug(`Iframe height adjusted to ${newHeight}px (raw: ${rawHeight}px, adjustment #${heightAdjustmentCount})`);
+                }, dynamicDelay);
             }
-
-            // Allow more adjustments but with exponential backoff for later ones
-            if (heightAdjustmentCount >= MAX_HEIGHT_ADJUSTMENTS) {
-                window.visualLogger.debug(`Maximum height adjustments reached (${MAX_HEIGHT_ADJUSTMENTS}), ignoring further changes`);
-                return;
-            }
-
-            // Clear existing timeout and set new one with dynamic delay
-            if (heightDebounceTimeout) {
-                clearTimeout(heightDebounceTimeout);
-            }
-
-            // Use shorter delay for early adjustments, longer for later ones
-            const dynamicDelay = Math.min(HEIGHT_DEBOUNCE_MS * (1 + heightAdjustmentCount * 0.3), 500);
-
-            heightDebounceTimeout = setTimeout(() => {
-                // Update iframe height
-                iframe.style.height = newHeight + 'px';
-                lastHeight = newHeight;
-                heightAdjustmentCount++;
-
-                // Also update container height to accommodate iframe + handle (12px)
-                resizableContainer.style.height = (newHeight + 12) + 'px';
-
-                window.visualLogger.debug(`Iframe height adjusted to ${newHeight}px (raw: ${rawHeight}px, adjustment #${heightAdjustmentCount})`);
-            }, dynamicDelay);
         }
     };
 
@@ -783,6 +897,8 @@ class ContentRenderer {
      * @param {number} messageIndex - Index of message in chat history (for edit functionality)
      */
     async renderMessage(message, messageIndex) {
+        console.log(`🎨 renderMessage called for index ${messageIndex}, role: ${message.role}, hasToolInfo: ${!!(message.metadata && message.metadata.tool_info)}, hasVisualresponse: ${message.content?.includes('<visualresponse>')}`);
+
         const contentWrapper = document.getElementById('content-wrapper');
         if (!contentWrapper) {
             console.error('Content wrapper not found');
@@ -819,17 +935,18 @@ class ContentRenderer {
         // Add loading-tools-header for loaded messages (same structure as real-time)
         // Always parse XML to find tool calls, then enhance with metadata
         let toolInfo = [];
+        let allToolInfo = []; // Keep track of all tools before filtering
         let visualResponseTool = null;
         if (!isUserMessage && message.content) {
-            const xmlToolCalls = this.parseToolCallsFromXML(message.content);
+            const xmlToolCalls = await this.parseToolCallsFromXML(message.content);
             const metadataToolInfo = message.metadata && message.metadata.tool_info ? message.metadata.tool_info : null;
-            toolInfo = this.mergeToolInfoWithMetadata(xmlToolCalls, metadataToolInfo);
+            allToolInfo = this.mergeToolInfoWithMetadata(xmlToolCalls, metadataToolInfo);
 
             // Extract visualresponse/response tool for model display before filtering
-            visualResponseTool = toolInfo.find(tool => ['visualresponse', 'response'].includes(tool.name));
+            visualResponseTool = allToolInfo.find(tool => ['visualresponse', 'response'].includes(tool.name));
 
             // Filter out user-facing tags (visualresponse, response) - they're rendered as content, not tool boxes
-            toolInfo = toolInfo.filter(tool => !['visualresponse', 'response'].includes(tool.name));
+            toolInfo = allToolInfo.filter(tool => !['visualresponse', 'response'].includes(tool.name));
         }
 
         // Center: model info (from visualresponse tool_info or response_model metadata)
@@ -983,11 +1100,12 @@ class ContentRenderer {
 
         // Render the actual content (for agent messages)
         if (!isUserMessage) {
-            // If message has a type field (visual response), use renderContent
-            // Otherwise, check if we should hide raw XML when tool_info is present
-            if (message.type) {
-                await this.renderContent(messageContent, message, messageId, timestampDiv);
-            } else if (toolInfo && toolInfo.length > 0) {
+            console.log(`🔍 Agent message rendering - allToolInfo.length: ${allToolInfo?.length || 0}, message.type: ${message.type || 'none'}`);
+
+            // IMPORTANT: Check for tool executions FIRST, as messages can have BOTH tool calls AND visualresponse
+            // The tool execution branch (below) knows how to handle visualresponse within tool context
+            if (allToolInfo && allToolInfo.length > 0) {
+                console.log(`📦 Taking tool execution branch with ${allToolInfo.length} tools`);
                 // Message has tool executions - strip tool XML tags but preserve user-facing content
                 let cleanedContent = message.content || '';
 
@@ -1011,19 +1129,39 @@ class ContentRenderer {
 
                 // Check if there's visualresponse or response content to render
                 // Pattern handles optional <action> tag and any whitespace/newlines
-                const visualResponseMatch = /<visualresponse>\s*(?:<action>.*?<\/action>\s*)?<type>(.*?)<\/type>\s*<content>([\s\S]*?)<\/content>\s*<\/visualresponse>/i.exec(message.content);
+                // Made more flexible: <action> truly optional, whitespace flexible
+                const visualResponseMatch = /<visualresponse[^>]*>([\s\S]*?)<\/visualresponse>/i.exec(message.content);
+                let vizType = null, vizContent = null;
+
+                if (visualResponseMatch) {
+                    // Extract type and content from inside visualresponse
+                    const innerContent = visualResponseMatch[1];
+                    const typeMatch = /<type>([\s\S]*?)<\/type>/is.exec(innerContent);
+                    const contentMatch = /<content>([\s\S]*?)<\/content>/is.exec(innerContent);
+
+                    if (typeMatch && contentMatch) {
+                        vizType = typeMatch[1].trim();
+                        vizContent = contentMatch[1].trim();
+                        console.log('✅ Extracted visualresponse:', {vizType, contentLength: vizContent.length});
+                    } else {
+                        console.warn('⚠️ Failed to extract type/content from visualresponse. typeMatch:', !!typeMatch, 'contentMatch:', !!contentMatch);
+                        console.log('Inner content sample:', innerContent.substring(0, 200));
+                    }
+                } else {
+                    // Only log if we expected visualresponse
+                    if (message.content.includes('<visualresponse>')) {
+                        console.warn('⚠️ visualresponse tag found but regex did not match!');
+                        console.log('Content sample:', message.content.substring(0, 500));
+                    }
+                }
+
                 const responseMatch = /<response>(.*?)<\/response>/is.exec(message.content);
 
-                // Skip rendering visualresponse content if it's in tool_info (payload will handle display)
-                const hasVisualResponseInTools = message.tool_info && Array.isArray(message.tool_info) &&
-                    message.tool_info.some(tool => ['visualresponse', 'response'].includes(tool.tool_name?.toLowerCase()));
-
-                if (visualResponseMatch && !hasVisualResponseInTools) {
+                // Render visualresponse if found in content
+                if (visualResponseMatch && vizType && vizContent) {
                     // Render visualresponse content (HTML or markdown)
-                    const vizType = visualResponseMatch[1].trim();
-                    const vizContent = visualResponseMatch[2].trim();
                     await this.renderContent(messageContent, {type: vizType, content: vizContent}, messageId, timestampDiv);
-                } else if (responseMatch && !hasVisualResponseInTools) {
+                } else if (responseMatch) {
                     // Render plain response text
                     messageContent.textContent = responseMatch[1].trim();
                 } else if (cleanedContent.trim()) {
@@ -1033,6 +1171,9 @@ class ContentRenderer {
                     // No content left after removing tool tags
                     messageContent.style.display = 'none';
                 }
+            } else if (message.type) {
+                // Pure visualresponse message (no tool calls) - render the visual content
+                await this.renderContent(messageContent, message, messageId, timestampDiv);
             } else {
                 // Plain text assistant message - render exactly as received
                 messageContent.textContent = message.content || '';
@@ -1089,16 +1230,48 @@ class ContentRenderer {
      * Parse XML tool calls from message content
      * Returns array of tool info objects with name, args, and context
      * Preserves original document order
+     *
+     * Now fully dynamic - discovers tools from ToolRegistry or uses generic XML pattern matching
      */
-    parseToolCallsFromXML(content) {
+    async parseToolCallsFromXML(content) {
         const toolCalls = [];
 
-        const toolTags = window.ToolRegistry ? window.ToolRegistry.getToolNames() : [
-            'bash', 'readfile', 'writefile', 'editfile', 'grepsearch', 'searchweb',
-            'viewpermissions', 'think', 'todos', 'visualresponse', 'insertline',
-            'deletelines', 'readdirectory', 'searchresource', 'taskmanager', 'homeassistant',
-            'paralleltools'
-        ];
+        // NOTE: We don't need quoted tag masking here - the backend handles validation
+        // Frontend just needs to extract actual tool calls from the XML and markdown
+        console.log(`📝 parseToolCallsFromXML - Content has visualresponse: ${content.includes('<visualresponse>')}, has bash XML: ${content.includes('<bash>')}, has bash markdown: ${content.includes('```bash')}`);
+
+        // Wait for ToolRegistry to be ready, then get tool names
+        let toolTags = [];
+
+        if (window.ToolRegistry) {
+            try {
+                await window.ToolRegistry.waitForReady();
+                toolTags = window.ToolRegistry.getToolNames();
+            } catch (error) {
+                console.warn('ToolRegistry failed to load, using generic XML pattern matching:', error);
+            }
+        }
+
+        // Fallback: If ToolRegistry unavailable or failed, use generic XML pattern matching
+        if (!toolTags || toolTags.length === 0) {
+            // Extract all potential tool tags from the content itself
+            // Match pattern: <tagname>...</tagname> where tagname is lowercase alphanumeric
+            const genericPattern = /<([a-z][a-z0-9]*)[^>]*>([\s\S]*?)<\/\1>/gi;
+            const foundTags = new Set();
+            let match;
+
+            while ((match = genericPattern.exec(content)) !== null) {
+                const tagName = match[1].toLowerCase();
+                // Filter out common HTML/markdown tags that aren't tools
+                const htmlTags = ['div', 'span', 'p', 'a', 'img', 'table', 'tr', 'td', 'th', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'hr', 'pre', 'code', 'strong', 'em', 'b', 'i', 'u'];
+                if (!htmlTags.includes(tagName)) {
+                    foundTags.add(tagName);
+                }
+            }
+
+            toolTags = Array.from(foundTags);
+            console.log('Using generic XML pattern, found potential tools:', toolTags);
+        }
 
         // Step 1: Extract paralleltools blocks and mask their content to prevent nested tool detection
         const parallelToolsBlocks = [];
@@ -1117,15 +1290,37 @@ class ContentRenderer {
         const matches = [];
 
         toolTags.forEach(tag => {
-            const pattern = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+            // Check for XML tags: <bash>...</bash>
+            const xmlPattern = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
             let match;
 
+            // Reset regex state for each tag to ensure clean matching
+            xmlPattern.lastIndex = 0;
+
             // Parse from maskedContent to avoid detecting nested tools in paralleltools
-            while ((match = pattern.exec(maskedContent)) !== null) {
+            while ((match = xmlPattern.exec(maskedContent)) !== null) {
+                // Extract just the inner content (match[1]), not the full match
+                const innerContent = match[1].trim();
+
                 matches.push({
                     position: match.index,
                     name: tag,
-                    args: match[1].trim().substring(0, 500),
+                    args: innerContent.substring(0, 500),
+                    fullMatch: match[0]
+                });
+            }
+
+            // Also check for markdown code blocks: ```bash\n...\n```
+            const markdownPattern = new RegExp(`\`\`\`${tag}\\s*\\n([\\s\\S]*?)\`\`\``, 'gi');
+            markdownPattern.lastIndex = 0;
+
+            while ((match = markdownPattern.exec(maskedContent)) !== null) {
+                const innerContent = match[1].trim();
+
+                matches.push({
+                    position: match.index,
+                    name: tag,
+                    args: innerContent.substring(0, 500),
                     fullMatch: match[0]
                 });
             }
@@ -1162,12 +1357,13 @@ class ContentRenderer {
         });
 
         // Parse <context> blocks and match with non-visualresponse tools in order
+        // Use maskedContent to avoid quoted tags
         const contextPattern = /<context>\s*([\s\S]*?)\s*<\/context>/gi;
         let contextMatch;
         let nonVisualToolIndex = 0;
 
-        while ((contextMatch = contextPattern.exec(content)) !== null) {
-            const contextContent = contextMatch[1].trim();
+        while ((contextMatch = contextPattern.exec(maskedContent)) !== null) {
+            let contextContent = contextMatch[1].trim();
 
             // Find the next non-visualresponse tool to attach this context to
             while (nonVisualToolIndex < toolCalls.length) {
@@ -1183,6 +1379,7 @@ class ContentRenderer {
             }
         }
 
+        console.log(`✅ parseToolCallsFromXML found ${toolCalls.length} tools:`, toolCalls.map(t => t.name));
         return toolCalls;
     }
 
@@ -1200,13 +1397,15 @@ class ContentRenderer {
             const metadataTool = metadata[index];
 
             if (metadataTool && metadataTool.name === xmlTool.name) {
-                // Metadata takes precedence for timing/model info
+                // Metadata takes precedence for timing/model info AND args
                 return {
                     ...xmlTool,
+                    args: metadataTool.args || xmlTool.args,
                     duration_ms: metadataTool.duration_ms || xmlTool.duration_ms,
                     model: metadataTool.model || xmlTool.model,
                     status: metadataTool.status || xmlTool.status,
-                    error: metadataTool.error || xmlTool.error
+                    error: metadataTool.error || xmlTool.error,
+                    context_returned: metadataTool.context_returned || xmlTool.context_returned
                 };
             }
 

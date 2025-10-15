@@ -22,6 +22,10 @@ class ChatStateManager {
             'state_changed': []
         };
 
+        // Add rendering queue to prevent race conditions
+        this.renderingQueue = Promise.resolve();
+        this.pendingRender = null;
+
         this.setupWebSocketHandlers();
         console.log('ChatStateManager initialized');
     }
@@ -32,7 +36,8 @@ class ChatStateManager {
     async loadCurrentChat() {
         try {
             console.log('Loading current chat from backend...');
-            const response = await fetch('/api/chat/current', {
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/current') : '/api/chat/current';
+            const response = await fetch(url, {
                 headers: {
                     'X-Session-ID': window.sessionId || ''
                 }
@@ -101,7 +106,8 @@ class ChatStateManager {
      */
     async startNewChat() {
         try {
-            const response = await fetch('/api/chat/new', {
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/new') : '/api/chat/new';
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'X-Session-ID': window.sessionId || ''
@@ -199,6 +205,20 @@ class ChatStateManager {
     }
 
     /**
+     * Queue a render operation to prevent race conditions
+     * @param {Function} renderFn - Async function that performs the render
+     */
+    queueRender(renderFn) {
+        // Chain the new render after the current queue completes
+        this.renderingQueue = this.renderingQueue
+            .then(() => renderFn())
+            .catch(err => {
+                console.error('Render error:', err);
+            });
+        return this.renderingQueue;
+    }
+
+    /**
      * Setup WebSocket event handlers for state synchronization
      */
     setupWebSocketHandlers() {
@@ -243,7 +263,7 @@ class ChatStateManager {
             this.clearChat();
         });
 
-        this.wsManager.on('message_added', (data) => {
+        this.wsManager.on('message_added', async (data) => {
             console.log('message_added event received:', data);
 
             const incomingMsg = data.message;
@@ -257,40 +277,43 @@ class ChatStateManager {
                 });
             }
 
-            // Simple logic: if last message is assistant and incoming is assistant, replace it
-            // (content/metadata has grown via add_message concatenation)
-            if (lastMsg && lastMsg.role === 'assistant' && incomingMsg.role === 'assistant') {
-                console.log('Updating existing assistant message (content/metadata grew)');
-                const messageIndex = this.messages.length - 1;
-                this.messages[messageIndex] = incomingMsg;
-                this.emit('state_changed');
+            // Queue the render to prevent race conditions from rapid sequential updates
+            await this.queueRender(async () => {
+                // Simple logic: if last message is assistant and incoming is assistant, replace it
+                // (content/metadata has grown via add_message concatenation)
+                if (lastMsg && lastMsg.role === 'assistant' && incomingMsg.role === 'assistant') {
+                    console.log('Updating existing assistant message (content/metadata grew)');
+                    const messageIndex = this.messages.length - 1;
+                    this.messages[messageIndex] = incomingMsg;
+                    this.emit('state_changed');
 
-                // Remove old DOM element and re-render
-                const contentWrapper = document.getElementById('content-wrapper');
-                if (contentWrapper) {
-                    const oldMessageBlock = contentWrapper.querySelector(`[data-message-index="${messageIndex}"]`);
-                    if (oldMessageBlock) {
-                        oldMessageBlock.remove();
+                    // Remove old DOM element and re-render
+                    const contentWrapper = document.getElementById('content-wrapper');
+                    if (contentWrapper) {
+                        const oldMessageBlock = contentWrapper.querySelector(`[data-message-index="${messageIndex}"]`);
+                        if (oldMessageBlock) {
+                            oldMessageBlock.remove();
+                        }
+                    }
+
+                    // Re-render the updated message
+                    await this.renderer.renderMessage(incomingMsg, messageIndex);
+
+                    // Update interrupt button state based on whether response is complete
+                    this.updateInterruptButtonState(incomingMsg);
+                } else {
+                    // New message (user message or new assistant response from agent loop)
+                    console.log('Adding new message');
+                    this.addMessage(incomingMsg);
+                    const messageIndex = this.messages.length - 1;
+                    await this.renderer.renderMessage(incomingMsg, messageIndex);
+
+                    // Show interrupt button for new assistant messages
+                    if (incomingMsg.role === 'assistant') {
+                        this.showInterruptButton();
                     }
                 }
-
-                // Re-render the updated message
-                this.renderer.renderMessage(incomingMsg, messageIndex);
-
-                // Update interrupt button state based on whether response is complete
-                this.updateInterruptButtonState(incomingMsg);
-            } else {
-                // New message (user message or new assistant response from agent loop)
-                console.log('Adding new message');
-                this.addMessage(incomingMsg);
-                const messageIndex = this.messages.length - 1;
-                this.renderer.renderMessage(incomingMsg, messageIndex);
-
-                // Show interrupt button for new assistant messages
-                if (incomingMsg.role === 'assistant') {
-                    this.showInterruptButton();
-                }
-            }
+            });
         });
 
         this.wsManager.on('chat_truncated', (data) => {
