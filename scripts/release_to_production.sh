@@ -43,13 +43,14 @@ git branch -v
 echo -e "\n${GREEN}Switching to production branch...${NC}"
 git checkout production
 
-# Reset production to match main exactly (squash strategy)
+# Reset production to main's commit, then reset tree (proper squash)
 echo -e "\n${GREEN}Resetting production to match main...${NC}"
-git reset --soft main
+git reset --hard main
+git reset --soft HEAD~1
 
 # Create a single squashed commit with the release title
 echo -e "\n${GREEN}Creating release commit...${NC}"
-git commit -m "$RELEASE_TITLE"
+git commit -m "$RELEASE_TITLE" --allow-empty
 
 # Show the result
 echo -e "\n${GREEN}✓ Release commit created:${NC}"
