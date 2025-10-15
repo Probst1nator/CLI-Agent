@@ -43,14 +43,24 @@ git branch -v
 echo -e "\n${GREEN}Switching to production branch...${NC}"
 git checkout production
 
-# Reset production to main's commit, then reset tree (proper squash)
-echo -e "\n${GREEN}Resetting production to match main...${NC}"
-git reset --hard main
-git reset --soft HEAD~1
+# Count commits between production and main
+COMMIT_COUNT=$(git rev-list --count production..main)
+echo -e "${GREEN}Found $COMMIT_COUNT commits to squash${NC}"
+
+if [ "$COMMIT_COUNT" -eq 0 ]; then
+    echo -e "${YELLOW}Production is already up to date with main. Nothing to release.${NC}"
+    git checkout main
+    exit 0
+fi
+
+# Squash all commits from production..main into one
+echo -e "\n${GREEN}Squashing commits into single release...${NC}"
+git reset --soft main
+git reset --soft HEAD~$COMMIT_COUNT
 
 # Create a single squashed commit with the release title
 echo -e "\n${GREEN}Creating release commit...${NC}"
-git commit -m "$RELEASE_TITLE" --allow-empty
+git commit -m "$RELEASE_TITLE"
 
 # Show the result
 echo -e "\n${GREEN}✓ Release commit created:${NC}"
