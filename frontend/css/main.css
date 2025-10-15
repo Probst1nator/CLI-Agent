@@ -116,6 +116,8 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .console-header h3 {
@@ -123,8 +125,36 @@ body {
     font-size: 14px;
     font-weight: 600;
     color: var(--text-color);
+    flex-shrink: 0;
 }
 
+.console-controls {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.console-log-source {
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 150px;
+}
+
+.console-log-source:hover {
+    background-color: var(--button-hover-bg);
+}
+
+.console-log-source:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
+.console-refresh-btn,
 .console-clear-btn {
     background: none;
     border: none;
@@ -133,10 +163,74 @@ body {
     padding: 5px;
     border-radius: 4px;
     font-size: 14px;
+    transition: background-color 0.2s, transform 0.1s;
 }
 
+.console-refresh-btn:hover,
 .console-clear-btn:hover {
     background-color: var(--button-hover-bg);
+}
+
+.console-refresh-btn:active,
+.console-clear-btn:active {
+    transform: scale(0.95);
+}
+
+.console-meta {
+    padding: 5px 15px;
+    background-color: var(--surface-color);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.console-last-update {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.console-filters {
+    padding: 8px 15px;
+    background-color: var(--surface-color);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.console-search {
+    width: 100%;
+    padding: 6px 10px;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.console-search:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
+.console-level-filters {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 11px;
+}
+
+.console-level-filters label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.console-level-filters input[type="checkbox"] {
+    cursor: pointer;
 }
 
 .console-content {

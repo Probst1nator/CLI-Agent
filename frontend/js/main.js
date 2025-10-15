@@ -266,7 +266,8 @@ class VisualResponseApp {
 
     async fetchAgentState() {
         try {
-            const response = await fetch('/api/agent/state');
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/agent/state') : '/api/agent/state';
+            const response = await fetch(url);
             const data = await response.json();
             if (data.status === 'success' && data.state) {
                 console.log('📥 Initial state loaded:', data.state);
@@ -449,7 +450,8 @@ class VisualResponseApp {
             }
 
             try {
-                const response = await fetch('/api/chat/message/edit', {
+                const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/message/edit') : '/api/chat/message/edit';
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -900,15 +902,13 @@ class VisualResponseApp {
                 }
             }
 
-            // Display user message immediately
-            await this.displayUserMessage(message);
-
             // Only show interrupt button for non-command messages (commands don't generate agent responses)
             if (!message.startsWith('/')) {
                 this.showInterruptButton();
             }
 
             // Send the message with images and tool configuration
+            // Note: Don't display user message here - the message_added WebSocket event will handle rendering
             const messageWithConfig = {
                 message: message,
                 images: images,
@@ -951,7 +951,8 @@ class VisualResponseApp {
         // Fetch current chat state to get accurate message count (including system messages)
         let messageIndex;
         try {
-            const response = await fetch('/api/chat/current');
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/current') : '/api/chat/current';
+            const response = await fetch(url);
             const data = await response.json();
             if (data.status === 'success' && data.chat && data.chat.messages) {
                 // The new message will be at the current length index (after it's added by backend)
@@ -3025,7 +3026,8 @@ class VisualResponseApp {
 
     async loadProfileSlots() {
         try {
-            const response = await fetch('/api/profiles');
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/profiles') : '/api/profiles';
+            const response = await fetch(url);
             const data = await response.json();
 
             if (data.status === 'success') {
@@ -3101,7 +3103,8 @@ class VisualResponseApp {
 
     async refreshSelectorsFromBackend() {
         try {
-            const response = await fetch('/api/llms');
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/llms') : '/api/llms';
+            const response = await fetch(url);
             const data = await response.json();
 
             if (data.status === 'success' && data.current_configuration) {
@@ -3279,7 +3282,25 @@ class ConsoleLogManager {
         this.setupToggleButton();
         this.setupClearButton();
         this.setupResizeHandle();
+        this.setupLogSourceSelector();
+        this.setupRefreshButton();
+        this.setupFilters();
         this.loadConsoleState();
+
+        this.logSource = 'file';
+        this.selectedLogFile = 'session.log';
+        this.autoRefreshInterval = null;
+        this.lastLogUpdate = null;
+        this.autoRefreshEnabled = true;
+        this.sseConnection = null;
+
+        this.searchFilter = '';
+        this.levelFilters = {
+            debug: true,
+            info: true,
+            warning: true,
+            error: true
+        };
     }
 
     setupToggleButton() {
@@ -3346,15 +3367,258 @@ class ConsoleLogManager {
         });
     }
 
-    toggleConsole() {
+    setupLogSourceSelector() {
+        const selector = document.getElementById('console-log-source');
+        if (selector) {
+            selector.addEventListener('change', async (e) => {
+                const value = e.target.value;
+                const timestampEl = document.getElementById('console-last-update');
+
+                this.logSource = 'file';
+                this.selectedLogFile = value;
+
+                if (timestampEl) {
+                    timestampEl.textContent = 'Loading...';
+                }
+
+                this.stopAutoRefresh();
+                await this.fetchLogFile();
+
+                if (value === 'session.log' && this.consoleVisible) {
+                    await this.connectSSE(value);
+                }
+            });
+        }
+    }
+
+    setupRefreshButton() {
+        const refreshBtn = document.getElementById('console-refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', async () => {
+                if (this.logSource === 'file') {
+                    await this.fetchLogFile();
+                }
+            });
+        }
+    }
+
+    setupFilters() {
+        const searchInput = document.getElementById('console-search');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.searchFilter = e.target.value.toLowerCase();
+                if (this.consoleVisible) {
+                    this.renderConsoleLog();
+                }
+            });
+        }
+
+        const levelCheckboxes = [
+            { id: 'console-level-debug', level: 'debug' },
+            { id: 'console-level-info', level: 'info' },
+            { id: 'console-level-warning', level: 'warning' },
+            { id: 'console-level-error', level: 'error' }
+        ];
+
+        levelCheckboxes.forEach(({ id, level }) => {
+            const checkbox = document.getElementById(id);
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    this.levelFilters[level] = e.target.checked;
+                    if (this.consoleVisible) {
+                        this.renderConsoleLog();
+                    }
+                });
+            }
+        });
+    }
+
+    shouldShowLogEntry(entry) {
+        if (!this.levelFilters[entry.level]) {
+            return false;
+        }
+
+        if (this.searchFilter) {
+            const searchableText = (entry.line + ' ' + entry.raw).toLowerCase();
+            return searchableText.includes(this.searchFilter);
+        }
+
+        return true;
+    }
+
+    async fetchAvailableLogs() {
+        try {
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/logs/list') : '/api/logs/list';
+            const response = await fetch(url);
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                return result.data.logs;
+            } else {
+                console.error('Failed to fetch log list:', result.error);
+                return [];
+            }
+        } catch (error) {
+            console.error('Error fetching log list:', error);
+            return [];
+        }
+    }
+
+    async fetchLogFile(lines = 500) {
+        if (this.logSource !== 'file') return;
+
+        try {
+            const url = window.backendConnector ? await window.backendConnector.buildURL(`/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`) : `/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`;
+            const response = await fetch(url);
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                const data = result.data;
+                this.consoleLog = data.entries.map(entry => ({
+                    timestamp: entry.timestamp || new Date().toLocaleTimeString(),
+                    line: entry.message,
+                    level: this.normalizeLevelFromBackend(entry.level),
+                    raw: entry.raw
+                }));
+
+                this.lastLogUpdate = new Date(data.modified * 1000);
+
+                const timestampEl = document.getElementById('console-last-update');
+                if (timestampEl) {
+                    timestampEl.textContent = `Updated: ${this.lastLogUpdate.toLocaleTimeString()}`;
+                }
+
+                if (this.consoleVisible) {
+                    this.renderConsoleLog();
+                    this.scrollToBottom();
+                }
+
+                return data;
+            } else {
+                console.error('Failed to fetch log:', result.error);
+                this.showLogError(result.error);
+            }
+        } catch (error) {
+            console.error('Error fetching log file:', error);
+            this.showLogError('Network error fetching logs');
+        }
+    }
+
+    normalizeLevelFromBackend(level) {
+        const normalized = (level || 'INFO').toLowerCase().trim();
+        if (normalized.includes('error')) return 'error';
+        if (normalized.includes('warn')) return 'warning';
+        if (normalized.includes('debug')) return 'debug';
+        return 'info';
+    }
+
+    showLogError(message) {
+        const consoleContent = document.getElementById('console-content');
+        if (consoleContent) {
+            consoleContent.innerHTML = `
+                <div class="console-line console-error">
+                    <span class="console-timestamp">[${new Date().toLocaleTimeString()}]</span>
+                    <span class="console-text">Error: ${this.escapeHtml(message)}</span>
+                </div>
+            `;
+        }
+    }
+
+    async connectSSE(logFile) {
+        this.disconnectSSE();
+
+        try {
+            const url = window.backendConnector ? await window.backendConnector.buildURL(`/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`) : `/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`;
+            this.sseConnection = new EventSource(url);
+
+            this.sseConnection.onmessage = (event) => {
+                try {
+                    const entry = JSON.parse(event.data);
+
+                    const logEntry = {
+                        timestamp: entry.timestamp || new Date().toLocaleTimeString(),
+                        line: entry.message,
+                        level: this.normalizeLevelFromBackend(entry.level),
+                        raw: entry.raw
+                    };
+
+                    this.consoleLog.push(logEntry);
+
+                    if (this.consoleLog.length > this.maxLogLines) {
+                        this.consoleLog = this.consoleLog.slice(-this.maxLogLines);
+                    }
+
+                    if (this.consoleVisible) {
+                        this.scheduleConsoleUpdate();
+                    }
+
+                    this.lastLogUpdate = new Date();
+                    const timestampEl = document.getElementById('console-last-update');
+                    if (timestampEl) {
+                        timestampEl.textContent = `${logFile} (Live SSE) - ${this.lastLogUpdate.toLocaleTimeString()}`;
+                    }
+                } catch (error) {
+                    console.error('Error parsing SSE message:', error);
+                }
+            };
+
+            this.sseConnection.onerror = (error) => {
+                console.warn('SSE connection error, falling back to polling:', error);
+                this.disconnectSSE();
+                this.startAutoRefresh(2000);
+            };
+
+            console.log(`SSE connected for ${logFile}`);
+        } catch (error) {
+            console.error('Failed to establish SSE connection:', error);
+            this.startAutoRefresh(2000);
+        }
+    }
+
+    disconnectSSE() {
+        if (this.sseConnection) {
+            this.sseConnection.close();
+            this.sseConnection = null;
+        }
+    }
+
+    startAutoRefresh(intervalMs = 5000) {
+        this.stopAutoRefresh();
+        if (this.logSource === 'file') {
+            this.autoRefreshInterval = setInterval(() => {
+                this.fetchLogFile();
+            }, intervalMs);
+        }
+    }
+
+    stopAutoRefresh() {
+        this.disconnectSSE();
+
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+            this.autoRefreshInterval = null;
+        }
+    }
+
+    async toggleConsole() {
         this.consoleVisible = !this.consoleVisible;
         this.updateConsoleVisibility();
         this.saveConsoleState();
 
-        // Render console content when it becomes visible
+        // Load and render console content when it becomes visible
         if (this.consoleVisible) {
+            if (this.consoleLog.length === 0 && this.selectedLogFile) {
+                await this.fetchLogFile();
+            }
+
+            if (this.selectedLogFile === 'session.log' && !this.sseConnection && !this.autoRefreshInterval) {
+                await this.connectSSE('session.log');
+            }
+
             this.renderConsoleLog();
             this.scrollToBottom();
+        } else {
+            this.stopAutoRefresh();
         }
     }
 
@@ -3387,6 +3651,10 @@ class ConsoleLogManager {
      * @param {'info'|'warning'|'error'|'debug'} level - Log level
      */
     addLogLine(line, level = 'info') {
+        if (this.logSource === 'file') {
+            return;
+        }
+
         const timestamp = new Date().toLocaleTimeString();
 
         // Store the raw unfiltered line (preserve original content)
@@ -3395,7 +3663,8 @@ class ConsoleLogManager {
         const logEntry = {
             timestamp,
             line: rawLine,
-            level
+            level,
+            raw: rawLine
         };
 
         this.consoleLog.push(logEntry);
@@ -3446,14 +3715,16 @@ class ConsoleLogManager {
         if (!consoleContent) return;
 
         // Show last 500 lines for performance while allowing more content
-        const displayLines = this.consoleLog.slice(-500);
+        let displayLines = this.consoleLog.slice(-500);
+
+        displayLines = displayLines.filter(entry => this.shouldShowLogEntry(entry));
 
         if (displayLines.length === 0) {
             // Fast path for empty console
             consoleContent.innerHTML = `
                 <div class="console-line">
                     <span class="console-timestamp">[${new Date().toLocaleTimeString()}]</span>
-                    <span class="console-text">Console log will appear here...</span>
+                    <span class="console-text">${this.searchFilter ? 'No logs match filter' : 'Console log will appear here...'}</span>
                 </div>
             `;
             return;
@@ -3634,6 +3905,56 @@ let consoleLogManager = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOM loaded, checking dependencies...');
+
+    // Initialize Identity Manager (UUID-based user identification)
+    if (window.IdentityManager) {
+        window.identityManager = new window.IdentityManager();
+        console.log('Identity Manager initialized');
+    }
+
+    // Initialize Backend Connector (discovers backend container)
+    if (window.BackendConnector && window.identityManager) {
+        window.backendConnector = new window.BackendConnector(window.identityManager);
+        console.log('Backend Connector initialized');
+
+        // Start discovery immediately (don't wait for first API call)
+        window.backendConnector.waitForReady().then(() => {
+            console.log('Backend ready, triggering API reloads...');
+            // Reload APIs now that backend is ready
+            if (window.ToolRegistry) {
+                window.ToolRegistry.initialize(true); // Force reload
+            }
+            if (window.ToolManager) {
+                window.ToolManager.refresh();
+            }
+            if (window.app) {
+                window.app.fetchAgentState();
+                window.app.loadProfileSlots();
+                // Reload LLM models for all selectors
+                [window.app.plannerLLMSelector, window.app.routerLLMSelector, 
+                 window.app.overrideLLMSelector, window.app.primaryLLMSelector,
+                 window.app.fallback1LLMSelector, window.app.fallback2LLMSelector
+                ].forEach(selector => {
+                    if (selector) selector.loadModelsFromServer();
+                });
+            }
+            if (window.chatState) {
+                window.chatState.loadCurrentChat();
+            }
+            if (window.chatHistory) {
+                window.chatHistory.loadChats();
+            }
+        });
+
+        // Start keep-alive pings (update activity every minute)
+        window.backendConnector.startActivityUpdates(60000);
+    }
+
+    // Initialize Container Controls (wipe/reload functionality)
+    if (window.ContainerControls && window.identityManager && window.backendConnector) {
+        window.containerControls = new window.ContainerControls(window.identityManager, window.backendConnector);
+        console.log('Container Controls initialized');
+    }
 
     if (window.ToolRegistry) {
         console.log('Initializing ToolRegistry...');

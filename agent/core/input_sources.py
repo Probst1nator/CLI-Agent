@@ -403,8 +403,41 @@ class WebInputSource(InputSource_ABC):
                         # Continue without treating this as user input
                         continue
 
+                    # Handle dict inputs with 'message' key (from WebSocket)
+                    if isinstance(raw_input, dict) and 'message' in raw_input and isinstance(raw_input['message'], str):
+                        user_input = raw_input['message'].strip()
+                        session_id = raw_input.get('session_id')
+                        self.logger.info(f"🌐 Received browser message: {user_input[:50]}... (session: {session_id})")
+
+                        if user_input == "__AGENT_RESET__":
+                            self.logger.info("🔄 Received agent reset request from browser")
+                            g.AGENT_RESET_REQUESTED = True
+                            return InputEvent(
+                                event_type=InputEventType.SYSTEM,
+                                source=InputSource.WEB,
+                                content="reset",
+                                metadata={'type': 'agent_reset', 'source': 'web_ui', 'session_id': session_id},
+                                timestamp=time.time()
+                            )
+
+                        if user_input:
+                            event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+
+                            # Include context_chat in metadata if available
+                            metadata = {'prompt': prompt, 'session_id': session_id}
+                            context_chat = kwargs.get('context_chat')
+                            if context_chat:
+                                metadata['context_chat'] = context_chat
+
+                            return InputEvent(
+                                event_type=event_type,
+                                source=InputSource.WEB,
+                                content=user_input,
+                                metadata=metadata,
+                                timestamp=time.time()
+                            )
                     # Handle string inputs
-                    if isinstance(raw_input, str):
+                    elif isinstance(raw_input, str):
                         user_input = raw_input.strip()
 
                         if user_input == "__AGENT_RESET__":
@@ -436,8 +469,11 @@ class WebInputSource(InputSource_ABC):
                                 timestamp=time.time()
                             )
                     else:
-                        # Handle non-string inputs (like dicts)
-                        self.logger.warning(f"Received non-string input: {type(raw_input)} - {raw_input}")
+                        # Handle other non-string inputs that aren't handled above
+                        if isinstance(raw_input, dict):
+                            self.logger.warning(f"Received unhandled dict input (missing 'message' key or invalid structure): {raw_input}")
+                        else:
+                            self.logger.warning(f"Received non-string input: {type(raw_input)} - {raw_input}")
                         continue
 
                 except (asyncio.TimeoutError, asyncio.exceptions.TimeoutError):

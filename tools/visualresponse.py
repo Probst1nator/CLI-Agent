@@ -325,7 +325,6 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                                 if hasattr(g, 'disabled_tools'):
                                     setattr(g, 'disabled_tools', disabled_tools)
 
-                                # Send only the user message content to maintain compatibility
                                 input_queue.put(user_message)
                                 subprocess_logger.info(f"User message queued with tool restrictions: {user_message[:50]}...")
 
@@ -1046,11 +1045,14 @@ class visualresponse:
     @staticmethod
     async def _get_or_create_server(open_browser: bool = True):
         """Get or create the new API server"""
+        print(f"[DEBUG _get_or_create_server] Called with open_browser={open_browser}", flush=True)
         from api.server import get_or_create_server
         from core.globals import g
 
         persist_mode = hasattr(g, 'GUI_MODE') and g.GUI_MODE
+        print(f"[DEBUG _get_or_create_server] persist_mode={persist_mode}, about to call get_or_create_server", flush=True)
         server = await get_or_create_server(persist_mode=persist_mode, open_browser=open_browser)
+        print(f"[DEBUG _get_or_create_server] Server created: {server}", flush=True)
         return server
 
     @staticmethod
@@ -1747,13 +1749,62 @@ def disable_file_based_console_capture():
     logger.info("File-based console capture disabled")
 
 
+_unified_stream_manager = None
+
+
+def _console_broadcast_callback(line: str):
+    """Callback for broadcasting console lines to WebSocket clients."""
+    try:
+        from tools.visualresponse import send_console_log
+        level = 'error' if 'ERROR' in line or 'Error' in line else 'info'
+        send_console_log(line, level)
+    except Exception:
+        pass
+
+
 def enable_console_capture():
-    """Enable console output capture for visual interface (legacy method)."""
-    # Use the new file-based system by default
-    enable_file_based_console_capture()
+    """Enable unified console output capture and streaming."""
+    global _unified_stream_manager
+
+    try:
+        from pathlib import Path
+        from shared.console_stream import init_console_streaming
+        from core.globals import g
+
+        # Use same directory logic as logs API
+        legacy_dir = Path(g.CLIAGENT_PERSISTENT_STORAGE_PATH) / "logs"
+        if legacy_dir.exists():
+            log_dir = legacy_dir
+        else:
+            log_dir = Path(g.CLIAGENT_CACHE_DIR) / "logs"
+
+        log_dir.mkdir(parents=True, exist_ok=True)
+        console_log_path = log_dir / "console-live.log"
+
+        _unified_stream_manager = init_console_streaming(
+            console_log_path,
+            broadcast_callback=_console_broadcast_callback,
+            strip_ansi=True
+        )
+
+        logger.info(f"📺 Unified console streaming enabled -> {console_log_path}")
+
+    except Exception as e:
+        logger.warning(f"Could not enable unified console streaming: {e}")
+        enable_file_based_console_capture()
 
 
 def disable_console_capture():
-    """Disable console output capture (legacy method)."""
-    # Use the new file-based system by default
-    disable_file_based_console_capture()
+    """Disable console output capture."""
+    global _unified_stream_manager
+
+    if _unified_stream_manager:
+        try:
+            from shared.console_stream import stop_console_streaming
+            stop_console_streaming()
+            _unified_stream_manager = None
+            logger.info("Unified console streaming stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping unified console streaming: {e}")
+    else:
+        disable_file_based_console_capture()

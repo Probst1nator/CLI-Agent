@@ -126,7 +126,8 @@ class AudioManager {
             const formData = new FormData();
             formData.append('audio', blob, 'recording.webm');
 
-            const response = await fetch('/api/audio/upload', {
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/audio/upload') : '/api/audio/upload';
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'X-Session-ID': window.sessionId || ''
@@ -179,7 +180,8 @@ class AudioManager {
             this.isTTSActive = true;
             this.showTTSStatus('Generating speech...');
 
-            const response = await fetch('/api/audio/tts', {
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/audio/tts') : '/api/audio/tts';
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -430,7 +432,8 @@ class AudioManager {
      */
     async getVoiceStatus() {
         try {
-            const response = await fetch('/api/audio/voice_status', {
+            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/audio/voice_status') : '/api/audio/voice_status';
+            const response = await fetch(url, {
                 headers: {
                     'X-Session-ID': window.sessionId || ''
                 }

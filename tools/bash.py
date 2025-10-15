@@ -66,10 +66,6 @@ class BashSession:
         self.bash_prompt_regex = f"__PROMPT_{uuid.uuid4().hex}__"
         self.child: Optional[pexpect.spawn] = None
 
-        # STREAMING FIX: Add state tracking to prevent duplicate output
-        self.displayed_lines: set = set()  # Track what we've already shown
-        self.last_buffer_position: int = 0  # Track where we last read from buffer
-
         # Only log session start in debug mode to reduce noise
         debug_mode = '--debug' in sys.argv
         if debug_mode:
@@ -214,12 +210,13 @@ class BashSession:
 
             loop = asyncio.get_running_loop()
 
-            self.displayed_lines.clear()
-            self.last_buffer_position = 0
+            # LOCAL state tracking to prevent corruption in parallel execution
+            displayed_lines = set()
+            last_buffer_position = 0
 
             try:
                 await loop.run_in_executor(None, self.child.expect, pexpect.TIMEOUT, 0.1)
-                self.last_buffer_position = 0
+                last_buffer_position = 0
             except:
                 pass
 
@@ -230,19 +227,27 @@ class BashSession:
                     )
 
                     current_buffer = self.child.before or "" if self.child else ""
-                    new_content = current_buffer[self.last_buffer_position:]
-                    self.last_buffer_position = len(current_buffer)
+                    new_content = current_buffer[last_buffer_position:]
+                    last_buffer_position = len(current_buffer)
 
                     if new_content:
+                        # Strip ANSI escape codes (like [?2004l bracketed paste mode)
+                        import re
+                        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                        new_content = ansi_escape.sub('', new_content)
+
                         lines_to_filter = [full_command_with_boundary.strip(), clean_command.strip()]
                         filtered_lines = [line for line in new_content.split('\n') if line.strip() not in lines_to_filter]
                         new_content = '\n'.join(filtered_lines)
 
                         for line in new_content.split('\n'):
                             clean_line = line.strip()
+                            # More robust boundary filtering: check if line contains boundary marker
                             if (clean_line and self.bash_prompt_regex not in clean_line and
-                                clean_line != boundary and clean_line not in self.displayed_lines):
-                                self.displayed_lines.add(clean_line)
+                                clean_line != boundary and boundary not in clean_line and
+                                not clean_line.startswith('__BOUNDARY_') and
+                                clean_line not in displayed_lines):
+                                displayed_lines.add(clean_line)
                                 self._stream_output(clean_line)
                                 output_capture.write(clean_line + '\n')
 

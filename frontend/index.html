@@ -136,7 +136,28 @@
                 <div class="console-resize-handle" id="console-resize-handle"></div>
                 <div class="console-header">
                     <h3>Console Log</h3>
-                    <button id="console-clear-btn" class="console-clear-btn" title="Clear console log">🗑️</button>
+                    <div class="console-controls">
+                        <select id="console-log-source" class="console-log-source" title="Select log source">
+                            <option value="session.log" selected>session.log (Live)</option>
+                            <option value="tools_bash.log">tools_bash.log</option>
+                            <option value="tools_visualresponse.log">tools_visualresponse.log</option>
+                            <option value="console-live.log">console-live.log</option>
+                        </select>
+                        <button id="console-refresh-btn" class="console-refresh-btn" title="Refresh log file">🔄</button>
+                        <button id="console-clear-btn" class="console-clear-btn" title="Clear console log">🗑️</button>
+                    </div>
+                </div>
+                <div class="console-meta">
+                    <span id="console-last-update" class="console-last-update">session.log (Live) - Auto-updating</span>
+                </div>
+                <div class="console-filters">
+                    <input type="text" id="console-search" class="console-search" placeholder="Filter logs...">
+                    <div class="console-level-filters">
+                        <label><input type="checkbox" id="console-level-debug" checked> DEBUG</label>
+                        <label><input type="checkbox" id="console-level-info" checked> INFO</label>
+                        <label><input type="checkbox" id="console-level-warning" checked> WARN</label>
+                        <label><input type="checkbox" id="console-level-error" checked> ERROR</label>
+                    </div>
                 </div>
                 <div id="console-content" class="console-content">
                     <div class="console-line">
@@ -219,6 +240,11 @@
     <script src="/js/logger.js"></script>
     <script src="/js/js-utils.js"></script>
     <script src="/js/tool-registry.js"></script>
+    <!-- Multi-user containerization support -->
+    <script src="/js/identity-manager.js"></script>
+    <script src="/js/backend-connector.js"></script>
+    <script src="/js/container-controls.js"></script>
+    <!-- Core modules -->
     <script src="/js/renderers.js"></script>
     <script src="/js/websocket.js"></script>
     <script src="/js/chat-state.js"></script>

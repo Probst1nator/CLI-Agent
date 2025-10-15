@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 from termcolor import colored
 from .permissions_manager import get_permissions_manager
 
-def format_xml_args(xml_content: str) -> str:
+def format_xml_args(xml_content: Optional[str]) -> str:
     """Format XML content to show the tool arguments concisely."""
     if not xml_content:
         return ""
@@ -155,11 +155,11 @@ async def enhanced_permission_prompt(
     args,
     tool_name: str,
     action_description: str,
-    file_path: str = None,
-    command_hash: str = None,
-    command_pattern: str = None,
+    file_path: Optional[str] = None,
+    command_hash: Optional[str] = None,
+    command_pattern: Optional[str] = None,
     has_paths: bool = False,
-    xml_content: str = None,
+    xml_content: Optional[str] = None,
     input_event: Optional[asyncio.Event] = None,
     input_lock: Optional[threading.Lock] = None,
     shared_input: Optional[Dict[str, Any]] = None,
@@ -176,8 +176,31 @@ async def enhanced_permission_prompt(
 
     # Check if always denied
     if permissions_manager.is_always_denied(tool_name, file_path):
-        def create_denied_operation_box(tool_name: str, action_description: str, file_path: str = None):
-            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
+        def create_denied_operation_box(tool_name: str, action_description: str, file_path: Optional[str] = None):
+            tool_emojis = {
+            "bash": "🔧",
+            "computercontrol": "🖥️",
+            "deletelines": "🗑️",
+            "editfile": "✏️",
+            "getuserfiles": "📂",
+            "grepsearch": "🔍",
+            "homeassistant": "🏠",
+            "insertline": "➕",
+            "memory": "🧠",
+            "paralleltools": "⚡",
+            "python": "🐍",
+            "readdirectory": "📁",
+            "readfile": "📖",
+            "response": "💬",
+            "searchresource": "🔎",
+            "searchweb": "🌐",
+            "taskmanager": "📋",
+            "think": "💭",
+            "todos": "✅",
+            "viewpermissions": "🔐",
+            "visualresponse": "🎨",
+            "writefile": "📝"
+        }
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
 
@@ -211,8 +234,31 @@ async def enhanced_permission_prompt(
     is_allowed, rule_description = permission_result if isinstance(permission_result, tuple) else (permission_result, None)
 
     if is_allowed:
-        def create_granted_operation_box(tool_name: str, action_description: str, file_path: str = None, rule_info: str = None):
-            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
+        def create_granted_operation_box(tool_name: str, action_description: str, file_path: Optional[str] = None, rule_info: Optional[str] = None):
+            tool_emojis = {
+            "bash": "🔧",
+            "computercontrol": "🖥️",
+            "deletelines": "🗑️",
+            "editfile": "✏️",
+            "getuserfiles": "📂",
+            "grepsearch": "🔍",
+            "homeassistant": "🏠",
+            "insertline": "➕",
+            "memory": "🧠",
+            "paralleltools": "⚡",
+            "python": "🐍",
+            "readdirectory": "📁",
+            "readfile": "📖",
+            "response": "💬",
+            "searchresource": "🔎",
+            "searchweb": "🌐",
+            "taskmanager": "📋",
+            "think": "💭",
+            "todos": "✅",
+            "viewpermissions": "🔐",
+            "visualresponse": "🎨",
+            "writefile": "📝"
+        }
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
 
@@ -235,7 +281,7 @@ async def enhanced_permission_prompt(
             if rule_info:
                 rule_display = (rule_info[:(INNER_WIDTH - 9 - 3)] + "...") if len(rule_info) > INNER_WIDTH - 9 else rule_info
                 print(colored("│", "light_green") + f"    Rule: {rule_display}".ljust(INNER_WIDTH) + colored("│", "light_green"))
-            print(colored("│", "light_green") + "".ljust(INNER_WIDTH) + colored("│", "light_green"))
+            # print(colored("│", "light_green") + "".ljust(INNER_WIDTH) + colored("│", "light_green"))
             print(colored(bottom_border, "light_green"))
 
         create_granted_operation_box(tool_name, action_description, file_path, rule_description)
@@ -246,20 +292,37 @@ async def enhanced_permission_prompt(
     command_pattern = PathDetector.get_command_pattern(tool_name, xml_content or "")
     smart_action = PathDetector.get_smart_quick_action(tool_name, command_pattern, file_path)
 
-    def create_tool_operation_box(tool_name: str, action_description: str, file_path: str = None, args_content: str = None):
+    def create_tool_operation_box(tool_name: str, action_description: str, file_path: Optional[str] = None, args_content: Optional[str] = None):
         top_left, top_right, btm_left, btm_right = "╭", "╮", "╰", "╯"
         horizontal, vertical = "─", "│"
 
-        tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
+        tool_emojis = {
+            "bash": "🔧",
+            "computercontrol": "🖥️",
+            "deletelines": "🗑️",
+            "editfile": "✏️",
+            "getuserfiles": "📂",
+            "grepsearch": "🔍",
+            "homeassistant": "🏠",
+            "insertline": "➕",
+            "memory": "🧠",
+            "paralleltools": "⚡",
+            "python": "🐍",
+            "readdirectory": "📁",
+            "readfile": "📖",
+            "response": "💬",
+            "searchresource": "🔎",
+            "searchweb": "🌐",
+            "taskmanager": "📋",
+            "think": "💭",
+            "todos": "✅",
+            "viewpermissions": "🔐",
+            "visualresponse": "🎨",
+            "writefile": "📝"
+        }
         tool_emoji = tool_emojis.get(tool_name, "⚙️")
 
-        display_path, action_display, args_display = "", "", "(no arguments)"
-        if file_path:
-            max_len = INNER_WIDTH - len(" File: ")
-            display_path = get_enhanced_file_display(file_path, max_len)
-        if action_description:
-            max_len = INNER_WIDTH - len(" Action: ")
-            action_display = (action_description[:max_len-3] + "...") if len(action_description) > max_len else action_description
+        args_display = "(no arguments)"
         if args_content:
             cleaned_args = re.sub(r'\s+', ' ', args_content).strip()
             max_len = INNER_WIDTH - len(" Args: ")
@@ -650,7 +713,30 @@ async def enhanced_permission_prompt(
         if user_input in ('', 'y', 'yes'):
             return True
         elif user_input in ('n', 'no'):
-            tool_emojis = {"editfile": "✏️", "readfile": "📖", "writefile": "📝", "insertline": "➕", "deletelines": "🗑️", "bash": "🔧", "python": "🐍", "searchweb": "🌐", "showuser": "👁️", "memory": "🧠", "grepsearch": "🔍"}
+            tool_emojis = {
+            "bash": "🔧",
+            "computercontrol": "🖥️",
+            "deletelines": "🗑️",
+            "editfile": "✏️",
+            "getuserfiles": "📂",
+            "grepsearch": "🔍",
+            "homeassistant": "🏠",
+            "insertline": "➕",
+            "memory": "🧠",
+            "paralleltools": "⚡",
+            "python": "🐍",
+            "readdirectory": "📁",
+            "readfile": "📖",
+            "response": "💬",
+            "searchresource": "🔎",
+            "searchweb": "🌐",
+            "taskmanager": "📋",
+            "think": "💭",
+            "todos": "✅",
+            "viewpermissions": "🔐",
+            "visualresponse": "🎨",
+            "writefile": "📝"
+        }
             tool_emoji = tool_emojis.get(tool_name, "⚙️")
             args_display = format_xml_args(xml_content)
 
@@ -768,7 +854,7 @@ async def enhanced_permission_prompt(
                 print(colored(f"   {valid_options}", "cyan"))
                 print(colored("   Tip: Press ? for detailed help", "blue"))
 
-async def handle_direct_always_allow(suggestion: str, tool_name: str, file_path: str, permissions_manager, command_hash: str):
+async def handle_direct_always_allow(suggestion: str, tool_name: str, file_path: Optional[str], permissions_manager, command_hash: Optional[str]):
     if "* commands in current directory tree" in suggestion:
         # Handle pattern-based permission for current directory tree
         # Extract the command pattern (e.g., "ls" from 'All "ls*" commands in current directory tree')
@@ -822,7 +908,7 @@ async def handle_direct_always_allow(suggestion: str, tool_name: str, file_path:
     else:
         print(colored(f"✅ Permission rule added: {suggestion}", "green"))
 
-async def handle_smart_quick_action(smart_action: Dict[str, Any], tool_name: str, file_path: str, permissions_manager, command_pattern: str):
+async def handle_smart_quick_action(smart_action: Dict[str, Any], tool_name: str, file_path: Optional[str], permissions_manager, command_pattern: str):
     category = smart_action['category']
     scope_path = smart_action['scope_path']
     scope_description = smart_action['scope_description']
@@ -838,13 +924,13 @@ async def handle_smart_quick_action(smart_action: Dict[str, Any], tool_name: str
         print(colored(f"   Pattern: {scope_path}", "white"))
 
 async def handle_permission_management(get_user_input_func, args, input_event, input_lock, shared_input):
-    from tools.permissions import permissions
+    from tools.viewpermissions import viewpermissions
 
     print()
     print(colored("🔧 PERMISSION MANAGEMENT", "yellow", attrs=['bold']))
     print(colored("─" * 50, "yellow"))
 
-    result = permissions._list_permissions()
+    result = viewpermissions.run()
     print(result)
 
     print()
@@ -889,23 +975,25 @@ async def handle_permission_management(get_user_input_func, args, input_event, i
             print(colored("↩️  Returning to permission prompt...", "green"))
             break
         elif user_input == 'clear':
-            result = permissions._clear_all_permissions()
-            print(result)
+            permissions_manager = get_permissions_manager()
+            permissions_manager.clear_all_permissions()
+            print(colored("✅ All permissions cleared", "green"))
             break
         elif user_input.startswith('r ') and len(user_input) > 2:
             perm_id = user_input[2:].strip()
-            result = permissions._remove_permission(perm_id)
-            print(result)
+            permissions_manager = get_permissions_manager()
+            # Remove permission by ID (needs implementation in permissions_manager)
+            print(colored(f"⚠️  Permission removal by ID not yet implemented: {perm_id}", "yellow"))
             print()
-            result = permissions._list_permissions()
+            result = viewpermissions.run()
             print(result)
         elif user_input == 'list':
-            result = permissions._list_permissions()
+            result = viewpermissions.run()
             print(result)
         else:
             print(colored("❓ Invalid command. Use: r <id>, clear, list, or back", "yellow"))
 
-def show_permission_help(tool_name: str, file_path: str = None):
+def show_permission_help(tool_name: str, file_path: Optional[str] = None):
     print(colored("\n📖 Permission Options Help:", "blue"))
     print(colored("  Enter/y", "light_green") + " - Allow this action once")
     print(colored("  n", "red") + " - Deny this action once")

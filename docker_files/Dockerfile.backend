@@ -1,0 +1,83 @@
+# Multi-stage build for production backend container
+# Stage 1: Build dependencies with retry logic
+FROM python:3.10-slim as builder
+
+LABEL maintainer="CLI-Agent Team"
+LABEL description="Per-UUID Backend Container for CLI-Agent"
+
+WORKDIR /install
+
+# Install system dependencies needed for building Python packages
+RUN apt-get update && apt-get install -y \
+    gcc g++ make \
+    libffi-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better layer caching
+COPY requirements.txt /install/
+
+# Install Python dependencies with retry logic and cache clearing
+# This overcomes transient zlib/network errors on ARM
+RUN --mount=type=cache,target=/root/.cache/pip \
+    for attempt in 1 2 3 4 5; do \
+        echo "==> Installation attempt $attempt of 5" && \
+        pip install --prefix=/install --no-warn-script-location -r requirements.txt && \
+        echo "==> Installation successful!" && break || \
+        (echo "==> Attempt $attempt failed, cleaning pip cache and retrying in 10s..." && \
+         rm -rf /root/.cache/pip/* && \
+         sleep 10); \
+    done && \
+    if [ ! -f /install/lib/python*/site-packages/openai/__init__.py ]; then \
+        echo "ERROR: Installation failed after 5 attempts" && exit 1; \
+    fi
+
+# Stage 2: Runtime image
+FROM python:3.10-slim
+
+LABEL maintainer="CLI-Agent Team"
+LABEL description="Per-UUID Backend Container for CLI-Agent"
+
+# Install runtime system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    espeak espeak-data libespeak-dev \
+    ca-certificates \
+    python3-tk \
+    libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed Python packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy CLI-Agent source
+COPY . /cli-agent/
+WORKDIR /cli-agent
+
+# Create non-root user
+RUN useradd -m -u 1000 -s /bin/bash cliagent && \
+    mkdir -p /workspace/data /workspace/logs /workspace/config && \
+    mkdir -p /home/cliagent/.config/cli-agent && \
+    chown -R cliagent:cliagent /workspace /cli-agent /home/cliagent
+
+# Environment variables
+ENV PYTHONPATH=/cli-agent
+ENV PYTHONUNBUFFERED=1
+ENV CLI_AGENT_MODE=containerized
+ENV CLI_AGENT_HOST=0.0.0.0
+ENV CLI_AGENT_DATA_DIR=/workspace/data
+ENV CLI_AGENT_LOG_DIR=/workspace/logs
+ENV CLI_AGENT_CONFIG_DIR=/workspace/config
+
+# Switch to non-root user
+USER cliagent
+
+# Expose web server port
+EXPOSE 7860
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
+    CMD curl -f http://localhost:7860/api/health || exit 1
+
+# Run CLI-Agent in API-only mode (no frontend serving)
+# Frontend is served by separate frontend container
+CMD ["python3", "main.py", "--api"]

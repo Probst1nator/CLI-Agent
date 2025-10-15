@@ -221,6 +221,68 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
+def _mask_quoted_xml_tags(text: str) -> tuple[str, dict]:
+    """
+    Masks XML tags that are inside quotes (single, double, or backticks) to prevent
+    them from being parsed as actual tool calls.
+
+    Examples:
+        `<bash>` -> `__QUOTED_TAG_0__`
+        "<bash>" -> "__QUOTED_TAG_1__"
+        '</bash>' -> "__QUOTED_TAG_2__"
+        "<readfile>/path</readfile>" -> "__QUOTED_TAG_3__"
+
+    Args:
+        text: The text containing potentially quoted XML tags
+
+    Returns:
+        tuple: (masked_text, replacements_map) where replacements_map maps placeholder -> original
+    """
+    replacements = {}
+    counter = 0
+
+    # Pattern to match any quoted string that contains XML tags
+    # This handles both standalone tags like "<bash>" and full blocks like "<bash>content</bash>"
+    # Matches any content between quotes that contains at least one < character
+    quote_patterns = [
+        r'"[^"]*<[^"]*"',      # Double quotes: "...<..."
+        r"'[^']*<[^']*'",      # Single quotes: '...<...'
+        r'`[^`]*<[^`]*`',      # Backticks: `...<...`
+    ]
+
+    masked_text = text
+
+    for pattern in quote_patterns:
+        def replace_quoted_xml(match):
+            nonlocal counter
+            original = match.group(0)
+            placeholder = f"__QUOTED_TAG_{counter}__"
+            replacements[placeholder] = original
+            counter += 1
+            return placeholder
+
+        masked_text = re.sub(pattern, replace_quoted_xml, masked_text)
+
+    return masked_text, replacements
+
+
+def _unmask_quoted_xml_tags(text: str, replacements: dict) -> str:
+    """
+    Restores quoted XML tags that were masked by _mask_quoted_xml_tags.
+
+    Args:
+        text: Text with placeholders
+        replacements: Map of placeholder -> original text
+
+    Returns:
+        Text with quoted tags restored
+    """
+    result = text
+    for placeholder, original in replacements.items():
+        result = result.replace(placeholder, original)
+    return result
+
+
 def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> List[str]:
     """
     Extracts content from markdown code blocks (```) or XML-style tags (<tag>).
@@ -238,6 +300,9 @@ def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> Lis
 
     blocks = []
 
+    # Mask quoted XML tags to prevent them from being parsed as tool calls
+    masked_text, quote_replacements = _mask_quoted_xml_tags(text)
+
     # Normalize the requested language(s) into a set for efficient lookup.
     requested_languages = set()
     if isinstance(language, str):
@@ -247,16 +312,18 @@ def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> Lis
 
     # Handle markdown code blocks first (unchanged logic)
     markdown_pattern = r"```(?P<lang>\w*?)\s*\n(?P<content>.*?)```"
-    for match in re.finditer(markdown_pattern, text, re.DOTALL):
+    for match in re.finditer(markdown_pattern, masked_text, re.DOTALL):
         block_identifier = match.group("lang").strip().lower()
         content = match.group("content").strip()
 
         if not requested_languages or block_identifier in requested_languages:
+            # Unmask any quoted tags in the extracted content
+            content = _unmask_quoted_xml_tags(content, quote_replacements)
             blocks.append(content)
 
     # Handle XML blocks using proper XML parsing
     xml_pattern = r"<(?P<tag>[a-zA-Z0-9_]+)[^>]*>.*?</(?P=tag)>"
-    for match in re.finditer(xml_pattern, text, re.DOTALL):
+    for match in re.finditer(xml_pattern, masked_text, re.DOTALL):
         xml_block = match.group(0)
         tag_name = match.group("tag").lower()
 
@@ -329,6 +396,8 @@ def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> Lis
             # If no child elements, just get the text content
             content = root.text or ""
 
+        # Unmask any quoted tags that were in this XML block
+        content = _unmask_quoted_xml_tags(content, quote_replacements)
         blocks.append(content)
 
     return blocks
