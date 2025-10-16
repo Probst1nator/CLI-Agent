@@ -1137,7 +1137,7 @@ def create_interruption_callback(
 
                     # Try patterns of length 1-5
                     for pattern_len in range(1, 6):
-                        if len(recent) < pattern_len * 20:  # Need at least 20 repetitions
+                        if len(recent) < pattern_len * 200:  # Need at least 200 repetitions
                             continue
                         pattern = recent[-pattern_len:]
 
@@ -1153,7 +1153,7 @@ def create_interruption_callback(
                             count += 1
                             pos -= pattern_len
 
-                        if count >= 20:  # Pattern repeats 20+ times
+                        if count >= 200:  # Pattern repeats 200+ times
                             logging.error(colored(f"\n⚠️  Model repetition loop detected: '{pattern}' repeated {count} times", "red"))
                             raise StreamInterruptedException(f"[REPETITION_LOOP_DETECTED: '{pattern}' x{count}]")
 
@@ -1559,11 +1559,9 @@ async def main(  # type: ignore[misc]
                     logging.warning(colored(f"⚠️  Could not enable console capture: {e}", "yellow"))
             except ImportError as e:
                 logging.error(colored(f"❌ Could not start visualresponse server: {e}", "red"))
-                import traceback
                 logging.error(traceback.format_exc())
             except Exception as e:
                 logging.error(colored(f"❌ Error starting visualresponse: {e}", "red"))
-                import traceback
                 logging.error(traceback.format_exc())
 
         context_chat: Optional[Chat] = None

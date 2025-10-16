@@ -38,8 +38,9 @@ http:
   routers:
     # Container Manager API
     # Handles both /api/manager/* and /api/backend/* (WebSocket + HTTP proxy)
+    # SECURITY: Only accept requests to local IP address
     container-manager:
-      rule: "PathPrefix(`/api/manager`) || PathPrefix(`/api/backend`)"
+      rule: "Host(`192.168.178.20`) && (PathPrefix(`/api/manager`) || PathPrefix(`/api/backend`))"
       service: container-manager
       priority: 10  # Higher than frontend (priority 1)
       entryPoints:

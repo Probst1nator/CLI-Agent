@@ -10,9 +10,9 @@ services:
     container_name: cli-agent-traefik
     restart: unless-stopped
     ports:
-      - "80:80"      # HTTP
-      - "443:443"    # HTTPS
-      - "8080:8080"  # Traefik Dashboard
+      - "192.168.178.20:80:80"      # HTTP - Local IP only
+      - "192.168.178.20:443:443"    # HTTPS - Local IP only
+      - "127.0.0.1:8080:8080"       # Traefik Dashboard - Localhost only
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
@@ -55,7 +55,7 @@ services:
       - BRAVE_API_KEY=${BRAVE_API_KEY}
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.manager.rule=PathPrefix(`/api/manager`) || PathPrefix(`/api/backend`)"
+      - "traefik.http.routers.manager.rule=Host(`192.168.178.20`) && (PathPrefix(`/api/manager`) || PathPrefix(`/api/backend`))"
       - "traefik.http.services.manager.loadbalancer.server.port=8080"
       - "traefik.http.routers.manager.middlewares=strip-manager-prefix@file,rate-limit@file,security-headers@file"
     deploy:
@@ -84,7 +84,7 @@ services:
       - cli-agent-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.rule=Host(`192.168.178.20`) && PathPrefix(`/`)"
       - "traefik.http.services.frontend.loadbalancer.server.port=80"
       - "traefik.http.routers.frontend.priority=1"  # Lowest priority (catch-all)
       - "traefik.http.routers.frontend.middlewares=security-headers@file,compress@file"
