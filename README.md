@@ -45,16 +45,15 @@ Deploy CLI-Agent as a web service where each user gets an isolated container:
 
 ```bash
 # Build all images
-./scripts/build_all.sh
+./saas_scripts/build_all.sh
 
 # Deploy infrastructure
-./scripts/deploy.sh
-
-# Test deployment
-./scripts/test_multi_user.sh
+./saas_scripts/deploy.sh
 ```
 
 **See:** [Multi-User Architecture Docs](docs/MULTI_USER_ARCHITECTURE.md) for details.
+
+**Note:** Multi-user architecture is experimental. For production use, see [Deployment Guide](docs/DEPLOYMENT.md).
 
 ## Installation
 
@@ -95,8 +94,8 @@ python tui_main.py
 
 ### Running Tests
 ```bash
-python test.py --quick
-python test.py --full
+python run_tests.py --quick
+python run_tests.py --full
 ```
 
 ## Architecture
@@ -145,7 +144,7 @@ The agent uses environment variables for configuration:
 
 ## Contributing
 
-1. Run tests: `python test.py`
+1. Run tests: `python run_tests.py`
 2. Check code formatting: `black .`
 3. Run linting: `ruff check .`
 
