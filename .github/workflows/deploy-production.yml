@@ -1,11 +1,14 @@
-name: Deploy to Production
+name: Deploy to Production (DISABLED)
 
+# DISABLED: Production deployment disabled in favor of staging-only deployment
+# on:
+#   push:
+#     branches:
+#       - release
+#       - production
+#   workflow_dispatch:  # Allow manual triggers
 on:
-  push:
-    branches:
-      - release
-      - production
-  workflow_dispatch:  # Allow manual triggers
+  workflow_dispatch:  # Manual trigger only (disabled by default)
 
 env:
   REGISTRY: ghcr.io

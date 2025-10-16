@@ -1107,29 +1107,51 @@ class visualresponse:
     def _get_session() -> VisualServerSession:
         """Legacy sync method - wraps async version"""
         import asyncio
+        import threading
 
         # Check if we already have an adapter
         if hasattr(visualresponse, '_adapter') and visualresponse._adapter is not None:
             return visualresponse._adapter
 
-        # Try to use running event loop
+        # If there's a running loop in this thread, offload to a new thread with its own loop
         try:
-            loop = asyncio.get_running_loop()
-            # We're in an async context - this shouldn't be called
-            # But if it is, we need to raise an error because we can't block
-            raise RuntimeError("Cannot call _get_session() from async context - use _get_session_async() instead")
+            running_loop = asyncio.get_running_loop()
+            # We are in an async context; create a helper thread to obtain the session
+            result_holder = {'adapter': None, 'error': None}
+
+            def _runner():
+                try:
+                    # Use a fresh event loop in this dedicated thread
+                    adapter = asyncio.run(visualresponse._get_session_async())
+                    result_holder['adapter'] = adapter
+                except Exception as e:
+                    result_holder['error'] = e
+
+            t = threading.Thread(target=_runner, daemon=True)
+            t.start()
+            # Wait briefly for the adapter to be created
+            t.join(timeout=5.0)
+            if result_holder['adapter'] is not None:
+                return result_holder['adapter']
+            if result_holder['error'] is not None:
+                raise result_holder['error']
+            # If still not ready, return existing adapter if any, otherwise raise a clear error
+            if hasattr(visualresponse, '_adapter') and visualresponse._adapter is not None:
+                return visualresponse._adapter
+            raise RuntimeError("visualresponse server initialization is in progress; try again shortly")
         except RuntimeError:
-            # No running loop - we're in sync context, safe to create one
+            # No running loop; safe to run the coroutine synchronously in this thread
             pass
 
-        # Get or create event loop
+        # Get or create event loop in this (non-async) thread and run the async method
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-
-        # Run the async version
+        if getattr(loop, 'is_running', lambda: False)():
+            # Safety guard: if loop is somehow running, fall back to thread offload path
+            return visualresponse._get_session()
         return loop.run_until_complete(visualresponse._get_session_async())
 
     @staticmethod
