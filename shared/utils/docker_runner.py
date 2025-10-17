@@ -11,7 +11,7 @@ import subprocess
 import shutil
 import hashlib
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 
 class DockerRunner:

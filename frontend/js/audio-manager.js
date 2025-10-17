@@ -19,6 +19,17 @@ class AudioManager {
         this.isTTSActive = false;
         this.volume = 1.0;
 
+        // VAD (Voice Activity Detection) settings
+        this.vadEnabled = false;
+        this.vadThreshold = 0.02;
+        this.vadSilenceDuration = 2.0;
+        this.vadMaxDuration = 20.0;
+        this.vadRecording = false;
+        this.vadSilentChunks = 0;
+        this.vadRecordedChunks = [];
+        this.vadStartTime = 0;
+        this.vadProcessor = null;
+
         console.log('AudioManager initialized');
 
         // Set flag on first user interaction to allow autoplay
@@ -114,6 +125,213 @@ class AudioManager {
             this.showError('Recording upload failed: ' + error.message);
             throw error;
         }
+    }
+
+    /**
+     * Start recording with automatic Voice Activity Detection
+     * Automatically stops after silence_duration seconds of silence
+     * @returns {Promise<string>} Transcribed text
+     */
+    async startRecordingWithVAD() {
+        try {
+            if (this.isRecording) {
+                console.warn('Already recording');
+                return '';
+            }
+
+            console.log(`Starting VAD recording (threshold: ${this.vadThreshold}, silence: ${this.vadSilenceDuration}s, max: ${this.vadMaxDuration}s)`);
+
+            this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 16000
+            });
+
+            const source = this.audioContext.createMediaStreamSource(this.stream);
+
+            this.vadProcessor = this.audioContext.createScriptProcessor(1600, 1, 1);
+
+            this.vadRecording = false;
+            this.vadSilentChunks = 0;
+            this.vadRecordedChunks = [];
+            this.vadStartTime = Date.now();
+            this.isRecording = true;
+
+            const numSilentChunksToStop = Math.floor(this.vadSilenceDuration * 10);
+
+            return new Promise((resolve, reject) => {
+                this.vadProcessor.onaudioprocess = (e) => {
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const amplitude = this.calculateAmplitude(inputData);
+                    const isLoud = amplitude > this.vadThreshold;
+
+                    const elapsed = (Date.now() - this.vadStartTime) / 1000;
+                    if (elapsed > this.vadMaxDuration) {
+                        console.log('VAD: Max duration reached, stopping');
+                        this.showStatus('Max recording time reached', 'warning');
+                        this.stopRecordingVAD().then(resolve).catch(reject);
+                        return;
+                    }
+
+                    if (this.vadRecording) {
+                        this.vadRecordedChunks.push(new Float32Array(inputData));
+
+                        if (isLoud) {
+                            this.vadSilentChunks = 0;
+                        } else {
+                            this.vadSilentChunks++;
+                            if (this.vadSilentChunks > numSilentChunksToStop) {
+                                console.log('VAD: Silence detected, stopping');
+                                this.showStatus('Processing...', 'info');
+                                this.stopRecordingVAD().then(resolve).catch(reject);
+                                return;
+                            }
+                        }
+                    } else if (isLoud) {
+                        console.log('VAD: Speech detected, starting recording');
+                        this.showStatus('Recording...', 'info');
+                        this.vadRecording = true;
+                        this.vadRecordedChunks.push(new Float32Array(inputData));
+
+                        const voiceBtn = document.getElementById('voice-btn');
+                        if (voiceBtn) {
+                            voiceBtn.classList.remove('vad-listening');
+                            voiceBtn.classList.add('vad-recording');
+                        }
+                    }
+                };
+
+                source.connect(this.vadProcessor);
+                this.vadProcessor.connect(this.audioContext.destination);
+
+                this.showStatus('Listening for speech...', 'info');
+            });
+
+        } catch (error) {
+            console.error('Failed to start VAD recording:', error);
+
+            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                this.showError('Microphone access denied. Please allow microphone access in your browser settings.');
+            } else if (error.name === 'NotFoundError') {
+                this.showError('No microphone found. Please connect a microphone.');
+            } else {
+                this.showError('Failed to start recording: ' + error.message);
+            }
+
+            throw error;
+        }
+    }
+
+    /**
+     * Stop VAD recording and process audio
+     * @returns {Promise<string>} Transcribed text
+     */
+    async stopRecordingVAD() {
+        try {
+            this.isRecording = false;
+
+            if (this.vadProcessor) {
+                this.vadProcessor.disconnect();
+                this.vadProcessor = null;
+            }
+
+            if (this.audioContext) {
+                await this.audioContext.close();
+                this.audioContext = null;
+            }
+
+            if (this.stream) {
+                this.stream.getTracks().forEach(track => track.stop());
+                this.stream = null;
+            }
+
+            const voiceBtn = document.getElementById('voice-btn');
+            if (voiceBtn) {
+                voiceBtn.classList.remove('vad-listening', 'vad-recording');
+            }
+
+            if (this.vadRecordedChunks.length === 0) {
+                console.log('No speech detected');
+                this.showStatus('No speech detected', 'warning');
+                return '';
+            }
+
+            const totalLength = this.vadRecordedChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+            const mergedAudio = new Float32Array(totalLength);
+            let offset = 0;
+            for (const chunk of this.vadRecordedChunks) {
+                mergedAudio.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            const audioBlob = this.float32ArrayToWav(mergedAudio, 16000);
+            console.log('VAD recording complete, blob size:', audioBlob.size);
+
+            this.showStatus('Transcribing...', 'info');
+            const text = await this.uploadAudio(audioBlob);
+
+            this.vadRecordedChunks = [];
+            return text;
+
+        } catch (error) {
+            console.error('Failed to stop VAD recording:', error);
+            this.showError('Recording processing failed: ' + error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Calculate amplitude of audio samples
+     * @param {Float32Array} samples - Audio samples
+     * @returns {number} Average absolute amplitude
+     */
+    calculateAmplitude(samples) {
+        let sum = 0;
+        for (let i = 0; i < samples.length; i++) {
+            sum += Math.abs(samples[i]);
+        }
+        return sum / samples.length;
+    }
+
+    /**
+     * Convert Float32Array audio to WAV blob
+     * @param {Float32Array} samples - Audio samples
+     * @param {number} sampleRate - Sample rate
+     * @returns {Blob} WAV audio blob
+     */
+    float32ArrayToWav(samples, sampleRate) {
+        const buffer = new ArrayBuffer(44 + samples.length * 2);
+        const view = new DataView(buffer);
+
+        const writeString = (offset, string) => {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        };
+
+        const floatTo16BitPCM = (output, offset, input) => {
+            for (let i = 0; i < input.length; i++, offset += 2) {
+                const s = Math.max(-1, Math.min(1, input[i]));
+                output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            }
+        };
+
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + samples.length * 2, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(36, 'data');
+        view.setUint32(40, samples.length * 2, true);
+
+        floatTo16BitPCM(view, 44, samples);
+
+        return new Blob([view], { type: 'audio/wav' });
     }
 
     /**

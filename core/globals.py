@@ -198,6 +198,7 @@ class Globals:
         # --- Mode Flags ---
         self.auto_execute: bool = False  # Auto-execute mode flag
         self.voice_mode: bool = False  # Voice mode flag
+        self.tts_only_mode: bool = False  # TTS-only mode flag (speak without mic input)
         self.local_mode: bool = False  # Local mode flag
         self.online_mode: bool = False  # Online mode flag
 
@@ -1235,7 +1236,10 @@ class Globals:
 
         context = SessionContext(
             session_id=session_id,
-            chat=chat
+            chat=chat,
+            voice_mode=self.voice_mode,
+            tts_only_mode=self.tts_only_mode,
+            auto_execute=self.auto_execute
         )
         self.sessions[session_id] = context
 

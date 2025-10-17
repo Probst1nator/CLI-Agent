@@ -225,7 +225,46 @@ class VisualResponseApp {
                 this.updateButtonStates(data.state);
             });
 
-            // Listen for message completion to trigger TTS
+            // Listen for message_added events to trigger TTS
+            this.wsManager.on('message_added', async (data) => {
+                // Only trigger TTS for assistant messages with visualresponse/response tags
+                if (this.speakModeEnabled && data.message && data.message.role === 'assistant' && data.message.content) {
+                    // Extract text ONLY from visualresponse or response tags
+                    const content = data.message.content;
+                    const visualResponseMatch = /<visualresponse>\s*(?:<action>.*?<\/action>\s*)?<type>.*?<\/type>\s*<content>([\s\S]*?)<\/content>\s*<\/visualresponse>/i.exec(content);
+                    const responseMatch = /<response>(.*?)<\/response>/is.exec(content);
+
+                    let text = '';
+                    if (visualResponseMatch) {
+                        text = visualResponseMatch[1].trim();
+                        // Strip HTML and markdown
+                        text = text.replace(/<[^>]+>/g, ' ').replace(/[#*_`]/g, '');
+                    } else if (responseMatch) {
+                        text = responseMatch[1].trim();
+                    }
+                    // No fallback - only speak visualresponse/response content
+
+                    text = text.replace(/\s+/g, ' ').trim();
+
+                    if (text && text.trim()) {
+                        // Check if user has interacted yet (browser autoplay policy)
+                        if (!this.audioManager.hasUserInteraction) {
+                            console.log('⏸️ TTS queued - waiting for user interaction (browser autoplay policy)');
+                            this.pendingTTS = text;
+                            this.showAutoplayPrompt();
+                        } else {
+                            console.log('🔊 Final response received, speak mode active - triggering TTS');
+                            try {
+                                await this.audioManager.playTTS(text, 'auto');
+                            } catch (error) {
+                                console.error('TTS playback failed:', error);
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Legacy: Listen for message_end events (not currently sent by backend)
             this.wsManager.on('message_end', async (data) => {
                 if (this.speakModeEnabled && data.content) {
                     console.log('🔊 Message ended, speak mode active - triggering TTS');
@@ -283,17 +322,24 @@ class VisualResponseApp {
         if (this.voiceBtn) {
             if (state.voice_mode && !state.tts_only_mode) {
                 this.voiceBtn.classList.add('active');
-                this.speakBtn.classList.remove('active');
+                this.voiceBtn.disabled = false;
             } else {
                 this.voiceBtn.classList.remove('active');
             }
         }
 
         // Update speak button and sync frontend state
-        if (this.speakBtn) {
+        // Only update if user hasn't manually overridden speak mode
+        if (this.speakBtn && !this.speakModeManualOverride) {
             if (state.tts_only_mode) {
                 this.speakBtn.classList.add('active');
+                this.speakBtn.disabled = false;
                 this.voiceBtn.classList.remove('active');
+                this.speakModeEnabled = true;
+            } else if (state.voice_mode) {
+                // Voice mode includes TTS, so enable TTS playback and show as active
+                this.speakBtn.classList.add('active');
+                this.speakBtn.disabled = false;
                 this.speakModeEnabled = true;
             } else {
                 this.speakBtn.classList.remove('active');
@@ -752,6 +798,8 @@ class VisualResponseApp {
 
         // Frontend-controlled speak mode state
         this.speakModeEnabled = false;
+        this.speakModeManualOverride = false; // Track if user manually toggled speak mode
+        this.pendingTTS = null; // Queue TTS waiting for user interaction
 
         // Initialize LLM selectors
         this.initializeLLMSelectors();
@@ -890,11 +938,6 @@ class VisualResponseApp {
         if (message && this.wsManager.isConnected()) {
             const images = [];
 
-            // Show loading indicator IMMEDIATELY before any async operations
-            if (!message.startsWith('/')) {
-                this.showLoadingIndicator();
-            }
-
             // Disable send button to prevent double-send
             const sendButton = document.querySelector('#chat-form button[type="submit"]');
             if (sendButton) {
@@ -932,6 +975,13 @@ class VisualResponseApp {
 
                 if (!sendSuccess) {
                     throw new Error('Failed to send message via WebSocket');
+                }
+
+                // Show loading indicator AFTER message is sent (will appear after user message)
+                if (!message.startsWith('/')) {
+                    setTimeout(() => {
+                        this.showLoadingIndicator();
+                    }, 50);
                 }
 
                 // Clear input only after successful send
@@ -1283,6 +1333,9 @@ class VisualResponseApp {
         this.voiceBtn.addEventListener('click', async () => {
             console.log('🎤 Voice button clicked');
 
+            // Clear manual override - let backend state control TTS
+            this.speakModeManualOverride = false;
+
             // Send voice command to agent
             if (this.wsManager && this.wsManager.isConnected()) {
                 this.wsManager.sendMessage('/voice');
@@ -1303,27 +1356,50 @@ class VisualResponseApp {
 
                 // Handle microphone recording
                 if (this.audioManager) {
+                    // Check if VAD mode is enabled
+                    const vadToggle = document.getElementById('vad-toggle');
+                    const vadEnabled = vadToggle && vadToggle.checked;
+
                     if (isActive) {
-                        // Start recording
+                        // Start recording (VAD or manual)
                         try {
-                            await this.audioManager.startRecording();
-                            console.log('🎤 Microphone recording started');
+                            if (vadEnabled) {
+                                console.log('🎤 Starting VAD recording (auto-stop on silence)');
+                                this.voiceBtn.classList.add('vad-listening');
+
+                                const transcription = await this.audioManager.startRecordingWithVAD();
+
+                                this.voiceBtn.classList.remove('vad-listening', 'vad-recording');
+                                console.log('🎤 VAD recording complete, transcription:', transcription);
+
+                                if (transcription && this.wsManager) {
+                                    this.wsManager.sendMessage(transcription);
+                                }
+
+                                this.voiceBtn.classList.remove('active');
+                                this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
+                            } else {
+                                console.log('🎤 Starting manual recording');
+                                await this.audioManager.startRecording();
+                            }
                         } catch (error) {
                             console.error('Failed to start recording:', error);
                             // Revert button state on error
-                            this.voiceBtn.classList.remove('active');
+                            this.voiceBtn.classList.remove('active', 'vad-listening', 'vad-recording');
                             return;
                         }
                     } else {
-                        // Stop recording and send audio
-                        try {
-                            const transcription = await this.audioManager.stopRecording();
-                            console.log('🎤 Recording stopped, transcription:', transcription);
-                            if (transcription && this.wsManager) {
-                                this.wsManager.sendMessage(transcription);
+                        // Stop manual recording and send audio (VAD auto-stops)
+                        if (!vadEnabled) {
+                            try {
+                                const transcription = await this.audioManager.stopRecording();
+                                console.log('🎤 Recording stopped, transcription:', transcription);
+                                if (transcription && this.wsManager) {
+                                    this.wsManager.sendMessage(transcription);
+                                }
+                            } catch (error) {
+                                console.error('Failed to stop recording:', error);
                             }
-                        } catch (error) {
-                            console.error('Failed to stop recording:', error);
                         }
                     }
                 }
@@ -1403,6 +1479,7 @@ class VisualResponseApp {
 
             // Toggle frontend state (no backend command needed)
             this.speakModeEnabled = !this.speakModeEnabled;
+            this.speakModeManualOverride = true; // Mark as manually overridden
 
             // Visual feedback - toggle active state
             this.speakBtn.classList.toggle('active', this.speakModeEnabled);
@@ -3256,6 +3333,35 @@ class VisualResponseApp {
         this.autoSaveTimeout = setTimeout(() => {
             this.saveCurrentConfigToSlot(this.activeProfileSlot);
         }, 2000);
+    }
+
+    showAutoplayPrompt() {
+        // Show a subtle banner prompting user to click to enable audio
+        let banner = document.getElementById('autoplay-prompt');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'autoplay-prompt';
+            banner.className = 'autoplay-prompt';
+            banner.innerHTML = '🔊 Click anywhere to enable audio';
+            banner.style.cssText = 'position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #4a9eff; color: white; padding: 10px 20px; border-radius: 5px; z-index: 10000; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.3);';
+            document.body.appendChild(banner);
+
+            // Remove banner and play pending TTS on any click
+            const playPending = async () => {
+                banner.remove();
+                if (this.pendingTTS) {
+                    console.log('🔊 Playing queued TTS after user interaction');
+                    try {
+                        await this.audioManager.playTTS(this.pendingTTS, 'auto');
+                        this.pendingTTS = null;
+                    } catch (error) {
+                        console.error('Failed to play pending TTS:', error);
+                    }
+                }
+                document.removeEventListener('click', playPending);
+            };
+            document.addEventListener('click', playPending, { once: true });
+        }
     }
 
 }

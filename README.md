@@ -63,7 +63,7 @@ Deploy CLI-Agent as a web service where each user gets an isolated container:
 ./saas_scripts/build_all.sh
 
 # Deploy infrastructure
-./saas_scripts/deploy.sh
+./saas_scripts/deploy_infrastructure.sh
 ```
 
 **See:** [Multi-User Architecture Docs](docs/MULTI_USER_ARCHITECTURE.md) for details.

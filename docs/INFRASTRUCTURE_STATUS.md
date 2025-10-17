@@ -40,7 +40,7 @@ python main.py --api        # API server only
 **Build & Deploy:**
 ```bash
 ./saas_scripts/build_all.sh    # Build Docker images
-./saas_scripts/deploy.sh       # Deploy infrastructure
+./saas_scripts/deploy_infrastructure.sh       # Deploy infrastructure
 ```
 
 **Architecture:**
@@ -124,7 +124,7 @@ If you need true multi-tenancy:
 2. Update `docker-compose.infrastructure.yml` for your network
 3. Configure secrets in GitHub Actions
 4. Enable `deploy-production.yml` workflow
-5. Deploy via workflow or `saas_scripts/deploy.sh`
+5. Deploy via workflow or `saas_scripts/deploy_infrastructure.sh`
 
 **Required secrets:**
 - `DEPLOY_HOST` - Production server IP/domain
@@ -147,7 +147,7 @@ If you need true multi-tenancy:
 ### For Development:
 1. Use single-user mode locally: `python main.py --gui`
 2. Test multi-user mode if building multi-tenant features
-3. Use `saas_scripts/deploy.sh` for local Docker testing
+3. Use `saas_scripts/deploy_infrastructure.sh` for local Docker testing
 
 ---
 
