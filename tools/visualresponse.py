@@ -1263,7 +1263,8 @@ class visualresponse:
             # Set current viz_id in tool context for live tool updates
             tool_context.set_current_viz_id(viz_id)
 
-            return f"Visual response created with ID '{viz_id}' and sent to the live UI on port {session.port}."
+            return "Visual response created successfully."
+            # return f"Visual response created successfully with ID '{viz_id}' and sent to the live UI on port {session.port}."
 
         except Exception as e:
             logger.error(f"Fatal error in visualresponse tool: {e}", exc_info=True)

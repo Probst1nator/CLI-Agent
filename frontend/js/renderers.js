@@ -975,8 +975,12 @@ class ContentRenderer {
         timestampDiv.appendChild(buttonContainer);
 
         if (!isUserMessage && toolInfo && Array.isArray(toolInfo) && toolInfo.length > 0) {
-            const toolsHeader = document.createElement('div');
-            toolsHeader.className = 'loading-tools-header';
+            let toolsHeader = messageBlock.querySelector('.loading-tools-header');
+            const needsToolsCreation = !toolsHeader;
+
+            if (needsToolsCreation) {
+                toolsHeader = document.createElement('div');
+                toolsHeader.className = 'loading-tools-header';
 
             toolInfo.forEach((tool, index) => {
                 const toolItem = document.createElement('div');
@@ -1030,7 +1034,10 @@ class ContentRenderer {
                 toolsHeader.appendChild(toolItem);
             });
 
-            messageBlock.appendChild(toolsHeader);
+                if (needsToolsCreation) {
+                    messageBlock.appendChild(toolsHeader);
+                }
+            }
         }
 
         // Create content container

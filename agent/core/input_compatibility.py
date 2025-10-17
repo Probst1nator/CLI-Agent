@@ -123,8 +123,17 @@ async def get_user_input_with_bindings_unified(
     except ImportError:
         pass
 
-    # Only use voice input if not in TTS-only mode
-    if voice_mode_active and is_main_prompt and not tts_only_mode:
+    # Only use voice input if not in GUI/API mode (frontend handles voice in those modes)
+    gui_or_api_mode = False
+    try:
+        from core.globals import g
+        if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+            gui_or_api_mode = True
+    except ImportError:
+        pass
+
+    # Use backend voice input only in CLI mode with voice enabled
+    if voice_mode_active and is_main_prompt and not tts_only_mode and not gui_or_api_mode:
         from agent.core.input_manager import InputSource
         source = InputSource.VOICE
 
