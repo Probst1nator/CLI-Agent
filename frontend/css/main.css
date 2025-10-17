@@ -1584,11 +1584,23 @@ code:not(pre > code) {
     color: white;
     font-weight: bold;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: opacity 0.2s, background-color 0.2s;
 }
 
 #chat-form button[type="submit"]:hover {
     opacity: 0.9;
+}
+
+#chat-form button[type="submit"]:disabled,
+#chat-form button[type="submit"].processing {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background-color: #6c757d;
+}
+
+#chat-form button[type="submit"].processing::after {
+    content: "...";
+    animation: dots 1.5s steps(3, end) infinite;
 }
 
 /* --- Send Indicator Overlay --- */
@@ -1661,6 +1673,22 @@ code:not(pre > code) {
 
 .loading-indicator.show {
     display: block;
+}
+
+.loading-indicator.error {
+    background: rgba(231, 76, 60, 0.1);
+    border-color: #e74c3c;
+}
+
+.loading-indicator.error .loading-spinner {
+    border: none;
+    animation: none;
+    font-size: 1.2rem;
+}
+
+.loading-indicator.error .loading-text {
+    color: #e74c3c;
+    font-weight: 500;
 }
 
 .loading-content {

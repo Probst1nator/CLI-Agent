@@ -173,3 +173,43 @@ class AnthropicAPI(AIProviderInterface):
 
         return CancellableAnthropicStream(raw_stream, cls._cancellation_event, model_key)
 
+    @staticmethod
+    def custom_anthropic_call(model: str, messages: list, max_tokens: int = 1024, temperature: float = 0.7, system: str = None):
+        """
+        Direct Anthropic API call using Claude Code subscription auth.
+        No API key needed - uses Claude Code authentication.
+
+        Args:
+            model (str): Model identifier (e.g., "claude-sonnet-4-5-20250929")
+            messages (list): List of message dicts with 'role' and 'content' keys
+            max_tokens (int): Maximum tokens to generate
+            temperature (float): Temperature for generation
+            system (str): Optional system prompt
+
+        Returns:
+            Message object from Anthropic SDK
+
+        Example:
+            from core.providers.cls_anthropic_interface import AnthropicAPI
+
+            response = AnthropicAPI.custom_anthropic_call(
+                model="claude-sonnet-4-5-20250929",
+                messages=[{"role": "user", "content": "Write hello world in Rust"}],
+                max_tokens=1024
+            )
+            print(response.content[0].text)
+        """
+        client = Anthropic()
+
+        create_args = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature
+        }
+
+        if system:
+            create_args["system"] = system
+
+        return client.messages.create(**create_args)
+

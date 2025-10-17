@@ -40,7 +40,22 @@ python main.py --gui        # Web interface
 python main.py --api        # API server only
 ```
 
-### 2. Multi-User Production (Docker)
+### 2. Isolated Mode (Docker - Single Run) 🆕
+Run in a fully isolated Docker container with a single flag:
+
+```bash
+# First run (builds cached image, ~2-3 min)
+python main.py --isolated
+
+# Subsequent runs (instant start, ~2-5 sec)
+python main.py --isolated -m "Your message here"
+python main.py --isolated --gui  # Web interface in container
+```
+
+**Benefits**: Full isolation, no dependency conflicts, auto-syncs latest code
+**See:** [Isolated Mode Docs](docs/ISOLATED_MODE.md) for details.
+
+### 3. Multi-User Production (Docker)
 Deploy CLI-Agent as a web service where each user gets an isolated container:
 
 ```bash
