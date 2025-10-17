@@ -84,6 +84,19 @@ else:
     def suppress_warnings_runtime():
         yield
 
+# --- EARLY DETECTION: Isolated Mode ---
+# Check for --isolated flag BEFORE any heavy imports to enable fast Docker handoff
+if '--isolated' in sys.argv:
+    # Add project root to path for imports
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    # Import and run Docker orchestrator (this will exec and never return)
+    from shared.utils.docker_runner import run_in_isolated_container
+    run_in_isolated_container(sys.argv)
+    # Never reaches here - process is replaced with docker run
+
 # NOW safe to import other modules
 import time
 import logging
@@ -574,6 +587,9 @@ def parse_cli_args() -> argparse.Namespace:
 
     parser.add_argument("--clear-cache", type=int, nargs='?', const=2, default=None, metavar='DAYS',
                         help="Clear LLM cache entries older than N days (default: 2 days). Use --clear-cache 365 to clear the recent year. Exits after clearing.")
+
+    parser.add_argument("--isolated", action="store_true", default=False,
+                        help="Run in isolated Docker container (builds cached image on first use, ~2-3 min initial build, instant subsequent runs)")
 
     parser.add_argument("-e", "--exit", action="store_true", default=False,
                         help="Exit after all automatic messages have been parsed successfully")

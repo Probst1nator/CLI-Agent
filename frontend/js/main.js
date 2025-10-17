@@ -890,36 +890,82 @@ class VisualResponseApp {
         if (message && this.wsManager.isConnected()) {
             const images = [];
 
-            // Capture screen if continuous capture is enabled
-            if (this.screenCaptureEnabled) {
-                try {
-                    console.log('📸 Capturing screenshot from continuous stream...');
-                    const screenshot = await this.screenCaptureManager.captureFromStream();
-                    images.push(screenshot);
-                    console.log('✅ Screenshot captured');
-                } catch (error) {
-                    console.error('❌ Screenshot capture failed:', error);
+            // Show loading indicator IMMEDIATELY before any async operations
+            if (!message.startsWith('/')) {
+                this.showLoadingIndicator();
+            }
+
+            // Disable send button to prevent double-send
+            const sendButton = document.querySelector('#chat-form button[type="submit"]');
+            if (sendButton) {
+                sendButton.disabled = true;
+                sendButton.classList.add('processing');
+            }
+
+            try {
+                // Capture screen if continuous capture is enabled
+                if (this.screenCaptureEnabled) {
+                    try {
+                        console.log('📸 Capturing screenshot from continuous stream...');
+                        const screenshot = await this.screenCaptureManager.captureFromStream();
+                        images.push(screenshot);
+                        console.log('✅ Screenshot captured');
+                    } catch (error) {
+                        console.error('❌ Screenshot capture failed:', error);
+                    }
+                }
+
+                // Only show interrupt button for non-command messages (commands don't generate agent responses)
+                if (!message.startsWith('/')) {
+                    this.showInterruptButton();
+                }
+
+                // Send the message with images and tool configuration
+                // Note: Don't display user message here - the message_added WebSocket event will handle rendering
+                const messageWithConfig = {
+                    message: message,
+                    images: images,
+                    toolConfig: window.ToolManager ? window.ToolManager.getToolConfiguration() : null
+                };
+
+                const sendSuccess = this.wsManager.sendMessage(JSON.stringify(messageWithConfig));
+
+                if (!sendSuccess) {
+                    throw new Error('Failed to send message via WebSocket');
+                }
+
+                // Clear input only after successful send
+                this.chatInput.value = '';
+                this.chatInput.focus();
+
+                // Reset screenshot state if a screenshot was ready (screenshot has been sent)
+                this.resetScreenshotState();
+
+            } catch (error) {
+                console.error('❌ Failed to send message:', error);
+
+                // Show error state in loading indicator
+                this.showErrorIndicator('Failed to send message. Please try again.');
+
+                // Hide interrupt button since message failed to send
+                this.hideInterruptButton();
+
+                // Restore input placeholder with error feedback
+                const originalPlaceholder = this.chatInput.placeholder;
+                this.chatInput.placeholder = '❌ Message failed to send';
+                this.chatInput.style.borderColor = '#dc3545';
+
+                setTimeout(() => {
+                    this.chatInput.placeholder = originalPlaceholder;
+                    this.chatInput.style.borderColor = '';
+                }, 3000);
+            } finally {
+                // Re-enable send button
+                if (sendButton) {
+                    sendButton.disabled = false;
+                    sendButton.classList.remove('processing');
                 }
             }
-
-            // Only show interrupt button for non-command messages (commands don't generate agent responses)
-            if (!message.startsWith('/')) {
-                this.showInterruptButton();
-            }
-
-            // Send the message with images and tool configuration
-            // Note: Don't display user message here - the message_added WebSocket event will handle rendering
-            const messageWithConfig = {
-                message: message,
-                images: images,
-                toolConfig: window.ToolManager ? window.ToolManager.getToolConfiguration() : null
-            };
-            this.wsManager.sendMessage(JSON.stringify(messageWithConfig));
-            this.chatInput.value = '';
-            this.chatInput.focus();
-
-            // Reset screenshot state if a screenshot was ready (screenshot has been sent)
-            this.resetScreenshotState();
 
         } else if (!this.wsManager.isConnected()) {
             // Visual feedback for connection error
@@ -1002,13 +1048,10 @@ class VisualResponseApp {
         // Force immediate scroll after user message
         this.scrollToBottom();
 
-        // Only show loading indicator if this is not a command (doesn't start with "/")
-        // Commands don't generate agent responses, so no loading indicator is needed
-        if (!message.trim().startsWith('/')) {
-            this.showLoadingIndicator();
-        }
+        // Note: Loading indicator is now shown in handleChatSubmit() BEFORE sending
+        // to provide instant feedback. No need to show it again here.
 
-        // Scroll again after loading indicator is added (or immediately if no indicator)
+        // Scroll again after a brief delay to ensure all content is rendered
         setTimeout(() => this.scrollToBottom(), 10);
     }
 
@@ -1969,6 +2012,51 @@ class VisualResponseApp {
             }
             loadingIndicator.remove();
         }
+    }
+
+    /**
+     * Show error indicator when message send fails
+     * @param {string} errorMessage - Error message to display
+     */
+    showErrorIndicator(errorMessage) {
+        // Remove any existing loading indicator first
+        this.hideLoadingIndicator();
+
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper) return;
+
+        // Create error indicator
+        const errorIndicator = document.createElement('div');
+        errorIndicator.className = 'loading-indicator error show';
+        errorIndicator.id = 'agent-loading-indicator';
+
+        const errorContent = document.createElement('div');
+        errorContent.className = 'loading-content';
+
+        const errorIcon = document.createElement('div');
+        errorIcon.className = 'loading-spinner';
+        errorIcon.textContent = '❌';
+
+        const errorText = document.createElement('div');
+        errorText.className = 'loading-text';
+        errorText.textContent = errorMessage;
+
+        errorContent.appendChild(errorIcon);
+        errorContent.appendChild(errorText);
+        errorIndicator.appendChild(errorContent);
+
+        // Add to content wrapper
+        contentWrapper.appendChild(errorIndicator);
+
+        // Auto-hide error after 4 seconds
+        setTimeout(() => {
+            if (errorIndicator.parentNode) {
+                errorIndicator.remove();
+            }
+        }, 4000);
+
+        // Scroll to show the error indicator
+        this.scrollToBottom();
     }
 
     /**

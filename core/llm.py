@@ -152,8 +152,14 @@ class Llm:
                 Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, []),
             ])
 
-        # Add other static models
-        # Llm(AnthropicAPI(), "claude-3-7-sonnet-20250219", 3, 200000, []),
+        # Note: Claude models require Anthropic API credits (separate from Claude Code subscription)
+        # Uncomment below and add ANTHROPIC_API_KEY to use:
+        # from core.providers.cls_anthropic_interface import AnthropicAPI
+        # llms.extend([
+        #     Llm(AnthropicAPI(), "claude-sonnet-4-5-20250929", 3, 200000, [AIStrengths.VISION]),
+        #     Llm(AnthropicAPI(), "claude-opus-4-20250514", 15, 200000, [AIStrengths.VISION]),
+        #     Llm(AnthropicAPI(), "claude-3-5-haiku-20241022", 1, 200000, [AIStrengths.VISION]),
+        # ])
 
         # Static configured Ollama models (these will be supplemented by dynamic discovery)
         # Context lengths will be dynamically fetched from Ollama

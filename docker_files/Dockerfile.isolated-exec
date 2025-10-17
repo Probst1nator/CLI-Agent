@@ -1,0 +1,45 @@
+# Dockerfile for --isolated mode execution
+# This creates a cached base image with all dependencies installed
+# Source code is copied at runtime for instant updates
+
+FROM python:3.10-slim
+
+LABEL maintainer="CLI-Agent Team"
+LABEL description="Isolated execution environment for CLI-Agent --isolated mode"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    espeak espeak-data libespeak-dev \
+    ca-certificates \
+    python3-tk \
+    libatomic1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create workspace and user directories
+RUN mkdir -p /cli-agent /workspace && \
+    useradd -m -u 1000 -s /bin/bash cliagent && \
+    chown -R cliagent:cliagent /cli-agent /workspace
+
+# Copy requirements and install Python dependencies
+# This is cached and only rebuilt when requirements.txt changes
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
+
+# Environment variables
+ENV PYTHONPATH=/cli-agent
+ENV PYTHONUNBUFFERED=1
+ENV CLI_AGENT_MODE=isolated
+ENV CLI_AGENT_HOST=0.0.0.0
+
+# Working directory
+WORKDIR /cli-agent
+
+# Switch to non-root user
+USER cliagent
+
+# Default command (will be overridden at runtime)
+CMD ["python3", "main.py", "--help"]
