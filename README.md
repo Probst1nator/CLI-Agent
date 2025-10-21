@@ -92,4 +92,4 @@ The agent uses environment variables for configuration:
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3 (AGPL-3.0).
+This project is licensed under the Apache License, Version 2.0.
