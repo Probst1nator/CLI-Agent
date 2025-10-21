@@ -306,11 +306,20 @@ class VisualResponseApp {
     async fetchAgentState() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/agent/state') : '/api/agent/state';
-            const response = await fetch(url);
-            const data = await response.json();
-            if (data.status === 'success' && data.state) {
-                console.log('📥 Initial state loaded:', data.state);
-                this.updateButtonStates(data.state);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+            try {
+                const response = await fetch(url, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                const data = await response.json();
+                if (data.status === 'success' && data.state) {
+                    console.log('📥 Initial state loaded:', data.state);
+                    this.updateButtonStates(data.state);
+                }
+            } catch (error) {
+                clearTimeout(timeoutId);
+                throw error;
             }
         } catch (error) {
             console.warn('Failed to fetch agent state:', error);
@@ -801,8 +810,8 @@ class VisualResponseApp {
         this.speakModeManualOverride = false; // Track if user manually toggled speak mode
         this.pendingTTS = null; // Queue TTS waiting for user interaction
 
-        // Initialize LLM selectors
-        this.initializeLLMSelectors();
+        // Initialize Dynamic LLM Manager for multi-model fallback support
+        this.initializeDynamicLLMManager();
     }
 
     setupMarkedRenderer() {
@@ -2759,116 +2768,19 @@ class VisualResponseApp {
     /**
      * Initialize the LLM selectors in the header
      */
-    initializeLLMSelectors() {
-        // Check if SearchableLLMSelectbox is available
-        if (typeof SearchableLLMSelectbox === 'undefined') {
-            console.warn('SearchableLLMSelectbox not available, LLM selectors will not be initialized');
+    /**
+     * Initialize Dynamic LLM Manager for multi-model fallback support
+     */
+    initializeDynamicLLMManager() {
+        // Check if DynamicLLMManager is available
+        if (typeof DynamicLLMManager === 'undefined') {
+            console.warn('DynamicLLMManager not available, LLM selectors will not be initialized');
             return;
         }
 
-        // Initialize the LLM selectors (including router and planner)
-        this.llmSelectors = {};
-        this.llmSelectorsLoaded = { router: false, planner: false, primary: false, fallback1: false, fallback2: false };
-
-        // Store system configuration for reference
-        this.systemConfiguration = null;
-
-        // Create a callback to track when all selectors have loaded their models
-        const onModelsLoaded = (selector, models, systemConfig) => {
-            // Store the system configuration from the first selector that loads
-            if (systemConfig && !this.systemConfiguration) {
-                this.systemConfiguration = systemConfig;
-                window.visualLogger.debug('System configuration received:', systemConfig);
-            }
-
-            // Find which selector this is
-            const selectorName = Object.keys(this.llmSelectors).find(key => this.llmSelectors[key] === selector);
-            if (selectorName) {
-                this.llmSelectorsLoaded[selectorName] = true;
-                window.visualLogger.debug(`Models loaded for ${selectorName} selector: ${models.length} models`);
-
-                // Check if all selectors have loaded their models
-                const allLoaded = Object.values(this.llmSelectorsLoaded).every(loaded => loaded);
-                if (allLoaded) {
-                    window.visualLogger.info('All LLM selectors have loaded their models');
-                    this.initializeFromSystemConfiguration();
-                }
-            }
-        };
-
-        // Router LLM selector
-        const routerContainer = document.getElementById('router-llm-selector');
-        if (routerContainer) {
-            this.llmSelectors.router = new SearchableLLMSelectbox(routerContainer, {
-                placeholder: 'Router LLM...',
-                id: 'llm-router',
-                includeNoneOption: true,  // Special flag for router to include None option
-                onSelectionChange: (model) => this.handleRouterLLMSelectionChange(model),
-                onModelsLoaded: onModelsLoaded
-            });
-        }
-
-        // Planner LLM selector
-        const plannerContainer = document.getElementById('planner-llm-selector');
-        if (plannerContainer) {
-            this.llmSelectors.planner = new SearchableLLMSelectbox(plannerContainer, {
-                placeholder: 'Planner LLM...',
-                id: 'llm-planner',
-                includeNoneOption: true,
-                onSelectionChange: (model) => this.handlePlannerLLMSelectionChange(model),
-                onModelsLoaded: onModelsLoaded
-            });
-        }
-
-        // Override LLM selector
-        const overrideContainer = document.getElementById('override-llm-selector');
-        if (overrideContainer) {
-            this.llmSelectors.override = new SearchableLLMSelectbox(overrideContainer, {
-                placeholder: 'Override LLM...',
-                id: 'llm-override',
-                includeNoneOption: true,
-                onSelectionChange: (model) => this.handleOverrideLLMSelectionChange(model),
-                onModelsLoaded: onModelsLoaded
-            });
-        }
-
-        // Primary LLM selector
-        const primaryContainer = document.getElementById('llm-selector-primary');
-        if (primaryContainer) {
-            this.llmSelectors.primary = new SearchableLLMSelectbox(primaryContainer, {
-                placeholder: 'Primary LLM...',
-                id: 'llm-primary',
-                includeNoneOption: true,
-                onSelectionChange: (model) => this.handleLLMSelectionChange('primary', model),
-                onModelsLoaded: onModelsLoaded
-            });
-        }
-
-        // First fallback LLM selector
-        const fallback1Container = document.getElementById('llm-selector-fallback1');
-        if (fallback1Container) {
-            this.llmSelectors.fallback1 = new SearchableLLMSelectbox(fallback1Container, {
-                placeholder: 'Fallback 1...',
-                id: 'llm-fallback1',
-                includeNoneOption: true,
-                onSelectionChange: (model) => this.handleLLMSelectionChange('fallback1', model),
-                onModelsLoaded: onModelsLoaded
-            });
-        }
-
-        // Second fallback LLM selector
-        const fallback2Container = document.getElementById('llm-selector-fallback2');
-        if (fallback2Container) {
-            this.llmSelectors.fallback2 = new SearchableLLMSelectbox(fallback2Container, {
-                placeholder: 'Fallback 2...',
-                id: 'llm-fallback2',
-                includeNoneOption: true,
-                onSelectionChange: (model) => this.handleLLMSelectionChange('fallback2', model),
-                onModelsLoaded: onModelsLoaded
-            });
-        }
-
-        window.visualLogger.info('LLM selectors initialized successfully');
+        // Instantiate the Dynamic LLM Manager
+        this.dynamicLLMManager = new DynamicLLMManager();
+        window.visualLogger.info('Dynamic LLM Manager initialized successfully');
     }
 
     /**
@@ -3192,22 +3104,31 @@ class VisualResponseApp {
     async loadProfileSlots() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/profiles') : '/api/profiles';
-            const response = await fetch(url);
-            const data = await response.json();
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-            if (data.status === 'success') {
-                this.profileSlots = {};
+            try {
+                const response = await fetch(url, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                const data = await response.json();
 
-                data.profiles.forEach(profile => {
-                    this.profileSlots[profile.id] = profile;
-                });
+                if (data.status === 'success') {
+                    this.profileSlots = {};
 
-                this.updateProfileSlotUI();
+                    data.profiles.forEach(profile => {
+                        this.profileSlots[profile.id] = profile;
+                    });
 
-                if (data.active_profile) {
-                    this.activeProfileSlot = data.active_profile;
-                    this.markSlotAsActive(data.active_profile);
+                    this.updateProfileSlotUI();
+
+                    if (data.active_profile) {
+                        this.activeProfileSlot = data.active_profile;
+                        this.markSlotAsActive(data.active_profile);
+                    }
                 }
+            } catch (error) {
+                clearTimeout(timeoutId);
+                throw error;
             }
         } catch (error) {
             console.error('Failed to load profile slots:', error);

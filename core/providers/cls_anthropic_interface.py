@@ -171,6 +171,26 @@ class AnthropicAPI(AIProviderInterface):
                     except Exception as e:
                         logger.debug(f"Error closing Anthropic stream: {e}")
 
+            @property
+            def text_stream(self):
+                """Extract text from Anthropic streaming events"""
+                def text_stream_generator():
+                    """Parse Anthropic raw events and extract text content"""
+                    try:
+                        for event in self:
+                            if self.cancellation_event and self.cancellation_event.is_set():
+                                logger.debug(f"Anthropic text_stream for {self.model_key} cancelled via interruption")
+                                break
+
+                            # Extract text from RawContentBlockDeltaEvent
+                            if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
+                                yield event.delta.text
+                    except Exception as e:
+                        logger.warning(f"Error in Anthropic text_stream extraction: {e}")
+                        raise
+
+                return text_stream_generator()
+
         return CancellableAnthropicStream(raw_stream, cls._cancellation_event, model_key)
 
     @staticmethod

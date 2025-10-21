@@ -2785,6 +2785,60 @@ html[data-theme='light'] .llm-context {
     gap: 2px;
 }
 
+/* Dynamic LLM Selectors Container */
+.dynamic-llm-selectors-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-right: 5px;
+}
+
+/* Add LLM Selector Button */
+.add-llm-selector-btn {
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.add-llm-selector-btn:hover {
+    background-color: var(--button-hover-bg);
+    border-color: var(--primary-color);
+    transform: scale(1.1);
+}
+
+.add-llm-selector-btn:active {
+    transform: scale(0.95);
+}
+
+/* Dynamic selector wrapper for individual items */
+.dynamic-llm-selector-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+}
+
+/* Fallback label styling for dynamic items */
+.dynamic-llm-selector-item .llm-fallback-label {
+    font-size: 11px;
+    color: var(--text-color);
+    opacity: 0.6;
+    margin-right: 2px;
+}
+
 /* Responsive design for LLM selection */
 @media (max-width: 1400px) {
     .header-controls {

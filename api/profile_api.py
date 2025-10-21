@@ -92,9 +92,15 @@ async def get_llms(request: Any) -> Any:
         g.load_llm_roles()
         llm_config = g.get_llm_config(force_reread=True)
         selected_llms = g.SELECTED_LLMS
+
+        # Get both single model (backward compat) and multi-model arrays
         planner_llm = g.planner_llm
         router_llm = g.router_llm
         override_llm = g.override_llm
+
+        planner_llms = g.planner_llms_list
+        router_llms = g.router_llms_list
+        override_llms = g.override_llms_list
 
         logger.info(f"Served LLM data: {len(llm_data)} models from {len(set(m['provider'] for m in llm_data))} providers")
 
@@ -104,9 +110,14 @@ async def get_llms(request: Any) -> Any:
             'total_count': len(llm_data),
             'current_configuration': {
                 'selected_llms': selected_llms,
+                # Backward compatibility: single model properties
                 'planner_llm': planner_llm,
                 'router_llm': router_llm,
-                'override_llm': override_llm
+                'override_llm': override_llm,
+                # New: multi-model arrays for dynamic fallback support
+                'planner_llms': planner_llms,
+                'router_llms': router_llms,
+                'override_llms': override_llms
             }
         })
 
@@ -119,8 +130,72 @@ async def get_llms(request: Any) -> Any:
         }, status=500)
 
 
+async def update_llm_config(request: Any) -> Any:
+    """POST /api/llms/config
+
+    Update LLM role configuration with multi-model support.
+
+    Request body:
+    {
+        "role": "planner" | "router" | "override" | "fallbacks",
+        "models": ["model1", "model2", ...]  // Array for multi-model fallback chain
+    }
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        from core.globals import g
+
+        data = await request.json()
+        role = data.get('role')
+        models = data.get('models', [])
+
+        if not role:
+            return web.json_response({
+                'status': 'error',
+                'error': 'Missing required field: role',
+                'code': 'INVALID_REQUEST'
+            }, status=400)
+
+        if not isinstance(models, list):
+            return web.json_response({
+                'status': 'error',
+                'error': 'models must be an array',
+                'code': 'INVALID_REQUEST'
+            }, status=400)
+
+        # Update the role configuration
+        g.update_llm_role(role=role, model_keys=models if models else None)
+
+        logger.info(f"Updated LLM role '{role}' to models: {models}")
+
+        return web.json_response({
+            'status': 'success',
+            'message': f'LLM role {role} updated successfully',
+            'role': role,
+            'models': models
+        })
+
+    except ValueError as e:
+        logger.error(f"Invalid LLM role update: {e}")
+        return web.json_response({
+            'status': 'error',
+            'error': str(e),
+            'code': 'INVALID_ROLE'
+        }, status=400)
+    except Exception as e:
+        logger.error(f"Failed to update LLM config: {e}", exc_info=True)
+        return web.json_response({
+            'status': 'error',
+            'error': f'Failed to update LLM config: {str(e)}',
+            'code': 'INTERNAL_ERROR'
+        }, status=500)
+
+
 def setup_routes(app: Any):
     """Register all profile API routes"""
     app.router.add_get('/api/profiles', get_profiles)
     app.router.add_get('/api/llms', get_llms)
+    app.router.add_post('/api/llms/config', update_llm_config)
     logger.info("Profile API routes registered")

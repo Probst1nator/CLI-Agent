@@ -58,36 +58,37 @@
             <div class="override-llm-container">
                 <span class="override-llm-label">Override:</span>
                 <div class="override-llm-selector-wrapper" title="Override LLM: When set, always uses this model, bypassing router/planner selection.">
-                    <div id="override-llm-selector"></div>
+                    <div id="override-llm-selectors-container" class="dynamic-llm-selectors-container" data-role="override">
+                        <!-- Dynamic override LLM selectors will be added here -->
+                    </div>
+                    <button class="add-llm-selector-btn" data-role="override" title="Add override fallback model">+</button>
                 </div>
             </div>
             <div class="router-llm-container">
                 <span class="router-llm-label">Router:</span>
                 <div class="router-llm-selector-wrapper" title="Router LLM: Used for routing decisions. Can be set to None to disable routing.">
-                    <div id="router-llm-selector"></div>
+                    <div id="router-llm-selectors-container" class="dynamic-llm-selectors-container" data-role="router">
+                        <!-- Dynamic router LLM selectors will be added here -->
+                    </div>
+                    <button class="add-llm-selector-btn" data-role="router" title="Add router fallback model">+</button>
                 </div>
             </div>
             <div class="planner-llm-container">
                 <span class="planner-llm-label">Planner:</span>
                 <div class="planner-llm-selector-wrapper" title="Planner LLM: Used for the first agent turn to establish initial reasoning and planning. Defaults to the first default model.">
-                    <div id="planner-llm-selector"></div>
+                    <div id="planner-llm-selectors-container" class="dynamic-llm-selectors-container" data-role="planner">
+                        <!-- Dynamic planner LLM selectors will be added here -->
+                    </div>
+                    <button class="add-llm-selector-btn" data-role="planner" title="Add planner fallback model">+</button>
                 </div>
             </div>
             <div class="llm-selection-container">
                 <span class="llm-selection-label">Defaults:</span>
                 <div class="llm-selectors-row">
-                    <div class="llm-selector-wrapper">
-                        <span class="llm-fallback-label">1st</span>
-                        <div id="llm-selector-primary"></div>
+                    <div id="fallbacks-llm-selectors-container" class="dynamic-llm-selectors-container" data-role="fallbacks">
+                        <!-- Dynamic fallback LLM selectors will be added here -->
                     </div>
-                    <div class="llm-selector-wrapper">
-                        <span class="llm-fallback-label">2nd</span>
-                        <div id="llm-selector-fallback1"></div>
-                    </div>
-                    <div class="llm-selector-wrapper">
-                        <span class="llm-fallback-label">3rd</span>
-                        <div id="llm-selector-fallback2"></div>
-                    </div>
+                    <button class="add-llm-selector-btn" data-role="fallbacks" title="Add fallback model">+</button>
                 </div>
             </div>
             <button id="global-js-toggle" class="js-enabled" title="Toggle JavaScript for all messages">
@@ -257,6 +258,7 @@
     <script src="/js/audio-manager.js"></script>
     <script src="/js/screen-capture.js"></script>
     <script src="/js/llm-selector.js"></script>
+    <script src="/js/dynamic-llm-manager.js"></script>
     <script src="/js/tool-manager.js"></script>
     <script src="/js/chat-history.js"></script>
     <script src="/js/main.js"></script>

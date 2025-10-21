@@ -958,7 +958,7 @@ class ResetCommand(BaseCommand):
 
 
 class PlannerLlmCommand(BaseCommand):
-    """Command to set the planner LLM."""
+    """Command to set the planner LLM with optional fallback chain."""
 
     @property
     def aliases(self) -> List[str]:
@@ -966,31 +966,36 @@ class PlannerLlmCommand(BaseCommand):
 
     @property
     def description(self) -> str:
-        return 'Set the planner LLM'
+        return 'Set the planner LLM with optional fallback chain'
 
     @property
     def usage(self) -> str:
-        return '<model_key|"None">'
+        return '<model1> [model2] [model3] ... (use "None" to disable)'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
-                message="Usage: /planner_llm <model_key> (use 'None' to disable)"
+                message="Usage: /planner_llm <model1> [model2] [model3] ... (use 'None' to disable)"
             )
 
-        model_key = parts[1]
-        if model_key.lower() == "none":
-            model_key = None
+        # Support multi-model fallback chain
+        model_keys = [m for m in parts[1:] if m.lower() != "none"]
 
         try:
             from core.globals import g
-            g.update_llm_role('planner', model_key)
 
-            if model_key:
-                message = f"Planner LLM set to: {model_key}"
-            else:
+            if not model_keys:
+                # Disable planner
+                g.update_llm_role('planner', model_keys=None)
                 message = "Planner LLM disabled"
+            else:
+                # Set planner with fallback chain
+                g.update_llm_role('planner', model_keys=model_keys)
+                if len(model_keys) == 1:
+                    message = f"Planner LLM set to: {model_keys[0]}"
+                else:
+                    message = f"Planner LLM set to: {model_keys[0]} (with {len(model_keys)-1} fallback(s))"
 
             print(colored(f"# cli-agent: {message}", "green"))
             return CommandResponse(result=CommandResult.CONTINUE, message=message)
@@ -1002,7 +1007,7 @@ class PlannerLlmCommand(BaseCommand):
 
 
 class RouterLlmCommand(BaseCommand):
-    """Command to set the router LLM."""
+    """Command to set the router LLM with optional fallback chain."""
 
     @property
     def aliases(self) -> List[str]:
@@ -1010,31 +1015,36 @@ class RouterLlmCommand(BaseCommand):
 
     @property
     def description(self) -> str:
-        return 'Set the router LLM'
+        return 'Set the router LLM with optional fallback chain'
 
     @property
     def usage(self) -> str:
-        return '<model_key|"None">'
+        return '<model1> [model2] [model3] ... (use "None" to disable)'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
-                message="Usage: /router_llm <model_key> (use 'None' to disable)"
+                message="Usage: /router_llm <model1> [model2] [model3] ... (use 'None' to disable)"
             )
 
-        model_key = parts[1]
-        if model_key.lower() == "none":
-            model_key = None
+        # Support multi-model fallback chain
+        model_keys = [m for m in parts[1:] if m.lower() != "none"]
 
         try:
             from core.globals import g
-            g.update_llm_role('router', model_key)
 
-            if model_key:
-                message = f"Router LLM set to: {model_key}"
-            else:
+            if not model_keys:
+                # Disable router
+                g.update_llm_role('router', model_keys=None)
                 message = "Router LLM disabled"
+            else:
+                # Set router with fallback chain
+                g.update_llm_role('router', model_keys=model_keys)
+                if len(model_keys) == 1:
+                    message = f"Router LLM set to: {model_keys[0]}"
+                else:
+                    message = f"Router LLM set to: {model_keys[0]} (with {len(model_keys)-1} fallback(s))"
 
             print(colored(f"# cli-agent: {message}", "green"))
             return CommandResponse(result=CommandResult.CONTINUE, message=message)
@@ -1046,7 +1056,7 @@ class RouterLlmCommand(BaseCommand):
 
 
 class OverrideLlmCommand(BaseCommand):
-    """Command to set the override LLM."""
+    """Command to set the override LLM with optional fallback chain."""
 
     @property
     def aliases(self) -> List[str]:
@@ -1054,31 +1064,36 @@ class OverrideLlmCommand(BaseCommand):
 
     @property
     def description(self) -> str:
-        return 'Set the override LLM (bypasses router/planner selection)'
+        return 'Set the override LLM with optional fallback chain (bypasses router/planner selection)'
 
     @property
     def usage(self) -> str:
-        return '<model_key|"None">'
+        return '<model1> [model2] [model3] ... (use "None" to disable)'
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
-                message="Usage: /override_llm <model_key> (use 'None' to disable)"
+                message="Usage: /override_llm <model1> [model2] [model3] ... (use 'None' to disable)"
             )
 
-        model_key = parts[1]
-        if model_key.lower() == "none":
-            model_key = None
+        # Support multi-model fallback chain
+        model_keys = [m for m in parts[1:] if m.lower() != "none"]
 
         try:
             from core.globals import g
-            g.update_llm_role('override', model_key)
 
-            if model_key:
-                message = f"Override LLM set to: {model_key}"
-            else:
+            if not model_keys:
+                # Disable override
+                g.update_llm_role('override', model_keys=None)
                 message = "Override LLM disabled"
+            else:
+                # Set override with fallback chain
+                g.update_llm_role('override', model_keys=model_keys)
+                if len(model_keys) == 1:
+                    message = f"Override LLM set to: {model_keys[0]}"
+                else:
+                    message = f"Override LLM set to: {model_keys[0]} (with {len(model_keys)-1} fallback(s))"
 
             print(colored(f"# cli-agent: {message}", "green"))
             return CommandResponse(result=CommandResult.CONTINUE, message=message)
