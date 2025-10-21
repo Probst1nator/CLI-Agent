@@ -32,16 +32,21 @@ python main.py
 
 # With web GUI
 python main.py --gui
+
 # As API only
 python main.py --api
 
 # With voice/speech
-python main.py -s               # speech mode
-python main.py -v               # voice mode
-python main.py --gui               # voice mode
+python main.py -s               # speech mode (transcription + TTS)
+python main.py -v               # voice mode (transcription only)
 
 # Debug mode (verbose logging to console)
 python main.py --debug
+
+# Isolated mode (Docker container with full isolation)
+python main.py --isolated       # First run builds image (~2-3 min)
+python main.py --isolated --gui # Subsequent runs start instantly (~2-5 sec)
+python main.py --isolated -m "Your message"
 ```
 
 ### Development Setup
@@ -59,6 +64,18 @@ cp .env.example .env
 ```
 
 ## Architecture Overview
+
+### Recent Architectural Changes (2025-10)
+
+**Infrastructure Cleanup**: The multi-user SaaS architecture has been marked as experimental and is no longer the primary deployment model. Focus has shifted to:
+- **Local/isolated mode** as the primary deployment option
+- **Single-user web interface** for personal use
+- **Docker isolated mode** for secure, containerized execution
+- Multi-user infrastructure remains available but is experimental (see `docs/INFRASTRUCTURE_STATUS.md`)
+
+**Script Organization**: Scripts have been reorganized:
+- `saas_scripts/`: Multi-user infrastructure deployment scripts (experimental)
+- `user_scripts/`: User-facing setup and utility scripts (setup_cli_agent.sh, manage_search_cache.py, etc.)
 
 ### Core Design Pattern: AppContext as Single Source of Truth
 
@@ -100,6 +117,9 @@ The codebase has transitioned from argparse-dependent commands to an **AppContex
 - **`api/`**: Backend API layer (separate from tool system)
 - **`frontend/`**: Web UI assets (HTML, CSS, JS)
 - **`tests/`**: Comprehensive test suite organized by component
+- **`saas_scripts/`**: Multi-user infrastructure deployment scripts (experimental)
+- **`user_scripts/`**: User-facing setup and utility scripts
+- **`docker_files/`**: Dockerfiles for various deployment modes
 
 ### LLM Routing Architecture
 
@@ -152,20 +172,67 @@ Unified input management supporting multiple sources:
 - **`command_processor.py`**: Specialized processors for commands, text, interrupts, images (argparse-free)
 - **`unified_completion.py`**: Command completion across all interfaces
 
-### Tool System
+### Tool System Architecture
 
-**Vector-based tool discovery** (`tools/` + RAG system):
-- Tools are automatically indexed in ChromaDB vector database
-- Context-aware tool suggestions based on conversation
+**Auto-discovery and invocation** (`tools/` directory):
+- Tools are Python modules auto-discovered at startup from `tools/` directory
+- Each tool implements a standard 3-method contract for consistent integration
+- LLM receives tool descriptions in system prompt and outputs XML-tagged calls
+- Agent loop parses XML, invokes tool's `run()` method, returns result to LLM
+
+**The Tool Contract** (required for all tools):
+
+Each tool must implement exactly three static methods:
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `get_delim()` | `() -> str` | Returns the XML tag name (e.g., "bash" → `<bash>...</bash>`) |
+| `get_tool_info()` | `() -> dict` | Returns tool metadata: `{"name": str, "description": str, "example": str}` |
+| `run(content)` | `(content: str) -> str` or `async (content: str) -> str` | Executes tool logic, receives inner XML content, returns result string |
+
+**Synchronous vs Asynchronous Tools**:
+- **Sync tools** (`def run(content: str) -> str`): Simple operations, file I/O, quick commands
+- **Async tools** (`async def run(content: str) -> str`): Network calls, LLM operations, long-running tasks
+- Main loop automatically detects and handles both patterns using `asyncio.iscoroutinefunction()`
+
+**XML Parsing Patterns**:
+```python
+# Simple tag extraction
+title = re.search(r'<title>(.*?)</title>', content, re.DOTALL).group(1).strip()
+
+# Optional parameters with defaults
+timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
+timeout = int(timeout_match.group(1)) if timeout_match else 30
+
+# Boolean flags
+use_cache = True
+cache_match = re.search(r'<cache>(.*?)</cache>', content, re.DOTALL)
+if cache_match and cache_match.group(1).strip().lower() == 'false':
+    use_cache = False
+```
+
+**Tool-Specific Logging**:
+```python
+from shared.utils.tool_logging import get_logger_for_tool_module
+logger = get_logger_for_tool_module(__name__)
+# Logs automatically go to ~/.cli-agent/logs/tools_<toolname>.log
+```
+
+**Vector-based tool discovery** (RAG system):
+- Tools indexed in ChromaDB vector database for semantic search
+- Context-aware tool suggestions based on conversation history
 - Permission system integration with path-aware rules
 - Tool manager UI for enable/disable toggling
 
 **Key tools**:
-- `bash.py`: Command execution with permission checks
-- `readfile.py`, `editfile.py`: File operations with path resolution
+- `bash.py`: Command execution with permission checks, persistent session, timeout handling
+- `readfile.py`, `editfile.py`, `writefile.py`: File operations with path resolution
 - `grepsearch.py`, `searchresource.py`: Code search and resource inspection utilities
-- `searchweb.py`: Web search integration
+- `searchweb.py`: Web search with LLM-powered summarization and result caching
+- `googlekeep.py`: Google Keep API integration with OAuth 2.0 authentication
 - `visualresponse.py`: Delegates to API server for visual UI rendering
+
+**See `tools/CLAUDE.md` for detailed implementation guide with examples.**
 
 ### Logging Architecture (`docs/LOGGING.md`)
 
@@ -281,11 +348,74 @@ Required for LLM providers:
 
 ### Adding a New Tool
 
-1. Create tool file in `tools/` with tool function and XML schema
-2. Add tool metadata for vector indexing
-3. Implement permission checks if needed
-4. Add tests in `tests/tools/`
-5. Tool will be auto-discovered by vector RAG system
+**Quick Reference:**
+1. Create `tools/your_tool.py` with the 3-method contract (`get_delim`, `get_tool_info`, `run`)
+2. Add dependencies to `requirements.txt` if needed
+3. Add environment variables to `.env.example` for configuration
+4. Implement XML parsing for input parameters
+5. Add tool-specific logging using `get_logger_for_tool_module(__name__)`
+6. Create comprehensive tests in `tests/tools/test_your_tool.py`
+7. Tool will be auto-discovered at startup - no registration needed!
+
+**Detailed Steps:**
+
+1. **Create the tool file** (`tools/your_tool.py`):
+   ```python
+   from shared.utils.tool_logging import get_logger_for_tool_module
+   logger = get_logger_for_tool_module(__name__)
+
+   class your_tool:
+       @staticmethod
+       def get_delim() -> str:
+           return 'your_tool'
+
+       @staticmethod
+       def get_tool_info() -> dict:
+           return {
+               "name": "your_tool",
+               "description": "What your tool does and when to use it",
+               "example": "<your_tool><param>value</param></your_tool>"
+           }
+
+       @staticmethod
+       async def run(content: str) -> str:  # or 'def' for sync
+           # Parse XML parameters
+           # Execute logic
+           # Return result string
+           pass
+   ```
+
+2. **Add dependencies** to `requirements.txt`:
+   ```bash
+   # Your Tool Dependencies
+   your-library>=1.0.0  # Brief description
+   ```
+
+3. **Add configuration** to `.env.example`:
+   ```bash
+   # Your Tool Configuration
+   YOUR_TOOL_API_KEY=your_api_key_here
+   YOUR_TOOL_CONFIG_PATH=~/.cli-agent/your_tool_config.json
+   ```
+
+4. **Create tests** (`tests/tools/test_your_tool.py`):
+   ```python
+   from tools.your_tool import your_tool
+
+   def test_your_tool_basic():
+       result = your_tool.run("<param>test</param>")
+       assert "expected" in result
+
+   # Assign test level for hierarchical testing
+   test_your_tool_basic.level = 2
+   ```
+
+5. **Run tests**:
+   ```bash
+   python -m pytest tests/tools/test_your_tool.py -v
+   ```
+
+**For detailed implementation patterns, examples, and best practices, see `tools/CLAUDE.md`**
 
 ### Adding a New API Endpoint
 
@@ -312,6 +442,39 @@ Required for LLM providers:
 - **Archive**: Old chats stored in `~/.cli-agent/chat_history/`
 - **Search**: Web UI has BM25 search with snippet highlighting
 
+### Using Isolated Mode
+
+Isolated mode runs CLI-Agent in a Docker container with full filesystem isolation:
+
+1. **First run** (builds cached image):
+   ```bash
+   python main.py --isolated
+   # Takes ~2-3 minutes to build image
+   ```
+
+2. **Subsequent runs** (instant startup):
+   ```bash
+   python main.py --isolated -m "Your message"
+   python main.py --isolated --gui
+   # Takes ~2-5 seconds (reuses cached image)
+   ```
+
+3. **Source code auto-sync**: Latest code is automatically synced into container on every run
+4. **Persistent data**: `~/.cli-agent/` directory is mounted for chat history and config
+5. **Working directory access**: Current directory is accessible at `/workspace` in container
+
+**When to use isolated mode**:
+- Testing changes in a clean environment
+- Running untrusted code safely
+- Ensuring consistent dependencies
+- Debugging environment-specific issues
+
+**Rebuilding image** (when requirements.txt changes):
+```bash
+docker rmi cli-agent:isolated-cache
+python main.py --isolated  # Rebuilds automatically
+```
+
 ## Critical Notes
 
 1. **Use `main.py`, not `main_refactored.py`** for development and deployment
@@ -322,9 +485,14 @@ Required for LLM providers:
 6. **Permission checks**: All file/tool operations must check permissions
 7. **Provider failover**: LLM router automatically retries with different providers
 8. **Session audit**: All web sessions logged with IP, timestamps, chat snapshots (GDPR-compliant)
+9. **Isolated mode**: Use `--isolated` flag for Docker containerization with auto-sync of source code
+10. **Multi-user infrastructure**: Experimental status - not production-ready (see `docs/INFRASTRUCTURE_STATUS.md`)
 
 ## Related Documentation
 
 - `docs/LOGGING.md`: Comprehensive logging system documentation
+- `docs/ISOLATED_MODE.md`: Docker isolated mode documentation
+- `docs/BACKEND_FRONTEND_ARCHITECTURE.md`: Modern web backend/frontend architecture
+- `docs/INFRASTRUCTURE_STATUS.md`: Multi-user deployment status and options
 - `INDEX.md`: Complete file index with recent changes
 - `README.md`: Installation and basic usage
