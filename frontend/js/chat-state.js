@@ -37,35 +37,44 @@ class ChatStateManager {
         try {
             console.log('Loading current chat from backend...');
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/current') : '/api/chat/current';
-            const response = await fetch(url, {
-                headers: {
-                    'X-Session-ID': window.sessionId || ''
-                }
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout for chat load
 
-            const data = await response.json();
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'X-Session-ID': window.sessionId || ''
+                    },
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
 
-            if (data.status === 'success' && data.chat) {
-                console.log(`Loaded current chat with ${data.chat.messages ? data.chat.messages.length : 0} messages`);
+                const data = await response.json();
 
-                this.messages = data.chat.messages || [];
-                this.currentChatId = data.chat.id || null;
-                this.metadata = data.chat.metadata || {};
+                if (data.status === 'success' && data.chat) {
+                    console.log(`Loaded current chat with ${data.chat.messages ? data.chat.messages.length : 0} messages`);
 
-                // Render all messages
-                if (this.messages.length > 0) {
-                    this.renderAll();
-                    console.log('✅ Chat messages rendered on page load');
+                    this.messages = data.chat.messages || [];
+                    this.currentChatId = data.chat.id || null;
+                    this.metadata = data.chat.metadata || {};
+
+                    // Render all messages
+                    if (this.messages.length > 0) {
+                        this.renderAll();
+                        console.log('✅ Chat messages rendered on page load');
+                    } else {
+                        console.log('No messages to render (new chat)');
+                    }
+
+                    this.emit('chat_loaded', data.chat);
+                    this.emit('state_changed');
                 } else {
-                    console.log('No messages to render (new chat)');
+                    console.log('No active chat or empty response');
                 }
-
-                this.emit('chat_loaded', data.chat);
-                this.emit('state_changed');
-            } else {
-                console.log('No active chat or empty response');
+            } catch (error) {
+                clearTimeout(timeoutId);
+                throw error;
             }
-
         } catch (error) {
             console.error('Failed to load current chat:', error);
             // Don't show error to user - might be a new chat

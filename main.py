@@ -566,8 +566,19 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-o", "--online", action="store_true", default=False,
                         help="Force use of cloud AI.")
 
-    parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None,
-                        help="Specify the LLM model key to use (e.g., 'gemini-2.5-flash', 'gemma3n:e2b'). Use without value to open selection menu.")
+    # Role-specific LLM selection arguments (support multiple models for fallback chains)
+    parser.add_argument("--override", type=str, nargs='+', default=None,
+                        help="Override LLM model(s) - bypasses router/planner selection. Supports multiple models for fallback chain (e.g., --override gemini-2.0-flash claude-haiku-4-5)")
+    parser.add_argument("--router", type=str, nargs='+', default=None,
+                        help="Router LLM model(s) for complexity assessment. Supports multiple models for fallback chain.")
+    parser.add_argument("--planner", type=str, nargs='+', default=None,
+                        help="Planner LLM model(s) for high-complexity tasks. Supports multiple models for fallback chain.")
+    parser.add_argument("--defaults", type=str, nargs='+', default=None,
+                        help="Default/fallback LLM model(s) for general tasks. Supports multiple models.")
+
+    # Backward compatibility: --llm is an alias for --override
+    parser.add_argument("-llm", "--llm", type=str, nargs='?', const="__select__", default=None, dest='override',
+                        help="[DEPRECATED: use --override] Specify override LLM model. Use without value to open selection menu.")
 
     parser.add_argument("--gui", action="store_true", default=False,
                         help="Open a web interface for the chat (opens browser automatically)")
@@ -997,7 +1008,7 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
     if result.get("selection_type") == "any_local":
         g.FORCE_LOCAL = True
         args.local = True
-        args.llm = None # No specific LLM is set
+        args.defaults = None # No specific defaults are set
         logging.info(colored("# cli-agent: 'Any but local' option selected. Local mode enabled.", "green") )
         return []
 
@@ -1006,8 +1017,8 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
 
     selected_llms = [config['model_key'] for config in selected_configs]
 
-    # Update globals with the latest selection
-    args.llm = selected_llms
+    # Update globals with the latest selection (LLM selector selects default/fallback models)
+    args.defaults = selected_llms
     g.SELECTED_LLMS = selected_llms
 
     # Reload the config in `g` so the main loop gets the fresh settings
@@ -1021,13 +1032,13 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
         previously_selected = g.SELECTED_LLMS
 
         if previously_selected:
-            args.llm = previously_selected
+            args.defaults = previously_selected
             logging.info(colored(f"📋 Loaded {len(previously_selected)} selected models from config: {', '.join(previously_selected[:3])}{'...' if len(previously_selected) > 3 else ''}", "cyan"))
 
     except Exception as e:
         logging.warning(colored(f"⚠️  Failed to load saved LLM configuration: {e}", "yellow"))
 
-    if not args.llm:
+    if not args.defaults and not args.override:
         logging.info(colored("# cli-agent: LLM set to auto, type (-h) for info", "green") )
     else:
         # Count unique models by provider and configuration
@@ -1076,8 +1087,7 @@ def create_interruption_callback(
     # Dynamically build a regex for registered tool blocks. This is more robust
     # and prevents premature interruption on non-tool XML tags like <filepath>.
     # Define tags that should NOT interrupt the stream, allowing the agent to output them fully before pausing.
-    # non_interrupting_tags = {'think', 'todos'}
-    non_interrupting_tags = {}
+    non_interrupting_tags = {'think', 'todos'}
 
     # Get all tool delimiters and add the final <response> tag.
     all_delimiters = list(getattr(g, 'tool_classes', {}).keys())
@@ -1526,10 +1536,32 @@ async def main(  # type: ignore[misc]
 
         load_dotenv(g.CLIAGENT_ENV_FILE_PATH)
 
-        if not args.llm and not args.local:
+        # Apply default LLM config if no role-specific models were specified
+        if not args.override and not args.router and not args.planner and not args.defaults and not args.local:
             apply_default_llm_config()
 
         # LLM roles are automatically loaded by g.load_llm_roles() during globals initialization
+
+        # Apply command-line role-specific model selections (overrides config file)
+        if args.override:
+            models = args.override if isinstance(args.override, list) else [args.override]
+            g.update_llm_role('override', model_keys=models)
+            logging.info(colored(f"🎯 Override LLM set via CLI: {', '.join(models)}", "cyan"))
+
+        if args.router:
+            models = args.router if isinstance(args.router, list) else [args.router]
+            g.update_llm_role('router', model_keys=models)
+            logging.info(colored(f"🧭 Router LLM set via CLI: {', '.join(models)}", "cyan"))
+
+        if args.planner:
+            models = args.planner if isinstance(args.planner, list) else [args.planner]
+            g.update_llm_role('planner', model_keys=models)
+            logging.info(colored(f"📋 Planner LLM set via CLI: {', '.join(models)}", "cyan"))
+
+        if args.defaults:
+            models = args.defaults if isinstance(args.defaults, list) else [args.defaults]
+            g.update_llm_role('fallbacks', model_keys=models)
+            logging.info(colored(f"⚙️  Default LLMs set via CLI: {', '.join(models)}", "cyan"))
 
         # Configure TTS engine priority based on --remote-tts flag
         if getattr(args, 'online_voice', False):
@@ -1637,11 +1669,13 @@ async def main(  # type: ignore[misc]
             else:
                 if not tui_callback: logging.warning(colored("# cli-agent: Local mode enabled, but no local models were found.", "yellow"))
 
-        if args.llm == "__select__":
+        # Handle interactive LLM selection (triggered by --llm without value or --override without value)
+        if args.override == "__select__":
             await llm_selection(args, preselected_llms=g.SELECTED_LLMS)
-            args.llm = None
-        elif args.llm:
-            g.SELECTED_LLMS = [args.llm]
+            args.override = None
+        elif args.override and not isinstance(args.override, list):
+            # Single override model passed as string (convert to list for consistency)
+            args.override = [args.override]
 
 
         is_tui = bool(tui_callback)
@@ -1771,14 +1805,22 @@ async def main(  # type: ignore[misc]
 
             g.FORCE_LOCAL = args.local
             g.DEBUG_CHATS = args.debug_chats
-            g.LLM = args.llm
+            g.LLM = args.override
 
             # --- UNIFIED INPUT GATHERING ---
             # All input sources are now handled within get_user_input_with_bindings
-            user_input, new_images = await get_user_input_with_bindings(
-                args, context_chat, force_input=user_interrupt,
-                input_event=input_event, input_lock=input_lock, shared_input=shared_input
-            )
+            try:
+                user_input, new_images = await get_user_input_with_bindings(
+                    args, context_chat, force_input=user_interrupt,
+                    input_event=input_event, input_lock=input_lock, shared_input=shared_input
+                )
+            except (KeyboardInterrupt, EOFError):
+                # Handle Ctrl+C during input waiting
+                print(colored("\n🛑 INTERRUPT SIGNAL RECEIVED - Cancelling current operation...", "red", attrs=['bold']))
+                _interrupt_flag.set()
+                g.USER_INTERRUPT_REQUESTED = True
+                user_interrupt = True
+                continue
 
             # Reset user_interrupt flag after successful input to allow queue processing
             user_interrupt = False
@@ -1870,7 +1912,7 @@ async def main(  # type: ignore[misc]
                     if context_chat:
                         context_chat.save_to_json()
 
-                    UNCOMPRESSED_HISTORY = 4
+                    UNCOMPRESSED_HISTORY = 1
                     if (len(context_chat.messages) > UNCOMPRESSED_HISTORY):
                         for i in range(UNCOMPRESSED_HISTORY,UNCOMPRESSED_HISTORY+1):
                             message = context_chat.messages[-i]
@@ -1895,14 +1937,17 @@ async def main(  # type: ignore[misc]
                             break
 
                         # Check for override model first - if set, use it exclusively and skip routing
+                        # (Override can be set via --override CLI arg or /override_llm command)
                         if g.override_llm:
-                            selected_models = [g.override_llm] + g.FALLBACK_MODELS
+                            # Use override model with its fallback chain + global fallbacks
+                            selected_models = g.override_llms_list + g.FALLBACK_MODELS
                         # Use router for complexity assessment if available
                         elif g.router_llm:
                             difficulty_chat = Chat("You are a complexity assessment assistant. Analyze the conversations needs and respond with a chain of thought followed by a score.")
                             difficulty_chat.add_message(Role.USER, "Analyze the complexity of formulating the next response in this conversation. Here are some few shot examples for you to reenact: The user provided a simple greeting (Complexity: 1%), A fileread of a known filepath is needed for the next step (15%), searching the web or filesystem (35%), applying edits to a file (50%), managing running processes (60%), authoring a new file (80%), implementing a script (90%), implementing a visualization (100%). Based on your level of uncertainty about the next action regress your score to 50%.\nProvide *brief* reasoning, then end with: COMPLEXITY_SCORE: [number 1-100]\n\nConversation:\n" + context_chat.print_chat(-3, None, True))
                             # In local mode, don't force preferred models since they might be cloud models
-                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=[g.router_llm] + g.FALLBACK_MODELS, hidden_reason="Complexity Assessment")
+                            # Use router model with its fallback chain + global fallbacks
+                            response = await LlmRouter.generate_completion(difficulty_chat, preferred_models=g.router_llms_list + g.FALLBACK_MODELS, hidden_reason="Complexity Assessment", force_free=True)
                             # Extract complexity score from formatted response
                             response_complexity: int = 50 # Default fallback
                             score_match = re.search(r'COMPLEXITY_SCORE:\s*(\d+)', response)
@@ -1921,11 +1966,13 @@ async def main(  # type: ignore[misc]
                                         pass
                             print(f"Score match: {score_match}")
                             if response_complexity >= 85:
-                                selected_models = [g.planner_llm] + g.FALLBACK_MODELS if g.planner_llm else g.FALLBACK_MODELS
+                                # Use planner model with its fallback chain + global fallbacks
+                                selected_models = g.planner_llms_list + g.FALLBACK_MODELS if g.planner_llms_list else g.FALLBACK_MODELS
                             elif response_complexity >= 20:
                                 selected_models = g.FALLBACK_MODELS
                             else:
-                                selected_models = [g.router_llm] + g.FALLBACK_MODELS
+                                # Use router model with its fallback chain + global fallbacks
+                                selected_models = g.router_llms_list + g.FALLBACK_MODELS
                         else:
                             selected_models = g.FALLBACK_MODELS
 

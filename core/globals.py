@@ -13,7 +13,7 @@ import json
 import logging
 import datetime
 from pathlib import Path
-from typing import List, Optional, Any, Callable, Dict, Set, Protocol
+from typing import List, Optional, Any, Callable, Dict, Set, Protocol, Union
 from typing_extensions import TypedDict, NotRequired
 from termcolor import colored
 
@@ -72,10 +72,13 @@ class LLMModelConfig(TypedDict):
     status: NotRequired[str]
 
 class LLMRoleConfig(TypedDict, total=False):
-    """LLM role configuration structure."""
-    planner: Optional[str]
-    router: Optional[str]
-    override: Optional[str]
+    """
+    LLM role configuration structure.
+    Each role can be either a single model (str) or a fallback chain (List[str]).
+    """
+    planner: Union[Optional[str], List[str]]
+    router: Union[Optional[str], List[str]]
+    override: Union[Optional[str], List[str]]
     fallbacks: List[str]
 
 class LLMConfig(TypedDict, total=False):
@@ -952,18 +955,57 @@ class Globals:
     # --- LLM Role Management ---
     @property
     def planner_llm(self) -> Optional[str]:
-        """Backward compatibility property for planner LLM."""
-        return self.llm_roles.get('planner')
+        """Backward compatibility property for planner LLM. Returns first item if array."""
+        planner = self.llm_roles.get('planner')
+        if isinstance(planner, list):
+            return planner[0] if planner else None
+        return planner
+
+    @property
+    def planner_llms_list(self) -> List[str]:
+        """Get planner LLM fallback chain."""
+        planner = self.llm_roles.get('planner')
+        if isinstance(planner, list):
+            return planner
+        elif planner:
+            return [planner]
+        return []
 
     @property
     def router_llm(self) -> Optional[str]:
-        """Backward compatibility property for router LLM."""
-        return self.llm_roles.get('router')
+        """Backward compatibility property for router LLM. Returns first item if array."""
+        router = self.llm_roles.get('router')
+        if isinstance(router, list):
+            return router[0] if router else None
+        return router
+
+    @property
+    def router_llms_list(self) -> List[str]:
+        """Get router LLM fallback chain."""
+        router = self.llm_roles.get('router')
+        if isinstance(router, list):
+            return router
+        elif router:
+            return [router]
+        return []
 
     @property
     def override_llm(self) -> Optional[str]:
-        """Backward compatibility property for override LLM."""
-        return self.llm_roles.get('override')
+        """Backward compatibility property for override LLM. Returns first item if array."""
+        override = self.llm_roles.get('override')
+        if isinstance(override, list):
+            return override[0] if override else None
+        return override
+
+    @property
+    def override_llms_list(self) -> List[str]:
+        """Get override LLM fallback chain."""
+        override = self.llm_roles.get('override')
+        if isinstance(override, list):
+            return override
+        elif override:
+            return [override]
+        return []
 
     @property
     def FALLBACK_MODELS(self) -> List[str]:
@@ -991,24 +1033,38 @@ class Globals:
         """
         Unified method to update LLM roles with automatic persistence.
 
+        All roles now support both single model (model_key) and multi-model arrays (model_keys).
+        This enables dynamic fallback chains for Router, Planner, Override, and Default roles.
+
         Args:
-            role: The role to update ('planner', 'router', 'fallbacks')
-            model_key: Single model key for planner/router roles
-            model_keys: List of model keys for fallbacks role
+            role: The role to update ('planner', 'router', 'override', 'fallbacks')
+            model_key: Single model key (backward compatibility, converted to single-item array)
+            model_keys: List of model keys for multi-model fallback chains
         """
-        if role in ['planner', 'router', 'override']:
+        if role in ['planner', 'router', 'override', 'fallbacks']:
+            # Support both single model and model arrays for all roles
+            if model_keys is not None and model_key is not None:
+                raise ValueError("Cannot specify both model_key and model_keys")
+
             if model_keys is not None:
-                raise ValueError(f"Role '{role}' expects model_key, not model_keys")
-            self.llm_roles[role] = model_key
-        elif role == 'fallbacks':
-            if model_key is not None:
-                raise ValueError(f"Role '{role}' expects model_keys, not model_key")
-            self.llm_roles[role] = model_keys or []
+                # Multi-model array
+                self.llm_roles[role] = model_keys
+            elif model_key is not None:
+                # Single model - store as single item for backward compatibility
+                # (property accessors will handle conversion to array format when needed)
+                self.llm_roles[role] = model_key
+            else:
+                # Clear the role
+                self.llm_roles[role] = [] if role == 'fallbacks' else None
+
         elif role == 'selected':
             # Redirect selected to fallbacks for backward compatibility
-            if model_key is not None:
-                raise ValueError(f"Role '{role}' expects model_keys, not model_key")
-            self.llm_roles['fallbacks'] = model_keys or []
+            if model_keys is not None:
+                self.llm_roles['fallbacks'] = model_keys
+            elif model_key is not None:
+                self.llm_roles['fallbacks'] = [model_key]
+            else:
+                self.llm_roles['fallbacks'] = []
         else:
             raise ValueError(f"Unknown role: {role}. Valid roles: planner, router, override, fallbacks")
 

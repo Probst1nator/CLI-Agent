@@ -534,6 +534,9 @@ class LlmRouter:
                                 break
                         elif (not hidden_reason) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
+            else:
+                logger.warning(f"Anthropic stream missing 'text_stream' attribute. Stream type: {type(stream).__name__}")
+                raise Exception(f"Anthropic stream format error: expected 'text_stream' attribute on {type(stream).__name__}")
         # ! OpenAI/NVIDIA
         elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
             if hasattr(stream, 'choices'):
@@ -790,6 +793,9 @@ class LlmRouter:
         provider_name = model.provider.__class__.__name__ if model else "Unknown"
         model_key = model.model_key if model else "unknown"
 
+        # Store the failure reason for final error reporting
+        instance._last_failure_reason = error_msg
+
         # Handle token limit error
         if "too large" in error_msg:
             # Save the model's maximum token limit
@@ -936,7 +942,7 @@ class LlmRouter:
         temperature: float = 0,
         base64_images: List[str] = [],
         force_local: bool = g.FORCE_LOCAL,
-        force_free: bool = True,
+        force_free: bool = False,
         force_preferred_model: bool = not g.FORCE_LOCAL, # If force local is on we may as well be greedy
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
