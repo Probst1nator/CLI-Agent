@@ -181,10 +181,266 @@ As tools grow, they can be treated as miniature services.
 *   **Resilience:** Use libraries like `tenacity` to add automatic retries for network-dependent tools.
 *   **Structured Output:** Have `run()` return a JSON string instead of plain text. This allows for richer data to be passed back and can be used to build UIs or debuggers on top of the agent's actions.
 
-## 5. Checklist for Adding a New Tool
+## 5. Essential Implementation Patterns
 
-1.  [ ] Create `tools/your_tool.py`.
-2.  [ ] Implement the three static methods (`get_delim`, `get_tool_info`, `run`).
-3.  [ ] Add any private state, dependencies, or complex logic encapsulated within the class.
-4.  [ ] Create `tests/tools/test_your_tool.py` and add unit tests for the `run` method.
-5.  [ ] Run the tests to confirm functionality and edge cases.
+### a. XML Parsing with Error Handling
+
+Robust XML parsing ensures your tool handles malformed input gracefully:
+
+```python
+import re
+
+@staticmethod
+def run(content: str) -> str:
+    try:
+        # Required parameter with validation
+        title_match = re.search(r'<title>(.*?)</title>', content, re.DOTALL)
+        if not title_match:
+            return "Error: Missing required <title> tag"
+        title = title_match.group(1).strip()
+
+        if not title:
+            return "Error: <title> cannot be empty"
+
+        # Optional parameter with default
+        timeout_match = re.search(r'<timeout>(\d+)</timeout>', content)
+        timeout = int(timeout_match.group(1)) if timeout_match else 30
+
+        # Boolean flag parsing
+        use_cache = True
+        cache_match = re.search(r'<cache>(.*?)</cache>', content, re.DOTALL)
+        if cache_match and cache_match.group(1).strip().lower() in ['false', 'no', '0']:
+            use_cache = False
+
+        # Process the request...
+
+    except Exception as e:
+        logger.error(f"Error in tool execution: {e}", exc_info=True)
+        return f"Error: {str(e)}"
+```
+
+### b. Environment Variables and Configuration
+
+Use environment variables for API keys and configuration:
+
+```python
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class my_api_tool:
+    @staticmethod
+    def _get_api_key() -> Optional[str]:
+        api_key = os.getenv('MY_API_KEY')
+        if not api_key:
+            logger.error("MY_API_KEY environment variable not set")
+            return None
+        return api_key
+
+    @staticmethod
+    def run(content: str) -> str:
+        api_key = my_api_tool._get_api_key()
+        if not api_key:
+            return "Error: MY_API_KEY not configured. Set it in .env file."
+
+        # Use the API key...
+```
+
+**Don't forget to add configuration to `.env.example`:**
+
+```bash
+# My API Tool Configuration
+MY_API_KEY=your_api_key_here
+MY_API_ENDPOINT=https://api.example.com
+```
+
+### c. Tool-Specific Logging
+
+Every tool should use dedicated logging for debugging:
+
+```python
+from shared.utils.tool_logging import get_logger_for_tool_module
+
+logger = get_logger_for_tool_module(__name__)
+
+class my_tool:
+    @staticmethod
+    async def run(content: str) -> str:
+        logger.debug(f"Tool called with content: {content[:100]}...")
+        logger.info("Processing request...")
+
+        try:
+            result = await process_request(content)
+            logger.info(f"Successfully processed request, result length: {len(result)}")
+            return result
+        except Exception as e:
+            logger.error(f"Request failed: {e}", exc_info=True)
+            return f"Error: {str(e)}"
+```
+
+Logs automatically go to `~/.cli-agent/logs/tools_<toolname>.log` with:
+- 14-day retention
+- 20MB max size
+- Automatic rotation and cleanup
+
+### d. Singleton Pattern for Stateful Resources
+
+Use class-level variables for persistent connections or sessions:
+
+```python
+class database_tool:
+    _connection = None  # Singleton connection
+
+    @staticmethod
+    def _get_connection():
+        """Gets or creates database connection."""
+        if database_tool._connection is None:
+            logger.info("Creating new database connection")
+            database_tool._connection = create_connection()
+        return database_tool._connection
+
+    @staticmethod
+    def run(content: str) -> str:
+        conn = database_tool._get_connection()
+        # Use connection...
+```
+
+### e. Integration with LLM Router
+
+Tools can call LLMs for processing (e.g., summarization):
+
+```python
+from core.llm_router import LlmRouter
+from core.chat import Chat, Role
+
+class summarize_tool:
+    @staticmethod
+    async def run(content: str) -> str:
+        # Extract text to summarize
+        text = extract_text(content)
+
+        # Create chat for LLM
+        chat = Chat()
+        chat.add_message(Role.USER, f"Summarize this text: {text}")
+
+        # Use LLM router (automatically selects available model)
+        summary = await LlmRouter.generate_completion(
+            chat,
+            force_preferred_model=False  # Allow any free model
+        )
+
+        logger.info(f"Generated summary using {LlmRouter.get_last_used_model()}")
+
+        return f"Summary: {summary}"
+```
+
+### f. Permission System Integration
+
+For tools that access files or sensitive operations:
+
+```python
+from core.permissions.enhanced_permissions import EnhancedPermissions
+
+class file_tool:
+    @staticmethod
+    def run(content: str) -> str:
+        filepath = extract_filepath(content)
+
+        # Check permissions before accessing file
+        perms = EnhancedPermissions()
+        if not perms.check_path_permission(filepath, 'read'):
+            return f"Error: Permission denied to read {filepath}"
+
+        # Proceed with file access...
+```
+
+### g. Async Operations with Threading
+
+For blocking operations in async tools, use `asyncio.to_thread`:
+
+```python
+import asyncio
+
+class blocking_api_tool:
+    @staticmethod
+    async def run(content: str) -> str:
+        # Run blocking API call in thread pool to avoid blocking
+        result = await asyncio.to_thread(
+            blocking_api_call,
+            param1,
+            param2
+        )
+        return result
+```
+
+## 7. Dependencies Management
+
+When adding external dependencies:
+
+1.  **Add to `requirements.txt`** with version constraints.
+2.  **Update `.env.example`** with configuration.
+3.  **Document in tool README** or docstrings how to obtain credentials/API keys.
+
+## 8. Checklist for Adding a New Tool
+
+1.  [ ] Create `tools/your_tool.py` with the 3-method contract
+2.  [ ] Add tool-specific logging with `get_logger_for_tool_module(__name__)`
+3.  [ ] Implement robust XML parsing with error handling
+4.  [ ] Add dependencies to `requirements.txt`
+5.  [ ] Add environment variables to `.env.example`
+6.  [ ] Use singleton pattern for stateful resources (connections, sessions)
+7.  [ ] Create comprehensive tests in `tests/tools/test_your_tool.py` with mocking
+8.  [ ] Assign test levels (2 for core, 3 for shared utilities)
+9.  [ ] Run tests: `python -m pytest tests/tools/test_your_tool.py -v`
+10. [ ] Optional: Create `tools/your_tool_README.md` for setup documentation
+11. [ ] No manual registration needed - tool is auto-discovered!
+
+## 9. Common Pitfalls and Solutions
+
+| Pitfall | Solution |
+|---------|----------|
+| Blocking I/O in async tools | Use `await asyncio.to_thread(blocking_call, args)` |
+| Missing error handling | Wrap `run()` in try/except, return error strings |
+| Hardcoded credentials | Use environment variables via `os.getenv()` |
+| No logging | Always add tool-specific logger |
+| Regex match failures | Check if match exists before calling `.group()` |
+| State not persisting | Use class-level variables (`_session`, `_connection`) |
+| Tests fail in CI | Mock external dependencies (APIs, file system) |
+| Token refresh issues | Check for expired tokens and implement refresh logic |
+
+## 10. Quick Reference
+
+**Minimal tool skeleton:**
+```python
+from shared.utils.tool_logging import get_logger_for_tool_module
+logger = get_logger_for_tool_module(__name__)
+
+class my_tool:
+    @staticmethod
+    def get_delim():
+        return "my_tool"
+
+    @staticmethod
+    def get_tool_info():
+        return {
+            "name": "my_tool",
+            "description": "What it does",
+            "example": "<my_tool>example</my_tool>"
+        }
+
+    @staticmethod
+    async def run(content: str) -> str:
+        try:
+            logger.info("Tool invoked")
+            # Your logic here
+            return "Success"
+        except Exception as e:
+            logger.error(f"Error: {e}", exc_info=True)
+            return f"Error: {str(e)}"
+```
+
+**See existing tools for more examples:**
+- Simple sync tool: `writefile.py`
+- Async with API calls: `searchweb.py`
+- Persistent session: `bash.py`
