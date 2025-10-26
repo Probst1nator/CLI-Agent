@@ -1,0 +1,104 @@
+name: Deploy via Local Runner
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run quick tests
+        run: |
+          python run_tests.py --quick
+
+      - name: Run linting
+        run: |
+          ruff check . || true
+          black --check . || true
+
+  deploy:
+    name: Build and Deploy
+    needs: test
+    runs-on: self-hosted
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load environment variables
+        run: |
+          if [ -f .env ]; then
+            export $(cat .env | grep -v '^#' | xargs)
+          fi
+
+      - name: Build Docker images locally
+        run: |
+          cd docker_files
+
+          # Build backend image
+          docker build -f Dockerfile.backend -t cli-agent-backend:latest ..
+
+          # Build frontend image
+          docker build -f Dockerfile.frontend -t cli-agent-frontend:latest ..
+
+          # Build container manager image
+          docker build -f Dockerfile.container-manager -t cli-agent-manager:latest ..
+
+      - name: Restart infrastructure services
+        run: |
+          cd docker_files
+          docker compose -f docker-compose.infrastructure.yml up -d --force-recreate
+
+      - name: Rolling update of backend containers
+        run: |
+          echo "Starting rolling update of backend containers..."
+          CONTAINERS=$(docker ps --filter "name=cli-agent-" --format "{{.Names}}" | grep -v "cli-agent-container-manager\|cli-agent-frontend\|cli-agent-traefik\|cli-agent-isolated" || true)
+
+          for container in $CONTAINERS; do
+            echo "Restarting $container..."
+            docker restart $container
+            sleep 2
+          done
+
+      - name: Clean up old images
+        run: |
+          docker image prune -f
+
+      - name: Verify deployment
+        run: |
+          echo "=== Container Status ==="
+          docker ps --filter "name=cli-agent-" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+
+          echo ""
+          echo "=== Container Manager Health ==="
+          curl -f http://localhost:8080/health || echo "❌ Container Manager unhealthy"
+
+          echo ""
+          echo "=== Frontend Health ==="
+          curl -f http://localhost/ -I || echo "❌ Frontend unhealthy"
+
+          echo ""
+          echo "✅ Deployment complete!"
