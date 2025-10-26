@@ -61,10 +61,19 @@ async def upload_audio(request: Any) -> Any:
             tmp_path = tmp_file.name
 
         try:
-            # Transcribe audio
-            from shared.utils_audio import transcribe_audio_file
+            # Load audio file and transcribe
+            import soundfile as sf
+            from shared.utils_audio import transcribe_audio
 
-            text = await asyncio.to_thread(transcribe_audio_file, tmp_path)
+            # Load audio from temporary file
+            audio_data, sample_rate = sf.read(tmp_path)
+
+            # Transcribe audio (returns tuple of text and language)
+            text, detected_language = await asyncio.to_thread(
+                transcribe_audio,
+                audio_data,
+                sample_rate
+            )
 
             if not text or not text.strip():
                 return web.json_response({
@@ -73,11 +82,12 @@ async def upload_audio(request: Any) -> Any:
                     'code': 'TRANSCRIPTION_FAILED'
                 }, status=500)
 
-            logger.info(f"Transcribed audio: {text[:100]}...")
+            logger.info(f"Transcribed audio ({detected_language}): {text[:100]}...")
 
             return web.json_response({
                 'status': 'success',
-                'text': text.strip()
+                'text': text.strip(),
+                'language': detected_language
             })
 
         finally:

@@ -1,16 +1,112 @@
+/**
+ * Chat History Sidebar Component
+ *
+ * Manages the chat history sidebar with search, filtering, and context-based discovery.
+ * Features BM25 search, fuzzy matching, and sidebar resize functionality.
+ *
+ * @class ChatHistorySidebar
+ * @author CLI-Agent Development Team
+ * @version 1.0.0
+ */
+
+/**
+ * @typedef {Object} ChatItem
+ * @property {string} id - Unique chat identifier
+ * @property {number} timestamp - Unix timestamp of chat creation
+ * @property {string} preview - Chat content preview
+ * @property {number} message_count - Number of messages in chat
+ * @property {string} [search_snippet] - Highlighted snippet from search (when searching)
+ * @property {number} [score] - BM25 relevance score (when searching)
+ */
+
+/**
+ * @typedef {Object} SearchResult
+ * @property {string} status - Status of search ('success' or 'error')
+ * @property {Array<ChatItem>} [results] - Array of matching chat items
+ * @property {string} [error] - Error message if status is 'error'
+ */
+
+/**
+ * @typedef {Object} ChatGroup
+ * @property {string} label - Group label ('Today', 'Yesterday', 'This Week', 'Older')
+ * @property {Array<ChatItem>} chats - Chats in this group
+ */
+
+/**
+ * @typedef {Object} SidebarState
+ * @property {boolean} expanded - Whether sidebar is expanded
+ * @property {number} width - Sidebar width in pixels
+ */
+
 class ChatHistorySidebar {
+    /**
+     * Initialize the chat history sidebar
+     */
     constructor() {
+        /**
+         * Sidebar container element
+         * @type {HTMLElement|null}
+         */
         this.sidebar = document.getElementById('chat-history-sidebar');
+
+        /**
+         * Content container element
+         * @type {HTMLElement|null}
+         */
         this.content = document.getElementById('chat-history-content');
+
+        /**
+         * Search input element
+         * @type {HTMLInputElement|null}
+         */
         this.searchInput = document.getElementById('chat-history-search-input');
+
+        /**
+         * Toggle button element
+         * @type {HTMLElement|null}
+         */
         this.toggleBtn = document.getElementById('chat-history-toggle-btn');
+
+        /**
+         * Resize handle element
+         * @type {HTMLElement|null}
+         */
         this.resizeHandle = document.getElementById('chat-history-resize-handle');
 
+        /**
+         * Whether sidebar is expanded
+         * @type {boolean}
+         */
         this.isExpanded = false;
+
+        /**
+         * Current sidebar width in pixels
+         * @type {number}
+         */
         this.sidebarWidth = 350;
+
+        /**
+         * All loaded chats
+         * @type {Array<ChatItem>}
+         */
         this.chats = [];
+
+        /**
+         * Current search query
+         * @type {string}
+         */
         this.searchQuery = '';
+
+        /**
+         * Whether user is currently resizing sidebar
+         * @type {boolean}
+         */
         this.isResizing = false;
+
+        /**
+         * Debounce timer for search input
+         * @type {number|null}
+         */
         this.searchDebounceTimer = null;
 
         this.setupEventListeners();
@@ -18,6 +114,11 @@ class ChatHistorySidebar {
         this.loadChats();
     }
 
+    /**
+     * Setup event listeners for sidebar interactions
+     * Includes toggle, search (with debounce), resize, and new chat button
+     * @returns {void}
+     */
     setupEventListeners() {
         if (this.toggleBtn) {
             this.toggleBtn.addEventListener('click', () => this.toggle());
@@ -61,6 +162,12 @@ class ChatHistorySidebar {
         document.addEventListener('mouseup', () => this.stopResize());
     }
 
+    /**
+     * Start a new chat
+     * Triggers chat state manager to create new chat and reload history
+     * @async
+     * @returns {Promise<void>}
+     */
     async startNewChat() {
         if (window.chatState) {
             await window.chatState.startNewChat();
@@ -74,6 +181,11 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Load all chats from backend
+     * @async
+     * @returns {Promise<void>}
+     */
     async loadChats() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/archives') : '/api/chat/archives';
@@ -90,6 +202,12 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Filter and render chats based on search query or current context
+     * Uses BM25 search on backend when query exists, otherwise shows context-based similar chats
+     * @async
+     * @returns {Promise<void>}
+     */
     async filterAndRenderChats() {
         // If no explicit search query, use current chat context
         let searchQuery = this.searchQuery.trim();
@@ -133,6 +251,11 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Extract context from current chat for similarity search
+     * Extracts top 5 most frequent non-common words from recent messages
+     * @returns {string} Space-separated context keywords
+     */
     extractCurrentChatContext() {
         // Get current chat messages from ChatStateManager
         if (!window.chatState || !window.chatState.messages) {
@@ -179,6 +302,12 @@ class ChatHistorySidebar {
         return topWords.join(' ');
     }
 
+    /**
+     * Render chats grouped by date
+     * @param {Array<ChatItem>} [chatsToRender=this.chats] - Chats to render
+     * @param {boolean} [isContextSearch=false] - Whether this is a context-based search
+     * @returns {void}
+     */
     renderChats(chatsToRender = this.chats, isContextSearch = false) {
         if (chatsToRender.length === 0) {
             this.content.innerHTML = '<div class="chat-history-empty">No chats found</div>';
@@ -268,6 +397,13 @@ class ChatHistorySidebar {
         });
     }
 
+    /**
+     * Highlight matching terms in text using fuzzy matching
+     * Uses exact match, stem match, and n-gram fuzzy matching with Jaccard similarity
+     * @param {string} text - Text to highlight
+     * @param {string} query - Search query
+     * @returns {string} HTML string with highlighted matches
+     */
     highlightMatches(text, query) {
         if (!query || !text) return this.escapeHtml(text);
 
@@ -347,10 +483,20 @@ class ChatHistorySidebar {
         return highlightedWords.join('');
     }
 
+    /**
+     * Escape regex special characters
+     * @param {string} str - String to escape
+     * @returns {string} Escaped string
+     */
     escapeRegex(str) {
         return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
+    /**
+     * Group chats by date (Today, Yesterday, This Week, Older)
+     * @param {Array<ChatItem>} chats - Chats to group
+     * @returns {Object<string, Array<ChatItem>>} Grouped chats
+     */
     groupChatsByDate(chats) {
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -391,6 +537,12 @@ class ChatHistorySidebar {
         return result;
     }
 
+    /**
+     * Load a specific chat by ID
+     * @async
+     * @param {string} chatId - Chat ID to load
+     * @returns {Promise<void>}
+     */
     async loadChat(chatId) {
         if (window.chatState) {
             await window.chatState.loadChat(chatId);
@@ -400,6 +552,12 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Delete a chat by ID
+     * @async
+     * @param {string} chatId - Chat ID to delete
+     * @returns {Promise<void>}
+     */
     async deleteChat(chatId) {
         const confirmed = confirm('Delete this chat permanently?');
         if (!confirmed) return;
@@ -421,12 +579,21 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Escape HTML to prevent XSS
+     * @param {string} text - Text to escape
+     * @returns {string} Escaped HTML string
+     */
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
 
+    /**
+     * Toggle sidebar expanded/collapsed
+     * @returns {void}
+     */
     toggle() {
         if (this.isExpanded) {
             this.collapse();
@@ -435,6 +602,10 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Expand the sidebar
+     * @returns {void}
+     */
     expand() {
         this.isExpanded = true;
         this.sidebar.classList.add('expanded');
@@ -442,6 +613,10 @@ class ChatHistorySidebar {
         this.saveState();
     }
 
+    /**
+     * Collapse the sidebar
+     * @returns {void}
+     */
     collapse() {
         this.isExpanded = false;
         this.sidebar.classList.remove('expanded');
@@ -449,6 +624,10 @@ class ChatHistorySidebar {
         this.saveState();
     }
 
+    /**
+     * Update sidebar width based on expanded state
+     * @returns {void}
+     */
     updateWidth() {
         if (this.isExpanded) {
             this.sidebar.style.width = `${this.sidebarWidth}px`;
@@ -457,11 +636,22 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Start resizing sidebar
+     * @param {MouseEvent} e - Mouse event
+     * @returns {void}
+     */
     startResize(e) {
         this.isResizing = true;
         e.preventDefault();
     }
 
+    /**
+     * Handle sidebar resize (dragging resize handle)
+     * Constrains width between 250px and 600px
+     * @param {MouseEvent} e - Mouse event
+     * @returns {void}
+     */
     handleResize(e) {
         if (!this.isResizing) return;
 
@@ -472,6 +662,10 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Stop resizing sidebar
+     * @returns {void}
+     */
     stopResize() {
         if (this.isResizing) {
             this.isResizing = false;
@@ -479,6 +673,10 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Save sidebar state to localStorage
+     * @returns {void}
+     */
     saveState() {
         try {
             const state = {
@@ -491,6 +689,10 @@ class ChatHistorySidebar {
         }
     }
 
+    /**
+     * Load sidebar state from localStorage
+     * @returns {void}
+     */
     loadState() {
         try {
             const stored = localStorage.getItem('chat-history-sidebar-state');
@@ -507,10 +709,16 @@ class ChatHistorySidebar {
     }
 }
 
+// Export to window for global access
 window.ChatHistoryManager = ChatHistorySidebar;
 
+/**
+ * Global instance of chat history sidebar
+ * @type {ChatHistorySidebar|null}
+ */
 let chatHistorySidebar = null;
 
+// Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
     chatHistorySidebar = new ChatHistorySidebar();
     window.chatHistorySidebar = chatHistorySidebar;

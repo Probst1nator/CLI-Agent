@@ -1,50 +1,63 @@
 /**
  * Backend Connector - Discovers and connects to backend container
  * Handles UUID-based container discovery via Container Manager
+ * @class
  */
-
 class BackendConnector {
+    /**
+     * Initialize backend connector with identity manager
+     * @param {IdentityManager} identityManager - Identity manager instance
+     */
     constructor(identityManager) {
+        /** @type {IdentityManager} */
         this.identityManager = identityManager;
+        /** @type {string|null} Backend URL once discovered */
         this.backendURL = null;
+        /** @type {string|null} Container name (containerized mode only) */
         this.containerName = null;
+        /** @type {boolean} Whether backend has been discovered */
         this.isDiscovered = false;
+        /** @type {boolean} Whether running in local mode */
         this.isLocal = this.detectLocalMode();
+        /** @type {Promise<string>|null} Pending discovery promise */
         this.discoveryPromise = null;
+        /** @type {Function[]} Callbacks waiting for backend ready */
         this.readyCallbacks = [];
+        /** @type {number|null} Activity update interval timer */
+        this.activityInterval = null;
     }
 
     /**
      * Detect if running in local mode (single instance, no Container Manager)
+     * @returns {boolean} True if local mode, false if containerized
      */
     detectLocalMode() {
-        // In local mode, backend serves frontend directly
-        // We can detect this by checking if we're on localhost
         return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     }
 
     /**
-     * Wait for backend to be ready
+     * Wait for backend to be ready and discovered
+     * @returns {Promise<string>} Backend URL
      */
     async waitForReady() {
         if (this.isDiscovered) {
             return this.backendURL;
         }
-        
+
         if (!this.discoveryPromise) {
             this.discoveryPromise = this.discoverBackend();
         }
-        
+
         return this.discoveryPromise;
     }
 
     /**
-     * Discover backend container via Container Manager
-     * In local mode, uses current origin
+     * Discover backend container via Container Manager (or use local URL)
+     * @returns {Promise<string>} Discovered backend URL
+     * @throws {Error} If discovery fails
      */
     async discoverBackend() {
         if (this.isLocal) {
-            // Local mode: backend is same as frontend origin
             this.backendURL = window.location.origin;
             this.isDiscovered = true;
             console.log('Local mode: backend URL =', this.backendURL);
@@ -52,7 +65,6 @@ class BackendConnector {
             return this.backendURL;
         }
 
-        // Containerized mode: discover via Container Manager
         const uuid = this.identityManager.getUUID();
 
         try {
@@ -69,7 +81,6 @@ class BackendConnector {
             const data = await response.json();
 
             if (data.status === 'success') {
-                // Backend URL is proxied through Container Manager
                 this.backendURL = `/api/backend/${uuid}`;
                 this.containerName = data.container_name;
                 this.isDiscovered = true;
@@ -92,7 +103,8 @@ class BackendConnector {
     }
 
     /**
-     * Get WebSocket URL for backend
+     * Get WebSocket URL for backend connection
+     * @returns {Promise<string>} WebSocket URL
      */
     async getWebSocketURL() {
         if (!this.isDiscovered) {
@@ -100,11 +112,9 @@ class BackendConnector {
         }
 
         if (this.isLocal) {
-            // Local mode: direct WebSocket connection
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             return `${protocol}//${window.location.host}/ws`;
         } else {
-            // Containerized mode: WebSocket proxied through Container Manager
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const uuid = this.identityManager.getUUID();
             return `${protocol}//${window.location.host}/api/backend/${uuid}/ws`;
@@ -112,7 +122,9 @@ class BackendConnector {
     }
 
     /**
-     * Build full URL for backend path
+     * Build full URL for backend API path
+     * @param {string} path - API path (e.g., "/api/chat/current")
+     * @returns {Promise<string>} Full backend URL
      */
     async buildURL(path) {
         if (!this.isDiscovered) {
@@ -123,7 +135,10 @@ class BackendConnector {
     }
 
     /**
-     * Fetch from backend with automatic discovery
+     * Fetch from backend with automatic discovery and UUID headers
+     * @param {string} path - API path to fetch
+     * @param {RequestInit} [options={}] - Fetch options
+     * @returns {Promise<Response>} Fetch response
      */
     async fetch(path, options = {}) {
         if (!this.isDiscovered) {
@@ -132,7 +147,6 @@ class BackendConnector {
 
         const url = `${this.backendURL}${path}`;
 
-        // Add UUID header for activity tracking
         options.headers = options.headers || {};
         if (!this.isLocal) {
             options.headers['X-User-UUID'] = this.identityManager.getUUID();
@@ -142,11 +156,12 @@ class BackendConnector {
     }
 
     /**
-     * Update activity timestamp (keep container alive)
+     * Update activity timestamp to keep container alive
+     * @returns {Promise<void>}
      */
     async updateActivity() {
         if (this.isLocal) {
-            return; // No activity tracking in local mode
+            return;
         }
 
         try {
@@ -162,11 +177,12 @@ class BackendConnector {
     }
 
     /**
-     * Start periodic activity updates (keep-alive)
+     * Start periodic activity updates to prevent container timeout
+     * @param {number} [intervalMs=60000] - Update interval in milliseconds
      */
     startActivityUpdates(intervalMs = 60000) {
         if (this.isLocal) {
-            return; // No keep-alive needed in local mode
+            return;
         }
 
         this.activityInterval = setInterval(() => {
@@ -189,6 +205,7 @@ class BackendConnector {
 
     /**
      * Notify all waiting callbacks that backend is ready
+     * @private
      */
     _notifyReady() {
         this.readyCallbacks.forEach(callback => callback(this.backendURL));
@@ -197,6 +214,7 @@ class BackendConnector {
 
     /**
      * Register callback for when backend is ready
+     * @param {Function} callback - Callback receiving backend URL
      */
     onReady(callback) {
         if (this.isDiscovered) {

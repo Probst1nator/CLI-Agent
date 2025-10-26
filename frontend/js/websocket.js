@@ -9,19 +9,51 @@
  * @version 1.1.0 (Simplified)
  */
 class WebSocketManager {
+    /**
+     * Creates a WebSocketManager instance
+     * @param {ContentRenderer} renderer - Content renderer instance for displaying messages
+     * @param {HTMLElement} statusElement - DOM element for connection status display
+     * @param {HTMLElement} contentWrapper - DOM element for message content display
+     */
     constructor(renderer, statusElement, contentWrapper) {
+        /** @type {ContentRenderer} */
         this.renderer = renderer;
-        this.statusElement = statusElement;
-        this.contentWrapper = contentWrapper;
-        this.ws = null;
-        this.reconnectDelay = 3000;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10;
-        this.connectionId = null;
-        this.logger = window.visualLogger;
-        this.app = null; // Reference to main app for loading indicator control
 
+        /** @type {HTMLElement} */
+        this.statusElement = statusElement;
+
+        /** @type {HTMLElement} */
+        this.contentWrapper = contentWrapper;
+
+        /** @type {WebSocket|null} WebSocket connection instance */
+        this.ws = null;
+
+        /** @type {number} Base delay in milliseconds before reconnection attempt */
+        this.reconnectDelay = 3000;
+
+        /** @type {number} Counter for reconnection attempts */
+        this.reconnectAttempts = 0;
+
+        /** @type {number} Maximum number of reconnection attempts before giving up */
+        this.maxReconnectAttempts = 10;
+
+        /** @type {string|null} Unique identifier for current connection */
+        this.connectionId = null;
+
+        /** @type {Logger} Reference to global logger instance */
+        this.logger = window.visualLogger;
+
+        /** @type {Object|null} Reference to main app for loading indicator control */
+        this.app = null;
+
+        /** @type {Object.<string, Function[]>} Event handlers registry for custom events */
         this.eventHandlers = {};
+
+        /** @type {string|null} Last console log message for rate limiting */
+        this._lastConsoleLog = null;
+
+        /** @type {number|null} Timestamp of last console log for rate limiting */
+        this._lastConsoleTime = null;
 
         this.logger.info('WebSocketManager initialized', {
             reconnectDelay: this.reconnectDelay,
@@ -31,6 +63,12 @@ class WebSocketManager {
         this.connect();
     }
 
+    /**
+     * Register an event handler for a specific event type
+     * @param {string} event - Event name to listen for
+     * @param {Function} callback - Function to call when event is emitted
+     * @event
+     */
     on(event, callback) {
         if (!this.eventHandlers[event]) {
             this.eventHandlers[event] = [];
@@ -38,6 +76,12 @@ class WebSocketManager {
         this.eventHandlers[event].push(callback);
     }
 
+    /**
+     * Emit an event to all registered handlers
+     * @param {string} event - Event name to emit
+     * @param {*} data - Data to pass to event handlers
+     * @event
+     */
     emit(event, data) {
         if (this.eventHandlers[event]) {
             for (const callback of this.eventHandlers[event]) {
@@ -52,11 +96,30 @@ class WebSocketManager {
 
     /**
      * Set reference to main app for loading indicator control
+     * @param {Object} app - Main application instance
+     * @param {Function} [app.loadMessageHistory] - Optional method to load message history
+     * @param {Function} [app.clearMessageHistory] - Optional method to clear message history
+     * @param {Function} [app.hideLoadingIndicator] - Optional method to hide loading indicator
+     * @param {Function} [app.hideInterruptButton] - Optional method to hide interrupt button
+     * @param {Function} [app.displayUserMessage] - Optional method to display user messages
+     * @param {Function} [app.displayAssistantMessage] - Optional method to display assistant messages
+     * @param {Function} [app.setScreenshotReady] - Optional method to set screenshot ready state
+     * @param {Function} [app.resetScreenshotState] - Optional method to reset screenshot state
+     * @param {Function} [app.saveMessageToHistory] - Optional method to save message to history
+     * @param {boolean} [app.isRestoring] - Flag indicating if app is restoring state
+     * @param {Array} [app.messageHistory] - Message history array
      */
     setApp(app) {
         this.app = app;
     }
 
+    /**
+     * Establishes WebSocket connection with automatic URL discovery and reconnection
+     * Waits for BackendConnector to be ready, then attempts connection with exponential backoff on failure
+     * @async
+     * @returns {Promise<void>}
+     * @throws {Error} If WebSocket creation fails after max reconnection attempts
+     */
     async connect() {
         // Wait for backend connector to be ready (max 10 seconds)
         if (!window.backendConnector) {
@@ -100,6 +163,7 @@ class WebSocketManager {
             return;
         }
 
+        // WebSocket connection opened successfully
         this.ws.onopen = () => {
             this.logger.endTiming('websocket_connection', { connectionId: this.connectionId, reconnectAttempts: this.reconnectAttempts });
             this.reconnectAttempts = 0;
@@ -111,8 +175,10 @@ class WebSocketManager {
             // This ensures we respect the continue flag from the CLI
         };
 
+        // Handle incoming WebSocket messages
         this.ws.onmessage = (event) => this.handleMessage(JSON.parse(event.data));
 
+        // Handle WebSocket connection closure with exponential backoff reconnection
         this.ws.onclose = (event) => {
             this.logger.warn('WebSocket connection closed', { code: event.code, reason: event.reason });
             this.statusElement.textContent = '🔴 Disconnected. Retrying...';
@@ -120,6 +186,7 @@ class WebSocketManager {
 
             if (this.reconnectAttempts < this.maxReconnectAttempts) {
                 this.reconnectAttempts++;
+                // Exponential backoff: 3s, 6s, 12s, 24s, capped at 30s
                 const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
                 setTimeout(() => this.connect(), delay);
             } else {
@@ -128,9 +195,15 @@ class WebSocketManager {
             }
         };
 
+        // Handle WebSocket errors
         this.ws.onerror = (error) => this.handleConnectionError(error);
     }
 
+    /**
+     * Handles WebSocket connection errors
+     * @private
+     * @param {Event} error - WebSocket error event
+     */
     handleConnectionError(error) {
         this.logger.error('WebSocket connection error', {}, error);
         if (this.ws) {
@@ -138,6 +211,14 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Handles session initialization from server
+     * Stores session ID globally and emits session_init event
+     * @private
+     * @param {Object} data - Session initialization data
+     * @param {string} data.session_id - Unique session identifier
+     * @event session_init
+     */
     handleSessionInit(data) {
         this.logger.info('Session initialized', { session_id: data.session_id });
 
@@ -151,6 +232,14 @@ class WebSocketManager {
         this.emit('session_init', data);
     }
 
+    /**
+     * Handles connection configuration from server
+     * Manages continue mode (load history) vs fresh start (clear history)
+     * @private
+     * @param {Object} data - Connection configuration
+     * @param {boolean} data.continue_mode - Whether to continue previous session
+     * @param {boolean} data.clear_history - Whether to clear existing history
+     */
     handleConnectionConfig(data) {
         this.logger.info('Received connection configuration', { continue_mode: data.continue_mode, clear_history: data.clear_history });
 
@@ -192,6 +281,18 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Handles permission request from agent
+     * Creates interactive UI for user to approve/deny tool actions
+     * @private
+     * @param {Object} data - Permission request data
+     * @param {string} data.id - Unique permission request ID
+     * @param {Object} data.permission_data - Permission details
+     * @param {string} data.permission_data.tool_name - Name of tool requesting permission
+     * @param {string} data.permission_data.action_description - Description of action
+     * @param {string} [data.permission_data.file_path] - Optional file path affected
+     * @param {string} [data.permission_data.args_display] - Optional command arguments
+     */
     handlePermissionRequest(data) {
         this.logger.info('Received permission request', { tool_name: data.permission_data.tool_name });
 
@@ -272,6 +373,13 @@ class WebSocketManager {
         window.pendingPermissionId = data.id;
     }
 
+    /**
+     * Handles user message from command line
+     * Delegates to app's displayUserMessage or uses fallback rendering
+     * @private
+     * @param {Object} data - User message data
+     * @param {string} data.message - User's message text
+     */
     handleUserMessage(data) {
         this.logger.info('Received user message from command line', { message: data.message });
 
@@ -284,6 +392,13 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Handles assistant message from agent
+     * Delegates to app's displayAssistantMessage or uses fallback rendering
+     * @private
+     * @param {Object} data - Assistant message data
+     * @param {string} data.message - Assistant's message text
+     */
     handleAssistantMessage(data) {
         this.logger.debug('Received assistant message', { message: data.message });
 
@@ -296,6 +411,14 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Handles console log message from backend
+     * Forwards to ConsoleLogManager or browser console with rate limiting
+     * @private
+     * @param {Object} data - Console log data
+     * @param {string} data.line - Log message text
+     * @param {string} [data.level='info'] - Log level (info, warn, error, debug)
+     */
     handleConsoleLog(data) {
         this.logger.debug('Received console log message', { line: data.line, level: data.level });
 
@@ -312,6 +435,14 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Handles screenshot event from backend
+     * Updates screenshot button state in main app
+     * @private
+     * @param {Object} data - Screenshot event data
+     * @param {string} data.action - Action type (captured, failed)
+     * @param {string} data.status - Status (ready, error)
+     */
     handleScreenshotEvent(data) {
         this.logger.debug('Received screenshot event', { action: data.action, status: data.status });
 
@@ -328,6 +459,12 @@ class WebSocketManager {
     }
 
 
+    /**
+     * Fallback method to display user message when app.displayUserMessage is unavailable
+     * Creates and appends user message block directly to content wrapper
+     * @private
+     * @param {string} message - User message text
+     */
     createUserMessageFallback(message) {
         // Fallback implementation in case app.displayUserMessage is not available
         const contentWrapper = document.getElementById('content-wrapper');
@@ -362,6 +499,12 @@ class WebSocketManager {
         this.logger.debug('User message displayed via fallback method');
     }
 
+    /**
+     * Fallback method to display assistant message when app.displayAssistantMessage is unavailable
+     * Creates and appends assistant message block with monospace formatting
+     * @private
+     * @param {string} message - Assistant message text
+     */
     createAssistantMessageFallback(message) {
         // Fallback implementation for assistant messages
         const contentWrapper = document.getElementById('content-wrapper');
@@ -401,6 +544,31 @@ class WebSocketManager {
         this.logger.debug('Assistant message displayed via fallback method');
     }
 
+    /**
+     * Main WebSocket message handler - routes messages to appropriate handlers
+     * Handles various message types including session init, chat events, streaming, permissions, etc.
+     * @async
+     * @private
+     * @param {Object} data - WebSocket message data
+     * @param {string} data.type - Message type (session_init, chat_replaced, message_start, etc.)
+     * @param {string} [data.action] - Action type (create, update, delete, clear, etc.)
+     * @param {string} [data.id] - Message or event unique identifier
+     * @param {string} [data.model] - LLM model key used for this message
+     * @param {Object} [data.content] - Message content for rendering
+     * @param {Object} [data.tool_info] - Tool execution information
+     * @event session_init
+     * @event chat_replaced
+     * @event chat_cleared
+     * @event chat_truncated
+     * @event message_added
+     * @event message_deleted
+     * @event state_changed
+     * @event message_start
+     * @event message_chunk
+     * @event message_end
+     * @event token_stream
+     * @event tool_update
+     */
     async handleMessage(data) {
         this.logger.debug('Received WebSocket message', { type: data.type, action: data.action, id: data.id, model: data.model });
 
@@ -456,6 +624,18 @@ class WebSocketManager {
 
         if (data.type === 'message_end') {
             this.emit('message_end', data);
+            return;
+        }
+
+        // Handle token stream events (real-time LLM generation)
+        if (data.type === 'token_stream') {
+            this.emit('token_stream', data);
+            return;
+        }
+
+        // Handle tool update events (tool execution status)
+        if (data.type === 'tool_update') {
+            this.emit('tool_update', data);
             return;
         }
 
@@ -524,13 +704,23 @@ class WebSocketManager {
             return;
         }
 
-        // Hide loading indicator when regular message is received from the agent
-        if (this.app && typeof this.app.hideLoadingIndicator === 'function') {
+        // Only hide loading indicator when visualresponse/response is received or on error
+        const shouldHideLoadingIndicator =
+            data.type === 'html' ||
+            data.type === 'markdown' ||
+            data.action === 'error' ||
+            (data.content && (
+                data.content.includes('<visualresponse>') ||
+                data.content.includes('<response>')
+            ));
+
+        if (shouldHideLoadingIndicator && this.app && typeof this.app.hideLoadingIndicator === 'function') {
             this.app.hideLoadingIndicator();
+            console.log('✅ Loading indicator hidden - final response received');
         }
 
         // Hide interrupt button when agent response is complete
-        if (this.app && typeof this.app.hideInterruptButton === 'function') {
+        if (shouldHideLoadingIndicator && this.app && typeof this.app.hideInterruptButton === 'function') {
             this.app.hideInterruptButton();
         }
 
@@ -654,6 +844,7 @@ class WebSocketManager {
     /**
      * Unified autoscroll function to ensure consistent chat scrolling behavior
      * Uses a combination of methods for maximum compatibility and smooth scrolling
+     * Implements aggressive multi-attempt scrolling to handle dynamic content rendering
      */
     scrollToBottom() {
         if (!this.contentWrapper) return;
@@ -663,10 +854,10 @@ class WebSocketManager {
             // Multiple attempts to ensure we reach the absolute bottom
             this.contentWrapper.scrollTop = this.contentWrapper.scrollHeight + 100;
             this.contentWrapper.scrollTo(0, this.contentWrapper.scrollHeight + 100);
-            
+
             // Force scroll to actual maximum
             this.contentWrapper.scrollTop = this.contentWrapper.scrollHeight;
-            
+
             // Use scrollIntoView on last element
             const lastChild = this.contentWrapper.lastElementChild;
             if (lastChild) {
@@ -680,16 +871,21 @@ class WebSocketManager {
 
         // Immediate scroll
         forceScrollToEnd();
-        
+
         // Use requestAnimationFrame to ensure DOM has been updated
         requestAnimationFrame(() => {
             forceScrollToEnd();
-            // Additional delayed scroll
+            // Additional delayed scroll to handle async rendering
             setTimeout(forceScrollToEnd, 10);
             setTimeout(forceScrollToEnd, 50);
         });
     }
-    
+
+    /**
+     * Sends a message through the WebSocket connection
+     * @param {string} message - Message to send (typically JSON stringified)
+     * @returns {boolean} True if message was sent, false if connection is not open
+     */
     sendMessage(message) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(message);
@@ -700,6 +896,15 @@ class WebSocketManager {
         return false;
     }
 
+    /**
+     * Handles message edit events from backend
+     * Updates existing message content and shows visual feedback
+     * @private
+     * @param {Object} data - Message edit data
+     * @param {Object} data.message - Edited message object
+     * @param {number} data.message.index - Index of message in chat history
+     * @param {string} data.message.content - New message content
+     */
     handleMessageEdited(data) {
         const {message} = data;
         if (!message) return;
@@ -714,6 +919,7 @@ class WebSocketManager {
         if (contentDiv) {
             contentDiv.textContent = message.content;
 
+            // Visual feedback for edit
             messageBlock.classList.add('message-edited');
             setTimeout(() => messageBlock.classList.remove('message-edited'), 2000);
 
@@ -721,10 +927,21 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Checks if WebSocket connection is currently open
+     * @returns {boolean} True if connected and ready to send messages
+     */
     isConnected() {
         return this.ws && this.ws.readyState === WebSocket.OPEN;
     }
 
+    /**
+     * Sends permission response to backend
+     * @param {string} permissionId - Unique permission request ID
+     * @param {string} result - Permission decision (allow, deny, always_allow, always_deny)
+     * @param {Object} [action={}] - Additional action metadata
+     * @returns {boolean} True if response was sent successfully
+     */
     sendPermissionResponse(permissionId, result, action = {}) {
         const response = {
             type: 'permission_response',
@@ -751,6 +968,10 @@ class WebSocketManager {
         return false;
     }
 
+    /**
+     * Sends interrupt signal to agent to stop current operation
+     * @returns {boolean} True if interrupt signal was sent successfully
+     */
     sendInterruptSignal() {
         const interruptMessage = {
             type: 'interrupt_signal',
@@ -768,6 +989,14 @@ class WebSocketManager {
     }
 
 
+    /**
+     * Handles live tool start event (legacy)
+     * Creates visual indicator for tool execution in progress
+     * @private
+     * @param {Object} data - Tool start data
+     * @param {string} data.tool_name - Name of tool being executed
+     * @param {string} [data.tool_args] - Tool arguments
+     */
     handleLiveToolStart(data) {
         this.logger.info('Live tool started', { tool_name: data.tool_name });
 
@@ -816,6 +1045,15 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Handles live tool completion event (legacy)
+     * Updates tool status indicator and auto-hides after delay
+     * @private
+     * @param {Object} data - Tool completion data
+     * @param {string} data.tool_name - Name of completed tool
+     * @param {string} data.tool_status - Completion status (success, error)
+     * @param {number} data.tool_duration_ms - Execution duration in milliseconds
+     */
     handleLiveToolComplete(data) {
         this.logger.info('Live tool completed', { tool_name: data.tool_name, status: data.tool_status });
 
@@ -860,6 +1098,11 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Cleans up live tools container when message arrives
+     * Fades out and removes container with animation
+     * @private
+     */
     cleanupLiveToolsContainer() {
         const container = document.getElementById('live-tools-container');
         if (container) {
@@ -877,6 +1120,12 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Escapes HTML special characters to prevent XSS
+     * @private
+     * @param {string} text - Text to escape
+     * @returns {string} HTML-escaped text
+     */
     escapeHtml(text) {
         if (!text) return '';
         const div = document.createElement('div');
@@ -885,6 +1134,15 @@ class WebSocketManager {
     }
 
 
+    /**
+     * Handles loading tool start event
+     * Creates expandable tool status item in loading tools header
+     * @private
+     * @param {Object} data - Tool start data
+     * @param {string} data.tool_name - Name of tool being executed
+     * @param {string} [data.tool_args] - Tool arguments
+     * @param {string} [data.model] - LLM model used for tool
+     */
     handleLoadingToolStart(data) {
         this.logger.info('Loading tool started', { tool_name: data.tool_name });
 
@@ -967,8 +1225,15 @@ class WebSocketManager {
     }
 
     /**
-     * Handle WebSocket TTS audio
+     * Handles WebSocket TTS audio streaming
+     * Forwards audio data to AudioManager for playback
+     * @private
      * @param {Object} data - Audio payload
+     * @param {string} data.text - Text that was converted to speech
+     * @param {string} data.audio_format - Audio format (wav, mp3, etc.)
+     * @param {number} [data.duration] - Audio duration in seconds
+     * @param {string} [data.language] - Language code
+     * @param {string} data.audio_data - Base64 encoded audio data
      */
     handleWebSocketAudio(data) {
         this.logger.info('Received WebSocket TTS audio', {
@@ -986,6 +1251,17 @@ class WebSocketManager {
         }
     }
 
+    /**
+     * Handles loading tool completion event
+     * Updates tool status with final result and frozen timer
+     * @private
+     * @param {Object} data - Tool completion data
+     * @param {string} data.tool_name - Name of completed tool
+     * @param {string} data.tool_status - Completion status (success, error)
+     * @param {number} [data.tool_duration_ms] - Execution duration in milliseconds
+     * @param {string} [data.tool_result] - Tool execution result
+     * @param {string} [data.tool_error] - Error message if tool failed
+     */
     handleLoadingToolComplete(data) {
         console.log('🔧 Received loading tool complete:', data);
         this.logger.info('Loading tool completed', { tool_name: data.tool_name, status: data.tool_status });
@@ -1056,6 +1332,13 @@ class WebSocketManager {
         this.scrollToBottom();
     }
 
+    /**
+     * Transfers loading tools from global header to specific message block
+     * Called when visualresponse arrives to attach tool status to message
+     * @private
+     * @param {string} messageId - ID of message to transfer tools to
+     * @param {Object} [toolInfo=null] - Optional tool information metadata
+     */
     transferLoadingToolsToMessage(messageId, toolInfo = null) {
         const loadingToolsHeader = document.getElementById('loading-tools-header');
         if (!loadingToolsHeader || loadingToolsHeader.children.length === 0) {
@@ -1135,7 +1418,12 @@ class WebSocketManager {
         }, 100);
     }
 
-    // Comprehensive cleanup function to ensure proper state
+    /**
+     * Comprehensive cleanup function to ensure proper state
+     * Removes empty loading tools headers and marks stuck tools as failed
+     * Called periodically after message rendering to maintain clean state
+     * @private
+     */
     performMaintenanceCleanup() {
         // Remove any orphaned loading tools headers (but keep completed ones visible)
         const orphanedHeaders = document.querySelectorAll('.loading-tools-header');
@@ -1165,7 +1453,7 @@ class WebSocketManager {
                     clearInterval(parseInt(timerId));
                 }
 
-                // Mark as failed
+                // Mark as failed with warning indicator
                 const statusSpan = tool.querySelector('.loading-tool-status');
                 if (statusSpan) {
                     const frozenTime = (elapsed / 1000).toFixed(1) + 's';

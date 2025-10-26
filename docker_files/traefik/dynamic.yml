@@ -3,8 +3,23 @@
 
 http:
   middlewares:
-    # Rate limiting to prevent abuse
-    rate-limit:
+    # General rate limiting (most endpoints)
+    general-rate-limit:
+      rateLimit:
+        average: 20
+        burst: 40
+        period: 1m
+
+    # Strict rate limiting for container operations
+    # Applies to container creation, deletion, and modification
+    container-ops-limit:
+      rateLimit:
+        average: 5
+        burst: 10
+        period: 5m
+
+    # More permissive rate limiting for read-only operations
+    read-only-limit:
       rateLimit:
         average: 100
         burst: 200
@@ -47,7 +62,7 @@ http:
         - web
       middlewares:
         - strip-manager-prefix
-        - rate-limit
+        - container-ops-limit  # Changed from rate-limit to stricter container-ops-limit
         - security-headers
         - compress
 

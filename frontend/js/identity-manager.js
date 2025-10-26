@@ -1,18 +1,23 @@
 /**
  * Identity Manager - UUID-based user identification
  * Generates and stores UUID in localStorage for containerized mode
+ * @class
  */
-
 class IdentityManager {
+    /**
+     * Initialize identity manager with UUID and containerization detection
+     */
     constructor() {
+        /** @type {string} User's persistent UUID */
         this.uuid = this.getOrCreateUUID();
+        /** @type {boolean} Whether running in containerized mode */
         this.isContainerized = this.detectContainerizedMode();
         console.log(`Identity Manager initialized: UUID=${this.uuid.substring(0, 8)}..., Containerized=${this.isContainerized}`);
     }
 
     /**
-     * Get or create user UUID
-     * Uses crypto.randomUUID() with fallback for older browsers
+     * Get or create user UUID from localStorage
+     * @returns {string} User UUID
      */
     getOrCreateUUID() {
         let uuid = localStorage.getItem('cli-agent-user-uuid');
@@ -36,6 +41,7 @@ class IdentityManager {
 
     /**
      * Get current UUID
+     * @returns {string} User UUID
      */
     getUUID() {
         return this.uuid;
@@ -43,7 +49,7 @@ class IdentityManager {
 
     /**
      * Detect if running in containerized mode (frontend separated from backend)
-     * In containerized mode, we need to discover backend via Container Manager
+     * @returns {boolean} True if containerized, false if local
      */
     detectContainerizedMode() {
         // Check if we're running behind Container Manager
@@ -52,8 +58,8 @@ class IdentityManager {
     }
 
     /**
-     * Reset UUID (wipe identity)
-     * Used when user explicitly wants to start fresh
+     * Reset UUID (wipe identity) and generate new one
+     * @returns {string} New UUID
      */
     resetUUID() {
         const oldUUID = this.uuid;
@@ -64,7 +70,8 @@ class IdentityManager {
     }
 
     /**
-     * Export UUID for backup
+     * Export UUID data for backup
+     * @returns {{uuid: string, created: string}} UUID backup data
      */
     exportUUID() {
         return {
@@ -75,6 +82,8 @@ class IdentityManager {
 
     /**
      * Import UUID from backup
+     * @param {string} uuid - UUID to import
+     * @throws {Error} If UUID format is invalid
      */
     importUUID(uuid) {
         if (!uuid || typeof uuid !== 'string') {

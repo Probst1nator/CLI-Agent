@@ -1,20 +1,24 @@
 /**
- * Tool Manager
- *
- * Manages the enable/disable state of agent tools through a UI with checkboxes.
- * Allows users to control which tools the agent can use.
+ * Tool Manager - UI-based tool enable/disable management
+ * Manages the enable/disable state of agent tools through checkboxes
+ * Persists state to localStorage for consistency across sessions
+ * @class
  */
-
 class ToolManager {
+    /**
+     * Initialize tool manager with state persistence
+     * Loads saved tool states from localStorage and initializes DOM when ready
+     */
     constructor() {
+        /** @type {ToolDefinition[]} Array of available tools */
         this.tools = [];
+        /** @type {Set<string>} Set of disabled tool names */
         this.disabledTools = new Set();
+        /** @type {HTMLElement|null} Container for tool toggle checkboxes */
         this.containerElement = null;
 
-        // Load saved state from localStorage
         this.loadToolStates();
 
-        // Initialize after DOM is ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => this.initialize());
         } else {
@@ -23,7 +27,9 @@ class ToolManager {
     }
 
     /**
-     * Initialize the tool manager
+     * Initialize the tool manager from ToolRegistry
+     * @returns {Promise<void>}
+     * @async
      */
     async initialize() {
         this.containerElement = document.getElementById('tool-toggles');
@@ -46,8 +52,9 @@ class ToolManager {
     }
 
     /**
-     * Fallback to empty tool list if ToolRegistry is unavailable
+     * Use empty tool list when ToolRegistry unavailable
      * Tools will be discovered dynamically as they are used
+     * @private
      */
     fallbackToDefaultTools() {
         this.tools = [];
@@ -55,36 +62,34 @@ class ToolManager {
     }
 
     /**
-     * Create the tool toggle checkboxes
+     * Create checkbox toggle UI for all tools
+     * Renders tool-toggle-item elements with checkboxes and labels
+     * @private
      */
     createToolToggles() {
         console.log('[ToolManager] createToolToggles called with', this.tools.length, 'tools');
         console.log('[ToolManager] containerElement:', this.containerElement);
-        
+
         if (!this.containerElement) {
             console.error('[ToolManager] No container element found!');
             return;
         }
 
-        // Clear existing content
         this.containerElement.innerHTML = '';
 
-        // Add "Tools:" header as first item
         const headerItem = document.createElement('div');
         headerItem.className = 'tool-toggle-item';
         headerItem.textContent = 'Tools:';
         this.containerElement.appendChild(headerItem);
 
         console.log('[ToolManager] About to create toggles for tools:', this.tools.map(t => t.name));
-        
+
         this.tools.forEach(tool => {
             const isEnabled = !this.disabledTools.has(tool.name);
 
-            // Create container for this tool
             const toolItem = document.createElement('div');
             toolItem.className = `tool-toggle-item ${isEnabled ? 'enabled' : 'disabled'}`;
 
-            // Create checkbox
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.id = `tool-${tool.name}`;
@@ -93,12 +98,10 @@ class ToolManager {
                 this.toggleTool(tool.name, e.target.checked);
             });
 
-            // Create label
             const label = document.createElement('label');
             label.htmlFor = `tool-${tool.name}`;
             label.textContent = tool.displayName;
 
-            // Assemble
             toolItem.appendChild(checkbox);
             toolItem.appendChild(label);
             this.containerElement.appendChild(toolItem);
@@ -106,7 +109,9 @@ class ToolManager {
     }
 
     /**
-     * Toggle a tool's enabled/disabled state
+     * Toggle tool enabled/disabled state and update UI
+     * @param {string} toolName - Name of tool to toggle
+     * @param {boolean} enabled - Whether tool should be enabled
      */
     toggleTool(toolName, enabled) {
         const toolItem = document.querySelector(`.tool-toggle-item:has(#tool-${toolName})`);
@@ -129,13 +134,16 @@ class ToolManager {
 
     /**
      * Check if a tool is enabled
+     * @param {string} toolName - Name of tool to check
+     * @returns {boolean} True if tool is enabled
      */
     isToolEnabled(toolName) {
         return !this.disabledTools.has(toolName);
     }
 
     /**
-     * Get list of enabled tools
+     * Get array of enabled tool names
+     * @returns {string[]} List of enabled tool names
      */
     getEnabledTools() {
         return this.tools
@@ -144,14 +152,15 @@ class ToolManager {
     }
 
     /**
-     * Get list of disabled tools
+     * Get array of disabled tool names
+     * @returns {string[]} List of disabled tool names
      */
     getDisabledTools() {
         return Array.from(this.disabledTools);
     }
 
     /**
-     * Enable all tools
+     * Enable all tools and refresh UI
      */
     enableAllTools() {
         this.disabledTools.clear();
@@ -160,12 +169,12 @@ class ToolManager {
             if (checkbox) checkbox.checked = true;
         });
         this.saveToolStates();
-        this.createToolToggles(); // Refresh UI
+        this.createToolToggles();
         window.visualLogger?.info('All tools enabled');
     }
 
     /**
-     * Disable all tools
+     * Disable all tools and refresh UI
      */
     disableAllTools() {
         this.tools.forEach(tool => {
@@ -174,19 +183,21 @@ class ToolManager {
             if (checkbox) checkbox.checked = false;
         });
         this.saveToolStates();
-        this.createToolToggles(); // Refresh UI
+        this.createToolToggles();
         window.visualLogger?.info('All tools disabled');
     }
 
     /**
-     * Reset to default (all enabled)
+     * Reset all tools to default (all enabled)
      */
     resetToDefaults() {
         this.enableAllTools();
     }
 
     /**
-     * Refresh tool list from ToolRegistry
+     * Refresh tool list from ToolRegistry and update UI
+     * @returns {Promise<void>}
+     * @async
      */
     async refresh() {
         console.log('[ToolManager] refresh() called');
@@ -202,7 +213,8 @@ class ToolManager {
     }
 
     /**
-     * Save tool states to localStorage
+     * Persist disabled tool names to localStorage
+     * @private
      */
     saveToolStates() {
         try {
@@ -214,7 +226,8 @@ class ToolManager {
     }
 
     /**
-     * Load tool states from localStorage
+     * Load disabled tool names from localStorage
+     * @private
      */
     loadToolStates() {
         try {
@@ -230,17 +243,21 @@ class ToolManager {
     }
 
     /**
-     * Notify other components about tool state changes
+     * Emit custom event for tool state changes
+     * Other components can listen with window.addEventListener('toolStateChanged', callback)
+     * @param {string} toolName - Tool that changed
+     * @param {boolean} enabled - Whether tool is now enabled
+     * @private
      */
     notifyToolStateChange(toolName, enabled) {
-        // Dispatch custom event for other components to listen to
         window.dispatchEvent(new CustomEvent('toolStateChanged', {
             detail: { toolName, enabled, disabledTools: this.getDisabledTools() }
         }));
     }
 
     /**
-     * Get tool information for sending to server
+     * Get current tool configuration for sending to server
+     * @returns {{enabledTools: string[], disabledTools: string[], totalTools: number}} Configuration object
      */
     getToolConfiguration() {
         return {
@@ -251,7 +268,7 @@ class ToolManager {
     }
 }
 
-// Create global instance
+// Create global singleton instance
 window.ToolManager = new ToolManager();
 
 // Export for module usage

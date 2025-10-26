@@ -1,33 +1,154 @@
 /**
  * AudioManager - Browser audio recording and TTS playback
  *
- * Handles microphone recording, uploading to backend for transcription,
- * and playing TTS audio responses.
+ * Handles microphone recording via MediaRecorder API, uploading to backend for transcription,
+ * and playing TTS audio responses with queue management.
+ *
+ * @class AudioManager
  */
 
 class AudioManager {
     constructor() {
+        /**
+         * MediaRecorder instance for capturing audio
+         * @type {MediaRecorder|null}
+         * @private
+         */
         this.recorder = null;
+
+        /**
+         * Web Audio API AudioContext for VAD processing
+         * @type {AudioContext|null}
+         * @private
+         */
         this.audioContext = null;
+
+        /**
+         * MediaStream from getUserMedia for microphone access
+         * @type {MediaStream|null}
+         * @private
+         */
         this.stream = null;
+
+        /**
+         * Array of Blob chunks collected during recording
+         * @type {Blob[]}
+         * @private
+         */
         this.chunks = [];
+
+        /**
+         * Currently playing HTML Audio element
+         * @type {HTMLAudioElement|null}
+         * @private
+         */
         this.playingAudio = null;
+
+        /**
+         * Flag indicating if recording is in progress
+         * @type {boolean}
+         * @private
+         */
         this.isRecording = false;
+
+        /**
+         * Queue of audio items waiting to be played
+         * @type {Array<{url: string, metadata: Object}>}
+         * @private
+         */
         this.audioQueue = [];
+
+        /**
+         * Flag indicating if queue playback is active
+         * @type {boolean}
+         * @private
+         */
         this.isPlayingQueue = false;
+
+        /**
+         * Flag indicating if user has interacted (required for autoplay)
+         * @type {boolean}
+         * @private
+         */
         this.hasUserInteraction = false;
+
+        /**
+         * Flag indicating if TTS is currently active
+         * @type {boolean}
+         * @private
+         */
         this.isTTSActive = false;
+
+        /**
+         * Audio volume level (0.0 to 1.0)
+         * @type {number}
+         * @private
+         */
         this.volume = 1.0;
 
         // VAD (Voice Activity Detection) settings
+
+        /**
+         * Flag to enable/disable VAD recording mode
+         * @type {boolean}
+         * @private
+         */
         this.vadEnabled = false;
+
+        /**
+         * Amplitude threshold for voice detection (0.0 to 1.0)
+         * @type {number}
+         * @private
+         */
         this.vadThreshold = 0.02;
+
+        /**
+         * Duration of silence (in seconds) before auto-stopping recording
+         * @type {number}
+         * @private
+         */
         this.vadSilenceDuration = 2.0;
+
+        /**
+         * Maximum recording duration (in seconds) for VAD mode
+         * @type {number}
+         * @private
+         */
         this.vadMaxDuration = 20.0;
+
+        /**
+         * Flag indicating if VAD has detected speech and started recording
+         * @type {boolean}
+         * @private
+         */
         this.vadRecording = false;
+
+        /**
+         * Counter for consecutive silent audio chunks in VAD mode
+         * @type {number}
+         * @private
+         */
         this.vadSilentChunks = 0;
+
+        /**
+         * Array of Float32Array audio chunks recorded during VAD session
+         * @type {Float32Array[]}
+         * @private
+         */
         this.vadRecordedChunks = [];
+
+        /**
+         * Timestamp (milliseconds) when VAD recording started
+         * @type {number}
+         * @private
+         */
         this.vadStartTime = 0;
+
+        /**
+         * ScriptProcessorNode for VAD audio analysis
+         * @type {ScriptProcessorNode|null}
+         * @private
+         */
         this.vadProcessor = null;
 
         console.log('AudioManager initialized');
@@ -44,7 +165,16 @@ class AudioManager {
     }
 
     /**
-     * Start recording from microphone
+     * Start recording from microphone using MediaRecorder API
+     *
+     * Initializes MediaRecorder with getUserMedia stream and collects audio chunks.
+     * Event handler 'ondataavailable' appends Blob chunks to this.chunks array.
+     *
+     * @async
+     * @returns {Promise<void>}
+     * @throws {NotAllowedError} When microphone permission is denied
+     * @throws {NotFoundError} When no microphone device is found
+     * @throws {Error} For other recording initialization failures
      */
     async startRecording() {
         try {
@@ -86,7 +216,14 @@ class AudioManager {
 
     /**
      * Stop recording and upload for transcription
-     * @returns {Promise<string>} Transcribed text
+     *
+     * Stops MediaRecorder, creates audio Blob from collected chunks,
+     * uploads to backend, and returns transcribed text.
+     * Event handler 'onstop' is set to handle async upload process.
+     *
+     * @async
+     * @returns {Promise<string>} Transcribed text from backend
+     * @throws {Error} When upload or transcription fails
      */
     async stopRecording() {
         try {
@@ -129,8 +266,22 @@ class AudioManager {
 
     /**
      * Start recording with automatic Voice Activity Detection
-     * Automatically stops after silence_duration seconds of silence
-     * @returns {Promise<string>} Transcribed text
+     *
+     * Uses Web Audio API ScriptProcessorNode to analyze audio amplitude in real-time.
+     * Waits for speech to start recording, then auto-stops after silence_duration
+     * seconds of silence or max_duration seconds total.
+     *
+     * VAD Flow:
+     * 1. Listen for amplitude > vadThreshold to start recording
+     * 2. Collect Float32Array chunks while speech detected
+     * 3. Count silent chunks, stop when vadSilentChunks > threshold
+     * 4. Convert Float32Array to WAV blob and upload for transcription
+     *
+     * @async
+     * @returns {Promise<string>} Transcribed text from backend
+     * @throws {NotAllowedError} When microphone permission is denied
+     * @throws {NotFoundError} When no microphone device is found
+     * @throws {Error} For other recording or processing failures
      */
     async startRecordingWithVAD() {
         try {
@@ -223,7 +374,13 @@ class AudioManager {
 
     /**
      * Stop VAD recording and process audio
-     * @returns {Promise<string>} Transcribed text
+     *
+     * Disconnects ScriptProcessorNode, merges Float32Array chunks,
+     * converts to WAV format, and uploads for transcription.
+     *
+     * @async
+     * @returns {Promise<string>} Transcribed text from backend, or empty string if no speech detected
+     * @throws {Error} When audio processing or upload fails
      */
     async stopRecordingVAD() {
         try {
@@ -293,10 +450,20 @@ class AudioManager {
     }
 
     /**
-     * Convert Float32Array audio to WAV blob
-     * @param {Float32Array} samples - Audio samples
-     * @param {number} sampleRate - Sample rate
-     * @returns {Blob} WAV audio blob
+     * Convert Float32Array audio samples to WAV blob
+     *
+     * Creates a WAV file with proper header and converts Float32 samples
+     * to 16-bit PCM format.
+     *
+     * WAV Format:
+     * - RIFF header (12 bytes)
+     * - fmt chunk (24 bytes): PCM, mono, 16-bit
+     * - data chunk header (8 bytes)
+     * - 16-bit PCM audio data
+     *
+     * @param {Float32Array} samples - Audio samples in range [-1.0, 1.0]
+     * @param {number} sampleRate - Sample rate in Hz (e.g., 16000)
+     * @returns {Blob} WAV audio blob with type 'audio/wav'
      */
     float32ArrayToWav(samples, sampleRate) {
         const buffer = new ArrayBuffer(44 + samples.length * 2);
@@ -336,8 +503,14 @@ class AudioManager {
 
     /**
      * Upload audio blob to backend for transcription
-     * @param {Blob} blob - Audio blob to upload
-     * @returns {Promise<string>} Transcribed text
+     *
+     * Sends audio as multipart/form-data to /api/audio/upload endpoint.
+     * Backend processes with Whisper and returns transcribed text.
+     *
+     * @async
+     * @param {Blob} blob - Audio blob (webm or wav format)
+     * @returns {Promise<string>} Transcribed text from backend
+     * @throws {Error} When upload fails or transcription returns empty
      */
     async uploadAudio(blob) {
         try {
@@ -378,8 +551,19 @@ class AudioManager {
 
     /**
      * Generate and play TTS audio for text
-     * @param {string} text - Text to speak
-     * @param {string} language - Language code (default: 'en')
+     *
+     * Requests TTS audio from backend (/api/audio/tts), creates HTML Audio element,
+     * and plays immediately. Sets up event handlers for playback lifecycle.
+     *
+     * Event Handlers:
+     * - onended: Cleanup and hide status indicator
+     * - onerror: Log error and cleanup
+     *
+     * @async
+     * @param {string} text - Text to convert to speech
+     * @param {string} [language='auto'] - Language code (e.g., 'en', 'es') or 'auto' for detection
+     * @returns {Promise<void>}
+     * @throws {Error} When TTS generation or playback fails
      */
     async playTTS(text, language = 'auto') {
         try {
@@ -451,6 +635,15 @@ class AudioManager {
         }
     }
 
+    /**
+     * Stop currently playing audio
+     *
+     * Pauses and clears the current Audio element.
+     * Note: This is a duplicate method - there's another stopAudio() below
+     * that also clears the queue.
+     *
+     * @returns {void}
+     */
     stopAudio() {
         if (this.playingAudio) {
             this.playingAudio.pause();
@@ -461,6 +654,15 @@ class AudioManager {
         }
     }
 
+    /**
+     * Show TTS status indicator in UI
+     *
+     * Creates or updates a floating status indicator element
+     * showing current TTS state (e.g., "Generating speech...", "Speaking...").
+     *
+     * @param {string} message - Status message to display
+     * @returns {void}
+     */
     showTTSStatus(message) {
         let statusEl = document.getElementById('tts-status-indicator');
         if (!statusEl) {
@@ -473,6 +675,11 @@ class AudioManager {
         statusEl.style.display = 'block';
     }
 
+    /**
+     * Hide TTS status indicator
+     *
+     * @returns {void}
+     */
     hideTTSStatus() {
         const statusEl = document.getElementById('tts-status-indicator');
         if (statusEl) {
@@ -482,7 +689,27 @@ class AudioManager {
 
     /**
      * Play TTS audio from WebSocket stream (base64 encoded)
+     *
+     * Receives base64-encoded audio from WebSocket, decodes to binary,
+     * creates Blob, and queues for playback.
+     *
+     * WebSocket Audio Data Format:
+     * {
+     *   audio_data: string,      // Base64-encoded audio
+     *   text: string,            // Original text
+     *   audio_format: string,    // Format (e.g., 'wav')
+     *   duration: number,        // Duration in seconds
+     *   language: string         // Language code
+     * }
+     *
+     * @async
      * @param {Object} audioData - Audio payload from WebSocket
+     * @param {string} audioData.audio_data - Base64-encoded audio data
+     * @param {string} [audioData.text] - Original text that was synthesized
+     * @param {string} [audioData.audio_format] - Audio format
+     * @param {number} [audioData.duration] - Audio duration in seconds
+     * @param {string} [audioData.language] - Language code
+     * @returns {Promise<void>}
      */
     async playWebSocketAudio(audioData) {
         try {
@@ -520,8 +747,14 @@ class AudioManager {
 
     /**
      * Queue audio for sequential playback
-     * @param {string} audioUrl - Object URL of audio blob
-     * @param {Object} metadata - Audio metadata
+     *
+     * Adds audio to queue and starts playback if not already playing.
+     * Queue ensures audio plays in order without overlapping.
+     *
+     * @param {string} audioUrl - Object URL (blob:) of audio blob
+     * @param {Object} [metadata={}] - Audio metadata
+     * @param {number} [metadata.volume] - Override volume for this audio (0.0-1.0)
+     * @returns {void}
      */
     queueAudio(audioUrl, metadata = {}) {
         this.audioQueue.push({ url: audioUrl, metadata });
@@ -535,6 +768,16 @@ class AudioManager {
 
     /**
      * Play next audio in queue
+     *
+     * Recursively processes audio queue, playing each item sequentially.
+     * Checks for user interaction before playing (browser autoplay policy).
+     *
+     * Event Handlers:
+     * - onended: Cleanup and play next in queue
+     * - onerror: Log error and continue to next in queue
+     *
+     * @async
+     * @returns {Promise<void>}
      */
     async playNextInQueue() {
         if (this.audioQueue.length === 0) {
@@ -601,6 +844,11 @@ class AudioManager {
 
     /**
      * Stop currently playing audio and clear queue
+     *
+     * This is the main stopAudio() method that also clears the queue.
+     * Note: There's a duplicate stopAudio() method above that only stops current playback.
+     *
+     * @returns {void}
      */
     stopAudio() {
         // Stop current playback
@@ -624,7 +872,11 @@ class AudioManager {
 
     /**
      * Check if microphone is available
-     * @returns {Promise<boolean>}
+     *
+     * Enumerates media devices and checks for audio input devices.
+     *
+     * @async
+     * @returns {Promise<boolean>} True if at least one microphone is found
      */
     async checkMicrophoneAccess() {
         try {
@@ -646,7 +898,11 @@ class AudioManager {
 
     /**
      * Get voice mode status from backend
-     * @returns {Promise<boolean>}
+     *
+     * Queries /api/audio/voice_status to check if backend voice mode is enabled.
+     *
+     * @async
+     * @returns {Promise<boolean>} True if voice mode is enabled on backend
      */
     async getVoiceStatus() {
         try {
@@ -672,6 +928,13 @@ class AudioManager {
 
     /**
      * Show status message
+     *
+     * Displays status via global showToast() function if available,
+     * otherwise logs to console.
+     *
+     * @param {string} message - Status message to display
+     * @param {string} [type='info'] - Message type: 'info', 'success', 'warning', 'error'
+     * @returns {void}
      */
     showStatus(message, type = 'info') {
         if (typeof showToast === 'function') {
@@ -683,6 +946,12 @@ class AudioManager {
 
     /**
      * Show error message
+     *
+     * Displays error via global showToast() function if available,
+     * otherwise logs to console.
+     *
+     * @param {string} message - Error message to display
+     * @returns {void}
      */
     showError(message) {
         if (typeof showToast === 'function') {
@@ -694,6 +963,11 @@ class AudioManager {
 
     /**
      * Cleanup resources
+     *
+     * Stops all media streams and audio playback.
+     * Should be called when AudioManager is being destroyed.
+     *
+     * @returns {void}
      */
     cleanup() {
         if (this.stream) {
@@ -710,6 +984,14 @@ class AudioManager {
         console.log('AudioManager cleaned up');
     }
 
+    /**
+     * Set audio volume
+     *
+     * Updates volume and applies to currently playing audio if any.
+     *
+     * @param {number} volumePercent - Volume percentage (0-100)
+     * @returns {void}
+     */
     setVolume(volumePercent) {
         this.volume = Math.max(0, Math.min(1, volumePercent / 100));
         console.log('TTS volume set to', this.volume);
@@ -719,13 +1001,20 @@ class AudioManager {
         }
     }
 
+    /**
+     * Get current volume
+     *
+     * @returns {number} Volume percentage (0-100)
+     */
     getVolume() {
         return this.volume * 100;
     }
 }
 
+// Expose AudioManager globally
 window.AudioManager = AudioManager;
 
+// Cleanup on page unload
 window.addEventListener('beforeunload', () => {
     if (window.audioManager) {
         window.audioManager.cleanup();

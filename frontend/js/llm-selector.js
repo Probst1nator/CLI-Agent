@@ -15,19 +15,53 @@
  * @author CLI-Agent Development Team
  * @version 1.0.0
  */
+
+/**
+ * @typedef {Object} LLMSelectboxOptions
+ * @property {string} [placeholder='Select LLM...'] - Placeholder text for the selectbox
+ * @property {string} [id] - Unique ID for this selectbox instance
+ * @property {function(LLMModel|null):void} [onSelectionChange] - Callback when selection changes
+ * @property {function(SearchableLLMSelectbox, Array<LLMModel>, Object):void} [onModelsLoaded] - Callback when models are loaded
+ * @property {Array<LLMModel>} [initialModels=[]] - Initial model list (optional)
+ * @property {boolean} [includeNoneOption=false] - Whether to include a "None" option
+ */
+
+/**
+ * @typedef {Object} LLMModel
+ * @property {string|null} id - Unique model identifier (null for None option)
+ * @property {string} name - Display name of the model
+ * @property {string} provider - Provider name (Google, Groq, Ollama, etc.)
+ * @property {number|string} context_window - Context window size or 'N/A'
+ * @property {Object|null} pricing - Pricing information
+ * @property {Array<string>} capabilities - Model capabilities (vision, function-calling, etc.)
+ * @property {boolean} [isNoneOption] - True if this is the "None" option
+ */
+
+/**
+ * @typedef {Object} SystemConfiguration
+ * @property {string|null} override_llm - Current override LLM model ID
+ * @property {string|null} router_llm - Current router LLM model ID
+ * @property {string|null} planner_llm - Current planner LLM model ID
+ * @property {Array<string>} selected_llms - Current fallback LLM model IDs
+ */
+
 class SearchableLLMSelectbox {
     /**
      * Initialize the searchable LLM selectbox
      * @param {HTMLElement} container - The container element to attach the selectbox to
-     * @param {Object} options - Configuration options
-     * @param {string} options.placeholder - Placeholder text for the selectbox
-     * @param {string} options.id - Unique ID for this selectbox instance
-     * @param {Function} options.onSelectionChange - Callback when selection changes
-     * @param {Function} options.onModelsLoaded - Callback when models are loaded
-     * @param {Array} options.initialModels - Initial model list (optional)
+     * @param {LLMSelectboxOptions} [options={}] - Configuration options
      */
     constructor(container, options = {}) {
+        /**
+         * Container element for the selectbox
+         * @type {HTMLElement}
+         */
         this.container = container;
+
+        /**
+         * Configuration options
+         * @type {LLMSelectboxOptions}
+         */
         this.options = {
             placeholder: options.placeholder || 'Select LLM...',
             id: options.id || 'llm-selector-' + Date.now(),
@@ -37,18 +71,114 @@ class SearchableLLMSelectbox {
             includeNoneOption: options.includeNoneOption || false
         };
 
+        /**
+         * All available models
+         * @type {Array<LLMModel>}
+         */
         this.models = [];
+
+        /**
+         * Filtered models based on search query
+         * @type {Array<LLMModel>}
+         */
         this.filteredModels = [];
+
+        /**
+         * Currently selected model
+         * @type {LLMModel|null}
+         */
         this.selectedModel = null;
+
+        /**
+         * Whether dropdown is currently open
+         * @type {boolean}
+         */
         this.isOpen = false;
+
+        /**
+         * Current search query
+         * @type {string}
+         */
         this.searchQuery = '';
+
+        /**
+         * Index of currently focused option (for keyboard navigation)
+         * @type {number}
+         */
         this.focusedIndex = -1;
+
+        /**
+         * System configuration from server
+         * @type {SystemConfiguration|null}
+         */
+        this.systemConfiguration = null;
+
+        /**
+         * Deferred selection (model ID to select once models are loaded)
+         * @type {string|null}
+         */
+        this.deferredSelection = null;
+
+        /**
+         * Main selectbox element
+         * @type {HTMLElement|null}
+         */
+        this.selectbox = null;
+
+        /**
+         * Trigger button element
+         * @type {HTMLElement|null}
+         */
+        this.trigger = null;
+
+        /**
+         * Label element displaying selected model
+         * @type {HTMLElement|null}
+         */
+        this.label = null;
+
+        /**
+         * Arrow indicator element
+         * @type {HTMLElement|null}
+         */
+        this.arrow = null;
+
+        /**
+         * Dropdown container element
+         * @type {HTMLElement|null}
+         */
+        this.dropdown = null;
+
+        /**
+         * Search input element
+         * @type {HTMLInputElement|null}
+         */
+        this.searchInput = null;
+
+        /**
+         * Options container element
+         * @type {HTMLElement|null}
+         */
+        this.optionsContainer = null;
+
+        /**
+         * Global click handler for click-outside-to-close
+         * @type {function(Event):void|null}
+         */
+        this.globalClickHandler = null;
+
+        /**
+         * Window resize handler
+         * @type {function(Event):void|null}
+         */
+        this.resizeHandler = null;
 
         this.init();
     }
 
     /**
      * Initialize the selectbox DOM structure and event listeners
+     * @returns {void}
      */
     init() {
         this.createDOM();
@@ -69,6 +199,7 @@ class SearchableLLMSelectbox {
 
     /**
      * Create the DOM structure for the selectbox
+     * @returns {void}
      */
     createDOM() {
         this.container.innerHTML = `
@@ -100,6 +231,9 @@ class SearchableLLMSelectbox {
 
     /**
      * Setup event listeners for interaction
+     * Handles keyboard navigation (arrow keys, Enter, Escape), click events,
+     * search input, and global click-outside-to-close behavior
+     * @returns {void}
      */
     setupEventListeners() {
         // Trigger click
@@ -187,6 +321,8 @@ class SearchableLLMSelectbox {
 
     /**
      * Load models from the server
+     * @async
+     * @returns {Promise<void>}
      */
     async loadModelsFromServer() {
         try {
@@ -216,7 +352,8 @@ class SearchableLLMSelectbox {
 
     /**
      * Set the available models
-     * @param {Array} models - Array of model objects
+     * @param {Array<LLMModel>} models - Array of model objects
+     * @returns {void}
      */
     setModels(models) {
         this.models = [...models];
@@ -259,6 +396,7 @@ class SearchableLLMSelectbox {
 
     /**
      * Filter models based on search query and render options
+     * @returns {void}
      */
     filterAndRenderOptions() {
         // Filter models by search query
@@ -277,8 +415,8 @@ class SearchableLLMSelectbox {
 
     /**
      * Group models by provider
-     * @param {Array} models - Array of model objects
-     * @returns {Object} Grouped models by provider
+     * @param {Array<LLMModel>} models - Array of model objects
+     * @returns {Object<string, Array<LLMModel>>} Grouped models by provider
      */
     groupModelsByProvider(models) {
         const grouped = {};
@@ -302,7 +440,8 @@ class SearchableLLMSelectbox {
 
     /**
      * Render the options dropdown
-     * @param {Object} groupedModels - Models grouped by provider
+     * @param {Object<string, Array<LLMModel>>} groupedModels - Models grouped by provider
+     * @returns {void}
      */
     renderOptions(groupedModels) {
         const providers = Object.keys(groupedModels);
@@ -369,7 +508,7 @@ class SearchableLLMSelectbox {
     /**
      * Get icon for provider
      * @param {string} provider - Provider name
-     * @returns {string} Provider icon
+     * @returns {string} Provider icon emoji
      */
     getProviderIcon(provider) {
         const icons = {
@@ -386,7 +525,7 @@ class SearchableLLMSelectbox {
     /**
      * Format context window for display
      * @param {number} contextWindow - Context window size
-     * @returns {string} Formatted context window
+     * @returns {string} Formatted context window (e.g., "1.5M", "128K")
      */
     formatContextWindow(contextWindow) {
         if (contextWindow >= 1000000) {
@@ -400,6 +539,7 @@ class SearchableLLMSelectbox {
     /**
      * Select a model by ID
      * @param {string|null} modelId - Model ID to select, or null for None option
+     * @returns {void}
      */
     selectModel(modelId) {
         const model = this.models.find(m => m.id === modelId);
@@ -438,6 +578,8 @@ class SearchableLLMSelectbox {
 
     /**
      * Update the selectbox width to fit the content
+     * Dynamically calculates width based on label text and applies responsive constraints
+     * @returns {void}
      */
     updateSelectboxWidth() {
         if (!this.label || !this.selectbox) return;
@@ -474,7 +616,7 @@ class SearchableLLMSelectbox {
 
     /**
      * Get the currently selected model
-     * @returns {Object|null} Selected model or null
+     * @returns {LLMModel|null} Selected model or null
      */
     getSelectedModel() {
         return this.selectedModel;
@@ -483,6 +625,7 @@ class SearchableLLMSelectbox {
     /**
      * Set the selected model programmatically
      * @param {string} modelId - Model ID to select
+     * @returns {void}
      */
     setSelectedModel(modelId) {
         this.selectModel(modelId);
@@ -490,6 +633,7 @@ class SearchableLLMSelectbox {
 
     /**
      * Toggle dropdown open/closed
+     * @returns {void}
      */
     toggleDropdown() {
         if (this.isOpen) {
@@ -501,6 +645,8 @@ class SearchableLLMSelectbox {
 
     /**
      * Open the dropdown
+     * Resets search and focuses search input
+     * @returns {void}
      */
     openDropdown() {
         this.isOpen = true;
@@ -517,6 +663,8 @@ class SearchableLLMSelectbox {
 
     /**
      * Close the dropdown
+     * Returns focus to trigger button
+     * @returns {void}
      */
     closeDropdown() {
         this.isOpen = false;
@@ -527,7 +675,8 @@ class SearchableLLMSelectbox {
     }
 
     /**
-     * Focus next option in dropdown
+     * Focus next option in dropdown (keyboard navigation)
+     * @returns {void}
      */
     focusNextOption() {
         const options = this.optionsContainer.querySelectorAll('.llm-selectbox-option');
@@ -538,7 +687,8 @@ class SearchableLLMSelectbox {
     }
 
     /**
-     * Focus previous option in dropdown
+     * Focus previous option in dropdown (keyboard navigation)
+     * @returns {void}
      */
     focusPreviousOption() {
         const options = this.optionsContainer.querySelectorAll('.llm-selectbox-option');
@@ -551,6 +701,7 @@ class SearchableLLMSelectbox {
     /**
      * Update the visually focused option
      * @param {NodeList} options - List of option elements
+     * @returns {void}
      */
     updateFocusedOption(options) {
         // Remove previous focus
@@ -565,7 +716,8 @@ class SearchableLLMSelectbox {
     }
 
     /**
-     * Select the currently focused option
+     * Select the currently focused option (keyboard navigation)
+     * @returns {void}
      */
     selectFocusedOption() {
         const options = this.optionsContainer.querySelectorAll('.llm-selectbox-option');
@@ -579,6 +731,7 @@ class SearchableLLMSelectbox {
     /**
      * Show loading state
      * @param {boolean} show - Whether to show loading
+     * @returns {void}
      */
     showLoading(show) {
         if (show) {
@@ -589,6 +742,7 @@ class SearchableLLMSelectbox {
     /**
      * Show error message
      * @param {string} message - Error message to display
+     * @returns {void}
      */
     showError(message) {
         this.optionsContainer.innerHTML = `<div class="llm-selectbox-error">${message}</div>`;
@@ -596,6 +750,8 @@ class SearchableLLMSelectbox {
 
     /**
      * Destroy the selectbox and clean up event listeners
+     * Removes all event listeners and DOM elements to prevent memory leaks
+     * @returns {void}
      */
     destroy() {
         // Remove global event listeners

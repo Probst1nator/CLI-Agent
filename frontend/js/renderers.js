@@ -1,9 +1,101 @@
 // tools/visual_assets/js/renderers.js
 
 /**
+ * @fileoverview Content rendering system for CLI-Agent visual response interface.
+ * Handles rendering of HTML, Markdown, Mermaid diagrams, LaTeX, and tool call visualizations.
+ *
+ * Key Architecture Principles:
+ * - Metadata is the source of truth for tool execution information
+ * - XML parsing provides supplementary context and argument details
+ * - Content is rendered in sandboxed iframes for security isolation
+ * - JavaScript execution is controlled per-message with granular overrides
+ *
+ * @author CLI-Agent Development Team
+ * @version 2.0.0
+ */
+
+// ===== TYPE DEFINITIONS =====
+
+/**
+ * Message object structure from chat history
+ * @typedef {Object} Message
+ * @property {string} role - Message role ('user' | 'assistant' | 'system')
+ * @property {string} content - Raw message content (may include XML tags)
+ * @property {MessageMetadata} [metadata] - Message metadata with execution info
+ * @property {string} [type] - Content type for visualresponse messages ('html' | 'markdown' | 'image_upload_ack')
+ * @property {number} [timestamp] - Message timestamp
+ */
+
+/**
+ * Message metadata containing tool execution information
+ * @typedef {Object} MessageMetadata
+ * @property {ToolInfo[]} [tool_info] - Array of tool execution records (source of truth)
+ * @property {string} [response_model] - LLM model used for response
+ * @property {Object} [additionalData] - Additional dynamic metadata
+ */
+
+/**
+ * Tool execution information (from metadata - authoritative)
+ * @typedef {Object} ToolInfo
+ * @property {string} name - Tool name
+ * @property {'success'|'error'} status - Execution status
+ * @property {number} [duration_ms] - Execution duration in milliseconds
+ * @property {string} [model] - LLM model used for tool execution
+ * @property {string} [args] - Tool arguments/parameters
+ * @property {string} [context_returned] - Tool output/returned context
+ * @property {number} [context_length] - Length of returned context
+ * @property {string} [error] - Error message if status is 'error'
+ */
+
+/**
+ * Parsed XML tool call (from content parsing - supplementary)
+ * @typedef {Object} XMLToolCall
+ * @property {string} name - Tool tag name
+ * @property {number} position - Position in content (for ordering)
+ * @property {string} args - Inner XML content (arguments)
+ * @property {string} fullMatch - Complete matched text
+ * @property {'success'|'error'} [status] - Default status from parsing
+ * @property {number|null} [duration_ms] - Duration (null until merged with metadata)
+ * @property {string|null} [model] - Model (null until merged with metadata)
+ * @property {string} [context_returned] - Context from <context> blocks
+ * @property {number} [context_length] - Length of context
+ */
+
+/**
+ * Result of content rendering operation
+ * @typedef {Object} RenderResult
+ * @property {boolean} wasHtmlRendered - Whether HTML was rendered
+ * @property {HTMLElement|null} consoleBox - Console output element if created
+ */
+
+/**
+ * Options for content rendering
+ * @typedef {Object} ContentRenderOptions
+ * @property {string} [messageId] - Message ID for state tracking
+ * @property {HTMLElement} [timestampDiv] - Timestamp header element for controls
+ * @property {boolean} [jsEnabled] - Whether JavaScript is enabled for this message
+ */
+
+// ===== RENDERING FUNCTIONS =====
+
+/**
  * Renders HTML content within a sandboxed iframe to isolate it from the main document.
- * @param {HTMLElement} targetElement - The container element to render into.
- * @param {string} htmlContent - The complete HTML string to render.
+ *
+ * Security Model:
+ * - JavaScript execution controlled per-message (can override global setting)
+ * - Content rendered in sandboxed iframe with appropriate permissions
+ * - Script tags and event handlers removed when JS is disabled
+ * - Console output captured and displayed in separate panel
+ *
+ * Height Management:
+ * - Content reports height via postMessage from iframe
+ * - Parent adjusts iframe height with debouncing
+ * - Manual resize handle for user control
+ *
+ * @param {HTMLElement} targetElement - The container element to render into
+ * @param {string} htmlContent - The complete HTML string to render
+ * @param {string|null} [messageId=null] - Message ID for JavaScript state tracking
+ * @returns {RenderResult} Object with consoleBox element and wasHtmlRendered flag
  */
 function renderHTML(targetElement, htmlContent, messageId = null) {
     // Decode HTML entities if the content appears to be HTML-encoded
@@ -25,7 +117,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
 
     // Check if the HTML content contains JavaScript
     const hasJS = window.JavaScriptUtils ? window.JavaScriptUtils.detectJavaScript(htmlContent) : false;
-    
+
     // If JS is disabled and content contains JS, show content in height-limited container
     if (!jsEnabled && hasJS) {
         // Create height-limited container
@@ -155,14 +247,14 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
             }
         });
 
-        return;
+        return { wasHtmlRendered: true, consoleBox: null };
     }
 
     const iframe = document.createElement('iframe');
 
     // Use srcdoc instead of writing to contentDocument - this is more secure
     // and doesn't require allow-same-origin
-    iframe.sandbox = jsEnabled ? 
+    iframe.sandbox = jsEnabled ?
         'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads' :
         'allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
     iframe.style.width = '100%';
@@ -392,7 +484,10 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
     // Add message listener
     window.addEventListener('message', messageListener);
 
-    // Function to resize iframe with conservative content estimation fallback
+    /**
+     * Resize iframe with conservative content estimation fallback
+     * @private
+     */
     function resizeIframe() {
         try {
             // More conservative height estimation based on content
@@ -428,7 +523,10 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
         }
     }
 
-    // Cleanup function to remove message listener and clear timeouts
+    /**
+     * Cleanup function to remove message listener and clear timeouts
+     * @private
+     */
     iframe.cleanup = () => {
         window.removeEventListener('message', messageListener);
         if (heightDebounceTimeout) {
@@ -472,6 +570,7 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
     let isResizing = false;
     let startY = 0;
     let startHeight = 0;
+    /** @type {HTMLElement|null} */
     let resizeIndicator = null;
 
     resizeHandle.addEventListener('mousedown', (e) => {
@@ -542,36 +641,25 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
     resizableContainer.appendChild(iframe);
     resizableContainer.appendChild(resizeHandle);
 
-    // Create console output display box
+    // Create console output display box (hidden by default)
+    // Styling is handled entirely by CSS classes for smooth animations
     const consoleBox = document.createElement('div');
     consoleBox.className = 'iframe-console-output';
-    consoleBox.style.cssText = `
-        background-color: #1e1e1e;
-        color: #d4d4d4;
-        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-        font-size: 12px;
-        padding: 8px;
-        margin-top: 4px;
-        border: 1px solid #3e3e3e;
-        border-radius: 4px;
-        max-height: 50vh;
-        overflow-y: auto;
-        overflow-x: auto;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-        display: none;
-    `;
 
     // Append container and console box to target element
     targetElement.appendChild(resizableContainer);
     targetElement.appendChild(consoleBox);
 
-    // Helper function to format and display console messages
+    /**
+     * Helper function to format and display console messages
+     * @private
+     * @param {string} method - Console method ('log' | 'error' | 'warn' | 'info' | 'debug')
+     * @param {string[]} args - Console arguments
+     * @param {string} timestamp - Timestamp string
+     */
     function appendConsoleMessage(method, args, timestamp) {
-        // Show console box if it has content
-        if (consoleBox.style.display === 'none') {
-            consoleBox.style.display = 'block';
-        }
+        // Note: Console box visibility is now controlled by CSS classes (console-hidden/console-visible)
+        // It will be shown when the user clicks the toggle button
 
         // Create console entry
         const entry = document.createElement('div');
@@ -654,81 +742,14 @@ function renderHTML(targetElement, htmlContent, messageId = null) {
     // Add message listener to window
     window.addEventListener('message', messageListener);
 
-    // Function to resize iframe with conservative content estimation fallback
-    function resizeIframe() {
-        try {
-            // More conservative height estimation based on content
-            const contentLines = htmlContent.split('\n').length;
-            const hasImages = htmlContent.includes('<img');
-            const hasLargeContent = htmlContent.length > 1000;
-            const contentLength = htmlContent.replace(/<[^>]*>/g, '').trim().length; // Text content only
-
-            // Base height on actual content, not just lines
-            let estimatedHeight = Math.max(150, Math.min(500, Math.max(
-                contentLines * 12, // Reduced from 20px per line
-                contentLength * 0.3 // Rough character-based estimation
-            )));
-
-            if (hasImages) {
-                estimatedHeight += 200; // Reduced from 300px
-            }
-
-            if (hasLargeContent) {
-                estimatedHeight += 100; // Reduced from 200px
-            }
-
-            // No max height limit - let content expand fully
-
-            iframe.style.height = estimatedHeight + 'px';
-            lastHeight = estimatedHeight; // Update lastHeight for container sizing
-
-            // Update container height to match
-            resizableContainer.style.height = (estimatedHeight + 12) + 'px';
-
-            window.visualLogger.debug(`Iframe height estimated at ${estimatedHeight}px (conservative fallback)`);
-
-        } catch (e) {
-            window.visualLogger.warn('Could not resize iframe automatically:', e.message);
-            const fallbackHeight = 300; // More conservative default
-            iframe.style.height = fallbackHeight + 'px';
-            lastHeight = fallbackHeight; // Update lastHeight for container sizing
-            resizableContainer.style.height = (fallbackHeight + 12) + 'px';
-        }
-    }
-
-    // Cleanup function to remove message listener and clear timeouts
-    iframe.cleanup = () => {
-        window.removeEventListener('message', messageListener);
-        if (heightDebounceTimeout) {
-            clearTimeout(heightDebounceTimeout);
-        }
-    };
-
-    // Set up event handlers
-    iframe.onload = () => {
-        window.visualLogger.info('iFrame content rendered successfully using srcdoc.');
-
-        // Resize after a short delay to allow content to render
-        setTimeout(() => {
-            resizeIframe();
-        }, 100);
-
-        // Also resize after images might have loaded
-        setTimeout(() => {
-            resizeIframe();
-        }, 1000);
-    };
-
-    iframe.onerror = (e) => {
-        window.visualLogger.error("An error occurred loading the iFrame content.", { error: e });
-        targetElement.textContent = "An error occurred while loading the iFrame.";
-    };
+    // Return console box info for toggle button creation
+    return { wasHtmlRendered: true, consoleBox: consoleBox };
 }
 
 /**
  * Renders Markdown content, including support for Mermaid diagrams and LaTeX.
- * @param {HTMLElement} targetElement - The container element to render into.
- * @param {string} markdownContent - The Markdown string.
+ * @param {HTMLElement} targetElement - The container element to render into
+ * @param {string} markdownContent - The Markdown string
  */
 function renderMarkdown(targetElement, markdownContent) {
     if (typeof marked === 'undefined') {
@@ -743,7 +764,8 @@ function renderMarkdown(targetElement, markdownContent) {
 
 /**
  * Finds and renders any Mermaid diagram placeholders in the target element.
- * @param {HTMLElement} targetElement - The element to scan for mermaid blocks.
+ * @async
+ * @param {HTMLElement} targetElement - The element to scan for mermaid blocks
  */
 async function renderMermaidDiagrams(targetElement) {
     if (typeof mermaid === 'undefined') {
@@ -765,7 +787,7 @@ async function renderMermaidDiagrams(targetElement) {
 
 /**
  * Renders LaTeX math expressions using KaTeX.
- * @param {HTMLElement} targetElement - The element to scan for LaTeX expressions.
+ * @param {HTMLElement} targetElement - The element to scan for LaTeX expressions
  */
 function renderLatex(targetElement) {
     if (typeof renderMathInElement === 'undefined') {
@@ -791,6 +813,7 @@ function renderLatex(targetElement) {
 
 
 // --- Main Content Rendering Logic ---
+/** @type {Object.<string, Function>} */
 const renderers = {
     'html': renderHTML,
     'markdown': renderMarkdown,
@@ -801,10 +824,28 @@ const renderers = {
 };
 
 /**
- * This class is a simplified placeholder to be instantiated by main.js
- * It exposes the main rendering function.
+ * Content renderer class for visualizing agent responses.
+ *
+ * Architecture Principles:
+ * - **Metadata is the source of truth**: Tool execution info comes from message.metadata.tool_info
+ * - **XML parsing is supplementary**: Used to extract arguments and match with metadata
+ * - **User-facing tags are rendered**: visualresponse/response tags contain content for display
+ * - **Tool tags are hidden**: bash, readfile, etc. are shown as tool boxes, not raw XML
+ *
+ * @class ContentRenderer
  */
 class ContentRenderer {
+    /**
+     * Render content to a container element
+     * @async
+     * @param {HTMLElement} container - Target container element
+     * @param {Object} data - Content data object
+     * @param {string} data.type - Content type ('html' | 'markdown' | 'image_upload_ack')
+     * @param {string} data.content - Content to render
+     * @param {string|null} [messageId=null] - Message ID for state tracking
+     * @param {HTMLElement|null} [timestampDiv=null] - Timestamp header element for control buttons
+     * @returns {Promise<void>}
+     */
     async renderContent(container, data, messageId = null, timestampDiv = null) {
         const { type, content } = data;
         const renderer = renderers[type];
@@ -839,22 +880,36 @@ class ContentRenderer {
                         content
                     );
 
+                    const fullscreenButton = window.JavaScriptUtils.createFullscreenButton(
+                        messageId,
+                        content
+                    );
+
                     timestampDiv.appendChild(resetButton);
                     timestampDiv.appendChild(toggleButton);
                     timestampDiv.appendChild(copyButton);
                     timestampDiv.appendChild(saveButton);
+                    timestampDiv.appendChild(fullscreenButton);
 
                     const jsStatus = hasJS ? 'detected' : 'not detected';
                     window.visualLogger.debug(`Added JS controls to header for message ${messageId} (JS ${jsStatus})`);
 
                     window.visualLogger.debug(`Added expand button and controls to header for message ${messageId}`);
                 }
-                
+
                 // Pass messageId to renderer for JS state checking
+                /** @type {RenderResult|null} */
+                let renderResult = null;
                 if (renderer === renderHTML && messageId) {
-                    renderer(container, content, messageId);
+                    renderResult = renderer(container, content, messageId);
                 } else {
                     renderer(container, content);
+                }
+
+                // Store render result on container for later use (e.g., console toggle)
+                if (renderResult) {
+                    container.dataset.renderResult = JSON.stringify({ hasConsole: !!renderResult.consoleBox });
+                    container.renderResult = renderResult;
                 }
             } catch (e) {
                 window.visualLogger.error(`${type} rendering failed:`, { error: e });
@@ -865,8 +920,14 @@ class ContentRenderer {
             container.innerHTML = `<pre>Unsupported content type: ${type}</pre>`;
         }
     }
-    
-    // Re-render a specific message when JS toggle is clicked
+
+    /**
+     * Re-render a specific message when JS toggle is clicked
+     * @param {HTMLElement} container - Message content container
+     * @param {Object} data - Content data object
+     * @param {string} messageId - Message ID
+     * @param {boolean} jsEnabled - Whether JavaScript is enabled
+     */
     reRenderMessage(container, data, messageId, jsEnabled) {
         window.visualLogger.debug(`Re-rendering message ${messageId} with JS ${jsEnabled ? 'enabled' : 'disabled'}`);
 
@@ -893,8 +954,10 @@ class ContentRenderer {
     /**
      * Render a message to the chat interface
      * This is a convenience wrapper for ChatStateManager compatibility
-     * @param {Object} message - Message object with type, content, etc.
+     * @async
+     * @param {Message} message - Message object with type, content, etc.
      * @param {number} messageIndex - Index of message in chat history (for edit functionality)
+     * @returns {Promise<void>}
      */
     async renderMessage(message, messageIndex) {
         console.log(`🎨 renderMessage called for index ${messageIndex}, role: ${message.role}, hasToolInfo: ${!!(message.metadata && message.metadata.tool_info)}, hasVisualresponse: ${message.content?.includes('<visualresponse>')}`);
@@ -934,8 +997,11 @@ class ContentRenderer {
 
         // Add loading-tools-header for loaded messages (same structure as real-time)
         // Always parse XML to find tool calls, then enhance with metadata
+        /** @type {ToolInfo[]} */
         let toolInfo = [];
+        /** @type {ToolInfo[]} */
         let allToolInfo = []; // Keep track of all tools before filtering
+        /** @type {ToolInfo|null} */
         let visualResponseTool = null;
         if (!isUserMessage && message.content) {
             const xmlToolCalls = await this.parseToolCallsFromXML(message.content);
@@ -981,10 +1047,21 @@ class ContentRenderer {
             if (needsToolsCreation) {
                 toolsHeader = document.createElement('div');
                 toolsHeader.className = 'loading-tools-header';
+            }
 
             toolInfo.forEach((tool, index) => {
-                const toolItem = document.createElement('div');
+                // Check if tool item already exists (created by StatusDisplay)
+                let toolItem = toolsHeader.querySelector(`[data-tool-name="${tool.name}"]`);
+                const isUpdating = !!toolItem;
 
+                if (!isUpdating) {
+                    // Create new tool item
+                    toolItem = document.createElement('div');
+                    toolItem.setAttribute('data-tool-name', tool.name);
+                    toolItem.id = `loading-tool-${messageId}-${index}`;
+                }
+
+                // Update tool item class
                 let itemClass = tool.status === 'success' ? 'loading-tool-item completed' : 'loading-tool-item failed';
 
                 // Apply special styling for think and todos tags
@@ -995,12 +1072,12 @@ class ContentRenderer {
                 }
 
                 toolItem.className = itemClass;
-                toolItem.id = `loading-tool-${messageId}-${index}`;
 
                 const statusIcon = tool.status === 'success' ? '✅' : '❌';
                 const modelDisplay = tool.model ? `<span class="loading-tool-model">[${this.escapeHtml(tool.model)}]</span>` : '';
                 const durationDisplay = tool.duration_ms ? `${tool.duration_ms}ms` : '0ms';
 
+                // Update or set the complete tool item HTML
                 toolItem.innerHTML = `
                     <div class="loading-tool-main">
                         <span class="loading-tool-name">${this.escapeHtml(tool.name)}</span>
@@ -1016,27 +1093,28 @@ class ContentRenderer {
                     </div>
                 `;
 
-                // Add click handler for expandable details
-                const mainDiv = toolItem.querySelector('.loading-tool-main');
-                mainDiv.addEventListener('click', () => {
-                    const details = toolItem.querySelector('.loading-tool-details');
-                    const isCollapsed = details.classList.contains('collapsed');
+                // Add click handler for expandable details (only for new items)
+                if (!isUpdating) {
+                    const mainDiv = toolItem.querySelector('.loading-tool-main');
+                    mainDiv.addEventListener('click', () => {
+                        const details = toolItem.querySelector('.loading-tool-details');
+                        const isCollapsed = details.classList.contains('collapsed');
 
-                    if (isCollapsed) {
-                        details.classList.remove('collapsed');
-                        details.classList.add('expanded');
-                    } else {
-                        details.classList.remove('expanded');
-                        details.classList.add('collapsed');
-                    }
-                });
+                        if (isCollapsed) {
+                            details.classList.remove('collapsed');
+                            details.classList.add('expanded');
+                        } else {
+                            details.classList.remove('expanded');
+                            details.classList.add('collapsed');
+                        }
+                    });
 
-                toolsHeader.appendChild(toolItem);
+                    toolsHeader.appendChild(toolItem);
+                }
             });
 
-                if (needsToolsCreation) {
-                    messageBlock.appendChild(toolsHeader);
-                }
+            if (needsToolsCreation) {
+                messageBlock.appendChild(toolsHeader);
             }
         }
 
@@ -1086,6 +1164,15 @@ class ContentRenderer {
             toggleViewBtn.title = 'Toggle raw/rendered view';
             toggleViewBtn.dataset.showingRaw = 'false';
             buttonContainer.appendChild(toggleViewBtn);
+
+            // Add console toggle button (will be shown only if HTML is rendered with console)
+            const consoleToggleBtn = document.createElement('button');
+            consoleToggleBtn.className = 'message-console-toggle-btn';
+            consoleToggleBtn.innerHTML = '🖥️';
+            consoleToggleBtn.title = 'Toggle console output';
+            consoleToggleBtn.dataset.consoleVisible = 'false';
+            consoleToggleBtn.style.display = 'none'; // Hidden by default, shown only if console exists
+            buttonContainer.appendChild(consoleToggleBtn);
         }
 
         // Append to content wrapper
@@ -1188,6 +1275,7 @@ class ContentRenderer {
 
             // Add toggle functionality
             const toggleViewBtn = messageBlock.querySelector('.message-view-toggle-btn');
+            const consoleToggleBtn = messageBlock.querySelector('.message-console-toggle-btn');
             const toolsHeader = messageBlock.querySelector('.loading-tools-header');
 
             if (toggleViewBtn) {
@@ -1213,12 +1301,40 @@ class ContentRenderer {
                     }
                 });
             }
+
+            // Set up console toggle button if console exists
+            if (consoleToggleBtn) {
+                const consoleBox = messageContent.querySelector('.iframe-console-output');
+                if (consoleBox) {
+                    // Show the console toggle button since console exists
+                    consoleToggleBtn.style.display = '';
+
+                    consoleToggleBtn.addEventListener('click', () => {
+                        const isVisible = consoleToggleBtn.dataset.consoleVisible === 'true';
+
+                        if (isVisible) {
+                            // Hide console
+                            consoleBox.classList.remove('console-visible');
+                            consoleBox.classList.add('console-hidden');
+                            consoleToggleBtn.dataset.consoleVisible = 'false';
+                        } else {
+                            // Show console
+                            consoleBox.classList.remove('console-hidden');
+                            consoleBox.classList.add('console-visible');
+                            consoleToggleBtn.dataset.consoleVisible = 'true';
+                        }
+                    });
+                }
+            }
         }
 
         // Scroll to bottom
         contentWrapper.scrollTop = contentWrapper.scrollHeight;
     }
 
+    /**
+     * Clear all rendered content from the content wrapper
+     */
     clearContent() {
         const contentWrapper = document.getElementById('content-wrapper');
         if (contentWrapper) {
@@ -1227,6 +1343,11 @@ class ContentRenderer {
         }
     }
 
+    /**
+     * Escape HTML special characters for safe display
+     * @param {string} text - Text to escape
+     * @returns {string} Escaped HTML
+     */
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
@@ -1234,13 +1355,22 @@ class ContentRenderer {
     }
 
     /**
-     * Parse XML tool calls from message content
-     * Returns array of tool info objects with name, args, and context
-     * Preserves original document order
+     * Parse XML tool calls from message content.
      *
-     * Now fully dynamic - discovers tools from ToolRegistry or uses generic XML pattern matching
+     * Parsing Strategy:
+     * - Uses ToolRegistry for known tool tags (when available)
+     * - Falls back to generic XML pattern matching if ToolRegistry unavailable
+     * - Filters out HTML tags that aren't tools
+     * - Preserves document order by position
+     * - Handles paralleltools blocks with masking to prevent nested detection
+     * - Matches tool calls with <context> blocks for output
+     *
+     * @async
+     * @param {string} content - Message content with XML tags
+     * @returns {Promise<XMLToolCall[]>} Array of parsed tool calls in document order
      */
     async parseToolCallsFromXML(content) {
+        /** @type {XMLToolCall[]} */
         const toolCalls = [];
 
         // NOTE: We don't need quoted tag masking here - the backend handles validation
@@ -1248,6 +1378,7 @@ class ContentRenderer {
         console.log(`📝 parseToolCallsFromXML - Content has visualresponse: ${content.includes('<visualresponse>')}, has bash XML: ${content.includes('<bash>')}, has bash markdown: ${content.includes('```bash')}`);
 
         // Wait for ToolRegistry to be ready, then get tool names
+        /** @type {string[]} */
         let toolTags = [];
 
         if (window.ToolRegistry) {
@@ -1281,6 +1412,7 @@ class ContentRenderer {
         }
 
         // Step 1: Extract paralleltools blocks and mask their content to prevent nested tool detection
+        /** @type {Array<{fullMatch: string, innerContent: string}>} */
         const parallelToolsBlocks = [];
         let maskedContent = content.replace(
             /<paralleltools[^>]*>([\s\S]*?)<\/paralleltools>/gi,
@@ -1294,6 +1426,7 @@ class ContentRenderer {
         );
 
         // Find all tool tags with their positions (from masked content - won't see nested tools)
+        /** @type {XMLToolCall[]} */
         const matches = [];
 
         toolTags.forEach(tag => {
@@ -1391,20 +1524,41 @@ class ContentRenderer {
     }
 
     /**
-     * Merge parsed XML tool calls with metadata
-     * Metadata provides timing and model info, XML provides structure
+     * Merge parsed XML tool calls with metadata.
+     *
+     * Merging Strategy (Metadata is Source of Truth):
+     * - Metadata determines which tools were actually executed
+     * - XML parsing provides supplementary arguments and context
+     * - Only tools in metadata are returned (unless no metadata exists)
+     * - User-facing tags (visualresponse, response, think, todos) are preserved even without metadata
+     *
+     * @param {XMLToolCall[]} xmlToolCalls - Tool calls parsed from XML content
+     * @param {ToolInfo[]|null} metadata - Tool execution info from message metadata (source of truth)
+     * @returns {ToolInfo[]} Merged tool information with metadata taking precedence
      */
     mergeToolInfoWithMetadata(xmlToolCalls, metadata) {
+        console.log(`🔀 mergeToolInfoWithMetadata - XML found ${xmlToolCalls.length} tools:`, xmlToolCalls.map(t => t.name));
+        console.log(`🔀 mergeToolInfoWithMetadata - Metadata has ${metadata?.length || 0} tools:`, metadata?.map(t => t.name) || 'none');
+
         if (!metadata || !Array.isArray(metadata)) {
-            return xmlToolCalls;
+            // No metadata means no tools were actually executed
+            // Only return XML-parsed tools if they look like real executions (have context/output)
+            const filtered = xmlToolCalls.filter(tool => {
+                // Keep tools that have context_returned or are user-facing tags
+                return tool.context_returned ||
+                       ['visualresponse', 'response', 'think', 'todos'].includes(tool.name);
+            });
+            console.log(`🔀 No metadata - filtered XML to ${filtered.length} tools:`, filtered.map(t => t.name));
+            return filtered;
         }
 
-        // Match by index and merge information
-        return xmlToolCalls.map((xmlTool, index) => {
-            const metadataTool = metadata[index];
+        // Metadata is the source of truth - iterate over metadata, not XML
+        const merged = metadata.map((metadataTool) => {
+            // Find matching XML tool by name for better matching
+            const xmlTool = xmlToolCalls.find(xml => xml.name === metadataTool.name);
 
-            if (metadataTool && metadataTool.name === xmlTool.name) {
-                // Metadata takes precedence for timing/model info AND args
+            if (xmlTool) {
+                // Merge: metadata takes precedence for execution info, XML provides structure
                 return {
                     ...xmlTool,
                     args: metadataTool.args || xmlTool.args,
@@ -1416,8 +1570,11 @@ class ContentRenderer {
                 };
             }
 
-            return xmlTool;
+            // No XML match - return metadata as-is
+            return metadataTool;
         });
+        console.log(`🔀 Merged result: ${merged.length} tools:`, merged.map(t => t.name));
+        return merged;
     }
 }
 

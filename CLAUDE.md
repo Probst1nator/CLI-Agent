@@ -287,7 +287,7 @@ logger = get_logger_for_tool_module(__name__)
 
 ### Backend/Frontend Separation
 
-See `BACKEND_FRONTEND_ARCHITECTURE.md` for full details. Key points:
+See `docs/VISUALRESPONSE_ARCHITECTURE.md` for full details. Key points:
 
 - **API layer separate from tools**: `api/` contains web server and endpoints, `tools/` contains agent logic
 - **Auto-start/stop server**: Starts when visualresponse is called, stops when last client disconnects (unless `--gui`)
@@ -492,7 +492,8 @@ python main.py --isolated  # Rebuilds automatically
 
 - `docs/LOGGING.md`: Comprehensive logging system documentation
 - `docs/ISOLATED_MODE.md`: Docker isolated mode documentation
-- `docs/BACKEND_FRONTEND_ARCHITECTURE.md`: Modern web backend/frontend architecture
+- `docs/VISUALRESPONSE_ARCHITECTURE.md`: Modern web backend/frontend architecture
 - `docs/INFRASTRUCTURE_STATUS.md`: Multi-user deployment status and options
+- `docs/experimental/`: Experimental features and deployment modes (not production-ready)
 - `INDEX.md`: Complete file index with recent changes
 - `README.md`: Installation and basic usage

@@ -7,11 +7,58 @@
  * - Remove selector when "None" is selected
  * - Persist configuration to backend
  * - Sync with backend on load
+ *
+ * @class DynamicLLMManager
+ * @author CLI-Agent Development Team
+ * @version 1.0.0
+ */
+
+/**
+ * @typedef {Object} LLMConfig
+ * @property {Array<string>} override_llms - Override LLM model IDs
+ * @property {Array<string>} router_llms - Router LLM model IDs
+ * @property {Array<string>} planner_llms - Planner LLM model IDs
+ * @property {Array<string>} selected_llms - Fallback LLM model IDs (in priority order)
+ */
+
+/**
+ * @typedef {Object} SelectorInstance
+ * @property {string} id - Unique selector ID
+ * @property {SearchableLLMSelectbox} selectbox - Selectbox instance
+ * @property {HTMLElement} wrapper - Wrapper element containing selector
+ */
+
+/**
+ * @typedef {Object} RoleContainers
+ * @property {HTMLElement|null} override - Container for override LLM selectors
+ * @property {HTMLElement|null} router - Container for router LLM selectors
+ * @property {HTMLElement|null} planner - Container for planner LLM selectors
+ * @property {HTMLElement|null} fallbacks - Container for fallback LLM selectors
+ */
+
+/**
+ * @typedef {Object} RoleSelectors
+ * @property {Array<SelectorInstance>} override - Override selector instances
+ * @property {Array<SelectorInstance>} router - Router selector instances
+ * @property {Array<SelectorInstance>} planner - Planner selector instances
+ * @property {Array<SelectorInstance>} fallbacks - Fallback selector instances
  */
 
 class DynamicLLMManager {
+    /**
+     * Initialize the dynamic LLM manager
+     */
     constructor() {
+        /**
+         * Available LLM models from server
+         * @type {Array<Object>}
+         */
         this.availableModels = [];
+
+        /**
+         * Container elements for each role
+         * @type {RoleContainers}
+         */
         this.roleContainers = {
             override: document.getElementById('override-llm-selectors-container'),
             router: document.getElementById('router-llm-selectors-container'),
@@ -19,7 +66,10 @@ class DynamicLLMManager {
             fallbacks: document.getElementById('fallbacks-llm-selectors-container')
         };
 
-        // Track selector instances for each role
+        /**
+         * Track selector instances for each role
+         * @type {RoleSelectors}
+         */
         this.selectors = {
             override: [],
             router: [],
@@ -27,10 +77,24 @@ class DynamicLLMManager {
             fallbacks: []
         };
 
-        // Counter for unique IDs
+        /**
+         * Counter for unique IDs
+         * @type {number}
+         */
         this.selectorIdCounter = 0;
 
+        /**
+         * Flag to prevent saving during initialization
+         * @type {boolean}
+         */
+        this.isInitializing = true;
+
+        /**
+         * Logger instance
+         * @type {Object}
+         */
         this.logger = window.visualLogger;
+
         this.logger.info('[DynamicLLMManager] Initializing...');
 
         this.init();
@@ -38,6 +102,8 @@ class DynamicLLMManager {
 
     /**
      * Initialize the manager
+     * Sets up add buttons and loads configuration from backend
+     * @returns {void}
      */
     init() {
         this.setupAddButtons();
@@ -46,6 +112,7 @@ class DynamicLLMManager {
 
     /**
      * Setup event listeners for "+" buttons
+     * @returns {void}
      */
     setupAddButtons() {
         const addButtons = document.querySelectorAll('.add-llm-selector-btn');
@@ -59,6 +126,9 @@ class DynamicLLMManager {
 
     /**
      * Load configuration from backend
+     * Fetches available models and current LLM configuration, then renders selectors
+     * @async
+     * @returns {Promise<void>}
      */
     async loadConfiguration() {
         try {
@@ -96,6 +166,9 @@ class DynamicLLMManager {
                     this.renderSelectors('planner', config.planner_llms || []);
                     this.renderSelectors('fallbacks', config.selected_llms || []);
 
+                    // Initialization complete - allow saves from now on
+                    this.isInitializing = false;
+
                     this.logger.info('[DynamicLLMManager] Configuration loaded successfully');
                 } else {
                     throw new Error(data.error || 'Failed to load configuration');
@@ -108,6 +181,8 @@ class DynamicLLMManager {
             this.logger.error('[DynamicLLMManager] Failed to load configuration:', error);
             // Initialize with empty selectors if loading fails
             this.renderSelectors('fallbacks', [this.getRandomModel()]);
+            // Initialization complete even if failed - allow saves from now on
+            this.isInitializing = false;
         }
     }
 
@@ -115,6 +190,7 @@ class DynamicLLMManager {
      * Render selectors for a specific role
      * @param {string} role - Role name (override, router, planner, fallbacks)
      * @param {Array<string>} models - Array of model IDs to render
+     * @returns {void}
      */
     renderSelectors(role, models) {
         console.log(`[DynamicLLMManager] renderSelectors called for ${role} with models:`, models);
@@ -132,8 +208,20 @@ class DynamicLLMManager {
         container.innerHTML = '';
         this.selectors[role] = [];
 
-        // Add at least one selector for each role, or all configured models
-        const modelsToRender = models.length > 0 ? models : [this.getRandomModel()];
+        // Determine which models to render:
+        // - For 'fallbacks' role: Must have at least one model (agent needs a default), use random if config empty
+        // - For other roles: Only render configured models, empty if config is empty
+        let modelsToRender = [];
+
+        if (models.length > 0) {
+            // Configuration has models for this role - use them
+            modelsToRender = models;
+        } else if (role === 'fallbacks') {
+            // Fallbacks role must have at least one model
+            modelsToRender = [this.getRandomModel()];
+        }
+        // For other roles (override, router, planner), render nothing if config is empty
+
         console.log(`[DynamicLLMManager] Models to render for ${role}:`, modelsToRender);
 
         modelsToRender.forEach((modelId, index) => {
@@ -146,9 +234,10 @@ class DynamicLLMManager {
 
     /**
      * Create a new selector for a role
-     * @param {string} role - Role name
-     * @param {string} selectedModel - Model ID to select (or null for random)
-     * @param {number} index - Index position for label
+     * @param {string} role - Role name (override, router, planner, fallbacks)
+     * @param {string|null} [selectedModel=null] - Model ID to select (or null for random)
+     * @param {number|null} [index=null] - Index position for label
+     * @returns {void}
      */
     createSelector(role, selectedModel = null, index = null) {
         const container = this.roleContainers[role];
@@ -225,7 +314,8 @@ class DynamicLLMManager {
 
     /**
      * Add a new selector to a role
-     * @param {string} role - Role name
+     * @param {string} role - Role name (override, router, planner, fallbacks)
+     * @returns {void}
      */
     addSelector(role) {
         this.createSelector(role, this.getRandomModel(), this.selectors[role].length);
@@ -237,6 +327,7 @@ class DynamicLLMManager {
      * Remove a selector from a role
      * @param {string} role - Role name
      * @param {string} selectorId - Selector ID to remove
+     * @returns {void}
      */
     removeSelector(role, selectorId) {
         const selectorIndex = this.selectors[role].findIndex(s => s.id === selectorId);
@@ -276,6 +367,7 @@ class DynamicLLMManager {
      * @param {string} role - Role name
      * @param {string} selectorId - Selector ID
      * @param {Object|null} newModel - New model object or null for "None"
+     * @returns {void}
      */
     onSelectionChange(role, selectorId, newModel) {
         console.log(`[DynamicLLMManager] Selection changed for ${role}:`, newModel);
@@ -294,9 +386,17 @@ class DynamicLLMManager {
 
     /**
      * Save configuration to backend
+     * @async
      * @param {string} role - Role name to save
+     * @returns {Promise<void>}
      */
     async saveConfiguration(role) {
+        // Skip saving during initialization to prevent overwriting loaded config
+        if (this.isInitializing) {
+            console.log(`[DynamicLLMManager] Skipping save during initialization for ${role}`);
+            return;
+        }
+
         try {
             // Collect all model selections for this role
             const models = this.selectors[role]
@@ -336,7 +436,7 @@ class DynamicLLMManager {
 
     /**
      * Get a random model from available models
-     * @returns {string} Random model ID
+     * @returns {string} Random model ID (falls back to 'gemini-flash-latest' if no models available)
      */
     getRandomModel() {
         if (this.availableModels.length === 0) {
@@ -349,7 +449,7 @@ class DynamicLLMManager {
     /**
      * Get ordinal label for fallback position
      * @param {number} position - Position number (1-based)
-     * @returns {string} Ordinal label (1st, 2nd, 3rd, etc.)
+     * @returns {string} Ordinal label (1st, 2nd, 3rd, 4th, etc.)
      */
     getOrdinalLabel(position) {
         const suffixes = ['th', 'st', 'nd', 'rd'];
@@ -360,6 +460,8 @@ class DynamicLLMManager {
 
     /**
      * Update fallback labels after adding/removing selectors
+     * Ensures labels stay sequential (1st, 2nd, 3rd, etc.)
+     * @returns {void}
      */
     updateFallbackLabels() {
         this.selectors.fallbacks.forEach((selector, index) => {

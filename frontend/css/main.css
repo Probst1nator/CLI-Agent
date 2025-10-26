@@ -468,6 +468,75 @@ body {
     background-color: #28a745;
 }
 
+/* Profile Preview Tooltip */
+.profile-preview-tooltip {
+    position: fixed;
+    background-color: var(--bg-secondary, #1e1e1e);
+    border: 1px solid rgba(108, 117, 125, 0.6);
+    border-radius: 0.5em;
+    padding: 12px 16px;
+    z-index: 10001;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 1px rgba(255, 255, 255, 0.1);
+    font-size: 13px;
+    max-width: 280px;
+    color: #e0e0e0;
+}
+
+.profile-preview-tooltip .preview-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.profile-preview-tooltip .preview-title {
+    font-weight: 700;
+    color: #17a2b8;
+    font-size: 14px;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.profile-preview-tooltip .preview-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(108, 117, 125, 0.3);
+}
+
+.profile-preview-tooltip .preview-section:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+
+.profile-preview-tooltip .preview-subtitle {
+    font-weight: 600;
+    color: #a0a0a0;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 2px;
+}
+
+.profile-preview-tooltip .preview-item {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    line-height: 1.3;
+}
+
+.profile-preview-tooltip .preview-label {
+    font-weight: 600;
+    color: #6c757d;
+    min-width: 70px;
+    flex-shrink: 0;
+}
+
+.profile-preview-tooltip .preview-item + .preview-item {
+    padding-top: 2px;
+}
+
 /* Override LLM Container */
 .override-llm-container {
     display: flex;
@@ -1018,6 +1087,182 @@ body {
     margin-top: 0px;
 }
 
+/* Optimistic Message Styles - Shows instantly while waiting for backend response */
+.message-block.optimistic-message {
+    opacity: 0.85;
+    background-color: rgba(0, 0, 0, 0.4);
+    border-color: rgba(128, 128, 128, 0.3);
+    animation: optimistic-fade-in 0.3s ease;
+}
+
+@keyframes optimistic-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 0.85;
+        transform: translateY(0);
+    }
+}
+
+.message-content.optimistic-content {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.optimistic-dots {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.optimistic-dots span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--text-color);
+    animation: bounce 1.4s infinite ease-in-out;
+}
+
+.optimistic-dots span:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.optimistic-dots span:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+.optimistic-dots span:nth-child(3) {
+    animation-delay: 0s;
+}
+
+@keyframes bounce {
+    0%, 80%, 100% {
+        opacity: 0.5;
+        transform: scale(0.8);
+    }
+    40% {
+        opacity: 1;
+        transform: scale(1.2);
+    }
+}
+
+/* Status Display Styles - Real-time backend operation status */
+/* Live status display for tool execution and token generation */
+.loading-tool-msg {
+    padding: 8px 12px;
+    background-color: rgba(0, 122, 204, 0.1);
+    border: 1px solid rgba(0, 122, 204, 0.3);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    animation: status-fade-in 0.3s ease;
+    margin: 8px 0;
+    margin-left: 8px;
+    margin-right: 8px;
+}
+
+.status-display {
+    padding: 8px 12px;
+    background-color: rgba(0, 122, 204, 0.1);
+    border: 1px solid rgba(0, 122, 204, 0.3);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    animation: status-fade-in 0.3s ease;
+    margin-bottom: 8px;
+}
+
+@keyframes status-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.status-display.status-running {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.3);
+}
+
+.status-display.status-success {
+    background-color: rgba(76, 175, 80, 0.1);
+    border-color: rgba(76, 175, 80, 0.3);
+}
+
+.status-display.status-error {
+    background-color: rgba(244, 67, 54, 0.1);
+    border-color: rgba(244, 67, 54, 0.3);
+}
+
+/* Loading tool message state variants */
+.loading-tool-msg.status-active {
+    background-color: rgba(0, 122, 204, 0.15);
+    border-color: rgba(0, 122, 204, 0.4);
+}
+
+.loading-tool-msg.status-running {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.3);
+}
+
+.loading-tool-msg.status-success {
+    background-color: rgba(76, 175, 80, 0.1);
+    border-color: rgba(76, 175, 80, 0.3);
+}
+
+.loading-tool-msg.status-error {
+    background-color: rgba(244, 67, 54, 0.1);
+    border-color: rgba(244, 67, 54, 0.3);
+}
+
+.status-label {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.status-tokens,
+.status-time,
+.status-speed {
+    color: rgba(255, 255, 255, 0.7);
+    font-family: 'SF Mono', 'Monaco', monospace;
+    font-size: 11px;
+}
+
+.status-tool {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.status-desc {
+    color: rgba(255, 255, 255, 0.7);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-error {
+    color: #ff6b6b;
+    font-size: 11px;
+}
+
 /* Ensure iframes and dynamic content work properly within the layout */
 .message-content iframe {
     max-width: 100%;
@@ -1064,10 +1309,9 @@ body {
     background-color: var(--button-bg);
     color: var(--text-color);
     border: 1px solid var(--border-color);
-    padding: 1px 3px;
     border-radius: 2px;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: 1rem;
     font-weight: bold;
     transition: all 0.2s;
     min-width: 22px;
@@ -1120,6 +1364,17 @@ body {
     border-color: #28a745;
 }
 
+.msg-fullscreen-button {
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 2px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: bold;
+}
+
 
 .msg-js-toggle.enabled {
     background-color: #28a745;
@@ -1133,12 +1388,12 @@ body {
     border-color: #dc3545;
 }
 
-.msg-js-toggle:hover, .msg-reset-button:hover, .msg-copy-button:hover, .msg-save-button:hover {
+.msg-js-toggle:hover, .msg-reset-button:hover, .msg-copy-button:hover, .msg-save-button:hover, .msg-fullscreen-button:hover {
     opacity: 0.8;
     transform: translateY(-1px);
 }
 
-.msg-js-toggle:active, .msg-reset-button:active, .msg-copy-button:active, .msg-save-button:active {
+.msg-js-toggle:active, .msg-reset-button:active, .msg-copy-button:active, .msg-save-button:active, .msg-fullscreen-button:active {
     transform: translateY(0);
 }
 
@@ -3763,4 +4018,170 @@ html[data-theme='light'] .llm-context {
         opacity: 0.9;
         box-shadow: 0 0 20px rgba(220, 53, 69, 0.8);
     }
+}
+
+/* --- Fullscreen Overlay Styles --- */
+.fullscreen-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.95);
+    z-index: 10001;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.fullscreen-overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.fullscreen-container {
+    width: 95vw;
+    height: 95vh;
+    position: relative;
+    background-color: var(--surface-color);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.fullscreen-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background-color: white;
+}
+
+.fullscreen-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10002;
+    background-color: rgba(220, 53, 69, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.fullscreen-close-btn:hover {
+    background-color: #c82333;
+    transform: scale(1.1);
+}
+
+.fullscreen-close-btn:active {
+    transform: scale(0.95);
+}
+
+.fullscreen-newtab-btn {
+    position: absolute;
+    top: 10px;
+    right: 60px;
+    z-index: 10002;
+    background-color: rgba(0, 123, 255, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.fullscreen-newtab-btn:hover {
+    background-color: #0056b3;
+    transform: scale(1.1);
+}
+
+.fullscreen-newtab-btn:active {
+    transform: scale(0.95);
+}
+
+/* Light theme adjustments */
+html[data-theme='light'] .fullscreen-overlay {
+    background-color: rgba(255, 255, 255, 0.95);
+}
+
+html[data-theme='light'] .fullscreen-container {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+/* Console Panel Animations */
+.iframe-console-output {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    border: 1px solid #3e3e3e;
+    border-radius: 4px;
+    overflow-y: auto;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* Hidden by default */
+    max-height: 0;
+    height: 0;
+    opacity: 0;
+    visibility: hidden;
+    margin: 0;
+    padding: 0;
+    border: none;
+    overflow: hidden;
+}
+
+.iframe-console-output.console-visible {
+    max-height: 50vh;
+    height: auto;
+    opacity: 1;
+    visibility: visible;
+    margin-top: 4px;
+    padding: 8px;
+    border: 1px solid #3e3e3e;
+}
+
+/* Console Toggle Button */
+.message-console-toggle-btn {
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.message-console-toggle-btn:hover {
+    background-color: var(--button-hover-bg);
+    transform: scale(1.05);
+}
+
+.message-console-toggle-btn:active {
+    transform: scale(0.95);
 }

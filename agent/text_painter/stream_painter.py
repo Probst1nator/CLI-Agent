@@ -1,6 +1,7 @@
 from termcolor import colored
 import re
 from typing import Optional
+from core.constants import PRIORITY_TAGS
 
 class TextStreamPainter:
     """
@@ -78,9 +79,8 @@ class TextStreamPainter:
         str
             The color name
         """
-        # Priority tags always use their defined colors
-        priority_tags = {'python', 'bash', 'think', 'todos', 'editfile', 'writefile', 'readfile', 'viewfiles', 'tool'}
-        if tag_name.lower() in priority_tags:
+        # Priority tags always use their defined colors (from constants for consistency)
+        if tag_name.lower() in PRIORITY_TAGS:
             return self.TAG_TYPE_COLORS.get(tag_name.lower(), self.TAG_TYPE_COLORS['default'])
 
         # Non-priority tags use depth-based colors

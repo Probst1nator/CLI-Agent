@@ -18,6 +18,8 @@
  * ├── ContentRenderer (handles visualization rendering)
  * ├── WebSocketManager (handles agent communication)
  * ├── Theme Manager (handles light/dark mode)
+ * ├── ChatStateManager (handles chat state sync)
+ * ├── AudioManager (handles voice/TTS)
  * └── Chat Interface (handles user input)
  *
  * @class VisualResponseApp
@@ -129,81 +131,287 @@
  * Theme type
  * @typedef {'light'|'dark'} ThemeType
  */
+
+/**
+ * Profile slot data structure for LLM configurations
+ * @typedef {Object} ProfileSlot
+ * @property {string} name - Profile slot name
+ * @property {SystemConfiguration} config - Stored LLM configuration
+ * @property {number} timestamp - Last save timestamp
+ */
+
+/**
+ * LLM selectors loaded state tracking
+ * @typedef {Object} LLMSelectorsLoadedState
+ * @property {boolean} router - Router LLM selector loaded
+ * @property {boolean} planner - Planner LLM selector loaded
+ * @property {boolean} primary - Primary LLM selector loaded
+ * @property {boolean} fallback1 - First fallback selector loaded
+ * @property {boolean} fallback2 - Second fallback selector loaded
+ */
+
+/**
+ * Main Visual Response Application Class
+ *
+ * Orchestrates all major components of the visual interface including
+ * WebSocket communication, content rendering, audio/voice features,
+ * LLM configuration, and chat state management.
+ *
+ * @class
+ */
 class VisualResponseApp {
     /**
      * Initialize the Visual Response Application
-     * Sets up all components and establishes the application state
+     *
+     * Sets up all components and establishes the application state.
+     * Initializes core services like WebSocket manager, content renderer,
+     * audio manager, and sets up event listeners for user interaction.
+     *
+     * @constructor
      */
     constructor() {
-        /** @type {ContentRenderer|null} */
+        // ===== CORE RENDERING COMPONENTS =====
+
+        /**
+         * Content renderer for visualizations and markdown
+         * @type {ContentRenderer|null}
+         */
         this.renderer = null;
 
-        /** @type {WebSocketManager|null} */
+        /**
+         * WebSocket manager for real-time communication
+         * @type {WebSocketManager|null}
+         */
         this.wsManager = null;
 
-        /** @type {HTMLInputElement|null} */
-        this.chatInput = null;
+        // ===== CHAT STATE MANAGEMENT =====
 
-        /** @type {HTMLFormElement|null} */
-        this.chatForm = null;
+        /**
+         * Chat state manager (new API integration)
+         * @type {ChatStateManager|null}
+         */
+        this.chatState = null;
 
-        /** @type {MessageHistoryEntry[]} */
+        /**
+         * Message history for localStorage persistence
+         * @type {MessageHistoryEntry[]}
+         */
         this.messageHistory = [];
 
-        /** @type {HTMLInputElement|null} */
+        /**
+         * Current optimistic message ID during streaming
+         * @type {string|null}
+         */
+        this.currentOptimisticMessageId = null;
+
+        // ===== UI ELEMENT REFERENCES =====
+
+        /**
+         * Chat input text field
+         * @type {HTMLInputElement|null}
+         */
+        this.chatInput = null;
+
+        /**
+         * Chat form element
+         * @type {HTMLFormElement|null}
+         */
+        this.chatForm = null;
+
+        /**
+         * File input element for uploads
+         * @type {HTMLInputElement|null}
+         */
         this.fileInput = null;
 
-        /** @type {HTMLButtonElement|null} */
+        /**
+         * File upload button
+         * @type {HTMLButtonElement|null}
+         */
         this.fileUploadBtn = null;
 
-        /** @type {HTMLButtonElement|null} */
+        /**
+         * Screenshot capture button
+         * @type {HTMLButtonElement|null}
+         */
+        this.screenshotBtn = null;
+
+        /**
+         * Screen capture toggle button
+         * @type {HTMLButtonElement|null}
+         */
+        this.screenCaptureBtn = null;
+
+        /**
+         * Voice mode toggle button (mic + TTS)
+         * @type {HTMLButtonElement|null}
+         */
+        this.voiceBtn = null;
+
+        /**
+         * Speak mode toggle button (TTS only)
+         * @type {HTMLButtonElement|null}
+         */
+        this.speakBtn = null;
+
+        /**
+         * Interrupt button to stop agent generation
+         * @type {HTMLButtonElement|null}
+         */
         this.interruptBtn = null;
 
-        /** @type {Object.<string, SearchableLLMSelectbox>} */
+        // ===== LLM CONFIGURATION =====
+
+        /**
+         * Dictionary of LLM selector components by ID
+         * @type {Object.<string, SearchableLLMSelectbox>}
+         */
         this.llmSelectors = {};
 
-        /** @type {Object.<string, boolean>} */
-        this.llmSelectorsLoaded = { router: false, planner: false, primary: false, fallback1: false, fallback2: false };
+        /**
+         * Track which LLM selectors have loaded
+         * @type {LLMSelectorsLoadedState}
+         */
+        this.llmSelectorsLoaded = {
+            router: false,
+            planner: false,
+            primary: false,
+            fallback1: false,
+            fallback2: false
+        };
 
-        /** @type {SystemConfiguration|null} */
+        /**
+         * Current system LLM configuration
+         * @type {SystemConfiguration|null}
+         */
         this.systemConfiguration = null;
 
-        /** @type {Object.<string, LLMModel|null>} */
+        /**
+         * Selected LLM models by category
+         * @type {Object.<string, LLMModel|null>}
+         */
         this.llmSelections = {};
 
-        /** @type {LLMModel|null} */
+        /**
+         * Currently selected planner LLM
+         * @type {LLMModel|null}
+         */
         this.plannerLLMSelection = null;
 
-        /** @type {boolean} */
+        // ===== APPLICATION STATE FLAGS =====
+
+        /**
+         * Whether app is currently initializing
+         * @type {boolean}
+         */
         this.isInitializing = true;
 
-        /** @type {boolean} */
+        /**
+         * Whether config has been initialized from system
+         * @type {boolean}
+         */
         this.initializedFromSystem = false;
 
-        /** @type {boolean} */
+        /**
+         * Whether currently restoring from profile/storage
+         * @type {boolean}
+         */
         this.isRestoring = false;
 
-        /** @type {boolean} */
+        /**
+         * Whether agent is currently generating response
+         * @type {boolean}
+         */
         this.agentGenerating = false;
 
-        /** @type {string|null} */
+        // ===== PROFILE MANAGEMENT =====
+
+        /**
+         * Currently active profile slot name
+         * @type {string|null}
+         */
         this.activeProfileSlot = null;
 
-        /** @type {Object.<string, Object>} */
+        /**
+         * Stored profile configurations
+         * @type {Object.<string, ProfileSlot>}
+         */
         this.profileSlots = {};
 
-        /** @type {number|null} */
+        /**
+         * Timeout ID for auto-save debouncing
+         * @type {number|null}
+         */
         this.autoSaveTimeout = null;
 
-        /** @type {Logger} */
+        // ===== AUDIO/VOICE FEATURES =====
+
+        /**
+         * Audio manager for voice/TTS functionality
+         * @type {AudioManager|null}
+         */
+        this.audioManager = null;
+
+        /**
+         * Screen capture manager for screenshot functionality
+         * @type {ScreenCaptureManager|null}
+         */
+        this.screenCaptureManager = null;
+
+        /**
+         * Whether continuous screen capture is enabled
+         * @type {boolean}
+         */
+        this.screenCaptureEnabled = false;
+
+        /**
+         * Whether speak mode is enabled (TTS auto-play)
+         * @type {boolean}
+         */
+        this.speakModeEnabled = false;
+
+        /**
+         * Whether user manually toggled speak mode (vs backend control)
+         * @type {boolean}
+         */
+        this.speakModeManualOverride = false;
+
+        /**
+         * Queued TTS text waiting for user interaction
+         * @type {string|null}
+         */
+        this.pendingTTS = null;
+
+        // ===== STATUS/LOGGING =====
+
+        /**
+         * Status display component for real-time updates
+         * @type {StatusDisplay|null}
+         */
+        this.statusDisplay = null;
+
+        /**
+         * Application logger instance
+         * @type {Logger}
+         */
         this.logger = window.visualLogger;
 
+        // Start initialization
         this.logger.info('VisualResponseApp starting initialization');
         this.logger.startTiming('app_initialization');
 
         this.init();
     }
 
+    /**
+     * Main initialization sequence
+     *
+     * Orchestrates the startup sequence including library checks,
+     * component initialization, event listener setup, and theme configuration.
+     * This is called automatically from the constructor.
+     *
+     * @returns {void}
+     */
     init() {
         console.group('🚀 Visual Response App Initialization');
         this.checkLibraries();
@@ -217,6 +425,16 @@ class VisualResponseApp {
         console.groupEnd();
     }
 
+    /**
+     * Setup state synchronization with backend via WebSocket
+     *
+     * Establishes listeners for state change events from the backend,
+     * including message_added, message_end, tool_update, and state_changed events.
+     * Handles TTS triggering for assistant messages in speak mode.
+     * Fetches initial agent state on connection.
+     *
+     * @returns {void}
+     */
     setupStateSync() {
         // Listen for state changes from backend
         if (this.wsManager) {
@@ -225,43 +443,60 @@ class VisualResponseApp {
                 this.updateButtonStates(data.state);
             });
 
-            // Listen for message_added events to trigger TTS
+            // Listen for message_added events to trigger TTS and hide loading indicator
             this.wsManager.on('message_added', async (data) => {
-                // Only trigger TTS for assistant messages with visualresponse/response tags
-                if (this.speakModeEnabled && data.message && data.message.role === 'assistant' && data.message.content) {
-                    // Extract text ONLY from visualresponse or response tags
+                // Hide loading indicator if this is a final response (contains visualresponse or response)
+                if (data.message && data.message.role === 'assistant' && data.message.content) {
                     const content = data.message.content;
-                    const visualResponseMatch = /<visualresponse>\s*(?:<action>.*?<\/action>\s*)?<type>.*?<\/type>\s*<content>([\s\S]*?)<\/content>\s*<\/visualresponse>/i.exec(content);
-                    const responseMatch = /<response>(.*?)<\/response>/is.exec(content);
+                    const hasFinalResponse = content.includes('<visualresponse>') || content.includes('<response>');
 
-                    let text = '';
-                    if (visualResponseMatch) {
-                        text = visualResponseMatch[1].trim();
-                        // Strip HTML and markdown
-                        text = text.replace(/<[^>]+>/g, ' ').replace(/[#*_`]/g, '');
-                    } else if (responseMatch) {
-                        text = responseMatch[1].trim();
+                    if (hasFinalResponse) {
+                        this.hideLoadingIndicator();
+                        this.hideInterruptButton();
+                        console.log('✅ Loading indicator hidden - final response in message_added');
                     }
-                    // No fallback - only speak visualresponse/response content
 
-                    text = text.replace(/\s+/g, ' ').trim();
+                    // Trigger TTS for assistant messages with visualresponse/response tags
+                    if (this.speakModeEnabled) {
+                        // Extract text ONLY from visualresponse or response tags
+                        const visualResponseMatch = /<visualresponse>\s*(?:<action>.*?<\/action>\s*)?<type>.*?<\/type>\s*<content>([\s\S]*?)<\/content>\s*<\/visualresponse>/i.exec(content);
+                        const responseMatch = /<response>(.*?)<\/response>/is.exec(content);
 
-                    if (text && text.trim()) {
-                        // Check if user has interacted yet (browser autoplay policy)
-                        if (!this.audioManager.hasUserInteraction) {
-                            console.log('⏸️ TTS queued - waiting for user interaction (browser autoplay policy)');
-                            this.pendingTTS = text;
-                            this.showAutoplayPrompt();
-                        } else {
-                            console.log('🔊 Final response received, speak mode active - triggering TTS');
-                            try {
-                                await this.audioManager.playTTS(text, 'auto');
-                            } catch (error) {
-                                console.error('TTS playback failed:', error);
+                        let text = '';
+                        if (visualResponseMatch) {
+                            text = visualResponseMatch[1].trim();
+                            // Strip HTML and markdown
+                            text = text.replace(/<[^>]+>/g, ' ').replace(/[#*_`]/g, '');
+                        } else if (responseMatch) {
+                            text = responseMatch[1].trim();
+                        }
+                        // No fallback - only speak visualresponse/response content
+
+                        text = text.replace(/\s+/g, ' ').trim();
+
+                        if (text && text.trim()) {
+                            // Check if user has interacted yet (browser autoplay policy)
+                            if (!this.audioManager.hasUserInteraction) {
+                                console.log('⏸️ TTS queued - waiting for user interaction (browser autoplay policy)');
+                                this.pendingTTS = text;
+                                this.showAutoplayPrompt();
+                            } else {
+                                console.log('🔊 Final response received, speak mode active - triggering TTS');
+                                try {
+                                    await this.audioManager.playTTS(text, 'auto');
+                                } catch (error) {
+                                    console.error('TTS playback failed:', error);
+                                }
                             }
                         }
                     }
                 }
+            });
+
+            // Listen for tool_update events to reposition loading indicator
+            this.wsManager.on('tool_update', (data) => {
+                console.log('🔧 Tool update received:', data);
+                this.repositionLoadingIndicator();
             });
 
             // Legacy: Listen for message_end events (not currently sent by backend)
@@ -303,6 +538,17 @@ class VisualResponseApp {
         this.fetchAgentState();
     }
 
+    /**
+     * Fetch initial agent state from backend
+     *
+     * Makes an API request to retrieve the current agent state
+     * (voice_mode, tts_only_mode, etc.) and updates UI buttons accordingly.
+     * Called during initialization after WebSocket connection established.
+     * Includes 5-second timeout to prevent hanging.
+     *
+     * @async
+     * @returns {Promise<void>}
+     */
     async fetchAgentState() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/agent/state') : '/api/agent/state';
@@ -326,6 +572,21 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Update UI button states based on agent state
+     *
+     * Synchronizes voice/speak button states with backend agent state.
+     * Handles voice_mode, tts_only_mode flags from backend.
+     * Respects manual user overrides for speak mode.
+     *
+     * @param {Object} state - Agent state object from backend
+     * @param {boolean} [state.voice_mode] - Whether voice mode is enabled
+     * @param {boolean} [state.tts_only_mode] - Whether TTS-only mode is enabled
+     * @param {boolean} [state.auto_execute] - Whether auto-execute is enabled
+     * @param {boolean} [state.online_mode] - Whether online mode is enabled
+     * @param {boolean} [state.local_mode] - Whether local mode is enabled
+     * @returns {void}
+     */
     updateButtonStates(state) {
         // Update voice button
         if (this.voiceBtn) {
@@ -360,11 +621,17 @@ class VisualResponseApp {
         // but you can add them here if needed
     }
 
+    /**
+     * Extract plain text from agent response for TTS
+     *
+     * Strips XML tags, code blocks, and other markup to produce clean
+     * readable text suitable for text-to-speech synthesis.
+     * Used for TTS to get clean readable text.
+     *
+     * @param {string} content - Raw agent response content with XML/markdown
+     * @returns {string} Cleaned plain text content
+     */
     extractTextContent(content) {
-        /**
-         * Extract plain text from agent response, stripping XML tags and other markup.
-         * Used for TTS to get clean readable text.
-         */
         if (!content || typeof content !== 'string') {
             return '';
         }
@@ -389,11 +656,17 @@ class VisualResponseApp {
         return text;
     }
 
+    /**
+     * Extract and speak the latest assistant message
+     *
+     * Finds the most recent assistant message in chat state,
+     * extracts text from visualresponse/response tags, and triggers TTS playback.
+     * This is called when the speak button is toggled on.
+     *
+     * @async
+     * @returns {Promise<void>}
+     */
     async speakLatestResponse() {
-        /**
-         * Extract and speak the latest assistant message's visualresponse content.
-         * This is called when the volume button is toggled on.
-         */
         if (!this.chatState || !this.chatState.messages) {
             console.warn('No chat state available');
             return;
@@ -725,6 +998,15 @@ class VisualResponseApp {
         console.log('🏷️ Connected to:', instanceInfo);
     }
 
+    /**
+     * Check and log library dependency availability
+     *
+     * Validates that all required third-party libraries are loaded.
+     * Logs to console with checkmarks for loaded libraries and warnings for missing ones.
+     * Checks: jQuery, Marked, Mermaid, Plotly, 3Dmol, svgPanZoom, React, ReactDOM, Vue, Babel.
+     *
+     * @returns {void}
+     */
     checkLibraries() {
         console.groupCollapsed('📚 Library Dependencies');
         console.log('jQuery:', typeof $ !== 'undefined' ? '✅ loaded' : '❌ MISSING');
@@ -740,6 +1022,25 @@ class VisualResponseApp {
         console.groupEnd();
     }
 
+    /**
+     * Initialize all application components
+     *
+     * Creates and configures core components including:
+     * - Mermaid diagram renderer
+     * - Marked.js markdown renderer with custom code block handling
+     * - ContentRenderer for visualizations
+     * - WebSocketManager for real-time communication
+     * - ChatStateManager for chat state synchronization
+     * - AudioManager for voice/TTS features
+     * - StatusDisplay for real-time backend status
+     * - ScreenCaptureManager for screenshot functionality
+     * - Dynamic LLM Manager for model selection
+     *
+     * Also initializes DOM element references for chat input, file upload,
+     * voice controls, and other UI elements.
+     *
+     * @returns {void}
+     */
     initializeComponents() {
         // Initialize Mermaid with proper configuration
         if (typeof mermaid !== 'undefined') {
@@ -789,6 +1090,15 @@ class VisualResponseApp {
             this.logger.warn('AudioManager not available');
         }
 
+        // Initialize StatusDisplay for real-time backend status updates (injected into loading-tool-items)
+        if (typeof StatusDisplay !== 'undefined') {
+            this.statusDisplay = new StatusDisplay(this.wsManager);
+            window.statusDisplay = this.statusDisplay;
+            this.logger.info('StatusDisplay initialized (integrated with loading-tool-items)');
+        } else {
+            this.logger.warn('StatusDisplay not available');
+        }
+
         // Get chat elements
         this.chatForm = document.getElementById('chat-form');
         this.chatInput = document.getElementById('chat-input');
@@ -814,6 +1124,19 @@ class VisualResponseApp {
         this.initializeDynamicLLMManager();
     }
 
+    /**
+     * Setup custom Marked.js renderer for markdown processing
+     *
+     * Configures Marked.js with custom code block renderer that:
+     * - Detects Mermaid diagram code blocks and creates placeholders
+     * - Applies syntax highlighting to regular code blocks
+     * - Handles both explicit language tags and content-based detection
+     *
+     * Mermaid detection works for both explicit ```mermaid tags and
+     * content-based detection (graph, flowchart, sequenceDiagram, etc.)
+     *
+     * @returns {void}
+     */
     setupMarkedRenderer() {
         if (typeof marked === 'undefined') return;
 
@@ -858,9 +1181,14 @@ class VisualResponseApp {
 
     /**
      * Apply basic syntax highlighting to code
+     *
+     * Provides simple pattern-based syntax highlighting for common languages.
+     * Supports JavaScript and Python with keyword, string, comment, and number highlighting.
+     * Falls back to plain text for unsupported languages.
+     *
      * @param {string} code - Code to highlight
-     * @param {string} language - Programming language
-     * @returns {string} Highlighted code HTML
+     * @param {string} language - Programming language identifier
+     * @returns {string} HTML string with syntax highlighting spans
      */
     highlightCode(code, language) {
         if (!language || language === 'text') return code;
@@ -895,6 +1223,23 @@ class VisualResponseApp {
         return code;
     }
 
+    /**
+     * Setup all event listeners for user interactions
+     *
+     * Configures event handlers for:
+     * - Chat form submission
+     * - File upload (button click, drag & drop)
+     * - Screenshot capture button
+     * - Screen capture button (continuous mode)
+     * - Voice button (mic + TTS)
+     * - Speak button (TTS only)
+     * - Global JavaScript toggle
+     * - Interrupt button
+     * - Iframe focus management
+     * - Profile slots
+     *
+     * @returns {void}
+     */
     setupEventListeners() {
         if (!this.chatForm || !this.chatInput) {
             console.error('Chat form elements not found');
@@ -941,6 +1286,20 @@ class VisualResponseApp {
         this.setupProfileSlots();
     }
 
+    /**
+     * Handle chat form submission
+     *
+     * Processes user message submission including:
+     * - Validating message content and WebSocket connection
+     * - Capturing screenshot if continuous capture enabled
+     * - Showing interrupt button for non-command messages
+     * - Sending message with images and tool configuration via WebSocket
+     * - Creating optimistic assistant message placeholder
+     * - Handling errors with visual feedback
+     *
+     * @async
+     * @returns {Promise<void>}
+     */
     async handleChatSubmit() {
         const message = this.chatInput.value.trim();
 
@@ -986,10 +1345,10 @@ class VisualResponseApp {
                     throw new Error('Failed to send message via WebSocket');
                 }
 
-                // Show loading indicator AFTER message is sent (will appear after user message)
+                // Create optimistic assistant message AFTER user message is sent (for non-command messages)
                 if (!message.startsWith('/')) {
                     setTimeout(() => {
-                        this.showLoadingIndicator();
+                        this.createOptimisticAssistantMessage();
                     }, 50);
                 }
 
@@ -1116,7 +1475,13 @@ class VisualResponseApp {
 
     /**
      * Unified autoscroll function to ensure consistent chat scrolling behavior
-     * Uses a combination of methods for maximum compatibility and smooth scrolling
+     *
+     * Automatically scrolls the content wrapper to the bottom to show the latest message.
+     * Uses a combination of scrollIntoView and direct scrollTop manipulation for
+     * maximum compatibility. Performs an immediate scroll and a delayed scroll via
+     * requestAnimationFrame to handle dynamic content rendering.
+     *
+     * @returns {void}
      */
     scrollToBottom() {
         const contentWrapper = document.getElementById('content-wrapper');
@@ -1151,6 +1516,14 @@ class VisualResponseApp {
         });
     }
 
+    /**
+     * Show brief send indicator animation
+     *
+     * Displays a temporary visual indicator that a message was sent.
+     * Auto-hides after 1.5 seconds.
+     *
+     * @returns {void}
+     */
     showSendIndicator() {
         const indicator = document.getElementById('send-indicator');
         if (indicator) {
@@ -1161,6 +1534,19 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Setup file upload functionality
+     *
+     * Configures event listeners for:
+     * - File upload button click (triggers file input)
+     * - File input change (processes selected files)
+     * - Drag and drop on chat input (with visual feedback)
+     * - Document-level drag/drop prevention
+     *
+     * Supports multiple file uploads via multipart/form-data.
+     *
+     * @returns {void}
+     */
     setupFileUpload() {
         if (!this.fileInput || !this.fileUploadBtn || !this.chatInput) {
             console.error('File upload elements not found');
@@ -1207,6 +1593,19 @@ class VisualResponseApp {
         });
     }
 
+    /**
+     * Setup screenshot button functionality
+     *
+     * Configures click handler for screenshot button that:
+     * - Sends /screenshot command to agent via WebSocket
+     * - Sets button to capturing state (loading spinner)
+     * - Provides visual feedback on errors
+     *
+     * Screenshot is captured on backend (via OS screenshot tool)
+     * and sent back to frontend via WebSocket event.
+     *
+     * @returns {void}
+     */
     setupScreenshot() {
         if (!this.screenshotBtn) {
             console.error('Screenshot button not found');
@@ -1618,6 +2017,10 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Hide upload status message
+     * @private
+     */
     hideUploadStatus() {
         const statusDiv = document.getElementById('upload-status');
         if (statusDiv) {
@@ -1625,6 +2028,13 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Handle screen capture image upload via WebSocket
+     * @async
+     * @param {string} base64Image - Base64-encoded image data
+     * @throws {Error} When WebSocket is not connected or send fails
+     * @fires WebSocketManager#image_upload
+     */
     async handleScreenCaptureBase64(base64Image) {
         if (!this.wsManager || !this.wsManager.isConnected()) {
             throw new Error('WebSocket not connected');
@@ -1646,6 +2056,11 @@ class VisualResponseApp {
         console.log('📤 Screen capture base64 sent via WebSocket');
     }
 
+    /**
+     * Set up global JavaScript toggle button for all messages
+     * Initializes button state from localStorage and sets up click handler
+     * @private
+     */
     setupGlobalJSToggle() {
         const globalJsToggle = document.getElementById('global-js-toggle');
         if (!globalJsToggle) {
@@ -1680,6 +2095,12 @@ class VisualResponseApp {
         });
     }
 
+    /**
+     * Update the visual state of the global JS toggle button
+     * @private
+     * @param {HTMLElement} button - The toggle button element
+     * @param {boolean} enabled - Whether JavaScript is enabled globally
+     */
     updateGlobalJSToggleButton(button, enabled) {
         if (enabled) {
             button.className = 'js-enabled';
@@ -1692,6 +2113,12 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Apply global JavaScript enabled/disabled state to all messages
+     * Finds all messages with JS content and applies state with staggered timing
+     * @private
+     * @param {boolean} enabled - Whether to enable or disable JavaScript globally
+     */
     applyGlobalJSStateToMessages(enabled) {
         // Find all message containers with JS content
         const messageContainers = document.querySelectorAll('[id*="msg-"]');
@@ -1724,6 +2151,18 @@ class VisualResponseApp {
         });
     }
 
+    /**
+     * Apply JavaScript enabled/disabled state to a single message
+     * @typedef {Object} MessageJSData
+     * @property {HTMLElement} container - Message container element
+     * @property {string} messageId - Unique message identifier
+     * @property {HTMLElement|null} jsToggle - JS toggle button for this message
+     * @property {HTMLIFrameElement|null} iframe - Iframe element if present
+     *
+     * @private
+     * @param {MessageJSData} msgData - Message data object with container, ID, toggle, and iframe
+     * @param {boolean} enabled - Whether to enable JavaScript for this message
+     */
     applyJSStateToMessage(msgData, enabled) {
         const { container, messageId, jsToggle, iframe } = msgData;
 
@@ -1762,6 +2201,14 @@ class VisualResponseApp {
         window.visualLogger.debug(`Applied JS ${enabled ? 'enable' : 'disable'} to message ${messageId}`);
     }
 
+    /**
+     * Retrieve original HTML content for a message to enable re-rendering
+     * Tries multiple sources: iframe srcdoc, contentDocument, and data attributes
+     * @private
+     * @param {string} messageId - Unique message identifier
+     * @param {HTMLIFrameElement} iframe - The iframe element containing the content
+     * @returns {string|null} Original HTML content or null if not found
+     */
     getOriginalContentForMessage(messageId, iframe) {
         // Try to get content from iframe srcdoc
         if (iframe.srcdoc) {
@@ -1786,6 +2233,12 @@ class VisualResponseApp {
         return null;
     }
 
+    /**
+     * Set up the interrupt button to send interrupt signals to the agent
+     * Allows users to stop agent generation and return to input state
+     * @private
+     * @param {HTMLElement} interruptBtn - The interrupt button element
+     */
     setupInterruptButton(interruptBtn) {
         // Track agent state to show/hide button appropriately
         this.agentGenerating = false;
@@ -1832,6 +2285,10 @@ class VisualResponseApp {
         this.interruptBtn = interruptBtn;
     }
 
+    /**
+     * Show the interrupt button when agent starts generating
+     * @private
+     */
     showInterruptButton() {
         if (this.interruptBtn) {
             this.interruptBtn.classList.add('active');
@@ -1840,6 +2297,10 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Hide the interrupt button when agent finishes or returns to idle state
+     * @private
+     */
     hideInterruptButton() {
         if (this.interruptBtn) {
             this.interruptBtn.classList.remove('active', 'processing');
@@ -1847,6 +2308,11 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Display a temporary error message when interrupt fails
+     * @private
+     * @param {string} message - Error message to display
+     */
     showInterruptError(message) {
         // Show a brief error message
         const errorDiv = document.createElement('div');
@@ -1875,6 +2341,12 @@ class VisualResponseApp {
         }, 3000);
     }
 
+    /**
+     * Display a confirmation dialog before resetting the agent
+     * Shows a modal dialog with cancel and confirm buttons, and progress indicator during reset
+     * @async
+     * @returns {Promise<boolean>} Resolves to true if user confirms, false if cancelled
+     */
     showResetConfirmationDialog() {
         return new Promise((resolve) => {
             // Create modal overlay
@@ -1986,6 +2458,11 @@ class VisualResponseApp {
         });
     }
 
+    /**
+     * Set the UI theme to dark mode
+     * Always uses dark theme by setting data-theme attribute on document element
+     * @private
+     */
     setDarkTheme() {
         // Always use dark theme
         document.documentElement.setAttribute('data-theme', 'dark');
@@ -2088,6 +2565,7 @@ class VisualResponseApp {
 
     /**
      * Hide loading indicator when agent responds
+     * Also clears the stopwatch timer to prevent memory leaks
      */
     hideLoadingIndicator() {
         const loadingIndicator = document.getElementById('agent-loading-indicator');
@@ -2098,6 +2576,83 @@ class VisualResponseApp {
             }
             loadingIndicator.remove();
         }
+    }
+
+    /**
+     * Reposition loading indicator to appear after tool calls
+     * This is called when a tool_update event is received to move the loading
+     * indicator below the tools section for better visual flow
+     * @private
+     */
+    repositionLoadingIndicator() {
+        const loadingIndicator = document.getElementById('agent-loading-indicator');
+        if (!loadingIndicator) return;
+
+        const loadingToolsHeader = document.getElementById('loading-tools-header');
+        if (!loadingToolsHeader) return;
+
+        // Check if the loading indicator is already positioned after the tools header
+        const currentNextSibling = loadingToolsHeader.nextElementSibling;
+        if (currentNextSibling === loadingIndicator) {
+            // Already in the correct position
+            return;
+        }
+
+        // Move the loading indicator to appear after the loading-tools-header
+        loadingToolsHeader.parentNode.insertBefore(loadingIndicator, loadingToolsHeader.nextSibling);
+        console.log('📍 Loading indicator repositioned after tool calls');
+    }
+
+    /**
+     * Create optimistic assistant message with loading spinner
+     * Shows immediately after user submits message for instant UI feedback
+     * Disappears when first backend response arrives
+     * @private
+     * @returns {string|null} The unique ID of the optimistic message, or null if creation failed
+     */
+    createOptimisticAssistantMessage() {
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (!contentWrapper) return null;
+
+        // Generate unique ID for this optimistic message
+        const optimisticId = 'optimistic_msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        const currentTimestamp = Date.now();
+
+        // Create message block
+        const messageBlock = document.createElement('div');
+        messageBlock.className = 'message-block assistant-message optimistic-message';
+        messageBlock.id = optimisticId;
+        messageBlock.dataset.optimisticId = optimisticId;
+
+        // Create timestamp
+        const timestamp = document.createElement('div');
+        timestamp.className = 'agent-msg-head';
+        timestamp.textContent = new Date(currentTimestamp).toLocaleTimeString();
+
+        // Create content wrapper
+        const content = document.createElement('div');
+        content.className = 'message-content optimistic-content';
+
+        // Create loading dots spinner (no text)
+        const dots = document.createElement('div');
+        dots.className = 'optimistic-dots';
+        dots.innerHTML = '<span></span><span></span><span></span>';
+
+        content.appendChild(dots);
+        messageBlock.appendChild(timestamp);
+        messageBlock.appendChild(content);
+
+        // Add to content wrapper
+        contentWrapper.appendChild(messageBlock);
+
+        // Scroll to show optimistic message
+        this.scrollToBottom();
+
+        // Store the optimistic message ID for later removal
+        this.currentOptimisticMessageId = optimisticId;
+        console.log('💬 Created optimistic assistant message:', optimisticId);
+
+        return optimisticId;
     }
 
     /**
@@ -2147,8 +2702,9 @@ class VisualResponseApp {
 
     /**
      * Save message to history and localStorage
-     * @param {'user'|'agent'} type - 'user' or 'agent'
-     * @param {UserMessageData|AgentMessageData} data - Message data
+     * Filters out transient message types that should not persist across page reloads
+     * @param {'user'|'agent'} type - Message type: 'user' for user messages, 'agent' for agent messages
+     * @param {UserMessageData|AgentMessageData} data - Message data object
      */
     saveMessageToHistory(type, data) {
         // Enhanced validation and debugging
@@ -2219,6 +2775,8 @@ class VisualResponseApp {
 
     /**
      * Load message history from localStorage and restore messages
+     * Cleans up any legacy transient messages that should not have been stored
+     * @private
      */
     loadMessageHistory() {
         try {
@@ -2296,7 +2854,10 @@ class VisualResponseApp {
     }
 
     /**
-     * Show temporary feedback when restoring messages
+     * Show temporary feedback when restoring messages from previous session
+     * Displays a temporary indicator showing how many messages are being restored
+     * @private
+     * @param {number} messageCount - Number of messages being restored
      */
     showRestorationFeedback(messageCount) {
         const contentWrapper = document.getElementById('content-wrapper');
@@ -2325,6 +2886,9 @@ class VisualResponseApp {
 
     /**
      * Restore messages from history to the UI
+     * Clears existing content and restores messages in chronological order
+     * @private
+     * @async
      */
     async restoreMessages() {
         const contentWrapper = document.getElementById('content-wrapper');
@@ -2366,7 +2930,9 @@ class VisualResponseApp {
 
     /**
      * Restore a user message to the UI
-     * @param {UserMessageData} data - User message data
+     * Creates a message block with timestamp and content from stored data
+     * @private
+     * @param {UserMessageData} data - User message data with message, timestamp, and optional images
      */
     restoreUserMessage(data) {
         console.log('👤 Restoring user message:', data);
@@ -2421,7 +2987,10 @@ class VisualResponseApp {
 
     /**
      * Restore an agent message to the UI
-     * @param {AgentMessageData} data - Agent message data
+     * Creates message block with timestamp, tool info, and rendered content
+     * @private
+     * @async
+     * @param {AgentMessageData} data - Agent message data with messageData, timestamp, and originalId
      */
     async restoreAgentMessage(data) {
         const contentWrapper = document.getElementById('content-wrapper');
@@ -2499,7 +3068,8 @@ class VisualResponseApp {
     }
 
     /**
-     * Clear message history
+     * Clear message history from memory and localStorage
+     * @private
      */
     clearMessageHistory() {
         this.messageHistory = [];
@@ -2514,6 +3084,8 @@ class VisualResponseApp {
     /**
      * Setup iframe focus management for interactive content
      * Allows users to click into iframes to capture keyboard/mouse events
+     * Creates overlays for iframes that enable click-to-focus behavior
+     * @private
      */
     setupIframeFocusManagement() {
         let focusedIframe = null;
@@ -2683,6 +3255,10 @@ class VisualResponseApp {
 
     /**
      * Setup interaction overlay for a specific iframe
+     * Adds a click-to-focus overlay to an iframe element
+     * @private
+     * @param {HTMLIFrameElement} iframe - The iframe element to set up
+     * @param {Function} createOverlayFn - Function that creates the overlay element
      */
     setupIframeInteraction(iframe, createOverlayFn) {
         // Skip if already set up
@@ -2711,6 +3287,8 @@ class VisualResponseApp {
     /**
      * Setup agent message height management
      * Makes agent messages scale to 90% of content-wrapper height with hover scrolling
+     * Updates heights on window resize and when new messages are added
+     * @private
      */
     setupAgentMessageHeightManagement() {
         const updateAgentMessageHeights = () => {
@@ -2766,10 +3344,9 @@ class VisualResponseApp {
     }
 
     /**
-     * Initialize the LLM selectors in the header
-     */
-    /**
      * Initialize Dynamic LLM Manager for multi-model fallback support
+     * Creates the DynamicLLMManager instance for managing LLM selectors
+     * @private
      */
     initializeDynamicLLMManager() {
         // Check if DynamicLLMManager is available
@@ -2785,6 +3362,9 @@ class VisualResponseApp {
 
     /**
      * Initialize selectors from system configuration
+     * Sets up all LLM selectors based on saved backend configuration
+     * Falls back to localStorage if system config is unavailable
+     * @private
      */
     initializeFromSystemConfiguration() {
         // DEBUG: Log what we received from the API
@@ -2862,9 +3442,10 @@ class VisualResponseApp {
     }
 
     /**
-     * Handle LLM selection changes
-     * @param {string} position - 'primary', 'fallback1', or 'fallback2'
-     * @param {LLMModel|null} model - Selected model object
+     * Handle LLM selection changes for fallback models
+     * Sends /fallbacks command to backend and saves to localStorage
+     * @param {string} position - Selector position: 'primary', 'fallback1', or 'fallback2'
+     * @param {LLMModel|null} model - Selected model object, or null for "None"
      */
     handleLLMSelectionChange(position, model) {
 
@@ -2928,7 +3509,8 @@ class VisualResponseApp {
 
     /**
      * Handle router LLM selection changes
-     * @param {LLMModel|null} model - Selected router LLM model
+     * Sends /router_llm command to backend and saves to localStorage
+     * @param {LLMModel|null} model - Selected router LLM model, or null for "None"
      */
     handleRouterLLMSelectionChange(model) {
 
@@ -2966,7 +3548,8 @@ class VisualResponseApp {
 
     /**
      * Handle planner LLM selection changes
-     * @param {LLMModel|null} model - Selected planner LLM model
+     * Sends /planner_llm command to backend and saves to localStorage
+     * @param {LLMModel|null} model - Selected planner LLM model, or null for "None"
      */
     handlePlannerLLMSelectionChange(model) {
 
@@ -3009,7 +3592,8 @@ class VisualResponseApp {
 
     /**
      * Handle override LLM selection changes
-     * @param {LLMModel|null} model - Selected override LLM model
+     * Sends /override_llm command to backend and saves to localStorage
+     * @param {LLMModel|null} model - Selected override LLM model, or null for "None"
      */
     handleOverrideLLMSelectionChange(model) {
 
@@ -3052,6 +3636,8 @@ class VisualResponseApp {
 
     /**
      * Load and restore LLM selections from localStorage
+     * Falls back to this method if system configuration is unavailable
+     * @private
      */
     loadLLMSelections() {
         try {
@@ -3088,19 +3674,55 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Set up profile slot buttons for saving/loading LLM configurations
+     * Initializes click handlers and hover preview tooltips
+     * @private
+     */
     setupProfileSlots() {
         const profileSlots = document.querySelectorAll('.profile-slot');
+
+        this.previewHideTimeout = null;
 
         profileSlots.forEach(slot => {
             slot.addEventListener('click', () => {
                 const slotNumber = slot.dataset.slot;
+                console.log('🔘 Profile slot clicked:', slotNumber, 'Profiles:', this.profileSlots);
                 this.handleProfileSlotClick(slotNumber);
+            });
+
+            // Add hover listeners for profile preview tooltip
+            slot.addEventListener('mouseenter', () => {
+                // Cancel any pending hide
+                if (this.previewHideTimeout) {
+                    clearTimeout(this.previewHideTimeout);
+                    this.previewHideTimeout = null;
+                }
+
+                const slotNumber = slot.dataset.slot;
+                const profile = this.profileSlots[slotNumber];
+                if (profile) {
+                    this.showProfilePreview(slot, profile);
+                }
+            });
+
+            slot.addEventListener('mouseleave', () => {
+                // Delay hide slightly to allow moving to preview
+                this.previewHideTimeout = setTimeout(() => {
+                    this.hideProfilePreview();
+                }, 50);
             });
         });
 
         this.loadProfileSlots();
     }
 
+    /**
+     * Load all profile slots from backend API
+     * Fetches profile data and updates UI to show which slots have profiles
+     * @private
+     * @async
+     */
     async loadProfileSlots() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/profiles') : '/api/profiles';
@@ -3135,6 +3757,11 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Update profile slot UI to show which slots have saved profiles
+     * Adds 'has-profile' class to slots with saved configurations
+     * @private
+     */
     updateProfileSlotUI() {
         const profileSlots = document.querySelectorAll('.profile-slot');
 
@@ -3149,6 +3776,12 @@ class VisualResponseApp {
         });
     }
 
+    /**
+     * Mark a profile slot as active (currently loaded)
+     * Adds 'active' class to the specified slot and removes from others
+     * @private
+     * @param {string} slotNumber - The slot number to mark as active
+     */
     markSlotAsActive(slotNumber) {
         const profileSlots = document.querySelectorAll('.profile-slot');
 
@@ -3161,63 +3794,137 @@ class VisualResponseApp {
         });
     }
 
+    /**
+     * Handle click on a profile slot button
+     * Loads profile if it exists, or saves current config if slot is empty
+     * @private
+     * @async
+     * @param {string} slotNumber - The clicked slot number
+     */
     async handleProfileSlotClick(slotNumber) {
         const profile = this.profileSlots[slotNumber];
+        console.log('📋 handleProfileSlotClick:', slotNumber, 'Profile exists:', !!profile, profile);
 
         if (profile) {
+            console.log('✅ Profile found, applying...');
             await this.applyProfile(slotNumber);
         } else {
+            console.log('💾 No profile found, saving current config to slot:', slotNumber);
             await this.saveCurrentConfigToSlot(slotNumber);
         }
     }
 
+    /**
+     * Apply a saved profile to current LLM configuration
+     * Updates all selectors and sends /profile_load command to backend
+     * @private
+     * @async
+     * @param {string} slotNumber - The slot number to load
+     */
     async applyProfile(slotNumber) {
-        if (this.isInitializing) return;
+        console.log('🔄 applyProfile called for slot:', slotNumber);
+        console.log('  Profile data:', this.profileSlots[slotNumber]);
+
+        // Directly update selectors from profile data before sending WebSocket message
+        const profile = this.profileSlots[slotNumber];
+        if (profile) {
+            console.log('📋 Updating selectors from profile data...');
+
+            // Update override selector (convert single value to array)
+            if (this.dynamicLLMManager) {
+                const overrideModels = profile.override ? [profile.override] : [];
+                const routerModels = profile.router ? [profile.router] : [];
+                const plannerModels = profile.planner ? [profile.planner] : [];
+                const fallbackModels = profile.fallbacks || [];
+
+                console.log('  Override models:', overrideModels);
+                console.log('  Router models:', routerModels);
+                console.log('  Planner models:', plannerModels);
+                console.log('  Fallback models:', fallbackModels);
+
+                this.dynamicLLMManager.renderSelectors('override', overrideModels);
+                this.dynamicLLMManager.renderSelectors('router', routerModels);
+                this.dynamicLLMManager.renderSelectors('planner', plannerModels);
+                this.dynamicLLMManager.renderSelectors('fallbacks', fallbackModels);
+
+                console.log('✅ Selectors updated from profile');
+            } else {
+                console.warn('⚠️  DynamicLLMManager not available');
+            }
+        }
 
         if (this.wsManager && this.wsManager.isConnected()) {
+            console.log('📤 Sending WebSocket message: /profile_load', slotNumber);
             this.wsManager.sendMessage(`/profile_load ${slotNumber}`);
 
             this.activeProfileSlot = slotNumber;
             this.markSlotAsActive(slotNumber);
 
+            // Reload profile slots after backend confirms
             setTimeout(async () => {
+                console.log('🔄 Refreshing profile slots after 200ms');
                 await this.loadProfileSlots();
-                await this.refreshSelectorsFromBackend();
             }, 200);
+        } else {
+            console.log('❌ Cannot apply profile - WebSocket not connected');
         }
     }
 
+    /**
+     * Refresh all LLM selectors from backend configuration
+     * Fetches current config via API and updates all selector states
+     * @private
+     * @async
+     */
     async refreshSelectorsFromBackend() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/llms') : '/api/llms';
-            const response = await fetch(url);
+            console.log('📡 Fetching LLM config from:', url);
+            const response = await fetch(url, {
+                headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
+            });
             const data = await response.json();
+
+            console.log('📥 Received LLM config:', data);
 
             if (data.status === 'success' && data.current_configuration) {
                 const config = data.current_configuration;
 
+                console.log('🎯 Current config from backend:', {
+                    override_llm: config.override_llm,
+                    router_llm: config.router_llm,
+                    planner_llm: config.planner_llm,
+                    selected_llms: config.selected_llms
+                });
+
                 this.isInitializing = true;
 
                 if (this.llmSelectors.override) {
+                    console.log('  Setting override:', config.override_llm || null);
                     this.llmSelectors.override.setSelectedModel(config.override_llm || null);
                 }
 
                 if (this.llmSelectors.router) {
+                    console.log('  Setting router:', config.router_llm || null);
                     this.llmSelectors.router.setSelectedModel(config.router_llm || null);
                 }
 
                 if (this.llmSelectors.planner) {
+                    console.log('  Setting planner:', config.planner_llm || null);
                     this.llmSelectors.planner.setSelectedModel(config.planner_llm || null);
                 }
 
                 if (config.selected_llms && config.selected_llms.length > 0) {
                     if (this.llmSelectors.primary) {
+                        console.log('  Setting primary:', config.selected_llms[0] || null);
                         this.llmSelectors.primary.setSelectedModel(config.selected_llms[0] || null);
                     }
                     if (this.llmSelectors.fallback1) {
+                        console.log('  Setting fallback1:', config.selected_llms[1] || null);
                         this.llmSelectors.fallback1.setSelectedModel(config.selected_llms[1] || null);
                     }
                     if (this.llmSelectors.fallback2) {
+                        console.log('  Setting fallback2:', config.selected_llms[2] || null);
                         this.llmSelectors.fallback2.setSelectedModel(config.selected_llms[2] || null);
                     }
                 }
@@ -3225,6 +3932,8 @@ class VisualResponseApp {
                 this.isInitializing = false;
 
                 console.log('✅ Refreshed selectors from backend configuration');
+            } else {
+                console.warn('⚠️  Unexpected response structure:', data);
             }
         } catch (error) {
             console.error('Failed to refresh selectors from backend:', error);
@@ -3232,6 +3941,13 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Save current LLM configuration to a profile slot
+     * Sends /profile_save command and refreshes profile slots after save
+     * @private
+     * @async
+     * @param {string} slotNumber - The slot number to save to
+     */
     async saveCurrentConfigToSlot(slotNumber) {
         if (this.wsManager && this.wsManager.isConnected()) {
             this.wsManager.sendMessage(`/profile_save ${slotNumber}`);
@@ -3244,6 +3960,137 @@ class VisualResponseApp {
         }
     }
 
+    /**
+     * Show profile preview tooltip on hover
+     * Displays profile configuration details in a tooltip below the slot button
+     * @typedef {Object} ProfileData
+     * @property {string} override - Override LLM model
+     * @property {string} router - Router LLM model
+     * @property {string} planner - Planner LLM model
+     * @property {string[]} fallbacks - Array of fallback model IDs
+     *
+     * @private
+     * @param {HTMLElement} slotElement - The slot element being hovered
+     * @param {ProfileData} profile - The profile data to preview
+     */
+    showProfilePreview(slotElement, profile) {
+        // Cancel any pending hide
+        if (this.previewHideTimeout) {
+            clearTimeout(this.previewHideTimeout);
+            this.previewHideTimeout = null;
+        }
+
+        // Remove any existing preview immediately (don't fade)
+        const existingPreviews = document.querySelectorAll('.profile-preview-tooltip');
+        existingPreviews.forEach(p => p.remove());
+
+        const preview = document.createElement('div');
+        preview.className = 'profile-preview-tooltip';
+        preview.id = 'profile-preview';
+
+        // Format the configuration for display
+        const formatModel = (model) => {
+            if (!model) return 'Not set';
+            if (model === 'None' || model === 'none') return 'None';
+            return model;
+        };
+
+        const fallbacksHTML = profile.fallbacks && profile.fallbacks.length > 0
+            ? profile.fallbacks.map((m, i) => `<div class="preview-item"><span class="preview-label">${i === 0 ? 'Primary' : 'Fallback ' + i}:</span> ${formatModel(m)}</div>`).join('')
+            : '<div class="preview-item"><span class="preview-label">Defaults:</span> Not configured</div>';
+
+        preview.innerHTML = `
+            <div class="preview-content">
+                <div class="preview-title">Profile Configuration</div>
+                <div class="preview-section">
+                    <div class="preview-item">
+                        <span class="preview-label">Override:</span> ${formatModel(profile.override)}
+                    </div>
+                    <div class="preview-item">
+                        <span class="preview-label">Router:</span> ${formatModel(profile.router)}
+                    </div>
+                    <div class="preview-item">
+                        <span class="preview-label">Planner:</span> ${formatModel(profile.planner)}
+                    </div>
+                </div>
+                <div class="preview-section">
+                    <div class="preview-subtitle">Fallback Chain</div>
+                    ${fallbacksHTML}
+                </div>
+            </div>
+        `;
+
+        // Position the tooltip relative to the slot button
+        const rect = slotElement.getBoundingClientRect();
+        preview.style.position = 'fixed';
+        preview.style.left = (rect.left + rect.width / 2) + 'px';
+        preview.style.top = (rect.bottom + 10) + 'px'; // Position BELOW the slot button
+
+        document.body.appendChild(preview);
+
+        // Force reflow to get accurate dimensions
+        const previewRect = preview.getBoundingClientRect();
+
+        // Adjust position to center horizontally and place below the slot
+        preview.style.left = (rect.left + rect.width / 2 - previewRect.width / 2) + 'px';
+
+        // Check if tooltip goes off-screen to the right and adjust
+        if (previewRect.right > window.innerWidth - 5) {
+            preview.style.left = (window.innerWidth - previewRect.width - 5) + 'px';
+        }
+
+        // Check if tooltip goes off-screen to the left and adjust
+        if (previewRect.left < 5) {
+            preview.style.left = '5px';
+        }
+
+        // Add hover listeners to the preview itself to keep it visible
+        preview.addEventListener('mouseenter', () => {
+            if (this.previewHideTimeout) {
+                clearTimeout(this.previewHideTimeout);
+                this.previewHideTimeout = null;
+            }
+        });
+
+        preview.addEventListener('mouseleave', () => {
+            this.hideProfilePreview();
+        });
+
+        // Add a small fade-in animation
+        preview.style.opacity = '0';
+        preview.style.transition = 'opacity 0.15s ease-in-out';
+        setTimeout(() => {
+            preview.style.opacity = '1';
+        }, 0);
+    }
+
+    /**
+     * Hide profile preview tooltip
+     * Fades out and removes all preview tooltips from the DOM
+     * @private
+     */
+    hideProfilePreview() {
+        // Clear any pending hide timeout
+        if (this.previewHideTimeout) {
+            clearTimeout(this.previewHideTimeout);
+            this.previewHideTimeout = null;
+        }
+
+        // Fade out and remove all previews
+        document.querySelectorAll('.profile-preview-tooltip').forEach(preview => {
+            preview.style.opacity = '0';
+            preview.style.transition = 'opacity 0.15s ease-in-out';
+            setTimeout(() => {
+                preview.remove();
+            }, 150);
+        });
+    }
+
+    /**
+     * Schedule auto-save of current config to active profile slot
+     * Saves config 2 seconds after last change to avoid excessive saves
+     * @private
+     */
     scheduleAutoSave() {
         if (!this.activeProfileSlot) return;
 
@@ -3256,6 +4103,12 @@ class VisualResponseApp {
         }, 2000);
     }
 
+    /**
+     * Show autoplay prompt banner when audio needs user interaction
+     * Displays a banner that prompts user to click anywhere to enable audio
+     * Automatically plays pending TTS after user interaction
+     * @private
+     */
     showAutoplayPrompt() {
         // Show a subtle banner prompting user to click to enable audio
         let banner = document.getElementById('autoplay-prompt');
@@ -3289,6 +4142,8 @@ class VisualResponseApp {
 
 /**
  * Initialize the application when DOM is ready and all dependencies are loaded
+ * Waits for ContentRenderer and WebSocketManager to be available before creating app instance
+ * @global
  */
 function initializeApp() {
     // Check if all required classes are available
@@ -3306,6 +4161,7 @@ function initializeApp() {
 
     console.log('All dependencies loaded, initializing app...');
     const app = new VisualResponseApp();
+    window.app = app;  // Global reference for optimistic message tracking
     window.VisualResponseApp = app;
     window.agentInterface = app;  // For message edit/delete buttons
 }

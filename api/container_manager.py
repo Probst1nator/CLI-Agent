@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 import shutil
 from datetime import datetime, timedelta
@@ -25,6 +26,7 @@ import docker
 import httpx
 import websockets
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 
@@ -40,12 +42,63 @@ DB_PATH = Path("/data/container_manager.db")
 STORAGE_THRESHOLD = 90  # Percent
 DEFAULT_RETENTION_DAYS = 7
 BASE_IMAGE = "cli-agent-backend:latest"
+MAX_CONTAINERS_PER_USER = int(os.getenv("MAX_CONTAINERS_PER_USER", "3"))  # Configurable limit
+
+# CORS Configuration
+# Get allowed origins from environment variable or use default
+ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
+# Strip whitespace from each origin
+ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS]
 
 app = FastAPI(
     title="CLI-Agent Container Manager",
     description="Manages per-UUID container lifecycle with WebSocket proxying",
     version="1.0.0"
 )
+
+# Configure CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "PUT", "PATCH"],
+    allow_headers=["X-User-UUID", "Content-Type", "Authorization"],
+    expose_headers=["Content-Type"],
+)
+
+# UUID validation pattern (RFC 4122 UUID v4)
+UUID_PATTERN = re.compile(
+    r'^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$',
+    re.IGNORECASE
+)
+
+
+def validate_uuid(uuid: str) -> str:
+    """
+    Validate UUID format to prevent injection attacks.
+
+    Args:
+        uuid: UUID string to validate
+
+    Returns:
+        str: The validated UUID
+
+    Raises:
+        HTTPException: If UUID is invalid or malformed
+    """
+    if not uuid:
+        raise HTTPException(status_code=400, detail="UUID cannot be empty")
+
+    if len(uuid) > 36:
+        raise HTTPException(status_code=400, detail="UUID too long")
+
+    if not UUID_PATTERN.match(uuid):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid UUID format. Expected UUID v4 format (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx)"
+        )
+
+    return uuid
 
 
 @dataclass
@@ -143,6 +196,37 @@ class ContainerManager:
         """Generate short hash for UUID (12 chars for container names)"""
         return hashlib.sha256(uuid.encode()).hexdigest()[:12]
 
+    def get_or_create_user_network(self, uuid: str) -> str:
+        """
+        Get or create an isolated network for a user.
+        Each user gets their own network, preventing cross-user container communication.
+        """
+        uuid_short = self.hash_uuid(uuid)
+        network_name = f"cli-agent-user-{uuid_short}"
+
+        try:
+            # Try to get existing network
+            self.docker_client.networks.get(network_name)
+            logger.debug(f"Using existing network: {network_name}")
+            return network_name
+        except docker.errors.NotFound:
+            # Network doesn't exist, create it
+            logger.info(f"Creating isolated network for UUID {uuid[:8]}...: {network_name}")
+
+            # Create isolated network with labels for cleanup
+            self.docker_client.networks.create(
+                network_name,
+                driver="bridge",
+                internal=False,  # Allow external connections (for AI APIs)
+                labels={
+                    "cli-agent.managed": "true",
+                    "cli-agent.user-uuid": uuid,
+                    "cli-agent.network-type": "user-isolated"
+                }
+            )
+
+            return network_name
+
     async def get_or_create_container(self, uuid: str) -> ContainerInfo:
         """Get existing container or create new one for UUID"""
         # Check if container exists
@@ -166,6 +250,15 @@ class ContainerManager:
         if self.storage_monitor.is_critical():
             logger.warning(f"Storage critical: {self.storage_monitor.get_usage_percent():.1f}%")
             await self.aggressive_cleanup()
+
+        # Check per-user container limit
+        container_count = self.count_user_containers(uuid)
+        if container_count >= MAX_CONTAINERS_PER_USER:
+            logger.warning(f"Container limit reached for UUID {uuid[:8]}... ({container_count}/{MAX_CONTAINERS_PER_USER})")
+            raise HTTPException(
+                status_code=429,
+                detail=f"Maximum containers per user reached ({MAX_CONTAINERS_PER_USER}). Please delete existing containers first."
+            )
 
         # Create new container
         return await self.create_container(uuid)
@@ -198,6 +291,9 @@ class ContainerManager:
             # Calculate initial CPU quota
             cpu_quota = 100000  # 100% (full core by default)
 
+            # Get or create isolated network for this user
+            user_network = self.get_or_create_user_network(uuid)
+
             # Prepare environment with API keys from host
             env_vars = {
                 "CLI_AGENT_MODE": "containerized",
@@ -220,7 +316,7 @@ class ContainerManager:
                     env_vars[key] = value
                     logger.debug(f"Passing {key} to container")
             
-            # Create container
+            # Create container with resource limits
             container = self.docker_client.containers.run(
                 image=BASE_IMAGE,
                 name=container_name,
@@ -231,12 +327,39 @@ class ContainerManager:
                     f"cli-agent-{uuid_short}-logs": {"bind": "/workspace/logs", "mode": "rw"},
                     f"cli-agent-{uuid_short}-config": {"bind": "/workspace/config", "mode": "rw"}
                 },
-                network="cli-agent-network",
+                network=user_network,  # Isolated per-user network
                 detach=True,
                 restart_policy={"Name": "unless-stopped"},
+
+                # CPU/Memory limits
                 cpu_quota=cpu_quota,
                 cpu_period=100000,
                 mem_limit="2g",
+
+                # Process limits (prevent fork bombs)
+                pids_limit=100,
+
+                # Disk I/O limits (10 MB/s read, 10 MB/s write)
+                # Note: Requires host device path, typically /dev/sda or /dev/vda
+                device_write_bps=[{"Path": "/dev/sda", "Rate": 10485760}],  # 10 MB/s
+                device_read_bps=[{"Path": "/dev/sda", "Rate": 10485760}],   # 10 MB/s
+
+                # Security profiles
+                security_opt=[
+                    "no-new-privileges:true",      # Prevent privilege escalation
+                    "apparmor=docker-default"      # Apply Docker's default AppArmor profile
+                ],
+
+                # Drop all Linux capabilities, add back only essential ones
+                cap_drop=["ALL"],
+                cap_add=[
+                    "CHOWN",              # Change file ownership
+                    "SETUID",             # Set user ID
+                    "SETGID",             # Set group ID
+                    "DAC_OVERRIDE",       # Bypass file permission checks (needed for some ops)
+                    "NET_BIND_SERVICE"    # Bind to privileged ports (<1024)
+                ],
+
                 labels=labels
             )
 
@@ -250,15 +373,27 @@ class ContainerManager:
                 retention_days=DEFAULT_RETENTION_DAYS
             )
 
+            # Connect container to cli-agent-network for Container Manager proxy access
+            # Container is now on TWO networks:
+            # 1. user_network (isolated, prevents cross-user attacks)
+            # 2. cli-agent-network (allows Container Manager to proxy WebSocket/HTTP)
+            try:
+                shared_network = self.docker_client.networks.get("cli-agent-network")
+                shared_network.connect(container)
+                logger.debug(f"Connected {container_name} to shared cli-agent-network for proxy")
+            except Exception as e:
+                logger.warning(f"Could not connect to cli-agent-network: {e}")
+                # Not fatal - container still works, just proxy might not
+
             self.register_container(container_info)
             self.log_activity(uuid, "container_created")
 
             logger.info(f"Container created: {container_name} (ID: {container.id[:12]})")
-            
+
             # Wait for container to become healthy (max 30 seconds)
             logger.info(f"Waiting for container {container_name} to become healthy...")
             await self._wait_for_container_healthy(container, timeout=30)
-            
+
             return container_info
 
         except Exception as e:
@@ -340,6 +475,15 @@ class ContainerManager:
                 retention_days=row[5],
                 user_id=row[6]
             )
+
+    def count_user_containers(self, uuid: str) -> int:
+        """Count active containers for a given UUID"""
+        with self.get_db_connection() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM containers WHERE uuid = ?",
+                (uuid,)
+            )
+            return cursor.fetchone()[0]
 
     def register_container(self, info: ContainerInfo):
         """Register container in database"""
@@ -426,6 +570,25 @@ class ContainerManager:
                     logger.error(f"Volume {volume.name} still in use - will retry on next audit")
                 else:
                     raise
+
+        # Cleanup user's isolated network if no containers remain
+        uuid_short = self.hash_uuid(uuid)
+        network_name = f"cli-agent-user-{uuid_short}"
+        try:
+            network = self.docker_client.networks.get(network_name)
+
+            # Check if any containers are still using this network
+            remaining_containers = self.count_user_containers(uuid)
+            if remaining_containers == 0:
+                # No more containers for this user, safe to remove network
+                network.remove()
+                logger.info(f"Removed isolated network: {network_name}")
+            else:
+                logger.debug(f"Network {network_name} still has {remaining_containers} containers, keeping")
+        except docker.errors.NotFound:
+            logger.debug(f"Network {network_name} already removed or never existed")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup network {network_name}: {e}")
 
         # Remove from database (idempotent)
         with self.get_db_connection() as conn:
@@ -557,6 +720,9 @@ async def discover_container(request: Request):
     if not uuid:
         raise HTTPException(status_code=400, detail="Missing X-User-UUID header")
 
+    # Validate UUID format
+    uuid = validate_uuid(uuid)
+
     logger.info(f"Container discovery request for UUID: {uuid[:8]}...")
 
     try:
@@ -578,6 +744,14 @@ async def discover_container(request: Request):
 async def websocket_proxy(websocket: WebSocket, uuid: str):
     """Bi-directional WebSocket proxy to backend container"""
     await websocket.accept()
+
+    # Validate UUID format
+    try:
+        uuid = validate_uuid(uuid)
+    except HTTPException as e:
+        await websocket.close(code=1008, reason=e.detail)
+        return
+
     logger.info(f"WebSocket connection established for UUID {uuid[:8]}...")
 
     container_info = manager.get_container(uuid)
@@ -635,6 +809,9 @@ async def websocket_proxy(websocket: WebSocket, uuid: str):
 @app.api_route("/api/backend/{uuid}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def http_proxy(request: Request, uuid: str, path: str):
     """HTTP proxy to backend container REST endpoints"""
+    # Validate UUID format
+    uuid = validate_uuid(uuid)
+
     container_info = manager.get_container(uuid)
     if not container_info:
         raise HTTPException(status_code=404, detail="Container not found")
@@ -679,6 +856,9 @@ async def update_activity(request: Request):
     if not uuid:
         raise HTTPException(status_code=400, detail="Missing X-User-UUID header")
 
+    # Validate UUID format
+    uuid = validate_uuid(uuid)
+
     manager.update_activity(uuid)
     return JSONResponse({"status": "success", "uuid": uuid})
 
@@ -712,6 +892,9 @@ async def list_containers():
 @app.delete("/container/{uuid}")
 async def delete_container(uuid: str):
     """Manually delete container for specific UUID (admin only)"""
+    # Validate UUID format
+    uuid = validate_uuid(uuid)
+
     await manager.destroy_container(uuid)
     return JSONResponse({"status": "success", "uuid": uuid})
 
@@ -719,6 +902,9 @@ async def delete_container(uuid: str):
 @app.post("/container/{uuid}/wipe")
 async def wipe_container(uuid: str):
     """Wipe and recreate container for UUID"""
+    # Validate UUID format
+    uuid = validate_uuid(uuid)
+
     logger.info(f"Wipe request for UUID {uuid[:8]}...")
     await manager.destroy_container(uuid)
     container_info = await manager.get_or_create_container(uuid)
