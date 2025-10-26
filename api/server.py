@@ -271,6 +271,30 @@ class VisualServer:
     def setup_middleware(self):
         """Setup middleware for logging and session tracking"""
         @web.middleware
+        async def cors_middleware(request, handler):
+            """Add CORS headers to all responses"""
+            # Get allowed origins from environment variable
+            allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
+            allowed_origins = [origin.strip() for origin in allowed_origins]
+
+            # Handle preflight requests
+            if request.method == "OPTIONS":
+                response = web.Response()
+            else:
+                response = await handler(request)
+
+            # Set CORS headers
+            origin = request.headers.get("Origin", "*")
+            if "*" in allowed_origins or origin in allowed_origins:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Session-ID'
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.headers['Access-Control-Expose-Headers'] = 'Content-Type'
+
+            return response
+
+        @web.middleware
         async def session_logging_middleware(request, handler):
             """Log HTTP requests with session ID"""
             # Extract session ID from header (if available)
@@ -289,6 +313,8 @@ class VisualServer:
 
             return response
 
+        # Add middlewares in order (CORS first)
+        self.app.middlewares.append(cors_middleware)
         self.app.middlewares.append(session_logging_middleware)
 
     async def index_handler(self, request):
@@ -731,3 +757,70 @@ async def broadcast_message_added(message) -> None:
 
     except Exception as e:
         logger.error(f"Failed to broadcast message_added: {e}", exc_info=True)
+
+
+async def broadcast_token_stream(token: str, tokens_generated: int, elapsed_ms: int) -> None:
+    """
+    Broadcast token_stream event to all WebSocket clients.
+    Called in real-time as LLM generates tokens during completion.
+
+    Args:
+        token: The generated token/chunk
+        tokens_generated: Total tokens generated so far
+        elapsed_ms: Elapsed time in milliseconds since generation started
+    """
+    server = get_server()
+    if not server:
+        return
+
+    try:
+        payload = {
+            'type': 'token_stream',
+            'timestamp': time.time(),
+            'token': token,
+            'tokens_generated': tokens_generated,
+            'elapsed_ms': elapsed_ms
+        }
+
+        await server.broadcast(payload)
+        logger.debug(f"Broadcasted token_stream: {tokens_generated} tokens in {elapsed_ms}ms")
+
+    except Exception as e:
+        logger.debug(f"Failed to broadcast token_stream: {e}")
+
+
+async def broadcast_tool_update(tool_name: str, status: str, description: str = "",
+                                 result: str = "", duration_ms: int = 0, error: str = None) -> None:
+    """
+    Broadcast tool_update event to all WebSocket clients.
+    Called when tool execution starts, completes, or fails.
+
+    Args:
+        tool_name: Name of the tool (e.g., 'bash', 'readfile')
+        status: 'running', 'success', or 'error'
+        description: What the tool is doing (e.g., command being executed)
+        result: Output/result from the tool (for success status)
+        duration_ms: How long the tool took to execute
+        error: Error message if status is 'error'
+    """
+    server = get_server()
+    if not server:
+        return
+
+    try:
+        payload = {
+            'type': 'tool_update',
+            'timestamp': time.time(),
+            'tool_name': tool_name,
+            'status': status,
+            'description': description,
+            'result': result,
+            'duration_ms': duration_ms,
+            'error': error
+        }
+
+        await server.broadcast(payload)
+        logger.debug(f"Broadcasted tool_update: {tool_name} - {status}")
+
+    except Exception as e:
+        logger.debug(f"Failed to broadcast tool_update: {e}")

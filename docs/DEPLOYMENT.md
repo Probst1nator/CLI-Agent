@@ -1,5 +1,18 @@
 # CLI-Agent Multi-User Deployment Guide
 
+> **⚠️ EXPERIMENTAL - NOT PRODUCTION READY**
+>
+> This multi-user infrastructure is currently **EXPERIMENTAL** and has not been fully tested in production.
+> - Last containers active: ~4 weeks ago
+> - Requires significant testing before production deployment
+> - See [INFRASTRUCTURE_STATUS.md](INFRASTRUCTURE_STATUS.md) for current status
+>
+> **For production deployments**, consider using:
+> - `python main.py --isolated` for single-user containerized deployment ([ISOLATED_MODE.md](ISOLATED_MODE.md))
+> - Single-user mode behind reverse proxy for simpler multi-user setups
+>
+> Only proceed if you need true multi-tenant SaaS architecture and are prepared to test extensively.
+
 **Version:** 1.0.0
 **Last Updated:** 2025-10-12
 

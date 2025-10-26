@@ -3,7 +3,7 @@
 
 api:
   dashboard: true
-  insecure: true  # Dashboard on :8080 (disable in production)
+  insecure: true  # Dashboard on :8080 localhost only (safe - not network exposed)
 
 entryPoints:
   web:

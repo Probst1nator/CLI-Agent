@@ -145,6 +145,7 @@ try:
 except ImportError:
     RESOURCE_MANAGER_AVAILABLE = False
 from core.globals import g
+from core.constants import NON_INTERRUPTING_TAGS, NON_VALIDATING_TAGS
 from core.llm_router import LlmRouter, StreamInterruptedException, UserInterruptedException, ModelGenerationFailedException
 from core.chat import Chat, Role
 from core.permissions.enhanced_permissions import enhanced_permission_prompt
@@ -770,6 +771,11 @@ def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
         xml_block = match.group(0)
         tag_name = match.group(1)
 
+        # Skip validation for non-validating tags (think, todos) which contain free-form text
+        if tag_name in NON_VALIDATING_TAGS:
+            logging.debug(f"Skipping XML validation for non-validating tag '<{tag_name}>' (contains free-form text)")
+            continue
+
         try:
             # Try to parse the XML block with ElementTree
             ET.fromstring(xml_block)
@@ -1064,6 +1070,7 @@ def create_interruption_callback(
     response_buffer: List[str],
     painter: TextStreamPainter,
     lock: Optional[asyncio.Lock] = None,
+    token_broadcast_callback = None,
 ):
     """
     Factory to create a stateful callback for handling LLM streams.
@@ -1077,6 +1084,8 @@ def create_interruption_callback(
         response_buffer: A list with a single string to act as a mutable buffer.
         painter: The TextStreamPainter for coloring output.
         lock: An optional asyncio.Lock for concurrent-safe printing.
+        token_broadcast_callback: Optional async callback to emit token_stream events.
+            Called with (token, tokens_generated, elapsed_ms).
 
     Returns:
         An async callback function.
@@ -1086,8 +1095,8 @@ def create_interruption_callback(
 
     # Dynamically build a regex for registered tool blocks. This is more robust
     # and prevents premature interruption on non-tool XML tags like <filepath>.
-    # Define tags that should NOT interrupt the stream, allowing the agent to output them fully before pausing.
-    non_interrupting_tags = {'think', 'todos'}
+    # Define tags that should NOT interrupt the stream (from constants for consistency)
+    non_interrupting_tags = NON_INTERRUPTING_TAGS
 
     # Get all tool delimiters and add the final <response> tag.
     all_delimiters = list(getattr(g, 'tool_classes', {}).keys())
@@ -1105,6 +1114,14 @@ def create_interruption_callback(
 
     # Repetition detection state (detects when model loops on same 1-5 chars)
     repetition_state = {'pattern': '', 'count': 0, 'check_pos': 0}
+
+    # Token streaming state (for broadcasting real-time token events to frontend)
+    import time
+    token_state = {
+        'start_time': time.time(),
+        'tokens_generated': 0,
+        'last_broadcast_time': time.time()
+    }
 
     async def _callback(chunk: str):
         # Check for user interrupt immediately at start of callback for faster response
@@ -1142,6 +1159,24 @@ def create_interruption_callback(
                 # Append batch to shared buffer
                 response_buffer[0] += batch_str
                 current_buffer = response_buffer[0]
+
+                # Emit token stream event if broadcast callback is provided
+                if token_broadcast_callback:
+                    try:
+                        token_state['tokens_generated'] += len(batch_str)
+                        elapsed_ms = int((time.time() - token_state['start_time']) * 1000)
+
+                        # Emit token event (throttle to avoid spamming - once per 100ms or when batch ends)
+                        current_time = time.time()
+                        if current_time - token_state['last_broadcast_time'] >= 0.1 or i == len(chunk) - 1:
+                            if asyncio.iscoroutinefunction(token_broadcast_callback):
+                                await token_broadcast_callback(batch_str, token_state['tokens_generated'], elapsed_ms)
+                            else:
+                                token_broadcast_callback(batch_str, token_state['tokens_generated'], elapsed_ms)
+                            token_state['last_broadcast_time'] = current_time
+                    except Exception as e:
+                        # Don't let broadcasting errors interrupt the stream
+                        logging.debug(f"Token broadcast error: {e}")
 
                 # Clear batch
                 char_batch = []
@@ -1542,6 +1577,24 @@ async def main(  # type: ignore[misc]
 
         # LLM roles are automatically loaded by g.load_llm_roles() during globals initialization
 
+        # Auto-load active profile if one exists (unless CLI args override it)
+        if not args.override and not args.router and not args.planner and not args.defaults:
+            try:
+                from core.llm_profiles import get_profile_manager
+                manager = get_profile_manager()
+                active_profile = manager.get_active_profile()
+
+                if active_profile:
+                    profile = manager.get_profile(active_profile)
+                    if profile:
+                        profile.apply()
+                        logging.info(colored(f"📌 Auto-loaded active profile: '{active_profile}'", "green"))
+                    else:
+                        logging.warning(f"Active profile '{active_profile}' not found, clearing active marker")
+                        manager.clear_active_profile()
+            except Exception as e:
+                logging.warning(colored(f"Failed to auto-load active profile: {e}", "yellow"))
+
         # Apply command-line role-specific model selections (overrides config file)
         if args.override:
             models = args.override if isinstance(args.override, list) else [args.override]
@@ -1928,7 +1981,22 @@ async def main(  # type: ignore[misc]
                     llm_config = g.get_llm_config()
 
                     response_buffer_list = [""]
-                    interruption_callback = create_interruption_callback(response_buffer_list, text_stream_painter)
+
+                    # Create token broadcast callback for real-time frontend updates
+                    async def token_broadcast_callback(token: str, tokens_generated: int, elapsed_ms: int):
+                        """Emit token_stream events to frontend via WebSocket"""
+                        try:
+                            if args.gui or args.api:
+                                from api.server import broadcast_token_stream
+                                await broadcast_token_stream(token, tokens_generated, elapsed_ms)
+                        except Exception as e:
+                            logging.debug(f"Failed to broadcast token: {e}")
+
+                    interruption_callback = create_interruption_callback(
+                        response_buffer_list,
+                        text_stream_painter,
+                        token_broadcast_callback=token_broadcast_callback
+                    )
                     current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
                     # Simple single model execution
                     try:
@@ -2248,6 +2316,19 @@ async def main(  # type: ignore[misc]
                                             except Exception as e:
                                                 logging.debug(f"Failed to send loading tool start notification: {e}")
 
+                                        # Broadcast tool_update event: running status (frontend live feedback)
+                                        if args.gui or args.api:
+                                            try:
+                                                from api.server import broadcast_tool_update
+                                                description = f"Execute: {first_block.strip()[:100]}" if first_block else f"Running {tool_name}"
+                                                await broadcast_tool_update(
+                                                    tool_name=tool_name,
+                                                    status="running",
+                                                    description=description
+                                                )
+                                            except Exception as e:
+                                                logging.debug(f"Failed to broadcast tool_update: {e}")
+
                                         # All tools now share the same simple run signature.
                                         # Suppress runtime warnings from tools (gRPC/SSL/TF) unless debug mode
                                         with suppress_warnings_runtime():
@@ -2292,6 +2373,21 @@ async def main(  # type: ignore[misc]
 
                                     # Calculate execution time
                                     tool_duration_ms = int((time.time() - tool_start_time) * 1000)
+
+                                    # Broadcast tool_update event: completion status (frontend live feedback)
+                                    if args.gui or args.api:
+                                        try:
+                                            from api.server import broadcast_tool_update
+                                            result_preview = tool_result[:200] if tool_result else ""
+                                            await broadcast_tool_update(
+                                                tool_name=tool_name,
+                                                status=tool_status,
+                                                result=result_preview,
+                                                duration_ms=tool_duration_ms,
+                                                error=tool_error
+                                            )
+                                        except Exception as e:
+                                            logging.debug(f"Failed to broadcast tool_update: {e}")
 
                                     # Send live tool completion notification to loading area header (skip visualresponse)
                                     if hasattr(g, 'GUI_MODE') and g.GUI_MODE and tool_name != 'visualresponse':

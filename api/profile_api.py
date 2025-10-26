@@ -102,6 +102,12 @@ async def get_llms(request: Any) -> Any:
         router_llms = g.router_llms_list
         override_llms = g.override_llms_list
 
+        # Debug logging to trace profile load issue
+        logger.info(f"🔍 API /llms - planner_llm: {planner_llm}, planner_llms: {planner_llms}")
+        logger.info(f"🔍 API /llms - router_llm: {router_llm}, router_llms: {router_llms}")
+        logger.info(f"🔍 API /llms - override_llm: {override_llm}, override_llms: {override_llms}")
+        logger.info(f"🔍 API /llms - selected_llms/fallbacks: {selected_llms}")
+
         logger.info(f"Served LLM data: {len(llm_data)} models from {len(set(m['provider'] for m in llm_data))} providers")
 
         return web.json_response({

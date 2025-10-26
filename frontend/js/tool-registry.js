@@ -1,11 +1,14 @@
 /**
- * Tool Registry
- *
- * Singleton that fetches and caches available tools from the server.
- * Provides a single source of truth for tool names and metadata.
+ * Tool Registry - Singleton for tool metadata management
+ * Fetches and caches available tools from the server
+ * Provides single source of truth for tool names and metadata
+ * @class
  */
-
 class ToolRegistry {
+    /**
+     * Initialize tool registry (singleton pattern)
+     * @returns {ToolRegistry} Singleton instance
+     */
     constructor() {
         if (ToolRegistry._instance) {
             return ToolRegistry._instance;
@@ -13,18 +16,29 @@ class ToolRegistry {
 
         ToolRegistry._instance = this;
 
+        /** @type {ToolDefinition[]} Available tools */
         this.tools = [];
+        /** @type {string[]} Tool names array */
         this.toolNames = [];
+        /** @type {Map<string, ToolDefinition>} Tool lookup map */
         this.toolMap = new Map();
+        /** @type {boolean} Whether tools have been loaded */
         this.isReady = false;
+        /** @type {boolean} Whether currently loading */
         this.isLoading = false;
+        /** @type {Promise<ToolDefinition[]>|null} Pending load promise */
         this.loadPromise = null;
-
-        // No more hardcoded fallback list - we'll use empty array and let
-        // the system discover tools dynamically from XML content
+        /** @type {boolean} Whether initial fetch failed */
+        this._failedInitially = false;
+        /** @type {ToolDefinition[]} Fallback tools (empty - uses dynamic discovery) */
         this.fallbackTools = [];
     }
 
+    /**
+     * Initialize tool registry from server
+     * @param {boolean} [force=false] - Force reload even if already ready
+     * @returns {Promise<ToolDefinition[]>} Loaded tools
+     */
     async initialize(force = false) {
         if (this.isReady && !force) {
             return this.tools;
@@ -46,6 +60,11 @@ class ToolRegistry {
         return this.tools;
     }
 
+    /**
+     * Fetch tools from backend API
+     * @returns {Promise<void>}
+     * @private
+     */
     async fetchTools() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/tools') : '/api/tools';
@@ -74,11 +93,10 @@ class ToolRegistry {
                 this.isReady = true;
                 const wasFailedInitially = this._failedInitially;
                 this._failedInitially = false;
-                
+
                 window.visualLogger?.info(`ToolRegistry: Loaded ${this.tools.length} tools from server`);
                 console.log('[ToolRegistry] Successfully loaded', this.tools.length, 'tools');
-                
-                // Notify that tools are ready (especially important if we failed initially)
+
                 if (wasFailedInitially && window.ToolManager) {
                     console.log('[ToolRegistry] Retried after initial failure - refreshing ToolManager');
                     window.ToolManager.refresh();
@@ -93,18 +111,23 @@ class ToolRegistry {
         }
     }
 
+    /**
+     * Use fallback tools when API fetch fails (empty - relies on dynamic discovery)
+     * @private
+     */
     useFallbackTools() {
-        // No hardcoded fallback list anymore - start with empty array
-        // Tools will be discovered dynamically from XML content via generic pattern matching
         this.tools = [];
         this.toolNames = [];
         this.toolMap.clear();
-
         this.isReady = true;
-        this._failedInitially = true; // Mark that we failed, will retry when backend ready
+        this._failedInitially = true;
         window.visualLogger?.warn('ToolRegistry: API fetch failed, will use dynamic tool discovery from XML content');
     }
 
+    /**
+     * Get array of tool names
+     * @returns {string[]} Tool names
+     */
     getToolNames() {
         if (!this.isReady) {
             window.visualLogger?.warn('ToolRegistry: getToolNames called before ready, returning empty array (will use dynamic discovery)');
@@ -113,6 +136,10 @@ class ToolRegistry {
         return this.toolNames;
     }
 
+    /**
+     * Get array of tool definitions
+     * @returns {ToolDefinition[]} Tool definitions
+     */
     getTools() {
         if (!this.isReady) {
             window.visualLogger?.warn('ToolRegistry: getTools called before ready, returning empty array (will use dynamic discovery)');
@@ -121,14 +148,27 @@ class ToolRegistry {
         return this.tools;
     }
 
+    /**
+     * Get tool definition by name
+     * @param {string} name - Tool name
+     * @returns {ToolDefinition|undefined} Tool definition
+     */
     getTool(name) {
         return this.toolMap.get(name);
     }
 
+    /**
+     * Check if any tools are loaded
+     * @returns {boolean} True if tools exist
+     */
     hasTools() {
         return this.tools.length > 0;
     }
 
+    /**
+     * Wait for tools to be loaded
+     * @returns {Promise<void>}
+     */
     async waitForReady() {
         if (this.isReady) {
             return;
@@ -141,16 +181,20 @@ class ToolRegistry {
 
         await this.initialize();
     }
-    
+
+    /**
+     * Retry loading tools if initial fetch failed
+     * @returns {Promise<void>}
+     */
     async retryIfFailed() {
-        // If we failed initially, retry now that backend might be ready
         if (this._failedInitially) {
             console.log('[ToolRegistry] Retrying after initial failure...');
-            await this.initialize(true); // Force re-init
+            await this.initialize(true);
         }
     }
 }
 
+// Create singleton instance
 window.ToolRegistry = new ToolRegistry();
 
 if (typeof module !== 'undefined' && module.exports) {

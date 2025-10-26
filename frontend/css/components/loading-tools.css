@@ -126,8 +126,9 @@
     opacity: 0.9;
 }
 
-/* Spinner animation */
+/* Spinner animation for running tools */
 .loading-tool-spinner {
+    display: inline-block;
     animation: spin 1s linear infinite;
 }
 
@@ -136,9 +137,33 @@
     to { transform: rotate(360deg); }
 }
 
+/* Pulse animation for running status */
+.loading-tool-item.running {
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 4px rgba(0, 122, 204, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 12px rgba(0, 122, 204, 0.4);
+    }
+}
+
 .loading-tool-indicator {
     font-size: 1rem;
     margin-right: 6px;
+}
+
+/* Live status data within tool items */
+.loading-tool-status-data {
+    margin-top: 8px;
+    font-size: 0.85rem;
+}
+
+.loading-tool-status-data:empty {
+    display: none;
 }
 
 /* Expandable details section */
@@ -151,6 +176,10 @@
     box-sizing: border-box;
     transition: all 200ms ease-in-out;
     transform-origin: top;
+}
+
+.loading-tool-details:empty {
+    display: none;
 }
 
 .loading-tool-details.collapsed {

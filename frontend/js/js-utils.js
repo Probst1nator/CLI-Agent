@@ -664,6 +664,181 @@ class JavaScriptUtils {
 
         return count;
     }
+
+    /**
+     * Creates a fullscreen button for HTML visualizations
+     * Provides fullscreen view and "open in new tab" functionality
+     * @param {string} messageId - The unique message identifier
+     * @param {string} originalContent - The original HTML content
+     * @returns {HTMLElement} The fullscreen button element
+     */
+    static createFullscreenButton(messageId, originalContent) {
+        const button = document.createElement('button');
+        button.className = 'msg-fullscreen-button';
+        button.innerHTML = '⛶'; // Fullscreen icon
+        button.title = 'Fullscreen view (right-click to open in new tab)';
+        button.setAttribute('data-message-id', messageId);
+
+        // Left click: Toggle fullscreen
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            this.toggleFullscreen(messageId, originalContent);
+        });
+
+        // Right click: Open in new tab
+        button.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            this.openInNewTab(messageId, originalContent);
+        });
+
+        return button;
+    }
+
+    /**
+     * Toggles fullscreen mode for a message
+     * @param {string} messageId - The unique message identifier
+     * @param {string} originalContent - The original HTML content
+     */
+    static toggleFullscreen(messageId, originalContent) {
+        const messageBlock = document.getElementById(messageId);
+        if (!messageBlock) {
+            console.warn('Message block not found:', messageId);
+            return;
+        }
+
+        // Check if already in fullscreen
+        const existingOverlay = messageBlock.querySelector('.fullscreen-overlay');
+
+        if (existingOverlay) {
+            // Exit fullscreen
+            this.exitFullscreen(messageBlock);
+        } else {
+            // Enter fullscreen
+            this.enterFullscreen(messageBlock, originalContent, messageId);
+        }
+    }
+
+    /**
+     * Enter fullscreen mode for a message
+     * @param {HTMLElement} messageBlock - The message block element
+     * @param {string} originalContent - The original HTML content
+     * @param {string} messageId - The unique message identifier
+     */
+    static enterFullscreen(messageBlock, originalContent, messageId) {
+        // Create fullscreen overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'fullscreen-overlay';
+
+        // Create fullscreen container
+        const container = document.createElement('div');
+        container.className = 'fullscreen-container';
+
+        // Create close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'fullscreen-close-btn';
+        closeBtn.innerHTML = '✕';
+        closeBtn.title = 'Exit fullscreen (Esc)';
+        closeBtn.addEventListener('click', () => {
+            this.exitFullscreen(messageBlock);
+        });
+
+        // Create "open in new tab" button
+        const newTabBtn = document.createElement('button');
+        newTabBtn.className = 'fullscreen-newtab-btn';
+        newTabBtn.innerHTML = '⧉';
+        newTabBtn.title = 'Open in new tab';
+        newTabBtn.addEventListener('click', () => {
+            this.openInNewTab(messageId, originalContent);
+        });
+
+        // Create iframe with the content
+        const iframe = document.createElement('iframe');
+        iframe.className = 'fullscreen-iframe';
+        iframe.sandbox = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-same-origin';
+        iframe.srcdoc = originalContent;
+
+        // Assemble the overlay
+        container.appendChild(closeBtn);
+        container.appendChild(newTabBtn);
+        container.appendChild(iframe);
+        overlay.appendChild(container);
+        messageBlock.appendChild(overlay);
+
+        // Add show class after a frame for animation
+        requestAnimationFrame(() => {
+            overlay.classList.add('show');
+        });
+
+        // Handle escape key
+        const escapeHandler = (e) => {
+            if (e.key === 'Escape') {
+                this.exitFullscreen(messageBlock);
+                document.removeEventListener('keydown', escapeHandler);
+            }
+        };
+        document.addEventListener('keydown', escapeHandler);
+
+        // Store escape handler for cleanup
+        overlay.dataset.escapeHandler = 'registered';
+
+        console.log('Entered fullscreen mode for message:', messageId);
+    }
+
+    /**
+     * Exit fullscreen mode
+     * @param {HTMLElement} messageBlock - The message block element
+     */
+    static exitFullscreen(messageBlock) {
+        const overlay = messageBlock.querySelector('.fullscreen-overlay');
+        if (!overlay) return;
+
+        // Fade out
+        overlay.classList.remove('show');
+
+        // Remove after animation
+        setTimeout(() => {
+            if (overlay.parentNode) {
+                overlay.parentNode.removeChild(overlay);
+            }
+        }, 300);
+
+        console.log('Exited fullscreen mode');
+    }
+
+    /**
+     * Opens the HTML content in a new tab
+     * @param {string} messageId - The unique message identifier
+     * @param {string} originalContent - The original HTML content
+     */
+    static openInNewTab(messageId, originalContent) {
+        try {
+            // Create a Blob from the HTML content
+            const blob = new Blob([originalContent], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+
+            // Open in new tab
+            const newTab = window.open(url, '_blank');
+
+            if (newTab) {
+                // Clean up the blob URL after the tab loads
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                }, 1000);
+
+                console.log('Opened message in new tab:', messageId);
+            } else {
+                console.warn('Failed to open new tab - popup may have been blocked');
+                alert('Please allow popups for this site to open content in a new tab');
+            }
+        } catch (error) {
+            console.error('Failed to open in new tab:', error);
+            alert('Failed to open in new tab: ' + error.message);
+        }
+    }
 }
 
 // Initialize cleanup on page load

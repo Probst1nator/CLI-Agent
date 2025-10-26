@@ -523,6 +523,66 @@ rm shared/utils/docker_runner.py
 # Edit main.py to remove --isolated flag and early detection logic
 ```
 
+## Quick Reference
+
+### Common Commands
+
+```bash
+# Basic usage
+python3 main.py --isolated
+python3 main.py --isolated -m "Your message"
+python3 main.py --isolated -c         # Continue conversation
+
+# GUI mode
+python3 main.py --isolated --gui      # Web UI at localhost:7860
+
+# Voice mode
+python3 main.py --isolated -v         # Voice input/output
+python3 main.py --isolated -s         # TTS only
+
+# Debug mode
+python3 main.py --isolated --debug    # Verbose logging
+
+# Specific LLM
+python3 main.py --isolated --llm gemini-2.5-flash
+```
+
+### Timing
+
+- **First run:** ~2-3 min (builds image)
+- **Next runs:** ~2-5 sec (instant)
+
+### What's Mounted
+
+- `~/.cli-agent` → `/home/cliagent/.cli-agent` (config, chat history, cache)
+- Current working directory → `/workspace` (access your files)
+- `.env` file automatically loaded (API keys)
+
+### Quick Troubleshooting
+
+```bash
+# Docker not found
+sudo apt install docker.io
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Rebuild image
+docker rmi cli-agent:isolated-cache
+python3 main.py --isolated
+
+# Clean up containers
+docker rm -f $(docker ps -aq --filter name=cli-agent-isolated)
+
+# Check running containers
+docker ps | grep cli-agent-isolated
+```
+
+### Files Created
+
+- `docker_files/Dockerfile.isolated-exec` - Docker image definition
+- `shared/utils/docker_runner.py` - Container orchestration
+- `main.py` - Added `--isolated` flag and early detection
+
 ## FAQ
 
 **Q: Do I need Docker installed?**

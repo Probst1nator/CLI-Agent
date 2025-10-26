@@ -6,6 +6,40 @@
 
 The multi-user Docker infrastructure exists but is currently in **experimental/development** status.
 
+## Quick Decision Guide
+
+**Which deployment mode should I use?**
+
+```
+┌─ Just testing code locally?
+│  → Use: python main.py
+│  → See: CLAUDE.md
+│
+┌─ Want isolated Docker runs for security?
+│  → Use: python main.py --isolated
+│  → See: docs/ISOLATED_MODE.md
+│  → First run: ~2-3 min (builds image)
+│  → Next runs: ~2-5 sec (instant)
+│
+┌─ Need always-on containerized service?
+│  → Use: systemd + docker-compose
+│  → See: docs/experimental/DOCKER_PERSISTENT_SETUP.md
+│  → Auto-starts on reboot
+│
+┌─ Need multiple sessions for development?
+│  → Use: Session manager + 3 instances
+│  → See: docs/experimental/MULTI_SESSION_SETUP.md
+│  → Lighter than full multi-user
+│
+└─ Need production multi-tenant SaaS?
+   → Use: Full infrastructure (Traefik + Container Manager)
+   → See: docs/experimental/QUICK_START_MULTI_USER.md
+   → Status: EXPERIMENTAL ⚠️
+   → Requires extensive testing
+```
+
+**Recommendation:** Start with `python main.py --isolated` for most use cases.
+
 ---
 
 ## Available Infrastructure
@@ -64,9 +98,10 @@ Internet → Traefik (192.168.178.20)
 - Requires significant testing before production use
 
 **Documentation:**
-- [Multi-User Architecture](MULTI_USER_ARCHITECTURE.md)
-- [Deployment Guide](DEPLOYMENT.md)
-- [Docker Isolated Setup](DOCKER_ISOLATED.md)
+- [Multi-User Architecture](MULTI_USER_ARCHITECTURE.md) (EXPERIMENTAL)
+- [Deployment Guide](DEPLOYMENT.md) (EXPERIMENTAL)
+- [Quick Start](experimental/QUICK_START_MULTI_USER.md) (EXPERIMENTAL)
+- [Implementation Summary](experimental/MULTI_USER_IMPLEMENTATION_SUMMARY.md)
 
 ---
 
@@ -168,8 +203,10 @@ If deploying multi-user infrastructure to production:
 
 ---
 
-## Contact
+## More Information
 
 For production deployment questions, see:
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Detailed deployment guide
-- [MULTI_USER_ARCHITECTURE.md](MULTI_USER_ARCHITECTURE.md) - Architecture details
+- [DEPLOYMENT.md](DEPLOYMENT.md) - Detailed deployment guide (EXPERIMENTAL)
+- [MULTI_USER_ARCHITECTURE.md](MULTI_USER_ARCHITECTURE.md) - Architecture details (EXPERIMENTAL)
+- [experimental/](experimental/) - All experimental features and deployment modes
+- [ISOLATED_MODE.md](ISOLATED_MODE.md) - Recommended isolated Docker mode (STABLE)

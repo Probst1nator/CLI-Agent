@@ -28,6 +28,16 @@ COPY api/container_manager.py /app/container_manager.py
 # Create data directory
 RUN mkdir -p /data
 
+# Create non-root user with docker group access
+# GID 999 is commonly used for docker group, but may need adjustment based on host
+# The host's docker group GID should match this for socket access
+RUN groupadd -g 999 docker || true && \
+    useradd -m -u 1000 -g 999 -s /bin/bash containermgr && \
+    chown -R containermgr:docker /app /data
+
+# Switch to non-root user
+USER containermgr
+
 # Expose port
 EXPOSE 8080
 
