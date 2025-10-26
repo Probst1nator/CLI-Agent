@@ -153,10 +153,6 @@ The agent uses environment variables for configuration:
 - `GROQ_API_KEY`: Groq API key
 - `BRAVE_API_KEY`: Brave Search API key
 
-## Auto-Generated Test Image
-
-![Daily Celebration](docs/daily-celebration.png)
-
 ## Contributing
 
 1. Run tests: `python run_tests.py`
