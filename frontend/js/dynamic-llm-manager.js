@@ -3,7 +3,7 @@
  *
  * Features:
  * - Add/remove LLM selectors dynamically for each role (override, router, planner, fallbacks)
- * - Random model selection when adding new selectors
+ * - Empty selection by default (user must explicitly choose models)
  * - Remove selector when "None" is selected
  * - Persist configuration to backend
  * - Sync with backend on load
@@ -88,6 +88,12 @@ class DynamicLLMManager {
          * @type {boolean}
          */
         this.isInitializing = true;
+
+        /**
+         * Pending save requests by role (to debounce rapid changes)
+         * @type {Object<string, number>}
+         */
+        this.pendingSaveTimeouts = {};
 
         /**
          * Logger instance
@@ -179,8 +185,11 @@ class DynamicLLMManager {
             }
         } catch (error) {
             this.logger.error('[DynamicLLMManager] Failed to load configuration:', error);
-            // Initialize with empty selectors if loading fails
-            this.renderSelectors('fallbacks', [this.getRandomModel()]);
+            // Initialize with no selectors if loading fails - user must select models
+            this.renderSelectors('fallbacks', []);
+            this.renderSelectors('router', []);
+            this.renderSelectors('planner', []);
+            this.renderSelectors('override', []);
             // Initialization complete even if failed - allow saves from now on
             this.isInitializing = false;
         }
@@ -209,18 +218,15 @@ class DynamicLLMManager {
         this.selectors[role] = [];
 
         // Determine which models to render:
-        // - For 'fallbacks' role: Must have at least one model (agent needs a default), use random if config empty
-        // - For other roles: Only render configured models, empty if config is empty
+        // Only render configured models. Empty if config is empty.
+        // User must explicitly select models - no randomization or auto-selection.
         let modelsToRender = [];
 
         if (models.length > 0) {
             // Configuration has models for this role - use them
             modelsToRender = models;
-        } else if (role === 'fallbacks') {
-            // Fallbacks role must have at least one model
-            modelsToRender = [this.getRandomModel()];
         }
-        // For other roles (override, router, planner), render nothing if config is empty
+        // If config is empty, render nothing - user must select models
 
         console.log(`[DynamicLLMManager] Models to render for ${role}:`, modelsToRender);
 
@@ -272,8 +278,8 @@ class DynamicLLMManager {
         // Append to container
         container.appendChild(wrapper);
 
-        // Use selected model or random if not provided
-        const modelToSelect = selectedModel || this.getRandomModel();
+        // Use selected model if provided, otherwise null (empty selection)
+        const modelToSelect = selectedModel || null;
 
         // Initialize SearchableLLMSelectbox
         console.log(`[DynamicLLMManager] Checking for SearchableLLMSelectbox:`, typeof window.SearchableLLMSelectbox);
@@ -313,12 +319,13 @@ class DynamicLLMManager {
     }
 
     /**
-     * Add a new selector to a role
+     * Add a new selector to a role (with empty selection - user must choose model)
      * @param {string} role - Role name (override, router, planner, fallbacks)
      * @returns {void}
      */
     addSelector(role) {
-        this.createSelector(role, this.getRandomModel(), this.selectors[role].length);
+        // Don't pass a selected model - user must choose
+        this.createSelector(role, null, this.selectors[role].length);
         this.saveConfiguration(role);
         this.logger.info(`[DynamicLLMManager] Added new selector to ${role}`);
     }
@@ -397,14 +404,27 @@ class DynamicLLMManager {
             return;
         }
 
-        try {
-            // Collect all model selections for this role
-            const models = this.selectors[role]
-                .map(s => {
-                    const model = s.selectbox.getSelectedModel();
-                    return model ? model.id : null;
-                })
-                .filter(m => m && m !== 'none');
+        // Skip saving during profile loading to prevent overwriting other profiles
+        if (window.app && window.app.isLoadingProfile) {
+            console.log(`[DynamicLLMManager] Skipping save during profile load for ${role}`);
+            return;
+        }
+
+        // Debounce: Clear any pending save for this role and schedule a new one
+        // This prevents spamming the backend when user makes rapid changes
+        if (this.pendingSaveTimeouts[role]) {
+            clearTimeout(this.pendingSaveTimeouts[role]);
+        }
+
+        this.pendingSaveTimeouts[role] = setTimeout(async () => {
+            try {
+                // Collect all model selections for this role
+                const models = this.selectors[role]
+                    .map(s => {
+                        const model = s.selectbox.getSelectedModel();
+                        return model ? model.id : null;
+                    })
+                    .filter(m => m && m !== 'none');
 
             const url = window.backendConnector
                 ? await window.backendConnector.buildURL('/api/llms/config')
@@ -426,24 +446,96 @@ class DynamicLLMManager {
 
             if (data.status === 'success') {
                 this.logger.info(`[DynamicLLMManager] Configuration saved for ${role}:`, models);
+
+                // Update active profile in frontend state
+                this.updateActiveProfileState(role, models);
+
+                // Trigger auto-save (with debouncing) to persist changes and check for empty profiles
+                if (window.app && window.app.scheduleAutoSave) {
+                    console.log(`[DynamicLLMManager] Calling scheduleAutoSave() after ${role} update`);
+                    window.app.scheduleAutoSave();
+                } else {
+                    console.warn('[DynamicLLMManager] window.app.scheduleAutoSave not available');
+                }
             } else {
                 throw new Error(data.error || 'Failed to save configuration');
             }
-        } catch (error) {
-            this.logger.error(`[DynamicLLMManager] Failed to save configuration for ${role}:`, error);
-        }
+            } catch (error) {
+                this.logger.error(`[DynamicLLMManager] Failed to save configuration for ${role}:`, error);
+            } finally {
+                delete this.pendingSaveTimeouts[role];
+            }
+        }, 300); // 300ms debounce - wait for rapid changes to settle
     }
 
     /**
-     * Get a random model from available models
-     * @returns {string} Random model ID (falls back to 'gemini-flash-latest' if no models available)
+     * Update currently loaded profile state in the frontend after config change
+     * @param {string} role - Role that was updated (router, planner, override, fallbacks)
+     * @param {Array<string>} models - New model(s) for this role
      */
-    getRandomModel() {
-        if (this.availableModels.length === 0) {
-            return 'gemini-flash-latest'; // Fallback default
+    updateActiveProfileState(role, models) {
+        if (!window.app) {
+            console.warn('[DynamicLLMManager] window.app not available in updateActiveProfileState');
+            return;
         }
-        const randomIndex = Math.floor(Math.random() * this.availableModels.length);
-        return this.availableModels[randomIndex].id;
+
+        // Update currently loaded profile (not always profile 1)
+        const profileId = window.app.currentLoadedProfile;
+        console.log(`[updateActiveProfileState] Updating profile ${profileId} for role ${role}:`, models);
+
+        const profile = window.app.profileSlots[profileId];
+
+        if (!profile) {
+            // Create profile if it doesn't exist yet
+            console.log(`[updateActiveProfileState] Profile ${profileId} doesn't exist, creating it`);
+            window.app.profileSlots[profileId] = {
+                id: profileId,
+                override: [],
+                router: [],
+                planner: [],
+                fallbacks: []
+            };
+        }
+
+        // Update the profile with new role configuration (store as arrays)
+        if (role === 'router') {
+            window.app.profileSlots[profileId].router = models;
+        } else if (role === 'planner') {
+            window.app.profileSlots[profileId].planner = models;
+        } else if (role === 'override') {
+            window.app.profileSlots[profileId].override = models;
+        } else if (role === 'fallbacks') {
+            window.app.profileSlots[profileId].fallbacks = models;
+        }
+
+        console.log(`[updateActiveProfileState] Profile ${profileId} after update:`, window.app.profileSlots[profileId]);
+
+        // Update the profile slot UI to refresh tooltips
+        window.app.updateProfileSlotUI();
+
+        this.logger.info(`[DynamicLLMManager] Updated profile '${profileId}' with ${role}:`, models);
+    }
+
+    /**
+     * Get current configuration for all roles
+     * @returns {Object} Current config with override, router, planner, fallbacks arrays
+     */
+    getCurrentConfig() {
+        const getModelsForRole = (role) => {
+            return this.selectors[role]
+                .map(s => {
+                    const model = s.selectbox.getSelectedModel();
+                    return model ? model.id : null;
+                })
+                .filter(m => m && m !== 'none');
+        };
+
+        return {
+            override: getModelsForRole('override'),
+            router: getModelsForRole('router'),
+            planner: getModelsForRole('planner'),
+            fallbacks: getModelsForRole('fallbacks')
+        };
     }
 
     /**

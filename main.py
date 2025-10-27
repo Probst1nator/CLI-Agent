@@ -1311,17 +1311,15 @@ async def get_cli_input(prompt: str = " Enter your request: ") -> str:
 
 
 
-
-async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False, add_bootstrap: bool = True) -> Chat:
+def build_system_prompt(voice_mode: bool = False, gui_mode: bool = False) -> str:
     """
-    Constructs the initial Chat object with a dynamically generated system prompt.
-    This prompt includes the agent's core principles and a list of available tools.
+    Build system prompt with current g.disabled_tools state.
 
-    :param voice_agent: Whether voice mode is enabled
+    :param voice_mode: Whether voice mode is enabled
     :param gui_mode: Whether GUI mode is enabled
-    :param add_bootstrap: Whether to add bootstrap messages (file list + permissions)
+    :return: Complete system prompt string
     """
-    voice_mode_text = 'The user is interacting with you in speech mode, please be aware of potential transcription issues. Provide concise responses and be helpful to the user.\n' if voice_agent else ''
+    voice_mode_text = 'The user is interacting with you in speech mode, please be aware of potential transcription issues. Provide concise responses and be helpful to the user.\n' if voice_mode else ''
     base_instructions = f'''**SYSTEM: Agent Protocol & Capabilities**
 
 You are a sophisticated AI agent capable of thinking and using tools to achieve your todos. Your primary directive is to understand user requests, formulate a plan, and perform actions to achieve the current needs.
@@ -1347,11 +1345,46 @@ The following loop is a suggestion of how to behave effectively, you may freely 
     else:
         tool_docs = _generate_tool_documentation(user_disabled_tools)
 
-
-
-
     # Combine all parts into the final instruction message
-    default_inst = f"{base_instructions}\n{tool_docs}\n{step_4}"
+    return f"{base_instructions}\n{tool_docs}\n{step_4}"
+
+
+def update_system_prompt() -> None:
+    """
+    Update g.chat's system prompt (messages[0]) with current disabled_tools state.
+    This allows runtime modification of available tools without restarting the agent.
+    """
+    if not hasattr(g, 'chat') or not g.chat:
+        logging.debug("Cannot update system prompt: g.chat not initialized")
+        return
+
+    if not g.chat.messages or len(g.chat.messages) == 0:
+        logging.warning("Cannot update system prompt: chat has no messages")
+        return
+
+    if g.chat.messages[0].role != Role.SYSTEM:
+        logging.warning("Cannot update system prompt: first message is not SYSTEM role")
+        return
+
+    # Regenerate prompt with current disabled_tools
+    prompt = build_system_prompt(voice_mode=g.voice_mode, gui_mode=g.GUI_MODE)
+    g.chat.messages[0].content = prompt
+
+    disabled_count = len(getattr(g, 'disabled_tools', []))
+    logging.info(f"✓ Updated system prompt ({disabled_count} tools disabled)")
+
+
+async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False, add_bootstrap: bool = True) -> Chat:
+    """
+    Constructs the initial Chat object with a dynamically generated system prompt.
+    This prompt includes the agent's core principles and a list of available tools.
+
+    :param voice_agent: Whether voice mode is enabled
+    :param gui_mode: Whether GUI mode is enabled
+    :param add_bootstrap: Whether to add bootstrap messages (file list + permissions)
+    """
+    # Generate system prompt using current disabled_tools state
+    default_inst = build_system_prompt(voice_mode=voice_agent, gui_mode=gui_mode)
 
     # Create and configure the new Chat object
     context_chat = Chat(debug_title="Main Context Chat")
@@ -1577,23 +1610,32 @@ async def main(  # type: ignore[misc]
 
         # LLM roles are automatically loaded by g.load_llm_roles() during globals initialization
 
-        # Auto-load active profile if one exists (unless CLI args override it)
+        # Auto-load profile 1 at startup (unless CLI args override it)
         if not args.override and not args.router and not args.planner and not args.defaults:
             try:
                 from core.llm_profiles import get_profile_manager
                 manager = get_profile_manager()
-                active_profile = manager.get_active_profile()
 
-                if active_profile:
-                    profile = manager.get_profile(active_profile)
+                # FATAL ERROR: Delete any corrupted profiles on startup
+                deleted_profiles = manager.delete_corrupted_profiles_on_startup()
+                if deleted_profiles:
+                    # Reset all LLM roles to None (blank slate)
+                    logging.info("⚠️  Initializing with blank slate - no models selected")
+                    g.update_llm_role('override', None)
+                    g.update_llm_role('router', None)
+                    g.update_llm_role('planner', None)
+                    g.update_llm_role('fallbacks', model_keys=None)
+
+                # Always load profile "1" if no corrupted profiles were deleted
+                if not deleted_profiles:
+                    profile = manager.get_profile("1")
                     if profile:
                         profile.apply()
-                        logging.info(colored(f"📌 Auto-loaded active profile: '{active_profile}'", "green"))
+                        logging.info(colored("📌 Auto-loaded profile: '1'", "green"))
                     else:
-                        logging.warning(f"Active profile '{active_profile}' not found, clearing active marker")
-                        manager.clear_active_profile()
+                        logging.warning("Profile '1' not found, starting with blank slate")
             except Exception as e:
-                logging.warning(colored(f"Failed to auto-load active profile: {e}", "yellow"))
+                logging.warning(colored(f"Failed to auto-load profile: {e}", "yellow"))
 
         # Apply command-line role-specific model selections (overrides config file)
         if args.override:
@@ -1637,6 +1679,10 @@ async def main(  # type: ignore[misc]
         if args.gui or args.api:
             # Set GUI mode flag for behavior modifications
             g.GUI_MODE = True
+
+            # Set API_MODE flag when using --api (headless)
+            if args.api:
+                g.API_MODE = True
 
             # Auto-start visualresponse server for GUI mode
             try:
@@ -2044,6 +2090,26 @@ async def main(  # type: ignore[misc]
                         else:
                             selected_models = g.FALLBACK_MODELS
 
+                        # Validate that at least one LLM is configured
+                        if not selected_models or all(m is None or m == '' for m in selected_models):
+                            error_message = "❌ No LLM configured. Please select at least one model (router, planner, or fallback) before sending messages."
+
+                            # Debug logging to understand why validation failed
+                            logging.error(f"LLM validation failed:")
+                            logging.error(f"  selected_models: {selected_models}")
+                            logging.error(f"  g.planner_llms_list: {g.planner_llms_list}")
+                            logging.error(f"  g.router_llms_list: {g.router_llms_list}")
+                            logging.error(f"  g.FALLBACK_MODELS: {g.FALLBACK_MODELS}")
+                            logging.error(f"  g.llm_roles: {g.llm_roles}")
+
+                            logging.error(error_message)
+                            context_chat.add_message(
+                                Role.ASSISTANT,
+                                error_message
+                            )
+                            # Skip the LLM call and continue to next input
+                            continue
+
                         # Generate single response
                         # Add the thinking prefix to the chat directly
                         # context_chat.add_message(Role.ASSISTANT, "<think>\n")
@@ -2329,27 +2395,35 @@ async def main(  # type: ignore[misc]
                                             except Exception as e:
                                                 logging.debug(f"Failed to broadcast tool_update: {e}")
 
-                                        # All tools now share the same simple run signature.
-                                        # Suppress runtime warnings from tools (gRPC/SSL/TF) unless debug mode
-                                        with suppress_warnings_runtime():
-                                            tool_result = tool_class.run(first_block)
+                                        # Check if tool is disabled before execution
+                                        user_disabled_tools = getattr(g, 'disabled_tools', [])
+                                        if tool_name in user_disabled_tools:
+                                            tool_status = "error"
+                                            tool_error = "tool_disabled"
+                                            tool_result = f"ERROR: The '{tool_name}' tool has been disabled by the user and cannot be executed. You must find an alternative approach that does not use this tool."
+                                            logging.warning(colored(f"⚠️  Blocked execution of disabled tool: {tool_name}", "yellow"))
+                                        else:
+                                            # All tools now share the same simple run signature.
+                                            # Suppress runtime warnings from tools (gRPC/SSL/TF) unless debug mode
+                                            with suppress_warnings_runtime():
+                                                tool_result = tool_class.run(first_block)
 
-                                        # Handle both sync and async tools with proper error handling
-                                        try:
+                                            # Handle both sync and async tools with proper error handling
+                                            try:
+                                                if asyncio.iscoroutine(tool_result):
+                                                    tool_result = await tool_result
+                                            except Exception as e:
+                                                tool_status = "error"
+                                                tool_error = str(e)
+                                                logging.error(colored(f"Error awaiting tool {tool_name}: {e}", "red"))
+                                                tool_result = f"Error executing {tool_name}: {str(e)}"
+
+                                            # Ensure tool_result is always a string, never a coroutine
                                             if asyncio.iscoroutine(tool_result):
-                                                tool_result = await tool_result
-                                        except Exception as e:
-                                            tool_status = "error"
-                                            tool_error = str(e)
-                                            logging.error(colored(f"Error awaiting tool {tool_name}: {e}", "red"))
-                                            tool_result = f"Error executing {tool_name}: {str(e)}"
-
-                                        # Ensure tool_result is always a string, never a coroutine
-                                        if asyncio.iscoroutine(tool_result):
-                                            tool_status = "error"
-                                            tool_error = "returned unresolved coroutine"
-                                            logging.error(colored(f"Tool {tool_name} still returned coroutine after await - converting to error", "red"))
-                                            tool_result = f"Error: Tool {tool_name} returned unresolved coroutine"
+                                                tool_status = "error"
+                                                tool_error = "returned unresolved coroutine"
+                                                logging.error(colored(f"Tool {tool_name} still returned coroutine after await - converting to error", "red"))
+                                                tool_result = f"Error: Tool {tool_name} returned unresolved coroutine"
 
                                     except Exception as e:
                                         tool_status = "error"

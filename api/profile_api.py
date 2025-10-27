@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 async def get_profiles(request: Any) -> Any:
     """GET /api/profiles
 
-    Get all LLM profiles and active profile.
+    Get all LLM profiles.
     """
     if not AIOHTTP_AVAILABLE:
         raise RuntimeError("aiohttp not available")
@@ -30,7 +30,6 @@ async def get_profiles(request: Any) -> Any:
 
         manager = get_profile_manager()
         profiles = manager.list_profiles()
-        active_profile = manager.get_active_profile()
 
         profiles_data = [
             {
@@ -38,16 +37,14 @@ async def get_profiles(request: Any) -> Any:
                 'override': profile.override,
                 'router': profile.router,
                 'planner': profile.planner,
-                'fallbacks': profile.fallbacks,
-                'is_active': profile.id == active_profile
+                'fallbacks': profile.fallbacks
             }
             for profile in profiles
         ]
 
         return web.json_response({
             'status': 'success',
-            'profiles': profiles_data,
-            'active_profile': active_profile
+            'profiles': profiles_data
         })
 
     except Exception as e:
@@ -176,6 +173,9 @@ async def update_llm_config(request: Any) -> Any:
 
         logger.info(f"Updated LLM role '{role}' to models: {models}")
 
+        # NOTE: Auto-save is handled by frontend, not backend
+        # Frontend tracks currently loaded profile and saves to it
+
         return web.json_response({
             'status': 'success',
             'message': f'LLM role {role} updated successfully',
@@ -199,9 +199,112 @@ async def update_llm_config(request: Any) -> Any:
         }, status=500)
 
 
+async def save_profile(request: web.Request) -> web.Response:
+    """Save a profile via HTTP POST (fallback when WebSocket unavailable)"""
+    try:
+        data = await request.json()
+        profile_id = data.get('profile_id')
+        config = data.get('config')
+
+        if not profile_id:
+            return web.json_response({
+                'status': 'error',
+                'error': 'profile_id is required',
+                'code': 'MISSING_PROFILE_ID'
+            }, status=400)
+
+        if not config:
+            return web.json_response({
+                'status': 'error',
+                'error': 'config is required',
+                'code': 'MISSING_CONFIG'
+            }, status=400)
+
+        # Get context from request
+        context = request.app.get('context')
+        if not context:
+            return web.json_response({
+                'status': 'error',
+                'error': 'Application context not available',
+                'code': 'NO_CONTEXT'
+            }, status=500)
+
+        # Execute profile save command
+        from agent.commands.profile_commands import ProfileSaveCommand
+        command = ProfileSaveCommand(context)
+
+        # Format args like WebSocket command: "/profile_save 1"
+        args = profile_id
+        result = command.execute(args)
+
+        logger.info(f"Profile {profile_id} saved via HTTP")
+
+        return web.json_response({
+            'status': 'success',
+            'message': f'Profile {profile_id} saved',
+            'profile_id': profile_id
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to save profile via HTTP: {e}", exc_info=True)
+        return web.json_response({
+            'status': 'error',
+            'error': f'Failed to save profile: {str(e)}',
+            'code': 'SAVE_FAILED'
+        }, status=500)
+
+
+async def delete_profile(request: web.Request) -> web.Response:
+    """Delete a profile via HTTP DELETE (fallback when WebSocket unavailable)"""
+    try:
+        profile_id = request.match_info.get('profile_id')
+
+        if not profile_id:
+            return web.json_response({
+                'status': 'error',
+                'error': 'profile_id is required',
+                'code': 'MISSING_PROFILE_ID'
+            }, status=400)
+
+        # Get context from request
+        context = request.app.get('context')
+        if not context:
+            return web.json_response({
+                'status': 'error',
+                'error': 'Application context not available',
+                'code': 'NO_CONTEXT'
+            }, status=500)
+
+        # Execute profile delete command
+        from agent.commands.profile_commands import ProfileDeleteCommand
+        command = ProfileDeleteCommand(context)
+
+        # Format args like WebSocket command: "/profile_delete 1"
+        args = profile_id
+        result = command.execute(args)
+
+        logger.info(f"Profile {profile_id} deleted via HTTP")
+
+        return web.json_response({
+            'status': 'success',
+            'message': f'Profile {profile_id} deleted',
+            'profile_id': profile_id
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to delete profile via HTTP: {e}", exc_info=True)
+        return web.json_response({
+            'status': 'error',
+            'error': f'Failed to delete profile: {str(e)}',
+            'code': 'DELETE_FAILED'
+        }, status=500)
+
+
 def setup_routes(app: Any):
     """Register all profile API routes"""
     app.router.add_get('/api/profiles', get_profiles)
     app.router.add_get('/api/llms', get_llms)
     app.router.add_post('/api/llms/config', update_llm_config)
+    app.router.add_post('/api/profiles/save', save_profile)
+    app.router.add_delete('/api/profiles/{profile_id}', delete_profile)
     logger.info("Profile API routes registered")

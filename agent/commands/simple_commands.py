@@ -149,10 +149,18 @@ class VoiceCommand(BaseCommand):
 
     async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
         from core.globals import g
+        import logging
 
         self.context.settings.voice_mode = not self.context.settings.voice_mode
         # Sync with global state for compatibility
         g.voice_mode = self.context.settings.voice_mode
+
+        # Update system prompt with new voice_mode setting
+        try:
+            from main import update_system_prompt
+            update_system_prompt()
+        except Exception as e:
+            logging.warning(f"Failed to update system prompt: {e}")
 
         status = "enabled" if self.context.settings.voice_mode else "disabled"
         print(colored(f"# cli-agent: Voice mode {status}.", "green"))

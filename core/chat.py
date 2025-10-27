@@ -565,8 +565,18 @@ class Chat:
 
         # Load existing index
         if os.path.exists(index_path):
-            with open(index_path, "r") as f:
-                index = json.load(f)
+            try:
+                with open(index_path, "r") as f:
+                    index = json.load(f)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Corrupted index.json detected (line {e.lineno}), rebuilding from scratch: {e}")
+                # Backup corrupted index
+                import shutil
+                backup_path = index_path + ".corrupted"
+                shutil.copy(index_path, backup_path)
+                logger.info(f"Backed up corrupted index to: {backup_path}")
+                # Start fresh
+                index = {"chats": []}
         else:
             index = {"chats": []}
 
@@ -602,9 +612,19 @@ class Chat:
         # Keep only last 100 chats
         index["chats"] = sorted(index["chats"], key=lambda x: x["timestamp"], reverse=True)[:100]
 
-        # Save index
-        with open(index_path, "w") as f:
-            json.dump(index, f, indent=2)
+        # Save index atomically (write to temp file, then rename)
+        import tempfile
+        temp_fd, temp_path = tempfile.mkstemp(dir=storage_path, prefix=".index_tmp_", suffix=".json")
+        try:
+            with os.fdopen(temp_fd, "w") as f:
+                json.dump(index, f, indent=2)
+            # Atomic rename (replaces old file only if write succeeded)
+            os.replace(temp_path, index_path)
+        except Exception as e:
+            # Clean up temp file on error
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise
 
     @staticmethod
     def list_archived_chats() -> List[Dict[str, Any]]:

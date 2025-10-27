@@ -227,10 +227,12 @@ class Globals:
         self.last_executed_tools_info: Optional[Any] = None  # Stores information about last executed tools
         self.loaded_tool_info: Optional[Dict[str, Any]] = None  # Stores information about loaded tools
         self.current_images: List[str] = []  # Current images for vision models (legacy, use session context)
+        self.disabled_tools: List[str] = []  # List of disabled tools from frontend tool manager
 
         # --- Session Management (Multi-Tab Support) ---
         self.sessions: Dict[str, Any] = {}  # Session ID -> SessionContext mapping
         self._active_session_id: Optional[str] = None  # Active session for CLI mode
+        self._chat: Optional[Any] = None  # Direct chat storage for backward compat when no sessions exist
 
         # --- GUI Communication ---
         import asyncio
@@ -1353,13 +1355,31 @@ class Globals:
 
     @property
     def chat(self):
-        """Backward compat: Get active session's chat"""
+        """
+        Get chat instance - prefers active session's chat, falls back to direct storage.
+
+        This supports both:
+        - Session-based access (when WebSocket sessions exist)
+        - Direct access (when main.py sets chat before sessions are created)
+        """
         session = self.get_active_session()
-        return session.chat if session else None
+        if session:
+            return session.chat
+        return self._chat
 
     @chat.setter
     def chat(self, value):
-        """Backward compat: Set active session's chat"""
+        """
+        Set chat instance - stores in both direct field and active session.
+
+        This ensures:
+        - main.py can set g.chat before sessions exist
+        - Sessions can share the same chat instance
+        """
+        # Store directly for backward compat
+        self._chat = value
+
+        # Also update active session if it exists
         session = self.get_active_session()
         if session:
             session.chat = value

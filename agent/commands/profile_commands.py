@@ -32,9 +32,25 @@ class ProfileSaveCommand(BaseCommand):
         profile_id = parts[1]
 
         try:
-            from core.llm_profiles import get_profile_manager
+            from core.llm_profiles import get_profile_manager, LLMProfile
 
             manager = get_profile_manager()
+
+            # Check if current configuration would create an empty/corrupted profile
+            # Profile 1 is allowed to be empty (it's the default/protected profile)
+            temp_profile = LLMProfile.from_current_config(profile_id)
+            if temp_profile.is_empty() and profile_id != "1":
+                error_msg = (
+                    "Cannot save empty profile - all configuration values are None/empty.\n"
+                    "Please select at least one model (router, planner, or fallback) before saving.\n"
+                    "Note: Profile 1 can be empty but other profiles cannot."
+                )
+                print(colored(f"# cli-agent: {error_msg}", "red"))
+                return CommandResponse(result=CommandResult.ERROR, message=error_msg)
+
+            # Allow saving empty profile 1
+            if temp_profile.is_empty() and profile_id == "1":
+                print(colored("# cli-agent: Saving empty profile 1 (protected profile)", "yellow"))
 
             if manager.get_profile(profile_id):
                 profile = manager.update_profile(profile_id, from_current=True)
@@ -44,14 +60,18 @@ class ProfileSaveCommand(BaseCommand):
                 message = f"Created profile '{profile_id}'"
 
             details = []
-            if profile.override:
-                details.append(f"Override: {profile.override}")
-            if profile.router:
-                details.append(f"Router: {profile.router}")
-            if profile.planner:
-                details.append(f"Planner: {profile.planner}")
-            if profile.fallbacks:
-                details.append(f"Fallbacks: {', '.join(profile.fallbacks[:3])}{'...' if len(profile.fallbacks) > 3 else ''}")
+            if profile.override and len(profile.override) > 0:
+                override_str = ', '.join(profile.override[:3]) + ('...' if len(profile.override) > 3 else '')
+                details.append(f"Override: {override_str}")
+            if profile.router and len(profile.router) > 0:
+                router_str = ', '.join(profile.router[:3]) + ('...' if len(profile.router) > 3 else '')
+                details.append(f"Router: {router_str}")
+            if profile.planner and len(profile.planner) > 0:
+                planner_str = ', '.join(profile.planner[:3]) + ('...' if len(profile.planner) > 3 else '')
+                details.append(f"Planner: {planner_str}")
+            if profile.fallbacks and len(profile.fallbacks) > 0:
+                fallbacks_str = ', '.join(profile.fallbacks[:3]) + ('...' if len(profile.fallbacks) > 3 else '')
+                details.append(f"Defaults: {fallbacks_str}")
 
             full_message = f"{message}\n" + "\n".join(f"  • {d}" for d in details)
             print(colored(f"# cli-agent: {full_message}", "green"))
@@ -92,21 +112,25 @@ class ProfileLoadCommand(BaseCommand):
             from core.llm_profiles import get_profile_manager
 
             manager = get_profile_manager()
-            manager.apply_profile(profile_id, set_active=True)
+            manager.apply_profile(profile_id)
 
             profile = manager.get_profile(profile_id)
             if not profile:
                 raise ValueError(f"Profile '{profile_id}' not found")
 
             details = []
-            if profile.override:
-                details.append(f"Override: {profile.override}")
-            if profile.router:
-                details.append(f"Router: {profile.router}")
-            if profile.planner:
-                details.append(f"Planner: {profile.planner}")
-            if profile.fallbacks:
-                details.append(f"Fallbacks: {', '.join(profile.fallbacks[:3])}{'...' if len(profile.fallbacks) > 3 else ''}")
+            if profile.override and len(profile.override) > 0:
+                override_str = ', '.join(profile.override[:3]) + ('...' if len(profile.override) > 3 else '')
+                details.append(f"Override: {override_str}")
+            if profile.router and len(profile.router) > 0:
+                router_str = ', '.join(profile.router[:3]) + ('...' if len(profile.router) > 3 else '')
+                details.append(f"Router: {router_str}")
+            if profile.planner and len(profile.planner) > 0:
+                planner_str = ', '.join(profile.planner[:3]) + ('...' if len(profile.planner) > 3 else '')
+                details.append(f"Planner: {planner_str}")
+            if profile.fallbacks and len(profile.fallbacks) > 0:
+                fallbacks_str = ', '.join(profile.fallbacks[:3]) + ('...' if len(profile.fallbacks) > 3 else '')
+                details.append(f"Defaults: {fallbacks_str}")
 
             message = f"Loaded profile '{profile_id}'\n" + "\n".join(f"  • {d}" for d in details)
             print(colored(f"# cli-agent: {message}", "green"))
@@ -140,7 +164,6 @@ class ProfileListCommand(BaseCommand):
 
             manager = get_profile_manager()
             profiles = manager.list_profiles()
-            active_profile = manager.get_active_profile()
 
             if not profiles:
                 message = "No saved profiles found. Use /profile_save to create one."
@@ -151,24 +174,31 @@ class ProfileListCommand(BaseCommand):
             print(colored("─" * 70, "cyan"))
 
             for profile in sorted(profiles, key=lambda p: p.id):
-                is_active = profile.id == active_profile
-                prefix = "▶ " if is_active else "  "
-                id_display = colored(profile.id, "green" if is_active else "white", attrs=["bold"])
+                id_display = colored(profile.id, "white", attrs=["bold"])
 
-                print(f"{prefix}{id_display}")
+                print(f"  {id_display}")
 
                 config_parts = []
-                if profile.override:
-                    config_parts.append(f"Override: {colored(profile.override, 'red')}")
-                if profile.router:
-                    config_parts.append(f"Router: {colored(profile.router, 'yellow')}")
-                if profile.planner:
-                    config_parts.append(f"Planner: {colored(profile.planner, 'cyan')}")
-                if profile.fallbacks:
+                if profile.override and len(profile.override) > 0:
+                    override_str = ", ".join(profile.override[:2])
+                    if len(profile.override) > 2:
+                        override_str += f" +{len(profile.override) - 2} more"
+                    config_parts.append(f"Override: {colored(override_str, 'red')}")
+                if profile.router and len(profile.router) > 0:
+                    router_str = ", ".join(profile.router[:2])
+                    if len(profile.router) > 2:
+                        router_str += f" +{len(profile.router) - 2} more"
+                    config_parts.append(f"Router: {colored(router_str, 'yellow')}")
+                if profile.planner and len(profile.planner) > 0:
+                    planner_str = ", ".join(profile.planner[:2])
+                    if len(profile.planner) > 2:
+                        planner_str += f" +{len(profile.planner) - 2} more"
+                    config_parts.append(f"Planner: {colored(planner_str, 'cyan')}")
+                if profile.fallbacks and len(profile.fallbacks) > 0:
                     fallback_str = ", ".join(profile.fallbacks[:2])
                     if len(profile.fallbacks) > 2:
                         fallback_str += f" +{len(profile.fallbacks) - 2} more"
-                    config_parts.append(f"Fallbacks: {fallback_str}")
+                    config_parts.append(f"Defaults: {fallback_str}")
 
                 if config_parts:
                     print(f"    {' | '.join(config_parts)}")

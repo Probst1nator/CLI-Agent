@@ -616,7 +616,6 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
             manager = get_profile_manager()
             profiles = manager.list_profiles()
-            active_profile = manager.get_active_profile()
 
             profiles_data = [
                 {
@@ -624,8 +623,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     'override': profile.override,
                     'router': profile.router,
                     'planner': profile.planner,
-                    'fallbacks': profile.fallbacks,
-                    'is_active': profile.id == active_profile
+                    'fallbacks': profile.fallbacks
                 }
                 for profile in profiles
             ]
@@ -634,8 +632,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 raise RuntimeError("aiohttp not available")
             return web.json_response({
                 'status': 'success',
-                'profiles': profiles_data,
-                'active_profile': active_profile
+                'profiles': profiles_data
             })
 
         except Exception as e:
