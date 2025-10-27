@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - develop
   pull_request:
     branches:
       - main
@@ -19,19 +18,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-          cache: 'pip'
+      - name: Verify Python installation
+        run: |
+          python3 --version
+          which python3
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
 
       - name: Run quick tests
         run: |
-          python run_tests.py --quick
+          python3 run_tests.py --quick
 
       - name: Run linting
         run: |
