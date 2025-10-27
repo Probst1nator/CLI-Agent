@@ -57,7 +57,7 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.manager.rule=Host(`192.168.178.20`) && (PathPrefix(`/api/manager`) || PathPrefix(`/api/backend`))"
       - "traefik.http.services.manager.loadbalancer.server.port=8080"
-      - "traefik.http.routers.manager.middlewares=strip-manager-prefix@file,rate-limit@file,security-headers@file"
+      - "traefik.http.routers.manager.middlewares=strip-manager-prefix@file,security-headers@file"
     deploy:
       resources:
         limits:
@@ -75,9 +75,7 @@ services:
 
   # Frontend (Nginx serving static files)
   frontend:
-    build:
-      context: ..
-      dockerfile: docker_files/Dockerfile.frontend
+    image: cli-agent-frontend:latest
     container_name: cli-agent-frontend
     restart: unless-stopped
     networks:

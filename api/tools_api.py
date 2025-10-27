@@ -143,8 +143,59 @@ async def upload_file(request: Any) -> Any:
         }, status=500)
 
 
+async def update_disabled_tools(request: Any) -> Any:
+    """POST /api/tools/disabled
+
+    Update the list of disabled tools in global state.
+    This allows the frontend tool manager to control which tools are available to the agent.
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        from core.globals import g
+
+        data = await request.json()
+        disabled_tools = data.get('disabled_tools', [])
+
+        # Validate that disabled_tools is a list
+        if not isinstance(disabled_tools, list):
+            return web.json_response({
+                'status': 'error',
+                'error': 'disabled_tools must be a list',
+                'code': 'INVALID_INPUT'
+            }, status=400)
+
+        # Store in global state
+        g.disabled_tools = disabled_tools
+
+        logger.info(f"Updated disabled tools: {disabled_tools}")
+
+        # Update active chat's system prompt with new disabled tools
+        try:
+            from main import update_system_prompt
+            update_system_prompt()
+        except Exception as e:
+            logger.warning(f"Failed to update system prompt: {e}")
+
+        return web.json_response({
+            'status': 'success',
+            'disabled_tools': disabled_tools,
+            'message': f'Updated disabled tools list ({len(disabled_tools)} tools disabled)'
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to update disabled tools: {e}", exc_info=True)
+        return web.json_response({
+            'status': 'error',
+            'error': str(e),
+            'code': 'INTERNAL_ERROR'
+        }, status=500)
+
+
 def setup_routes(app: Any):
     """Register all tools API routes"""
     app.router.add_get('/api/tools', get_tools)
     app.router.add_post('/upload', upload_file)
+    app.router.add_post('/api/tools/disabled', update_disabled_tools)
     logger.info("Tools API routes registered")

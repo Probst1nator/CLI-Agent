@@ -49,6 +49,9 @@ class ToolManager {
         }
 
         this.createToolToggles();
+
+        // Sync initial state from localStorage with backend
+        this.syncWithBackend();
     }
 
     /**
@@ -127,6 +130,7 @@ class ToolManager {
         }
 
         this.saveToolStates();
+        this.syncWithBackend();  // Sync with backend
         this.notifyToolStateChange(toolName, enabled);
 
         window.visualLogger?.info(`Tool ${toolName} ${enabled ? 'enabled' : 'disabled'}`);
@@ -169,6 +173,7 @@ class ToolManager {
             if (checkbox) checkbox.checked = true;
         });
         this.saveToolStates();
+        this.syncWithBackend();  // Sync with backend
         this.createToolToggles();
         window.visualLogger?.info('All tools enabled');
     }
@@ -183,6 +188,7 @@ class ToolManager {
             if (checkbox) checkbox.checked = false;
         });
         this.saveToolStates();
+        this.syncWithBackend();  // Sync with backend
         this.createToolToggles();
         window.visualLogger?.info('All tools disabled');
     }
@@ -222,6 +228,45 @@ class ToolManager {
             localStorage.setItem('agent-disabled-tools', JSON.stringify(disabledToolsArray));
         } catch (e) {
             console.warn('Failed to save tool states:', e);
+        }
+    }
+
+    /**
+     * Sync disabled tools list with backend
+     * @private
+     * @returns {Promise<void>}
+     */
+    async syncWithBackend() {
+        try {
+            const disabledToolsArray = Array.from(this.disabledTools);
+
+            // Build URL using BackendConnector for multi-user compatibility
+            const url = window.backendConnector
+                ? await window.backendConnector.buildURL('/api/tools/disabled')
+                : '/api/tools/disabled';
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || ''
+                },
+                body: JSON.stringify({
+                    disabled_tools: disabledToolsArray
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.status !== 'success') {
+                console.error('Failed to sync disabled tools with backend:', data.error);
+                window.visualLogger?.warn('Failed to sync tool state with backend:', data.error);
+            } else {
+                window.visualLogger?.debug(`Synced ${disabledToolsArray.length} disabled tools with backend`);
+            }
+        } catch (e) {
+            console.error('Failed to sync with backend:', e);
+            window.visualLogger?.warn('Failed to sync tool state with backend');
         }
     }
 

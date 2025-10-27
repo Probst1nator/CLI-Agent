@@ -355,8 +355,9 @@ class VisualServer:
         self.session_map[ws] = session_id
 
         # CREATE SESSION CONTEXT for multi-tab support
+        # Pass existing g.chat so all sessions in this container share the same chat instance
         from core.globals import g
-        session_context = g.create_session(session_id)
+        session_context = g.create_session(session_id, chat=g.chat)
 
         # Send session init message
         await ws.send_json({
@@ -619,8 +620,13 @@ class VisualServer:
         if not self.port:
             raise RuntimeError(f"No available ports in range {PORT_RANGE_START}-{PORT_RANGE_END}")
 
-        # Start server
-        self.runner = web.AppRunner(self.app)
+        # Start server with conditional access logging (in debug or API mode)
+        from core.globals import g
+        debug_mode = getattr(g, 'DEBUG_MODE', False)
+        api_mode = getattr(g, 'API_MODE', False)
+        access_log = logging.getLogger('aiohttp.web') if (debug_mode or api_mode) else None
+
+        self.runner = web.AppRunner(self.app, access_log=access_log)
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, SERVER_HOST, self.port)
 

@@ -10,26 +10,24 @@ A powerful command-line AI agent framework for autonomous task execution and cod
 
 ## Overview
 
-CLI-Agent is a comprehensive framework that provides:
-- Multi-provider LLM integration (OpenAI, Anthropic, Google Gemini, Groq, Ollama)
-- Advanced agent architecture with Monte Carlo Action Engine
-- Vector database for smart tool retrieval and contextual guidance
-- **Multi-user web service architecture with isolated Docker containers**
-- Computational notebook capabilities
-- Rate limiting and enhanced permission systems
-- Audio processing and speech recognition
-- Remote host capabilities for distributed computing
+CLI-Agent is an AI agent framework that provides:
+- Multi-provider LLM support (OpenAI, Anthropic, Google Gemini, Groq, Ollama)
+- Interactive web interface with real-time visualization
+- Smart tool discovery using vector database
+- Docker isolation for secure execution
+- Path-aware permission system
+- Audio processing with speech recognition and TTS
+- Multi-user SaaS architecture (experimental)
 
 ## Features
 
-- **Multi-LLM Support**: Seamlessly switch between different AI providers
+- **Multi-LLM Support**: Seamlessly switch between AI providers (OpenAI, Anthropic, Google, Groq, Ollama)
 - **Smart Tool Management**: Vector-based tool discovery and context-aware suggestions
 - **Interactive Permissions**: Path-aware permission system with persistent rules
-- **Multi-User Architecture**: UUID-based container isolation for web deployment
-- **Computational Notebook**: Jupyter-style code execution and cell management
-- **Audio Integration**: Speech recognition, TTS, and audio processing
-- **Remote Hosting**: Distributed AI model hosting capabilities
-- **Comprehensive Testing**: Full test suite with multiple testing levels
+- **Web Interface**: Real-time browser-based UI with multiple tabs support
+- **Docker Isolation**: Secure containerized execution (`--isolated` mode)
+- **Audio Integration**: Speech recognition and TTS support
+- **Comprehensive Testing**: Full test suite with hierarchical test levels
 
 ## Deployment Options
 
@@ -55,20 +53,18 @@ python main.py --isolated --gui  # Web interface in container
 **Benefits**: Full isolation, no dependency conflicts, auto-syncs latest code
 **See:** [Isolated Mode Docs](docs/ISOLATED_MODE.md) for details.
 
-### 3. Multi-User Production (Docker)
+### 3. Multi-User Production (Docker) - EXPERIMENTAL ⚠️
+
+**Status**: Experimental - not production-tested. See [INFRASTRUCTURE_STATUS.md](docs/INFRASTRUCTURE_STATUS.md).
+
 Deploy CLI-Agent as a web service where each user gets an isolated container:
 
 ```bash
-# Build all images
-./saas_scripts/build_all.sh
-
-# Deploy infrastructure
-./saas_scripts/deploy_infrastructure.sh
+./saas_scripts/build_all.sh           # Build images
+./saas_scripts/deploy_infrastructure.sh  # Deploy
 ```
 
-**See:** [Multi-User Architecture Docs](docs/MULTI_USER_ARCHITECTURE.md) for details.
-
-**Note:** Multi-user architecture is experimental. For production use, see [Deployment Guide](docs/DEPLOYMENT.md).
+**Docs**: [Multi-User Architecture](docs/MULTI_USER_ARCHITECTURE.md) | [Deployment Guide](docs/DEPLOYMENT.md)
 
 ## Installation
 

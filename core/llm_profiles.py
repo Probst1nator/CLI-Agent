@@ -17,15 +17,15 @@ class LLMProfile:
     def __init__(
         self,
         id: str,
-        override: Optional[str] = None,
-        router: Optional[str] = None,
-        planner: Optional[str] = None,
+        override: Optional[List[str]] = None,
+        router: Optional[List[str]] = None,
+        planner: Optional[List[str]] = None,
         fallbacks: Optional[List[str]] = None
     ):
         self.id = id
-        self.override = override
-        self.router = router
-        self.planner = planner
+        self.override = override or []
+        self.router = router or []
+        self.planner = planner or []
         self.fallbacks = fallbacks or []
 
     def to_dict(self) -> Dict[str, Any]:
@@ -40,23 +40,43 @@ class LLMProfile:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'LLMProfile':
-        """Create profile from dictionary."""
+        """Create profile from dictionary. Handles both old (single value) and new (array) formats."""
+        def normalize_to_list(value):
+            """Convert single value or None to list."""
+            if value is None:
+                return []
+            if isinstance(value, list):
+                return value
+            return [value] if value else []
+
         return cls(
             id=data.get("id", ""),
-            override=data.get("override"),
-            router=data.get("router"),
-            planner=data.get("planner"),
-            fallbacks=data.get("fallbacks", [])
+            override=normalize_to_list(data.get("override")),
+            router=normalize_to_list(data.get("router")),
+            planner=normalize_to_list(data.get("planner")),
+            fallbacks=normalize_to_list(data.get("fallbacks"))
+        )
+
+    def is_empty(self) -> bool:
+        """Check if this profile is empty/corrupted (all None/empty values)."""
+        return (
+            len(self.override) == 0 and
+            len(self.router) == 0 and
+            len(self.planner) == 0 and
+            len(self.fallbacks) == 0
         )
 
     def apply(self) -> None:
         """Apply this profile to the current LLM configuration."""
         from core.globals import g
 
-        g.update_llm_role('override', self.override)
-        g.update_llm_role('router', self.router)
-        g.update_llm_role('planner', self.planner)
-        g.update_llm_role('fallbacks', model_keys=self.fallbacks)
+        if self.is_empty():
+            raise ValueError(f"Cannot apply empty profile '{self.id}' - all configuration values are None/empty")
+
+        g.update_llm_role('override', model_keys=self.override if self.override else None)
+        g.update_llm_role('router', model_keys=self.router if self.router else None)
+        g.update_llm_role('planner', model_keys=self.planner if self.planner else None)
+        g.update_llm_role('fallbacks', model_keys=self.fallbacks if self.fallbacks else None)
 
         logging.info(f"Applied LLM profile: {self.id}")
 
@@ -67,10 +87,10 @@ class LLMProfile:
 
         return cls(
             id=id,
-            override=g.override_llm,
-            router=g.router_llm,
-            planner=g.planner_llm,
-            fallbacks=g.FALLBACK_MODELS.copy()
+            override=g.override_llms_list.copy() if g.override_llms_list else [],
+            router=g.router_llms_list.copy() if g.router_llms_list else [],
+            planner=g.planner_llms_list.copy() if g.planner_llms_list else [],
+            fallbacks=g.FALLBACK_MODELS.copy() if g.FALLBACK_MODELS else []
         )
 
 
@@ -93,14 +113,12 @@ class LLMProfileManager:
             self.profiles_file = config_dir / "llm_profiles.json"
 
         self._profiles: Dict[str, LLMProfile] = {}
-        self._active_profile: Optional[str] = None
         self.load_profiles()
 
     def load_profiles(self) -> None:
         """Load all profiles from disk."""
         if not self.profiles_file.exists():
             self._profiles = {}
-            self._active_profile = None
             return
 
         try:
@@ -111,14 +129,12 @@ class LLMProfileManager:
                 id: LLMProfile.from_dict(profile_data)
                 for id, profile_data in data.get("profiles", {}).items()
             }
-            self._active_profile = data.get("active_profile")
 
             logging.debug(f"Loaded {len(self._profiles)} LLM profiles from {self.profiles_file}")
 
         except Exception as e:
             logging.error(f"Failed to load LLM profiles: {e}")
             self._profiles = {}
-            self._active_profile = None
 
     def save_profiles(self) -> None:
         """Save all profiles to disk."""
@@ -127,8 +143,7 @@ class LLMProfileManager:
                 "profiles": {
                     id: profile.to_dict()
                     for id, profile in self._profiles.items()
-                },
-                "active_profile": self._active_profile
+                }
             }
 
             # Ensure directory exists
@@ -178,10 +193,6 @@ class LLMProfileManager:
             raise ValueError(f"Profile '{id}' does not exist")
 
         del self._profiles[id]
-
-        if self._active_profile == id:
-            self._active_profile = None
-
         self.save_profiles()
 
         logging.info(f"Deleted LLM profile: {id}")
@@ -194,28 +205,77 @@ class LLMProfileManager:
         """List all available profiles."""
         return list(self._profiles.values())
 
-    def apply_profile(self, id: str, set_active: bool = True) -> None:
-        """Apply a profile to the current configuration."""
+    def apply_profile(self, id: str) -> None:
+        """Apply a profile to the current configuration (runtime only, not persisted)."""
         if id not in self._profiles:
             raise ValueError(f"Profile '{id}' does not exist")
 
         profile = self._profiles[id]
-        profile.apply()
 
-        if set_active:
-            self._active_profile = id
-            self.save_profiles()
+        # Check if profile is empty/corrupted before applying
+        if profile.is_empty():
+            logging.warning(f"Profile '{id}' is empty/corrupted and cannot be applied")
+            raise ValueError(f"Profile '{id}' is empty/corrupted - all configuration values are None/empty")
+
+        profile.apply()
 
         logging.info(f"Applied LLM profile: {id}")
 
-    def get_active_profile(self) -> Optional[str]:
-        """Get the name of the currently active profile."""
-        return self._active_profile
+    def detect_corrupted_profiles(self) -> List[str]:
+        """Detect profiles that are empty/corrupted."""
+        corrupted = []
+        for profile_id, profile in self._profiles.items():
+            if profile.is_empty():
+                corrupted.append(profile_id)
+        return corrupted
 
-    def clear_active_profile(self) -> None:
-        """Clear the active profile marker."""
-        self._active_profile = None
-        self.save_profiles()
+    def cleanup_corrupted_profiles(self, delete: bool = False) -> List[str]:
+        """
+        Detect and optionally delete corrupted profiles.
+
+        Args:
+            delete: If True, delete corrupted profiles. If False, just return their IDs.
+
+        Returns:
+            List of corrupted profile IDs that were detected (and deleted if delete=True)
+        """
+        corrupted = self.detect_corrupted_profiles()
+
+        if corrupted:
+            logging.warning(f"Found {len(corrupted)} corrupted profile(s): {', '.join(corrupted)}")
+
+            if delete:
+                for profile_id in corrupted:
+                    logging.info(f"Deleting corrupted profile: {profile_id}")
+                    del self._profiles[profile_id]
+
+                self.save_profiles()
+                logging.info(f"Deleted {len(corrupted)} corrupted profile(s)")
+
+        return corrupted
+
+    def delete_corrupted_profiles_on_startup(self) -> List[str]:
+        """
+        FATAL ERROR handler: Detect and DELETE corrupted profiles at startup.
+
+        Corrupted profiles should never exist in production. If found, this indicates
+        a system bug and the corrupted profiles are immediately deleted.
+
+        Returns:
+            List of profile IDs that were deleted
+        """
+        corrupted = self.detect_corrupted_profiles()
+
+        if corrupted:
+            for profile_id in corrupted:
+                logging.critical(f"❌ FATAL ERROR: Corrupted profile '{profile_id}' detected (all values None/empty)")
+                logging.info(f"🗑️  Deleting corrupted profile: {profile_id}")
+                del self._profiles[profile_id]
+
+            self.save_profiles()
+            logging.critical(f"❌ Deleted {len(corrupted)} corrupted profile(s) - system initialized with blank slate")
+
+        return corrupted
 
 
 # Global profile manager instance

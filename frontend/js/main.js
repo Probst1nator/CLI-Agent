@@ -327,22 +327,28 @@ class VisualResponseApp {
         // ===== PROFILE MANAGEMENT =====
 
         /**
-         * Currently active profile slot name
-         * @type {string|null}
-         */
-        this.activeProfileSlot = null;
-
-        /**
          * Stored profile configurations
          * @type {Object.<string, ProfileSlot>}
          */
         this.profileSlots = {};
 
         /**
+         * Currently loaded profile ID (for auto-save targeting)
+         * @type {string}
+         */
+        this.currentLoadedProfile = "1";  // Profile 1 loads at startup
+
+        /**
          * Timeout ID for auto-save debouncing
          * @type {number|null}
          */
         this.autoSaveTimeout = null;
+
+        /**
+         * Flag to prevent auto-save during profile loading
+         * @type {boolean}
+         */
+        this.isLoadingProfile = false;
 
         // ===== AUDIO/VOICE FEATURES =====
 
@@ -3357,6 +3363,7 @@ class VisualResponseApp {
 
         // Instantiate the Dynamic LLM Manager
         this.dynamicLLMManager = new DynamicLLMManager();
+        window.dynamicLLMManager = this.dynamicLLMManager; // Expose to global scope
         window.visualLogger.info('Dynamic LLM Manager initialized successfully');
     }
 
@@ -3742,11 +3749,6 @@ class VisualResponseApp {
                     });
 
                     this.updateProfileSlotUI();
-
-                    if (data.active_profile) {
-                        this.activeProfileSlot = data.active_profile;
-                        this.markSlotAsActive(data.active_profile);
-                    }
                 }
             } catch (error) {
                 clearTimeout(timeoutId);
@@ -3767,31 +3769,36 @@ class VisualResponseApp {
 
         profileSlots.forEach(slot => {
             const slotNumber = slot.dataset.slot;
+            const profile = this.profileSlots[slotNumber];
 
-            if (this.profileSlots[slotNumber]) {
+            if (profile) {
                 slot.classList.add('has-profile');
+
+                // Build detailed tooltip
+                const tooltipParts = [];
+                if (profile.override && profile.override.length > 0) {
+                    tooltipParts.push(`Override: ${profile.override.join(', ')}`);
+                }
+                if (profile.router && profile.router.length > 0) {
+                    tooltipParts.push(`Router: ${profile.router.join(', ')}`);
+                }
+                if (profile.planner && profile.planner.length > 0) {
+                    tooltipParts.push(`Planner: ${profile.planner.join(', ')}`);
+                }
+                if (profile.fallbacks && profile.fallbacks.length > 0) {
+                    tooltipParts.push(`Defaults: ${profile.fallbacks.join(', ')}`);
+                }
+
+                slot.title = tooltipParts.length > 0
+                    ? `Profile ${slotNumber}:\n${tooltipParts.join('\n')}`
+                    : `Profile ${slotNumber}: Empty`;
             } else {
                 slot.classList.remove('has-profile');
+                slot.title = 'Empty slot - click to save current configuration';
             }
         });
-    }
 
-    /**
-     * Mark a profile slot as active (currently loaded)
-     * Adds 'active' class to the specified slot and removes from others
-     * @private
-     * @param {string} slotNumber - The slot number to mark as active
-     */
-    markSlotAsActive(slotNumber) {
-        const profileSlots = document.querySelectorAll('.profile-slot');
-
-        profileSlots.forEach(slot => {
-            if (slot.dataset.slot === slotNumber) {
-                slot.classList.add('active');
-            } else {
-                slot.classList.remove('active');
-            }
-        });
+        console.log('[ProfileUI] Updated profile slot tooltips:', this.profileSlots);
     }
 
     /**
@@ -3825,17 +3832,31 @@ class VisualResponseApp {
         console.log('🔄 applyProfile called for slot:', slotNumber);
         console.log('  Profile data:', this.profileSlots[slotNumber]);
 
+        // Update currently loaded profile FIRST
+        this.currentLoadedProfile = slotNumber;
+        console.log(`📌 Current profile set to: ${slotNumber}`);
+
+        // Set flag to prevent auto-save during profile loading
+        this.isLoadingProfile = true;
+        console.log('🚫 Auto-save disabled during profile load');
+
         // Directly update selectors from profile data before sending WebSocket message
         const profile = this.profileSlots[slotNumber];
         if (profile) {
             console.log('📋 Updating selectors from profile data...');
 
-            // Update override selector (convert single value to array)
+            // Update selectors (normalize single values and arrays)
             if (this.dynamicLLMManager) {
-                const overrideModels = profile.override ? [profile.override] : [];
-                const routerModels = profile.router ? [profile.router] : [];
-                const plannerModels = profile.planner ? [profile.planner] : [];
-                const fallbackModels = profile.fallbacks || [];
+                const normalizeToArray = (value) => {
+                    if (!value) return [];
+                    if (Array.isArray(value)) return value;
+                    return [value];
+                };
+
+                const overrideModels = normalizeToArray(profile.override);
+                const routerModels = normalizeToArray(profile.router);
+                const plannerModels = normalizeToArray(profile.planner);
+                const fallbackModels = normalizeToArray(profile.fallbacks);
 
                 console.log('  Override models:', overrideModels);
                 console.log('  Router models:', routerModels);
@@ -3857,9 +3878,6 @@ class VisualResponseApp {
             console.log('📤 Sending WebSocket message: /profile_load', slotNumber);
             this.wsManager.sendMessage(`/profile_load ${slotNumber}`);
 
-            this.activeProfileSlot = slotNumber;
-            this.markSlotAsActive(slotNumber);
-
             // Reload profile slots after backend confirms
             setTimeout(async () => {
                 console.log('🔄 Refreshing profile slots after 200ms');
@@ -3868,6 +3886,12 @@ class VisualResponseApp {
         } else {
             console.log('❌ Cannot apply profile - WebSocket not connected');
         }
+
+        // Re-enable auto-save after profile has fully loaded (3 seconds should be enough)
+        setTimeout(() => {
+            this.isLoadingProfile = false;
+            console.log('✅ Auto-save re-enabled after profile load');
+        }, 3000);
     }
 
     /**
@@ -3943,21 +3967,190 @@ class VisualResponseApp {
 
     /**
      * Save current LLM configuration to a profile slot
-     * Sends /profile_save command and refreshes profile slots after save
+     * Automatically deletes profile if empty (except profile 1)
      * @private
      * @async
      * @param {string} slotNumber - The slot number to save to
      */
     async saveCurrentConfigToSlot(slotNumber) {
-        if (this.wsManager && this.wsManager.isConnected()) {
+        console.log(`[saveCurrentConfigToSlot] Called for slot ${slotNumber}`);
+        console.log(`[saveCurrentConfigToSlot] wsManager exists: ${!!this.wsManager}`);
+        console.log(`[saveCurrentConfigToSlot] wsManager.isConnected(): ${this.wsManager ? this.wsManager.isConnected() : 'N/A'}`);
+
+        if (this.wsManager) {
+            console.log(`[saveCurrentConfigToSlot] WebSocket state: ${this.wsManager.ws ? this.wsManager.ws.readyState : 'no ws object'}`);
+            console.log(`[saveCurrentConfigToSlot] WebSocket.OPEN constant: ${WebSocket.OPEN}`);
+        }
+
+        if (!this.wsManager || !this.wsManager.isConnected()) {
+            console.warn('❌ Cannot save - WebSocket not connected');
+            console.warn('❌ Attempting save anyway via HTTP POST to /api/profiles/save');
+
+            // Fall back to HTTP POST if WebSocket not available
+            try {
+                const currentConfig = window.dynamicLLMManager ?
+                    window.dynamicLLMManager.getCurrentConfig() : null;
+
+                if (!currentConfig) {
+                    console.warn('❌ Cannot save - no config available');
+                    return;
+                }
+
+                const isEmpty = this.isConfigEmpty(currentConfig);
+
+                if (isEmpty && slotNumber !== "1") {
+                    console.log(`🗑️ Profile ${slotNumber} is empty - deleting via HTTP`);
+
+                    const url = window.backendConnector ?
+                        await window.backendConnector.buildURL(`/api/profiles/${slotNumber}`) :
+                        `/api/profiles/${slotNumber}`;
+
+                    await fetch(url, {
+                        method: 'DELETE',
+                        headers: { 'X-Session-ID': window.sessionId || '' }
+                    });
+
+                    this.currentLoadedProfile = "1";
+                    setTimeout(async () => {
+                        await this.applyProfile("1");
+                        await this.loadProfileSlots();
+                    }, 300);
+                    return;
+                }
+
+                // Save via HTTP POST
+                console.log(`💾 Saving profile ${slotNumber} via HTTP POST`);
+                const url = window.backendConnector ?
+                    await window.backendConnector.buildURL('/api/profiles/save') :
+                    '/api/profiles/save';
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Session-ID': window.sessionId || ''
+                    },
+                    body: JSON.stringify({
+                        profile_id: slotNumber,
+                        config: currentConfig
+                    })
+                });
+
+                const data = await response.json();
+                if (data.status === 'success') {
+                    console.log(`✅ Profile ${slotNumber} saved successfully via HTTP`);
+                    await this.loadProfileSlots();
+                } else {
+                    console.error(`❌ Failed to save profile via HTTP:`, data.error);
+                }
+            } catch (error) {
+                console.error('❌ HTTP fallback save failed:', error);
+            }
+            return;
+        }
+
+        // Get current configuration
+        console.log(`[saveCurrentConfigToSlot] window.dynamicLLMManager exists: ${!!window.dynamicLLMManager}`);
+
+        let currentConfig = null;
+        try {
+            currentConfig = window.dynamicLLMManager ?
+                window.dynamicLLMManager.getCurrentConfig() : null;
+            console.log(`[saveCurrentConfigToSlot] getCurrentConfig() returned:`, currentConfig);
+        } catch (error) {
+            console.error(`[saveCurrentConfigToSlot] Error calling getCurrentConfig():`, error);
+        }
+
+        if (!currentConfig) {
+            console.warn('❌ Cannot save - no config available');
+            console.warn('❌ Falling back to profileSlots data');
+            // Use the profile data that's already in memory
+            currentConfig = this.profileSlots[slotNumber];
+            console.log(`[saveCurrentConfigToSlot] Using profileSlots data:`, currentConfig);
+
+            if (!currentConfig) {
+                console.error('❌ No config available from profileSlots either');
+                return;
+            }
+        }
+
+        // Check if config is empty
+        const isEmpty = this.isConfigEmpty(currentConfig);
+
+        if (isEmpty && slotNumber !== "1") {
+            // Delete non-profile-1 if empty
+            console.log(`🗑️ Profile ${slotNumber} is empty - deleting`);
+
+            this.wsManager.sendMessage(`/profile_delete ${slotNumber}`);
+
+            // Switch to profile 1
+            console.log('📌 Switching to profile 1');
+            this.currentLoadedProfile = "1";
+
+            // Apply profile 1 after short delay
+            setTimeout(async () => {
+                await this.applyProfile("1");
+                await this.loadProfileSlots();
+            }, 300);
+
+        } else {
+            // Save profile (allow empty for profile 1)
+            if (isEmpty && slotNumber === "1") {
+                console.log('💾 Saving empty profile 1 (allowed)');
+            }
+
+            // Immediately update local state with current config
+            this.updateLocalProfileSlot(slotNumber);
+
+            // Send save command to backend
             this.wsManager.sendMessage(`/profile_save ${slotNumber}`);
 
+            // Reload from API after longer delay to ensure backend has saved
             setTimeout(async () => {
                 await this.loadProfileSlots();
-                this.activeProfileSlot = slotNumber;
-                this.markSlotAsActive(slotNumber);
-            }, 100);
+            }, 500);
         }
+    }
+
+    /**
+     * Check if configuration is empty (no models selected)
+     * @private
+     * @param {Object} config - Config object with override, router, planner, fallbacks
+     * @returns {boolean} True if all arrays are empty
+     */
+    isConfigEmpty(config) {
+        return (
+            (!config.override || config.override.length === 0) &&
+            (!config.router || config.router.length === 0) &&
+            (!config.planner || config.planner.length === 0) &&
+            (!config.fallbacks || config.fallbacks.length === 0)
+        );
+    }
+
+    /**
+     * Update local profile slot data with current LLM configuration
+     * This provides immediate UI feedback before backend save completes
+     * @private
+     * @param {string} slotNumber - The slot number to update
+     */
+    updateLocalProfileSlot(slotNumber) {
+        if (!window.dynamicLLMManager) return;
+
+        // Get current configuration from the dynamic LLM manager
+        const currentConfig = window.dynamicLLMManager.getCurrentConfig();
+
+        this.profileSlots[slotNumber] = {
+            id: slotNumber,
+            override: currentConfig.override,
+            router: currentConfig.router,
+            planner: currentConfig.planner,
+            fallbacks: currentConfig.fallbacks
+        };
+
+        console.log('📝 Updated local profile slot:', slotNumber, this.profileSlots[slotNumber]);
+
+        // Immediately update the UI to reflect changes
+        this.updateProfileSlotUI();
     }
 
     /**
@@ -3989,32 +4182,54 @@ class VisualResponseApp {
         preview.id = 'profile-preview';
 
         // Format the configuration for display
+        const formatModelList = (models) => {
+            if (!models || models.length === 0) return 'Not set';
+            if (models.length === 1) return models[0];
+            return models.map((m, i) => `${i + 1}. ${m}`).join('<br>      ');
+        };
+
         const formatModel = (model) => {
             if (!model) return 'Not set';
             if (model === 'None' || model === 'none') return 'None';
             return model;
         };
 
+        // Build role sections with fallback chains
+        const overrideHTML = profile.override && profile.override.length > 0
+            ? `<div class="preview-item">
+                <span class="preview-label">Override:</span><br>
+                <span class="preview-models">  ${formatModelList(profile.override)}</span>
+               </div>`
+            : '<div class="preview-item"><span class="preview-label">Override:</span> Not set</div>';
+
+        const routerHTML = profile.router && profile.router.length > 0
+            ? `<div class="preview-item">
+                <span class="preview-label">Router:</span><br>
+                <span class="preview-models">  ${formatModelList(profile.router)}</span>
+               </div>`
+            : '<div class="preview-item"><span class="preview-label">Router:</span> Not set</div>';
+
+        const plannerHTML = profile.planner && profile.planner.length > 0
+            ? `<div class="preview-item">
+                <span class="preview-label">Planner:</span><br>
+                <span class="preview-models">  ${formatModelList(profile.planner)}</span>
+               </div>`
+            : '<div class="preview-item"><span class="preview-label">Planner:</span> Not set</div>';
+
         const fallbacksHTML = profile.fallbacks && profile.fallbacks.length > 0
-            ? profile.fallbacks.map((m, i) => `<div class="preview-item"><span class="preview-label">${i === 0 ? 'Primary' : 'Fallback ' + i}:</span> ${formatModel(m)}</div>`).join('')
+            ? `<div class="preview-item">
+                <span class="preview-label">Defaults:</span><br>
+                <span class="preview-models">  ${formatModelList(profile.fallbacks)}</span>
+               </div>`
             : '<div class="preview-item"><span class="preview-label">Defaults:</span> Not configured</div>';
 
         preview.innerHTML = `
             <div class="preview-content">
                 <div class="preview-title">Profile Configuration</div>
                 <div class="preview-section">
-                    <div class="preview-item">
-                        <span class="preview-label">Override:</span> ${formatModel(profile.override)}
-                    </div>
-                    <div class="preview-item">
-                        <span class="preview-label">Router:</span> ${formatModel(profile.router)}
-                    </div>
-                    <div class="preview-item">
-                        <span class="preview-label">Planner:</span> ${formatModel(profile.planner)}
-                    </div>
-                </div>
-                <div class="preview-section">
-                    <div class="preview-subtitle">Fallback Chain</div>
+                    ${overrideHTML}
+                    ${routerHTML}
+                    ${plannerHTML}
                     ${fallbacksHTML}
                 </div>
             </div>
@@ -4087,19 +4302,39 @@ class VisualResponseApp {
     }
 
     /**
-     * Schedule auto-save of current config to active profile slot
+     * Schedule auto-save to currently loaded profile
      * Saves config 2 seconds after last change to avoid excessive saves
      * @private
      */
     scheduleAutoSave() {
-        if (!this.activeProfileSlot) return;
+        console.log(`[scheduleAutoSave] Called - currentLoadedProfile: ${this.currentLoadedProfile}, isLoadingProfile: ${this.isLoadingProfile}`);
+
+        // Skip auto-save if currently loading a profile
+        if (this.isLoadingProfile) {
+            console.log('⏭️  Skipping auto-save - profile is loading');
+            return;
+        }
+
+        // Auto-save to currently loaded profile
+        const profileId = this.currentLoadedProfile;
+        console.log(`[scheduleAutoSave] Checking if profile ${profileId} exists in profileSlots:`, !!this.profileSlots[profileId]);
+        console.log(`[scheduleAutoSave] profileSlots keys:`, Object.keys(this.profileSlots));
+
+        // Only auto-save if profile exists
+        if (!this.profileSlots[profileId]) {
+            console.log(`⚠️  Profile ${profileId} doesn't exist in profileSlots, skipping auto-save`);
+            console.log(`⚠️  Available profiles:`, Object.keys(this.profileSlots));
+            return;
+        }
 
         if (this.autoSaveTimeout) {
             clearTimeout(this.autoSaveTimeout);
         }
 
+        console.log(`⏰ Scheduling auto-save to profile ${profileId} in 2 seconds...`);
         this.autoSaveTimeout = setTimeout(() => {
-            this.saveCurrentConfigToSlot(this.activeProfileSlot);
+            console.log(`💾 Executing scheduled auto-save to profile ${profileId}`);
+            this.saveCurrentConfigToSlot(profileId);
         }, 2000);
     }
 

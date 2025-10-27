@@ -241,13 +241,15 @@ def _mask_quoted_xml_tags(text: str) -> tuple[str, dict]:
     replacements = {}
     counter = 0
 
-    # Pattern to match any quoted string that contains XML tags
-    # This handles both standalone tags like "<bash>" and full blocks like "<bash>content</bash>"
-    # Matches any content between quotes that contains at least one < character
+    # Pattern to match quoted XML tags (e.g., "<bash>", "</tool>", "<tag>content</tag>")
+    # The pattern ensures:
+    # 1. Before and after the tag, only non-< characters are matched
+    # 2. The tag itself is complete: <tagname> with immediate closing >
+    # This prevents false matches across tag boundaries like: "value"</tag>\n<tag attr="value"
     quote_patterns = [
-        r'"[^"]*<[^"]*"',      # Double quotes: "...<..."
-        r"'[^']*<[^']*'",      # Single quotes: '...<...'
-        r'`[^`]*<[^`]*`',      # Backticks: `...<...`
+        r'"[^"<]*<[a-zA-Z0-9_/]+>[^"<]*"',      # Double quotes: "<tag>"
+        r"'[^'<]*<[a-zA-Z0-9_/]+>[^'<]*'",      # Single quotes: '<tag>'
+        r'`[^`<]*<[a-zA-Z0-9_/]+>[^`<]*`',      # Backticks: `<tag>`
     ]
 
     masked_text = text

@@ -10,13 +10,13 @@ http:
         burst: 40
         period: 1m
 
-    # Strict rate limiting for container operations
-    # Applies to container creation, deletion, and modification
+    # Rate limiting for container manager endpoints
+    # More permissive to allow normal frontend operation
     container-ops-limit:
       rateLimit:
-        average: 5
-        burst: 10
-        period: 5m
+        average: 50
+        burst: 100
+        period: 1m
 
     # More permissive rate limiting for read-only operations
     read-only-limit:
@@ -62,7 +62,8 @@ http:
         - web
       middlewares:
         - strip-manager-prefix
-        - container-ops-limit  # Changed from rate-limit to stricter container-ops-limit
+        # Rate limiting disabled for local deployment
+        # - container-ops-limit
         - security-headers
         - compress
 
