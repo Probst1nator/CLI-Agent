@@ -1,59 +1,50 @@
 #!/bin/bash
 set -e
 
-echo "======================================"
-echo "CLI-Agent Multi-User Infrastructure"
-echo "Build Script"
-echo "======================================"
-echo ""
-
-# Colors for output
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Source deployment logger for persistent audit logging
+source "$(dirname "$0")/deployment_logger.sh"
 
 # Change to project root
 cd "$(dirname "$0")/.."
 
-echo -e "${BLUE}Building all Docker images...${NC}"
+log_info "Building all Docker images..."
 echo ""
 
 # Build Container Manager
-echo -e "${YELLOW}[1/3] Building Container Manager...${NC}"
+log_info "[1/3] Building Container Manager..."
 docker build \
     -f docker_files/Dockerfile.container-manager \
     -t cli-agent-manager:latest \
-    .
-echo -e "${GREEN}✓ Container Manager built${NC}"
+    . || die "Failed to build Container Manager"
+log_success "Container Manager built"
 echo ""
 
 # Build Backend
-echo -e "${YELLOW}[2/3] Building Backend Container...${NC}"
+log_info "[2/3] Building Backend Container..."
 docker build \
     -f docker_files/Dockerfile.backend \
     -t cli-agent-backend:latest \
-    .
-echo -e "${GREEN}✓ Backend Container built${NC}"
+    . || die "Failed to build Backend Container"
+log_success "Backend Container built"
 echo ""
 
 # Build Frontend
-echo -e "${YELLOW}[3/3] Building Frontend Container...${NC}"
+log_info "[3/3] Building Frontend Container..."
 docker build \
     -f docker_files/Dockerfile.frontend \
     -t cli-agent-frontend:latest \
-    .
-echo -e "${GREEN}✓ Frontend Container built${NC}"
+    . || die "Failed to build Frontend Container"
+log_success "Frontend Container built"
 echo ""
 
-echo -e "${GREEN}======================================"
-echo "✅ All images built successfully!"
-echo "======================================${NC}"
+log_success "All images built successfully!"
 echo ""
 echo "Next steps:"
 echo "  1. Review docker_files/docker-compose.infrastructure.yml"
-echo "  2. Run: ./scripts/deploy.sh"
+echo "  2. Run: ./saas_scripts/deploy_infrastructure.sh"
 echo "  3. Access: http://localhost"
 echo ""
 echo "For manual deployment:"
 echo "  docker-compose -f docker_files/docker-compose.infrastructure.yml up -d"
+
+success

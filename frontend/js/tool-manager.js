@@ -70,8 +70,8 @@ class ToolManager {
      * @private
      */
     createToolToggles() {
-        console.log('[ToolManager] createToolToggles called with', this.tools.length, 'tools');
-        console.log('[ToolManager] containerElement:', this.containerElement);
+        window.logDebug('[ToolManager] createToolToggles called with', this.tools.length, 'tools');
+        window.logDebug('[ToolManager] containerElement:', this.containerElement);
 
         if (!this.containerElement) {
             console.error('[ToolManager] No container element found!');
@@ -85,7 +85,7 @@ class ToolManager {
         headerItem.textContent = 'Tools:';
         this.containerElement.appendChild(headerItem);
 
-        console.log('[ToolManager] About to create toggles for tools:', this.tools.map(t => t.name));
+        window.logDebug('[ToolManager] About to create toggles for tools:', this.tools.map(t => t.name));
 
         this.tools.forEach(tool => {
             const isEnabled = !this.disabledTools.has(tool.name);
@@ -206,11 +206,11 @@ class ToolManager {
      * @async
      */
     async refresh() {
-        console.log('[ToolManager] refresh() called');
+        window.logDebug('[ToolManager] refresh() called');
         if (window.ToolRegistry) {
             await window.ToolRegistry.waitForReady();
             this.tools = window.ToolRegistry.getTools();
-            console.log('[ToolManager] Got tools from registry:', this.tools);
+            window.logDebug('[ToolManager] Got tools from registry:', this.tools);
             this.createToolToggles();
             window.visualLogger?.info('ToolManager refreshed with', this.tools.length, 'tools');
         } else {

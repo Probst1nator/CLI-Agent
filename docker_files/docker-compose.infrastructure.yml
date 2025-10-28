@@ -40,8 +40,16 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - container-manager-data:/data
+      - container-manager-logs:/logs
     networks:
       - cli-agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+        labels: "cli-agent.service"
     environment:
       - STORAGE_THRESHOLD=90
       - DEFAULT_RETENTION_DAYS=7
@@ -112,3 +120,6 @@ volumes:
   container-manager-data:
     driver: local
     name: container-manager-data
+  container-manager-logs:
+    driver: local
+    name: container-manager-logs

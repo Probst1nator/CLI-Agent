@@ -532,6 +532,126 @@ def _get_next_priority_message(message_list: List[str]) -> Optional[str]:
     # Return first regular message (FIFO)
     return message_list[0] if message_list else None
 
+# --- Tool Listing Functionality ---
+def list_tools_and_exit() -> None:
+    """
+    List all available tools with their status and exit.
+    Used by --list-tools argument.
+    """
+    from agent.core.tool_discovery import _generate_tool_documentation
+    from core.tool_config import get_tool_config_manager
+
+    # Get disabled tools from config
+    tool_config = get_tool_config_manager()
+    disabled_tools = tool_config.get_disabled_tools()
+
+    # Generate tool documentation (also populates g.tool_classes)
+    _generate_tool_documentation(disabled_tools)
+
+    # Get tool info
+    tool_info = g.loaded_tool_info
+    all_tool_names = set(tool_info['loaded_tools'])
+    disabled_tool_names = set(disabled_tools)
+    skipped_tool_names = set(tool_info.get('skipped_tools', []))
+
+    # Collect all tools (enabled, disabled, and skipped)
+    all_tools_dict = {}
+
+    # Add loaded (enabled) tools
+    for tool_name in tool_info['loaded_tools']:
+        tool_class = g.tool_classes.get(tool_name)
+        if tool_class:
+            try:
+                info = tool_class.get_tool_info()
+                all_tools_dict[tool_name] = {
+                    'status': 'enabled',
+                    'description': info.get('description', 'No description')
+                }
+            except Exception as e:
+                all_tools_dict[tool_name] = {
+                    'status': 'enabled',
+                    'description': f'Error getting info: {e}'
+                }
+
+    # Add disabled tools (need to discover them)
+    import importlib
+    from pathlib import Path
+    tools_dir = Path(__file__).parent / "tools"
+
+    for disabled_name in disabled_tools:
+        if disabled_name not in all_tools_dict:
+            # Try to load the tool to get its description
+            try:
+                module = importlib.import_module(f"tools.{disabled_name}")
+                if hasattr(module, disabled_name):
+                    tool_class = getattr(module, disabled_name)
+                    if hasattr(tool_class, 'get_tool_info'):
+                        info = tool_class.get_tool_info()
+                        all_tools_dict[disabled_name] = {
+                            'status': 'disabled',
+                            'description': info.get('description', 'No description')
+                        }
+                    else:
+                        all_tools_dict[disabled_name] = {
+                            'status': 'disabled',
+                            'description': 'Tool exists but missing get_tool_info()'
+                        }
+                else:
+                    all_tools_dict[disabled_name] = {
+                        'status': 'disabled',
+                        'description': 'Tool class not found'
+                    }
+            except Exception:
+                all_tools_dict[disabled_name] = {
+                    'status': 'disabled',
+                    'description': 'Unable to load tool info'
+                }
+
+    # Handle skipped tools
+    for skipped in skipped_tool_names:
+        tool_name = skipped.split(' ')[0]  # Extract tool name from "toolname (reason)"
+        if tool_name not in all_tools_dict:
+            all_tools_dict[tool_name] = {
+                'status': 'skipped',
+                'description': skipped
+            }
+
+    # Print formatted output
+    print("\n" + "="*80)
+    print("AVAILABLE TOOLS")
+    print("="*80 + "\n")
+
+    # Sort by name
+    for tool_name in sorted(all_tools_dict.keys()):
+        tool_data = all_tools_dict[tool_name]
+        status = tool_data['status']
+        description = tool_data['description']
+
+        # Color-code status
+        if status == 'enabled':
+            status_str = colored("✓ ENABLED ", "green")
+        elif status == 'disabled':
+            status_str = colored("✗ DISABLED", "red")
+        else:
+            status_str = colored("○ SKIPPED ", "yellow")
+
+        # Format tool name
+        tool_name_str = colored(f"{tool_name:20s}", "cyan", attrs=["bold"])
+
+        # Print line
+        print(f"{status_str}  {tool_name_str}  {description}")
+
+    # Print summary
+    print("\n" + "-"*80)
+    enabled_count = sum(1 for t in all_tools_dict.values() if t['status'] == 'enabled')
+    disabled_count = sum(1 for t in all_tools_dict.values() if t['status'] == 'disabled')
+    skipped_count = sum(1 for t in all_tools_dict.values() if t['status'] == 'skipped')
+
+    print(f"Summary: {enabled_count} enabled, {disabled_count} disabled, {skipped_count} skipped")
+    print("-"*80 + "\n")
+
+    sys.exit(0)
+
 # --- Custom Logging Setup ---
 def parse_cli_args() -> argparse.Namespace:
     """Setup and parse CLI arguments, ensuring the script's functionality remains intact."""
@@ -606,6 +726,15 @@ def parse_cli_args() -> argparse.Namespace:
     parser.add_argument("-e", "--exit", action="store_true", default=False,
                         help="Exit after all automatic messages have been parsed successfully")
 
+    # --- Tool Management Arguments ---
+    parser.add_argument("--list-tools", action="store_true", default=False,
+                        help="List all available tools with their status and exit")
+    parser.add_argument("--enable", type=str, nargs='+', default=None, metavar='TOOL',
+                        help="Enable specific tools (removes from disabled list). Example: --enable bash readfile")
+    parser.add_argument("--disable", type=str, nargs='+', default=None, metavar='TOOL',
+                        help="Disable specific tools. Example: --disable bash writefile editfile")
+    # --- End Tool Management Arguments ---
+
     # CORRECTED: Parse directly from sys.argv, as the pre-processing logic was removed.
     args, unknown_args = parser.parse_known_args(sys.argv[1:])
 
@@ -652,6 +781,24 @@ if args.clear_cache is not None:
     print(f"   Space reclaimed: {(stats_before.get('db_file_size_bytes', 0) - stats_after.get('db_file_size_bytes', 0)) / (1024*1024):.2f} MB\n")
 
     sys.exit(0)
+
+# --- Handle Tool Management Arguments ---
+# Process --enable and --disable arguments before listing/starting
+from core.tool_config import get_tool_config_manager
+tool_config_manager = get_tool_config_manager()
+
+if hasattr(args, 'enable') and args.enable:
+    tool_config_manager.enable_tools(args.enable)
+    print(colored(f"✓ Enabled tools: {', '.join(args.enable)}", "green"))
+
+if hasattr(args, 'disable') and args.disable:
+    tool_config_manager.disable_tools(args.disable)
+    print(colored(f"✓ Disabled tools: {', '.join(args.disable)}", "red"))
+
+# --- Handle Tool Listing ---
+# List tools and exit if --list-tools was specified
+if args.list_tools:
+    list_tools_and_exit()
 
 # Store continue flag in global state for access by tools
 g.CONTINUE_CONVERSATION = args.c
@@ -1795,8 +1942,30 @@ async def main(  # type: ignore[misc]
 
         # Populate tool info for startup display
         if not hasattr(g, 'loaded_tool_info') or not g.loaded_tool_info:
-            # Get disabled tools from global state (set by visual interface)
-            user_disabled_tools = getattr(g, 'disabled_tools', [])
+            # Load tool configuration manager and handle CLI arguments
+            from core.tool_config import get_tool_config_manager
+            tool_config = get_tool_config_manager()
+
+            # Handle --enable and --disable CLI arguments
+            if hasattr(args, 'enable') and args.enable:
+                tool_config.enable_tools(args.enable)
+                logging.info(f"Enabled tools from CLI: {args.enable}")
+
+            if hasattr(args, 'disable') and args.disable:
+                tool_config.disable_tools(args.disable)
+                logging.info(f"Disabled tools from CLI: {args.disable}")
+
+            # Get disabled tools from tool config (merged with CLI args)
+            user_disabled_tools = tool_config.get_disabled_tools()
+
+            # Also check global state for web UI disabled tools
+            if hasattr(g, 'disabled_tools') and g.disabled_tools:
+                # Merge with global state (web UI may have set this)
+                user_disabled_tools = list(set(user_disabled_tools + g.disabled_tools))
+
+            # Update global state with final disabled tools list
+            g.disabled_tools = user_disabled_tools
+
             _generate_tool_documentation(user_disabled_tools)
 
         if tui_callback: tui_callback("✔ Initialization complete.", "system_ok")
@@ -2095,7 +2264,7 @@ async def main(  # type: ignore[misc]
                             error_message = "❌ No LLM configured. Please select at least one model (router, planner, or fallback) before sending messages."
 
                             # Debug logging to understand why validation failed
-                            logging.error(f"LLM validation failed:")
+                            logging.error("LLM validation failed:")
                             logging.error(f"  selected_models: {selected_models}")
                             logging.error(f"  g.planner_llms_list: {g.planner_llms_list}")
                             logging.error(f"  g.router_llms_list: {g.router_llms_list}")
@@ -2336,6 +2505,7 @@ async def main(  # type: ignore[misc]
                                 tool_results = []
                                 executed_tools_info = []  # Track tool execution info for visual interface
                                 tools_executed_this_turn = True  # Mark that tools were executed
+                                should_break_agent_loop = False  # Flag to break outer agent loop after tool execution
                                 for tool_class in tool_tags_found:
                                     tool_name = tool_class.get_delim()
                                     blocks = get_extract_blocks()(assistant_response, [tool_name])
@@ -2723,8 +2893,9 @@ Examples:
 
                                 # Now check if we should break (after TTS has been processed)
                                 if (tool_name in ["response", "visualresponse"] and "error" not in returned_context.lower()):
-                                    # Break and wait for user input instead of continuing the loop
-                                    break
+                                    # Set flag to break from outer agent loop after tool execution completes
+                                    should_break_agent_loop = True
+                                    break  # Break from tool execution for loop
 
                                 continue # Continue the agent loop for the next action
                             except Exception:
@@ -2761,6 +2932,11 @@ Examples:
                             context_chat.add_message(Role.ASSISTANT, cancellation_notice)
                             assistant_response = ""
                             continue # Continue the agent loop for the next action
+
+                        # Check if we should break from agent loop after tool execution
+                        if should_break_agent_loop:
+                            logging.debug("Breaking from agent loop after visualresponse/response tool execution")
+                            break  # Break from outer agent while loop
 
                     else:
                         # No tools or code found, this is a conversational response.

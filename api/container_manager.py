@@ -30,10 +30,33 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 
-# Configure logging
+# Configure logging with file persistence
+from logging.handlers import RotatingFileHandler
+
+LOG_DIR = Path("/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+console_handler.setFormatter(console_formatter)
+
+# File handler with rotation
+file_handler = RotatingFileHandler(
+    LOG_DIR / "container_manager.log",
+    maxBytes=50 * 1024 * 1024,  # 50MB
+    backupCount=5,
+    encoding='utf-8'
+)
+file_handler.setLevel(logging.DEBUG)  # Log everything to file
+file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+file_handler.setFormatter(file_formatter)
+
+# Configure root logger
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    level=logging.DEBUG,
+    handlers=[console_handler, file_handler]
 )
 logger = logging.getLogger(__name__)
 

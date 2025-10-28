@@ -138,7 +138,7 @@ class ChatStateManager {
         this._bootstrapStartIdx = undefined;
 
         this.setupWebSocketHandlers();
-        console.log('ChatStateManager initialized');
+        window.logInfo('ChatStateManager initialized');
     }
 
     /**
@@ -152,7 +152,7 @@ class ChatStateManager {
      */
     async loadCurrentChat() {
         try {
-            console.log('Loading current chat from backend...');
+            window.logDebug('Loading current chat from backend...');
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/current') : '/api/chat/current';
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout for chat load
@@ -169,7 +169,7 @@ class ChatStateManager {
                 const data = await response.json();
 
                 if (data.status === 'success' && data.chat) {
-                    console.log(`Loaded current chat with ${data.chat.messages ? data.chat.messages.length : 0} messages`);
+                    window.logDebug(`Loaded current chat with ${data.chat.messages ? data.chat.messages.length : 0} messages`);
 
                     this.messages = data.chat.messages || [];
                     this.currentChatId = data.chat.id || null;
@@ -178,7 +178,7 @@ class ChatStateManager {
                     // Render all messages
                     if (this.messages.length > 0) {
                         this.renderAll();
-                        console.log('✅ Chat messages rendered on page load');
+                        window.logInfo('✅ Chat messages rendered on page load');
                     } else {
                         console.log('No messages to render (new chat)');
                     }
@@ -275,6 +275,11 @@ class ChatStateManager {
         this.messages.push(message);
         this.emit('message_added', message);
         this.emit('state_changed');
+
+        // Hide suggested prompts when first message is added
+        if (message.role === 'user' || message.role === 'assistant') {
+            this.hideSuggestedPrompts();
+        }
     }
 
     /**
@@ -286,7 +291,7 @@ class ChatStateManager {
      * @fires ChatStateManager#state_changed
      */
     replaceChat(chatData) {
-        console.log('Replacing chat state with loaded chat:', chatData);
+        window.logDebug('Replacing chat state with loaded chat:', chatData);
 
         this.messages = chatData.messages || [];
         this.currentChatId = chatData.id || null;
@@ -308,7 +313,7 @@ class ChatStateManager {
      * @fires ChatStateManager#state_changed
      */
     clearChat() {
-        console.log('Clearing chat state');
+        window.logDebug('Clearing chat state');
 
         this.messages = [];
         this.currentChatId = null;
@@ -320,6 +325,9 @@ class ChatStateManager {
         this.renderer.clearContent();
 
         this.showSuccess('New chat started. Previous conversation archived.');
+
+        // Show suggested prompts for the new empty chat
+        this.showSuggestedPrompts();
     }
 
     /**
@@ -328,7 +336,7 @@ class ChatStateManager {
      * Respects bootstrap_message_count to skip initial system messages.
      */
     renderAll() {
-        console.log(`Rendering ${this.messages.length} messages`);
+        window.logDebug(`Rendering ${this.messages.length} messages`);
 
         this.renderer.clearContent();
 
@@ -341,7 +349,7 @@ class ChatStateManager {
         const startIdx = this._bootstrapStartIdx;
 
         if (startIdx > 0) {
-            console.log(`Skipping first ${startIdx} bootstrap messages`);
+            window.logDebug(`Skipping first ${startIdx} bootstrap messages`);
         }
 
         for (let i = startIdx; i < this.messages.length; i++) {
@@ -352,6 +360,9 @@ class ChatStateManager {
                 console.error('Failed to render message:', error, this.messages[i]);
             }
         }
+
+        // Show suggested prompts if chat is empty
+        this.showSuggestedPrompts();
     }
 
     /**
@@ -395,13 +406,13 @@ class ChatStateManager {
         // Load chat immediately via HTTP, don't wait for WebSocket
         this.loadCurrentChat().then(() => {
             chatLoaded = true;
-            console.log('✅ Initial chat load complete');
+            window.logInfo('✅ Initial chat load complete');
         }).catch(err => {
             console.warn('Failed to load chat via HTTP, will retry on session_init:', err);
         });
 
         this.wsManager.on('session_init', async (data) => {
-            console.log('Session initialized');
+            window.logInfo('Session initialized');
             // Only reload if initial load failed or if this is a fresh session
             if (!chatLoaded) {
                 await this.loadCurrentChat();
@@ -517,7 +528,7 @@ class ChatStateManager {
             }
         });
 
-        console.log('WebSocket handlers registered for chat sync');
+        window.logDebug('WebSocket handlers registered for chat sync');
     }
 
     /**
@@ -602,6 +613,88 @@ class ChatStateManager {
     }
 
     /**
+     * Show suggested prompts for empty chats
+     * Fetches prompts from backend and displays them as clickable cards
+     * Only shows when chat has no user/assistant messages (after bootstrap messages)
+     *
+     * @private
+     */
+    async showSuggestedPrompts() {
+        // Check if chat is truly empty by looking at messages after bootstrap
+        const bootstrapCount = this.metadata.bootstrap_message_count || 0;
+        const userMessages = this.messages.slice(bootstrapCount);
+
+        const hasUserMessages = userMessages.some(msg =>
+            msg.role === 'user' || msg.role === 'assistant'
+        );
+
+        if (hasUserMessages) {
+            return;
+        }
+
+        try {
+            // Build URL using BackendConnector for multi-user compatibility
+            const url = window.backendConnector
+                ? await window.backendConnector.buildURL('/api/chat/suggested-prompts')
+                : '/api/chat/suggested-prompts';
+
+            const response = await fetch(url, {
+                headers: {
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.status !== 'success') {
+                throw new Error(data.error || 'Failed to fetch suggested prompts');
+            }
+
+            // Render prompts in content wrapper
+            const contentWrapper = document.getElementById('content-wrapper');
+            if (!contentWrapper) {
+                console.error('Content wrapper not found');
+                return;
+            }
+
+            // Create container for suggested prompts
+            const promptsContainer = document.createElement('div');
+            promptsContainer.className = 'suggested-prompts-container';
+            promptsContainer.id = 'suggested-prompts-container';
+
+            // Create prompt cards
+            data.prompts.forEach(prompt => {
+                const card = document.createElement('div');
+                card.className = 'suggested-prompt-card';
+                card.textContent = prompt;
+                card.dataset.prompt = prompt;
+                promptsContainer.appendChild(card);
+            });
+
+            contentWrapper.appendChild(promptsContainer);
+            window.logDebug(`Displayed ${data.prompts.length} suggested prompts`);
+
+        } catch (error) {
+            console.error('Failed to show suggested prompts:', error);
+            // Fail silently - suggested prompts are optional UX enhancement
+        }
+    }
+
+    /**
+     * Hide suggested prompts
+     * Removes the suggested prompts container from the DOM
+     *
+     * @private
+     */
+    hideSuggestedPrompts() {
+        const promptsContainer = document.getElementById('suggested-prompts-container');
+        if (promptsContainer) {
+            promptsContainer.remove();
+            window.logDebug('Suggested prompts hidden');
+        }
+    }
+
+    /**
      * Show success message to user
      * Uses showToast() if available, otherwise logs to console
      *
@@ -612,7 +705,7 @@ class ChatStateManager {
         if (typeof showToast === 'function') {
             showToast(message, 'success');
         } else {
-            console.log('✅', message);
+            window.logInfo('✅', message);
         }
     }
 

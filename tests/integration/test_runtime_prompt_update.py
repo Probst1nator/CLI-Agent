@@ -6,7 +6,6 @@ Tests that:
 2. API endpoint correctly updates g.disabled_tools
 3. The integration flow works end-to-end
 """
-import pytest
 from core.globals import g
 from core.chat import Chat, Role
 

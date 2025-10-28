@@ -3,25 +3,18 @@
 
 set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-echo -e "${GREEN}=== Release to Production ===${NC}\n"
+# Source deployment logger for persistent audit logging
+source "$(dirname "$0")/deployment_logger.sh"
 
 # Ensure we're on main branch
 CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" != "main" ]; then
-    echo -e "${RED}Error: You must be on the 'main' branch to release.${NC}"
-    echo "Current branch: $CURRENT_BRANCH"
-    exit 1
+    die "You must be on the 'main' branch to release. Current branch: $CURRENT_BRANCH"
 fi
 
 # Check for uncommitted changes
 if ! git diff-index --quiet HEAD --; then
-    echo -e "${RED}Error: You have uncommitted changes. Please commit or stash them first.${NC}"
+    log_error "You have uncommitted changes. Please commit or stash them first."
     git status --short
     exit 1
 fi
@@ -31,39 +24,38 @@ echo -e "${YELLOW}Enter the release version/title (e.g., 'v1.2.0 - Multi-user su
 read -r RELEASE_TITLE
 
 if [ -z "$RELEASE_TITLE" ]; then
-    echo -e "${RED}Error: Release title cannot be empty.${NC}"
-    exit 1
+    die "Release title cannot be empty"
 fi
 
 # Show current state
-echo -e "\n${GREEN}Current branches:${NC}"
+log_info "Current branches:"
 git branch -v
 
 # Switch to production branch
-echo -e "\n${GREEN}Switching to production branch...${NC}"
+log_info "Switching to production branch..."
 git checkout production
 
 # Count commits between production and main
 COMMIT_COUNT=$(git rev-list --count production..main)
-echo -e "${GREEN}Found $COMMIT_COUNT commits to squash${NC}"
+log_info "Found $COMMIT_COUNT commits to squash"
 
 if [ "$COMMIT_COUNT" -eq 0 ]; then
-    echo -e "${YELLOW}Production is already up to date with main. Nothing to release.${NC}"
+    log_warning "Production is already up to date with main. Nothing to release."
     git checkout main
     exit 0
 fi
 
 # Squash all commits from production..main into one
-echo -e "\n${GREEN}Squashing commits into single release...${NC}"
+log_info "Squashing commits into single release..."
 git reset --soft main
 git reset --soft HEAD~$COMMIT_COUNT
 
 # Create a single squashed commit with the release title
-echo -e "\n${GREEN}Creating release commit...${NC}"
+log_info "Creating release commit..."
 git commit -m "$RELEASE_TITLE"
 
 # Show the result
-echo -e "\n${GREEN}✓ Release commit created:${NC}"
+log_success "Release commit created:"
 git log -1 --oneline
 
 # Ask if user wants to push
@@ -71,15 +63,15 @@ echo -e "\n${YELLOW}Push to git_public/production? (y/n):${NC}"
 read -r PUSH_CONFIRM
 
 if [ "$PUSH_CONFIRM" = "y" ] || [ "$PUSH_CONFIRM" = "Y" ]; then
-    echo -e "\n${GREEN}Pushing to git_public/production...${NC}"
-    git push git_public production --force-with-lease
-    echo -e "${GREEN}✓ Successfully pushed to git_public/production${NC}"
+    log_info "Pushing to git_public/production..."
+    git push git_public production --force-with-lease || die "Failed to push to git_public/production"
+    log_success "Successfully pushed to git_public/production"
 else
-    echo -e "${YELLOW}Skipped push. Run 'git push git_public production --force-with-lease' manually when ready.${NC}"
+    log_warning "Skipped push. Run 'git push git_public production --force-with-lease' manually when ready."
 fi
 
 # Switch back to main
-echo -e "\n${GREEN}Switching back to main branch...${NC}"
+log_info "Switching back to main branch..."
 git checkout main
 
-echo -e "\n${GREEN}=== Release complete! ===${NC}"
+success

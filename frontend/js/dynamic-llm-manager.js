@@ -159,12 +159,12 @@ class DynamicLLMManager {
                     const config = data.current_configuration || {};
 
                     // Debug: Log what we received
-                    console.log('[DynamicLLMManager] Available models:', this.availableModels.length);
-                    console.log('[DynamicLLMManager] Config received:', config);
-                    console.log('[DynamicLLMManager] override_llms:', config.override_llms);
-                    console.log('[DynamicLLMManager] router_llms:', config.router_llms);
-                    console.log('[DynamicLLMManager] planner_llms:', config.planner_llms);
-                    console.log('[DynamicLLMManager] selected_llms:', config.selected_llms);
+                    window.logDebug('[DynamicLLMManager] Available models:', this.availableModels.length);
+                    window.logDebug('[DynamicLLMManager] Config received:', config);
+                    window.logDebug('[DynamicLLMManager] override_llms:', config.override_llms);
+                    window.logDebug('[DynamicLLMManager] router_llms:', config.router_llms);
+                    window.logDebug('[DynamicLLMManager] planner_llms:', config.planner_llms);
+                    window.logDebug('[DynamicLLMManager] selected_llms:', config.selected_llms);
 
                     // Load multi-model arrays (new format)
                     this.renderSelectors('override', config.override_llms || []);
@@ -202,7 +202,7 @@ class DynamicLLMManager {
      * @returns {void}
      */
     renderSelectors(role, models) {
-        console.log(`[DynamicLLMManager] renderSelectors called for ${role} with models:`, models);
+        window.logDebug(`[DynamicLLMManager] renderSelectors called for ${role} with models:`, models);
 
         const container = this.roleContainers[role];
         if (!container) {
@@ -211,7 +211,7 @@ class DynamicLLMManager {
             return;
         }
 
-        console.log(`[DynamicLLMManager] Container found for ${role}:`, container);
+        window.logDebug(`[DynamicLLMManager] Container found for ${role}:`, container);
 
         // Clear existing selectors
         container.innerHTML = '';
@@ -228,10 +228,10 @@ class DynamicLLMManager {
         }
         // If config is empty, render nothing - user must select models
 
-        console.log(`[DynamicLLMManager] Models to render for ${role}:`, modelsToRender);
+        window.logDebug(`[DynamicLLMManager] Models to render for ${role}:`, modelsToRender);
 
         modelsToRender.forEach((modelId, index) => {
-            console.log(`[DynamicLLMManager] Creating selector ${index} for ${role} with model: ${modelId}`);
+            window.logDebug(`[DynamicLLMManager] Creating selector ${index} for ${role} with model: ${modelId}`);
             this.createSelector(role, modelId, index);
         });
 
@@ -282,13 +282,13 @@ class DynamicLLMManager {
         const modelToSelect = selectedModel || null;
 
         // Initialize SearchableLLMSelectbox
-        console.log(`[DynamicLLMManager] Checking for SearchableLLMSelectbox:`, typeof window.SearchableLLMSelectbox);
-        console.log(`[DynamicLLMManager] Available models count:`, this.availableModels.length);
-        console.log(`[DynamicLLMManager] Model to select:`, modelToSelect);
-        console.log(`[DynamicLLMManager] selectorDiv element:`, selectorDiv);
+        window.logDebug(`[DynamicLLMManager] Checking for SearchableLLMSelectbox:`, typeof window.SearchableLLMSelectbox);
+        window.logDebug(`[DynamicLLMManager] Available models count:`, this.availableModels.length);
+        window.logDebug(`[DynamicLLMManager] Model to select:`, modelToSelect);
+        window.logDebug(`[DynamicLLMManager] selectorDiv element:`, selectorDiv);
 
         if (window.SearchableLLMSelectbox) {
-            console.log(`[DynamicLLMManager] Creating SearchableLLMSelectbox for ${selectorId}`);
+            window.logDebug(`[DynamicLLMManager] Creating SearchableLLMSelectbox for ${selectorId}`);
 
             // Create selectbox with correct constructor signature
             const selectbox = new window.SearchableLLMSelectbox(selectorDiv, {
@@ -310,7 +310,7 @@ class DynamicLLMManager {
                 wrapper: wrapper
             });
 
-            console.log(`[DynamicLLMManager] Successfully created selector ${selectorId} for ${role}`);
+            window.logDebug(`[DynamicLLMManager] Successfully created selector ${selectorId} for ${role}`);
             this.logger.debug(`[DynamicLLMManager] Created selector ${selectorId} for ${role}`);
         } else {
             console.error('[DynamicLLMManager] SearchableLLMSelectbox class not found on window object');
@@ -377,16 +377,16 @@ class DynamicLLMManager {
      * @returns {void}
      */
     onSelectionChange(role, selectorId, newModel) {
-        console.log(`[DynamicLLMManager] Selection changed for ${role}:`, newModel);
+        window.logDebug(`[DynamicLLMManager] Selection changed for ${role}:`, newModel);
         this.logger.debug(`[DynamicLLMManager] Selection changed: ${role} - ${selectorId}`, newModel);
 
         // If "None" selected, remove the selector
         // Check multiple conditions: model is null, model.id is null, or isNoneOption flag
         if (newModel === null || (newModel && (newModel.id === null || newModel.isNoneOption === true))) {
-            console.log(`[DynamicLLMManager] Removing selector ${selectorId} for ${role}`);
+            window.logDebug(`[DynamicLLMManager] Removing selector ${selectorId} for ${role}`);
             this.removeSelector(role, selectorId);
         } else {
-            console.log(`[DynamicLLMManager] Saving configuration for ${role}`);
+            window.logDebug(`[DynamicLLMManager] Saving configuration for ${role}`);
             this.saveConfiguration(role);
         }
     }
@@ -400,13 +400,13 @@ class DynamicLLMManager {
     async saveConfiguration(role) {
         // Skip saving during initialization to prevent overwriting loaded config
         if (this.isInitializing) {
-            console.log(`[DynamicLLMManager] Skipping save during initialization for ${role}`);
+            window.logDebug(`[DynamicLLMManager] Skipping save during initialization for ${role}`);
             return;
         }
 
         // Skip saving during profile loading to prevent overwriting other profiles
         if (window.app && window.app.isLoadingProfile) {
-            console.log(`[DynamicLLMManager] Skipping save during profile load for ${role}`);
+            window.logDebug(`[DynamicLLMManager] Skipping save during profile load for ${role}`);
             return;
         }
 
@@ -452,7 +452,7 @@ class DynamicLLMManager {
 
                 // Trigger auto-save (with debouncing) to persist changes and check for empty profiles
                 if (window.app && window.app.scheduleAutoSave) {
-                    console.log(`[DynamicLLMManager] Calling scheduleAutoSave() after ${role} update`);
+                    window.logDebug(`[DynamicLLMManager] Calling scheduleAutoSave() after ${role} update`);
                     window.app.scheduleAutoSave();
                 } else {
                     console.warn('[DynamicLLMManager] window.app.scheduleAutoSave not available');

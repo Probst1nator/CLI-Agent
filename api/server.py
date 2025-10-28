@@ -313,9 +313,43 @@ class VisualServer:
 
             return response
 
-        # Add middlewares in order (CORS first)
+        @web.middleware
+        async def request_id_middleware(request, handler):
+            """Inject request ID into logging context for correlation"""
+            import uuid
+            import time
+
+            # Get request ID from header or generate new one
+            request_id = request.headers.get('X-Request-ID')
+            if not request_id:
+                request_id = f"req_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+            # Store in request for access in handlers
+            request['request_id'] = request_id
+
+            # Inject into logging context
+            old_factory = logging.getLogRecordFactory()
+
+            def record_factory(*args, **kwargs):
+                record = old_factory(*args, **kwargs)
+                record.request_id = request_id
+                return record
+
+            logging.setLogRecordFactory(record_factory)
+
+            try:
+                response = await handler(request)
+                # Echo request ID back in response header
+                response.headers['X-Request-ID'] = request_id
+                return response
+            finally:
+                # Restore original factory
+                logging.setLogRecordFactory(old_factory)
+
+        # Add middlewares in order (CORS first, then logging, then request ID)
         self.app.middlewares.append(cors_middleware)
         self.app.middlewares.append(session_logging_middleware)
+        self.app.middlewares.append(request_id_middleware)
 
     async def index_handler(self, request):
         """Serve main HTML page with cache-busting headers"""

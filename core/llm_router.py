@@ -417,7 +417,7 @@ class LlmRouter:
                     model = next((model for model in instance.retry_models if model_key in model.model_key and (not has_vision or has_vision == model.has_vision)), None)
 
                 if model:
-                    capable, _ = instance.model_capable_check(model, chat, strengths, model.local, False, has_vision, debug_model_key=model_key)
+                    capable, _ = instance.model_capable_check(model, chat, strengths, model.local, force_free, has_vision, debug_model_key=model_key)
                     if capable:
                         candidate_models.append(model)
 
@@ -788,7 +788,19 @@ class LlmRouter:
                     instance.retry_models.remove(model)
             return
 
+        # Extract error message with fallbacks for empty __str__
         error_msg = str(e)
+        if not error_msg or error_msg.strip() == "":
+            # Try alternative sources for error details
+            if hasattr(e, 'message') and e.message:
+                error_msg = str(e.message)
+            elif hasattr(e, 'args') and e.args:
+                error_msg = str(e.args[0]) if len(e.args) > 0 else repr(e.args)
+            elif hasattr(e, '__dict__') and e.__dict__:
+                error_msg = str(e.__dict__)
+            else:
+                error_msg = f"{type(e).__name__}: {repr(e)}"
+
         prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
         provider_name = model.provider.__class__.__name__ if model else "Unknown"
         model_key = model.model_key if model else "unknown"
@@ -1471,6 +1483,11 @@ class LlmRouter:
 
                 # Reset failed models to allow retrying them
                 instance.failed_models.clear()
+
+                # IMPORTANT: Reset retry_models to full list before calling get_models()
+                # Otherwise get_models() searches through already-filtered retry_models and can't find the models
+                instance._ensure_dynamic_models_loaded()
+                instance.retry_models = Llm.get_available_llms(include_dynamic=True)
 
                 # Reset retry_models to the original list of available models
                 # When force_preferred_model is True, only include preferred models in retry list

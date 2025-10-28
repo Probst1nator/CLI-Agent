@@ -319,6 +319,75 @@ async def handle_tail_stream(request: web.Request) -> web.StreamResponse:
         }, status=500)
 
 
+async def handle_client_logs(request: web.Request) -> web.Response:
+    """
+    Receive and persist client-side logs for debugging.
+
+    Accepts JSON payload with:
+    - level: Log level (DEBUG, INFO, WARN, ERROR)
+    - message: Log message
+    - stack: Error stack trace (optional)
+    - context: Additional context data (optional)
+    - url: Page URL
+    - userAgent: Browser user agent
+    - timestamp: Client timestamp
+    """
+    try:
+        data = await request.json()
+        session_id = request.headers.get('X-Session-ID', 'unknown')
+        request_id = request.headers.get('X-Request-ID', 'unknown')
+
+        # Get log directory
+        log_dir = LogReader.get_log_directory()
+        client_log_path = log_dir / "client_errors.log"
+
+        # Ensure directory exists
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Format log entry
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
+        level = data.get('level', 'ERROR')
+        message = data.get('message', 'No message')
+
+        # Write to client error log
+        with open(client_log_path, 'a', encoding='utf-8') as f:
+            f.write(f"[{timestamp}] [{session_id}] [{request_id}] [{level}] {message}\n")
+
+            # Add stack trace if present
+            stack = data.get('stack')
+            if stack:
+                f.write(f"  Stack: {stack}\n")
+
+            # Add context if present
+            context = data.get('context')
+            if context:
+                f.write(f"  Context: {json.dumps(context)}\n")
+
+            # Add URL and user agent
+            url = data.get('url')
+            if url:
+                f.write(f"  URL: {url}\n")
+
+            user_agent = data.get('userAgent')
+            if user_agent:
+                f.write(f"  UserAgent: {user_agent[:100]}\n")  # Truncate
+
+            f.write("\n")  # Blank line between entries
+
+        logger.debug(f"Received client log: [{level}] {message[:100]}")
+
+        return web.json_response({'status': 'success'})
+
+    except Exception as e:
+        logger.error(f"Failed to log client error: {e}", exc_info=True)
+        return web.json_response({
+            'status': 'error',
+            'error': str(e),
+            'code': 'CLIENT_LOG_ERROR'
+        }, status=500)
+
+
 def setup_routes(app):
     """Register log API routes"""
     if not AIOHTTP_AVAILABLE:
@@ -328,5 +397,6 @@ def setup_routes(app):
     app.router.add_get('/api/logs/list', handle_list_logs)
     app.router.add_get('/api/logs/tail', handle_tail_log)
     app.router.add_get('/api/logs/tail-stream', handle_tail_stream)
+    app.router.add_post('/api/logs/client', handle_client_logs)
 
     logger.info("Log API routes registered")

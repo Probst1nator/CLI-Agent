@@ -119,6 +119,11 @@ class Logger {
             this.outputToConsole(logEntry);
         }
 
+        // Ship critical logs to backend if enabled
+        if (this.config.shipToBackend && (level === 'ERROR' || level === 'WARN')) {
+            this.shipLogToBackend(logEntry);
+        }
+
         return logEntry;
     }
 
@@ -163,6 +168,40 @@ class Logger {
         } else {
             console.log(`%c${prefix} ${message}`, style);
         }
+    }
+
+    /**
+     * Ship log entry to backend for persistence
+     * @param {Object} logEntry - Log entry to ship
+     */
+    shipLogToBackend(logEntry) {
+        // Don't block on network errors - fire and forget
+        const payload = {
+            level: logEntry.level,
+            message: logEntry.message,
+            stack: logEntry.error?.stack,
+            context: logEntry.data,
+            url: logEntry.url,
+            userAgent: logEntry.userAgent,
+            timestamp: new Date(logEntry.timestamp).toISOString()
+        };
+
+        // Use fetch with no-cors to avoid blocking
+        fetch('/api/logs/client', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': window.sessionId || 'unknown',
+                'X-Request-ID': logEntry.data?.requestId || 'unknown'
+            },
+            body: JSON.stringify(payload)
+        }).catch(err => {
+            // Silently fail to avoid error loops
+            // Only log to console if in debug mode
+            if (this.config.level === 'DEBUG') {
+                console.error('Failed to ship log to backend:', err);
+            }
+        });
     }
 
     /**
@@ -374,13 +413,54 @@ class Logger {
     }
 }
 
+// Detect debug mode from URL parameter or localStorage
+function getLogLevel() {
+    // Check URL parameter: ?debug=true or ?loglevel=DEBUG
+    const urlParams = new URLSearchParams(window.location.search);
+    const debugParam = urlParams.get('debug');
+    const logLevelParam = urlParams.get('loglevel');
+
+    // Check localStorage for persistent setting
+    const storedLevel = localStorage.getItem('vr-log-level');
+
+    // Priority: URL param > localStorage > default
+    if (logLevelParam) {
+        return logLevelParam.toUpperCase();
+    }
+    if (debugParam === 'true') {
+        return 'DEBUG';
+    }
+    if (storedLevel) {
+        return storedLevel;
+    }
+
+    // Default to WARN to reduce console spam
+    return 'WARN';
+}
+
 // Create global logger instance
-// Configure for info mode initially to reduce console spam
 window.visualLogger = new Logger({
-    level: 'INFO',
+    level: getLogLevel(),
     persist: true,
-    console: true
+    console: true,
+    shipToBackend: true  // Ship ERROR and WARN logs to backend
 });
+
+// Add method to change log level at runtime
+window.setLogLevel = function(level) {
+    const validLevels = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
+    const upperLevel = level.toUpperCase();
+
+    if (!validLevels.includes(upperLevel)) {
+        console.error(`Invalid log level: ${level}. Valid levels: ${validLevels.join(', ')}`);
+        return false;
+    }
+
+    window.visualLogger.config.level = upperLevel;
+    localStorage.setItem('vr-log-level', upperLevel);
+    console.log(`Log level changed to: ${upperLevel}`);
+    return true;
+};
 
 // Add convenience methods to global scope for easier debugging
 window.logDebug = (msg, data) => window.visualLogger.debug(msg, data);

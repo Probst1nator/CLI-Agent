@@ -563,6 +563,40 @@ async def truncate_and_continue(request: Any) -> Any:
         }, status=500)
 
 
+async def get_suggested_prompts(request: Any) -> Any:
+    """GET /api/chat/suggested-prompts
+
+    Returns a list of suggested starting prompts for empty chats.
+    These prompts help users get started with the agent.
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        # Hardcoded exploratory prompts for now
+        # TODO: Make these dynamically generated based on available tools/context
+        prompts = [
+            "What can you help me with?",
+            "Show me your capabilities and available tools",
+            "Explain how your tool system works",
+            "What programming languages and frameworks do you support?",
+            "Tell me about your key features"
+        ]
+
+        return web.json_response({
+            'status': 'success',
+            'prompts': prompts
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to get suggested prompts: {e}")
+        return web.json_response({
+            'status': 'error',
+            'error': str(e),
+            'code': 'INTERNAL_ERROR'
+        }, status=500)
+
+
 def setup_routes(app: Any):
     """Register all chat API routes"""
     app.router.add_get('/api/chat/current', get_current_chat)
@@ -575,4 +609,5 @@ def setup_routes(app: Any):
     app.router.add_get('/api/chat/archives', list_archived_chats)
     app.router.add_get('/api/chat/search', search_chats)
     app.router.add_delete('/api/chat/archive/{id}', delete_archived_chat)
+    app.router.add_get('/api/chat/suggested-prompts', get_suggested_prompts)
     logger.info("Chat API routes registered")
