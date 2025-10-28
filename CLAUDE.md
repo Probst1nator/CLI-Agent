@@ -63,6 +63,32 @@ cp .env.example .env
 # Edit .env with your API keys
 ```
 
+### Debugging & Logging
+```bash
+# View all recent logs (unified viewer)
+./user_scripts/view_logs.sh
+./user_scripts/view_logs.sh 500  # Last 500 lines
+
+# Search logs with filters
+./user_scripts/search_logs.py --level ERROR --since 1h
+./user_scripts/search_logs.py --request-id req_1730123456_abc123
+./user_scripts/search_logs.py --sources backend --pattern "timeout"
+./user_scripts/search_logs.py --level ERROR --format json > errors.json
+
+# Direct log access
+tail -f ~/.cli-agent/logs/session.log        # Backend logs (always DEBUG level)
+tail -f ~/.cli-agent/logs/client_errors.log  # Frontend errors
+tail -f ~/.cli-agent/logs/tools_bash.log     # Tool-specific logs
+ls ~/.cli-agent/deployment_logs/             # Deployment history
+```
+
+**Key Features:**
+- All logs persist at DEBUG level (even without `--debug` flag)
+- Request IDs trace requests across frontend → backend → tools
+- Frontend errors auto-ship to backend logs
+- Automatic log rotation (session: 30d/50MB, tools: 14d/20MB, deployments: 30d)
+- See `docs/DEBUGGING_ENHANCEMENTS.md` for full documentation
+
 ## Architecture Overview
 
 ### Recent Architectural Changes (2025-10)

@@ -159,6 +159,60 @@
  *
  * @class
  */
+
+// ===== REQUEST CORRELATION UTILITIES =====
+
+/**
+ * Generate a unique request correlation ID
+ * @returns {string} Request ID in format: req_timestamp_random
+ */
+function generateRequestId() {
+    return 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+/**
+ * Enhanced fetch wrapper that automatically adds request correlation IDs
+ * @param {string} url - URL to fetch
+ * @param {Object} options - Fetch options
+ * @returns {Promise<Response>} Fetch response
+ */
+async function fetchWithRequestId(url, options = {}) {
+    const requestId = generateRequestId();
+
+    // Merge headers with request ID
+    options.headers = {
+        ...options.headers,
+        'X-Request-ID': requestId,
+        'X-Session-ID': window.sessionId || 'unknown'
+    };
+
+    // Log the request at DEBUG level
+    window.logDebug(`API Request: ${options.method || 'GET'} ${url}`, { requestId });
+
+    try {
+        const response = await fetch(url, options);
+
+        // Log response status
+        if (!response.ok) {
+            window.logWarn(`API Response Error: ${response.status} ${response.statusText}`, {
+                requestId,
+                url,
+                status: response.status
+            });
+        }
+
+        return response;
+    } catch (error) {
+        // Log fetch errors
+        window.logError(`API Request Failed: ${url}`, { requestId, url }, error);
+        throw error;
+    }
+}
+
+// Make fetchWithRequestId available globally
+window.fetchWithRequestId = fetchWithRequestId;
+window.generateRequestId = generateRequestId;
+
 class VisualResponseApp {
     /**
      * Initialize the Visual Response Application
@@ -427,7 +481,7 @@ class VisualResponseApp {
         this.setDarkTheme();
         // loadMessageHistory() is now triggered by the WebSocket config message from server
         // This ensures we respect the continue/clear_history flags from the CLI
-        console.log('✅ Visual Response App initialized successfully');
+        window.logInfo('✅ Visual Response App initialized successfully');
         console.groupEnd();
     }
 
@@ -445,7 +499,7 @@ class VisualResponseApp {
         // Listen for state changes from backend
         if (this.wsManager) {
             this.wsManager.on('state_changed', (data) => {
-                console.log('📡 State changed:', data.state);
+                window.logDebug('📡 State changed:', data.state);
                 this.updateButtonStates(data.state);
             });
 
@@ -459,7 +513,7 @@ class VisualResponseApp {
                     if (hasFinalResponse) {
                         this.hideLoadingIndicator();
                         this.hideInterruptButton();
-                        console.log('✅ Loading indicator hidden - final response in message_added');
+                        window.logInfo('✅ Loading indicator hidden - final response in message_added');
                     }
 
                     // Trigger TTS for assistant messages with visualresponse/response tags
@@ -483,7 +537,7 @@ class VisualResponseApp {
                         if (text && text.trim()) {
                             // Check if user has interacted yet (browser autoplay policy)
                             if (!this.audioManager.hasUserInteraction) {
-                                console.log('⏸️ TTS queued - waiting for user interaction (browser autoplay policy)');
+                                window.logDebug('⏸️ TTS queued - waiting for user interaction (browser autoplay policy)');
                                 this.pendingTTS = text;
                                 this.showAutoplayPrompt();
                             } else {
@@ -1257,6 +1311,22 @@ class VisualResponseApp {
             this.handleChatSubmit();
         });
 
+        // Suggested prompts click handler (event delegation)
+        const contentWrapper = document.getElementById('content-wrapper');
+        if (contentWrapper) {
+            contentWrapper.addEventListener('click', (event) => {
+                // Check if clicked element is a suggested prompt card
+                const promptCard = event.target.closest('.suggested-prompt-card');
+                if (promptCard) {
+                    const promptText = promptCard.dataset.prompt || promptCard.textContent;
+                    // Set the input value
+                    this.chatInput.value = promptText;
+                    // Submit the form
+                    this.handleChatSubmit();
+                }
+            });
+        }
+
         // File upload event listeners
         this.setupFileUpload();
 
@@ -1326,7 +1396,7 @@ class VisualResponseApp {
                         console.log('📸 Capturing screenshot from continuous stream...');
                         const screenshot = await this.screenCaptureManager.captureFromStream();
                         images.push(screenshot);
-                        console.log('✅ Screenshot captured');
+                        window.logInfo('✅ Screenshot captured');
                     } catch (error) {
                         console.error('❌ Screenshot capture failed:', error);
                     }
@@ -1745,7 +1815,7 @@ class VisualResponseApp {
 
         // Voice button click
         this.voiceBtn.addEventListener('click', async () => {
-            console.log('🎤 Voice button clicked');
+            window.logDebug('🎤 Voice button clicked');
 
             // Clear manual override - let backend state control TTS
             this.speakModeManualOverride = false;
@@ -1778,13 +1848,13 @@ class VisualResponseApp {
                         // Start recording (VAD or manual)
                         try {
                             if (vadEnabled) {
-                                console.log('🎤 Starting VAD recording (auto-stop on silence)');
+                                window.logDebug('🎤 Starting VAD recording (auto-stop on silence)');
                                 this.voiceBtn.classList.add('vad-listening');
 
                                 const transcription = await this.audioManager.startRecordingWithVAD();
 
                                 this.voiceBtn.classList.remove('vad-listening', 'vad-recording');
-                                console.log('🎤 VAD recording complete, transcription:', transcription);
+                                window.logDebug('🎤 VAD recording complete, transcription:', transcription);
 
                                 if (transcription && this.wsManager) {
                                     this.wsManager.sendMessage(transcription);
@@ -1793,7 +1863,7 @@ class VisualResponseApp {
                                 this.voiceBtn.classList.remove('active');
                                 this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
                             } else {
-                                console.log('🎤 Starting manual recording');
+                                window.logDebug('🎤 Starting manual recording');
                                 await this.audioManager.startRecording();
                             }
                         } catch (error) {
@@ -1807,7 +1877,7 @@ class VisualResponseApp {
                         if (!vadEnabled) {
                             try {
                                 const transcription = await this.audioManager.stopRecording();
-                                console.log('🎤 Recording stopped, transcription:', transcription);
+                                window.logDebug('🎤 Recording stopped, transcription:', transcription);
                                 if (transcription && this.wsManager) {
                                     this.wsManager.sendMessage(transcription);
                                 }
@@ -3375,7 +3445,7 @@ class VisualResponseApp {
      */
     initializeFromSystemConfiguration() {
         // DEBUG: Log what we received from the API
-        console.log('🔍 WEB UI PERSISTENCE DEBUG:');
+        window.logDebug('🔍 WEB UI PERSISTENCE DEBUG:');
         console.log('  → systemConfiguration received:', this.systemConfiguration);
 
         if (this.systemConfiguration && this.systemConfiguration.selected_llms) {
@@ -3813,7 +3883,7 @@ class VisualResponseApp {
         console.log('📋 handleProfileSlotClick:', slotNumber, 'Profile exists:', !!profile, profile);
 
         if (profile) {
-            console.log('✅ Profile found, applying...');
+            window.logInfo('✅ Profile found, applying...');
             await this.applyProfile(slotNumber);
         } else {
             console.log('💾 No profile found, saving current config to slot:', slotNumber);
@@ -3868,7 +3938,7 @@ class VisualResponseApp {
                 this.dynamicLLMManager.renderSelectors('planner', plannerModels);
                 this.dynamicLLMManager.renderSelectors('fallbacks', fallbackModels);
 
-                console.log('✅ Selectors updated from profile');
+                window.logInfo('✅ Selectors updated from profile');
             } else {
                 console.warn('⚠️  DynamicLLMManager not available');
             }
@@ -3890,7 +3960,7 @@ class VisualResponseApp {
         // Re-enable auto-save after profile has fully loaded (3 seconds should be enough)
         setTimeout(() => {
             this.isLoadingProfile = false;
-            console.log('✅ Auto-save re-enabled after profile load');
+            window.logInfo('✅ Auto-save re-enabled after profile load');
         }, 3000);
     }
 
@@ -3903,7 +3973,7 @@ class VisualResponseApp {
     async refreshSelectorsFromBackend() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/llms') : '/api/llms';
-            console.log('📡 Fetching LLM config from:', url);
+            window.logDebug('📡 Fetching LLM config from:', url);
             const response = await fetch(url, {
                 headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
             });
@@ -3955,7 +4025,7 @@ class VisualResponseApp {
 
                 this.isInitializing = false;
 
-                console.log('✅ Refreshed selectors from backend configuration');
+                window.logInfo('✅ Refreshed selectors from backend configuration');
             } else {
                 console.warn('⚠️  Unexpected response structure:', data);
             }

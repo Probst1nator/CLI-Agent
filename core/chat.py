@@ -620,7 +620,7 @@ class Chat:
                 json.dump(index, f, indent=2)
             # Atomic rename (replaces old file only if write succeeded)
             os.replace(temp_path, index_path)
-        except Exception as e:
+        except Exception:
             # Clean up temp file on error
             if os.path.exists(temp_path):
                 os.unlink(temp_path)

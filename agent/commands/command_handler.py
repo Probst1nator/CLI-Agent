@@ -47,6 +47,9 @@ class CommandHandler:
         from agent.commands.profile_commands import (
             ProfileSaveCommand, ProfileLoadCommand, ProfileListCommand, ProfileDeleteCommand
         )
+        from agent.commands.tool_commands import (
+            EnableToolCommand, DisableToolCommand
+        )
 
         # Register all commands
         commands = [
@@ -77,6 +80,8 @@ class CommandHandler:
             ProfileLoadCommand(self.context),
             ProfileListCommand(self.context),
             ProfileDeleteCommand(self.context),
+            EnableToolCommand(self.context),
+            DisableToolCommand(self.context),
         ]
 
         for command in commands:

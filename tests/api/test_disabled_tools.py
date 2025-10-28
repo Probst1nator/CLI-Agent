@@ -4,7 +4,6 @@ Integration test for disabled tools functionality.
 Tests that the frontend can disable tools via the API and that
 the backend properly stores and uses the disabled tools list.
 """
-import pytest
 from core.globals import g
 
 

@@ -12,7 +12,6 @@ Fix: Changed pattern to r'"[^"<]*<[a-zA-Z0-9_/]+>[^"<]*"' which excludes '<'
 characters before and after the tag name, preventing cross-tag matches.
 """
 
-import pytest
 from shared.common_utils import extract_blocks
 
 

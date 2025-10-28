@@ -68,7 +68,7 @@ class ToolRegistry {
     async fetchTools() {
         try {
             const url = window.backendConnector ? await window.backendConnector.buildURL('/api/tools') : '/api/tools';
-            console.log('[ToolRegistry] Fetching tools from:', url);
+            window.logDebug('[ToolRegistry] Fetching tools from:', url);
             const response = await fetch(url);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -95,10 +95,10 @@ class ToolRegistry {
                 this._failedInitially = false;
 
                 window.visualLogger?.info(`ToolRegistry: Loaded ${this.tools.length} tools from server`);
-                console.log('[ToolRegistry] Successfully loaded', this.tools.length, 'tools');
+                window.logDebug('[ToolRegistry] Successfully loaded', this.tools.length, 'tools');
 
                 if (wasFailedInitially && window.ToolManager) {
-                    console.log('[ToolRegistry] Retried after initial failure - refreshing ToolManager');
+                    window.logDebug('[ToolRegistry] Retried after initial failure - refreshing ToolManager');
                     window.ToolManager.refresh();
                 }
             } else {
@@ -188,7 +188,7 @@ class ToolRegistry {
      */
     async retryIfFailed() {
         if (this._failedInitially) {
-            console.log('[ToolRegistry] Retrying after initial failure...');
+            window.logDebug('[ToolRegistry] Retrying after initial failure...');
             await this.initialize(true);
         }
     }

@@ -960,7 +960,7 @@ class ContentRenderer {
      * @returns {Promise<void>}
      */
     async renderMessage(message, messageIndex) {
-        console.log(`🎨 renderMessage called for index ${messageIndex}, role: ${message.role}, hasToolInfo: ${!!(message.metadata && message.metadata.tool_info)}, hasVisualresponse: ${message.content?.includes('<visualresponse>')}`);
+        window.logDebug(`🎨 renderMessage called for index ${messageIndex}, role: ${message.role}, hasToolInfo: ${!!(message.metadata && message.metadata.tool_info)}, hasVisualresponse: ${message.content?.includes('<visualresponse>')}`);
 
         const contentWrapper = document.getElementById('content-wrapper');
         if (!contentWrapper) {
@@ -1194,12 +1194,12 @@ class ContentRenderer {
 
         // Render the actual content (for agent messages)
         if (!isUserMessage) {
-            console.log(`🔍 Agent message rendering - allToolInfo.length: ${allToolInfo?.length || 0}, message.type: ${message.type || 'none'}`);
+            window.logDebug(`🔍 Agent message rendering - allToolInfo.length: ${allToolInfo?.length || 0}, message.type: ${message.type || 'none'}`);
 
             // IMPORTANT: Check for tool executions FIRST, as messages can have BOTH tool calls AND visualresponse
             // The tool execution branch (below) knows how to handle visualresponse within tool context
             if (allToolInfo && allToolInfo.length > 0) {
-                console.log(`📦 Taking tool execution branch with ${allToolInfo.length} tools`);
+                window.logDebug(`📦 Taking tool execution branch with ${allToolInfo.length} tools`);
                 // Message has tool executions - strip tool XML tags but preserve user-facing content
                 let cleanedContent = message.content || '';
 
@@ -1236,7 +1236,7 @@ class ContentRenderer {
                     if (typeMatch && contentMatch) {
                         vizType = typeMatch[1].trim();
                         vizContent = contentMatch[1].trim();
-                        console.log('✅ Extracted visualresponse:', {vizType, contentLength: vizContent.length});
+                        window.logDebug('✅ Extracted visualresponse:', {vizType, contentLength: vizContent.length});
                     } else {
                         console.warn('⚠️ Failed to extract type/content from visualresponse. typeMatch:', !!typeMatch, 'contentMatch:', !!contentMatch);
                         console.log('Inner content sample:', innerContent.substring(0, 200));
@@ -1375,7 +1375,7 @@ class ContentRenderer {
 
         // NOTE: We don't need quoted tag masking here - the backend handles validation
         // Frontend just needs to extract actual tool calls from the XML and markdown
-        console.log(`📝 parseToolCallsFromXML - Content has visualresponse: ${content.includes('<visualresponse>')}, has bash XML: ${content.includes('<bash>')}, has bash markdown: ${content.includes('```bash')}`);
+        window.logDebug(`📝 parseToolCallsFromXML - Content has visualresponse: ${content.includes('<visualresponse>')}, has bash XML: ${content.includes('<bash>')}, has bash markdown: ${content.includes('```bash')}`);
 
         // Wait for ToolRegistry to be ready, then get tool names
         /** @type {string[]} */
@@ -1519,7 +1519,7 @@ class ContentRenderer {
             }
         }
 
-        console.log(`✅ parseToolCallsFromXML found ${toolCalls.length} tools:`, toolCalls.map(t => t.name));
+        window.logDebug(`✅ parseToolCallsFromXML found ${toolCalls.length} tools:`, toolCalls.map(t => t.name));
         return toolCalls;
     }
 
@@ -1537,8 +1537,8 @@ class ContentRenderer {
      * @returns {ToolInfo[]} Merged tool information with metadata taking precedence
      */
     mergeToolInfoWithMetadata(xmlToolCalls, metadata) {
-        console.log(`🔀 mergeToolInfoWithMetadata - XML found ${xmlToolCalls.length} tools:`, xmlToolCalls.map(t => t.name));
-        console.log(`🔀 mergeToolInfoWithMetadata - Metadata has ${metadata?.length || 0} tools:`, metadata?.map(t => t.name) || 'none');
+        window.logDebug(`🔀 mergeToolInfoWithMetadata - XML found ${xmlToolCalls.length} tools:`, xmlToolCalls.map(t => t.name));
+        window.logDebug(`🔀 mergeToolInfoWithMetadata - Metadata has ${metadata?.length || 0} tools:`, metadata?.map(t => t.name) || 'none');
 
         if (!metadata || !Array.isArray(metadata)) {
             // No metadata means no tools were actually executed
@@ -1548,7 +1548,7 @@ class ContentRenderer {
                 return tool.context_returned ||
                        ['visualresponse', 'response', 'think', 'todos'].includes(tool.name);
             });
-            console.log(`🔀 No metadata - filtered XML to ${filtered.length} tools:`, filtered.map(t => t.name));
+            window.logDebug(`🔀 No metadata - filtered XML to ${filtered.length} tools:`, filtered.map(t => t.name));
             return filtered;
         }
 
@@ -1573,7 +1573,7 @@ class ContentRenderer {
             // No XML match - return metadata as-is
             return metadataTool;
         });
-        console.log(`🔀 Merged result: ${merged.length} tools:`, merged.map(t => t.name));
+        window.logDebug(`🔀 Merged result: ${merged.length} tools:`, merged.map(t => t.name));
         return merged;
     }
 }

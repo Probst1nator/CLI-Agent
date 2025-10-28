@@ -60,6 +60,13 @@ class FileFormatter(logging.Formatter):
         elapsed = time.time() - start_time
         record.elapsed = f"[{elapsed:6.2f}s]"
 
+        # Add request ID if available (from middleware)
+        request_id = getattr(record, 'request_id', None)
+        if request_id:
+            record.request_id_str = f" [{request_id}]"
+        else:
+            record.request_id_str = ""
+
         # The original message might contain color codes, strip them for the file log.
         if isinstance(record.msg, str):
             record.msg = re.sub(r'\x1b\[[0-9;]*m', '', record.msg)
@@ -125,7 +132,7 @@ def setup_logging(debug_mode: bool, log_file: Optional[str] = None, tui_mode: bo
         # Create rotating file handler with retention
         file_handler = log_manager.create_rotating_handler(log_file, policy_name)
         file_handler.setLevel(logging.DEBUG) # ALWAYS log everything to file, regardless of console level
-        file_formatter = FileFormatter("%(elapsed)s [%(levelname)-8s] %(message)s")
+        file_formatter = FileFormatter("%(elapsed)s%(request_id_str)s [%(levelname)-8s] %(message)s")
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 

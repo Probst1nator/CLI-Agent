@@ -227,6 +227,20 @@ class CommandRegistry:
                 category="system"
             ),
 
+            # Tool management
+            CommandDefinition(
+                canonical="enable_tool",
+                aliases=["/enable", "/enable-tool"],
+                description="Enable one or more disabled tools",
+                category="configuration"
+            ),
+            CommandDefinition(
+                canonical="disable_tool",
+                aliases=["/disable", "/disable-tool"],
+                description="Disable one or more tools",
+                category="configuration"
+            ),
+
             # Permission management
             CommandDefinition(
                 canonical="permissions",
