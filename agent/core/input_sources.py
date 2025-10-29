@@ -34,6 +34,8 @@ class CLIInputSource(InputSource_ABC):
         self._session = None
         self._exit_countdown_active = False
         self._exit_countdown_start = None
+        self._terminal_lock = asyncio.Lock()  # Prevent race conditions with terminal settings
+        self._saved_terminal_settings = None  # Store terminal settings for robust restoration
 
     async def get_input(
         self,
@@ -144,69 +146,103 @@ class CLIInputSource(InputSource_ABC):
         import tty
         from termios import tcgetattr, tcsetattr, TCSADRAIN
 
-        # If countdown is already active, ignore this interrupt
-        if self._exit_countdown_active:
-            return 'ignored'
+        # Use lock to prevent race conditions with terminal settings
+        async with self._terminal_lock:
+            # If countdown is already active, ignore this interrupt
+            if self._exit_countdown_active:
+                return 'ignored'
 
-        # Start countdown
-        self._exit_countdown_active = True
-        self._exit_countdown_start = time.time()
+            # Start countdown
+            self._exit_countdown_active = True
+            self._exit_countdown_start = time.time()
 
-        print(f"\n\033[93m⏱️  Press ESC within {EXIT_COUNTDOWN_SECONDS:.0f} seconds to exit, or wait to return to input...\033[0m", flush=True)
+            print(f"\n\033[93m⏱️  Press ESC within {EXIT_COUNTDOWN_SECONDS:.0f} seconds to exit, or wait to return to input...\033[0m", flush=True)
 
-        # Save terminal settings
-        fd = sys.stdin.fileno()
-        old_settings = tcgetattr(fd)
+            # Save terminal settings
+            fd = sys.stdin.fileno()
+            old_settings = tcgetattr(fd)
+            self._saved_terminal_settings = old_settings  # Store for recovery
 
-        try:
-            # Set terminal to raw mode to detect ESC key
-            tty.setraw(fd)
+            try:
+                # Set terminal to raw mode to detect ESC key
+                tty.setraw(fd)
 
-            countdown_duration = EXIT_COUNTDOWN_SECONDS
-            check_interval = 0.1
+                countdown_duration = EXIT_COUNTDOWN_SECONDS
+                check_interval = 0.1
 
-            while True:
-                elapsed = time.time() - self._exit_countdown_start
-                remaining = countdown_duration - elapsed
+                while True:
+                    elapsed = time.time() - self._exit_countdown_start
+                    remaining = countdown_duration - elapsed
 
-                if remaining <= 0:
-                    # Countdown expired
-                    print("\r\033[K\033[92m✓ Returning to input prompt...\033[0m", flush=True)
-                    self._exit_countdown_active = False
-                    return 'timeout'
+                    if remaining <= 0:
+                        # Countdown expired
+                        print("\r\033[K\033[92m✓ Returning to input prompt...\033[0m", flush=True)
+                        break
 
-                # Display countdown
-                print(f"\r\033[93m⏱️  Exiting in {remaining:.1f}s... (press ESC to exit now)\033[0m", end='', flush=True)
+                    # Display countdown
+                    print(f"\r\033[93m⏱️  Exiting in {remaining:.1f}s... (press ESC to exit now)\033[0m", end='', flush=True)
 
-                # Check if input is available
-                ready, _, _ = select.select([sys.stdin], [], [], check_interval)
+                    # Check if input is available
+                    ready, _, _ = select.select([sys.stdin], [], [], check_interval)
 
-                if ready:
-                    # Read the character
-                    char = sys.stdin.read(1)
+                    if ready:
+                        # Read the character
+                        char = sys.stdin.read(1)
 
-                    # ESC key is '\x1b'
-                    if char == '\x1b':
-                        print("\r\033[K\033[91m👋 Exiting CLI-Agent...\033[0m", flush=True)
-                        self._exit_countdown_active = False
-                        return 'exit'
+                        # ESC key is '\x1b'
+                        if char == '\x1b':
+                            print("\r\033[K\033[91m👋 Exiting CLI-Agent...\033[0m", flush=True)
+                            return 'exit'
 
-                    # Ignore Ctrl+C (which would have already triggered KeyboardInterrupt)
-                    # and any other keys during countdown
+                        # Ignore Ctrl+C (which would have already triggered KeyboardInterrupt)
+                        # and any other keys during countdown
 
-                # Small sleep to prevent busy waiting
-                await asyncio.sleep(check_interval)
+                    # Small sleep to prevent busy waiting
+                    await asyncio.sleep(check_interval)
 
-        finally:
-            # Restore terminal settings
-            tcsetattr(fd, TCSADRAIN, old_settings)
-            print()  # New line after countdown
+                # Normal timeout return
+                return 'timeout'
+
+            except Exception as e:
+                # Log any exceptions during countdown
+                self.logger.error(f"Error during exit countdown: {e}")
+                return 'timeout'
+
+            finally:
+                # CRITICAL: Always restore terminal settings, even if interrupted
+                try:
+                    # Use the most recently saved settings for restoration
+                    restore_settings = self._saved_terminal_settings if self._saved_terminal_settings else old_settings
+                    tcsetattr(fd, TCSADRAIN, restore_settings)
+                except Exception as e:
+                    self.logger.error(f"Failed to restore terminal settings: {e}")
+                    # Try one more time with TCSAFLUSH (more aggressive)
+                    try:
+                        tcsetattr(fd, termios.TCSAFLUSH, restore_settings)
+                    except Exception:
+                        pass  # Last resort - terminal may be in bad state
+
+                # Reset state
+                self._exit_countdown_active = False
+                self._saved_terminal_settings = None
+                print()  # New line after countdown
 
     async def cleanup(self) -> None:
         """Clean up CLI input source."""
+        # Restore terminal settings if they're still saved (emergency cleanup)
+        if self._saved_terminal_settings:
+            try:
+                import sys
+                import termios
+                fd = sys.stdin.fileno()
+                termios.tcsetattr(fd, termios.TCSADRAIN, self._saved_terminal_settings)
+            except Exception as e:
+                self.logger.error(f"Failed to restore terminal settings during cleanup: {e}")
+
         self._session = None
         self._exit_countdown_active = False
         self._exit_countdown_start = None
+        self._saved_terminal_settings = None
 
 
 class GUIInputSource(InputSource_ABC):

@@ -229,6 +229,13 @@ async def enhanced_permission_prompt(
         create_denied_operation_box(tool_name, action_description, file_path)
         return False
 
+    # Check if yolo mode is active - auto-approve all operations (unless explicitly denied above)
+    from core.globals import g
+    if hasattr(g, 'auto_execute') and g.auto_execute:
+        # In yolo mode, auto-approve without showing prompt
+        # (unless already denied by always-deny rules above)
+        return True
+
     # Check if always allowed
     permission_result = permissions_manager.is_always_allowed(tool_name, file_path, command_hash, xml_content)
     is_allowed, rule_description = permission_result if isinstance(permission_result, tuple) else (permission_result, None)

@@ -9,7 +9,7 @@ Provides intelligent autocomplete suggestions using hybrid fuzzy matching (rapid
 
 import logging
 import os
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict
 
 try:
     from aiohttp import web

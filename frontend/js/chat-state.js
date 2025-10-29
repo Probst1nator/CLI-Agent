@@ -290,7 +290,7 @@ class ChatStateManager {
      * @fires ChatStateManager#chat_loaded
      * @fires ChatStateManager#state_changed
      */
-    replaceChat(chatData) {
+    async replaceChat(chatData) {
         window.logDebug('Replacing chat state with loaded chat:', chatData);
 
         this.messages = chatData.messages || [];
@@ -300,7 +300,7 @@ class ChatStateManager {
         this.emit('chat_loaded', chatData);
         this.emit('state_changed');
 
-        this.renderAll();
+        await this.renderAll();
 
         this.showSuccess('Chat loaded successfully');
     }
@@ -335,7 +335,7 @@ class ChatStateManager {
      * Clears the DOM and re-renders all messages from current state.
      * Respects bootstrap_message_count to skip initial system messages.
      */
-    renderAll() {
+    async renderAll() {
         window.logDebug(`Rendering ${this.messages.length} messages`);
 
         this.renderer.clearContent();
@@ -354,8 +354,14 @@ class ChatStateManager {
 
         for (let i = startIdx; i < this.messages.length; i++) {
             try {
+                // Skip system messages - they should never be displayed to users
+                if (this.messages[i].role === 'system') {
+                    continue;
+                }
+
                 // Pass the actual array index (i) so tool_info and edit functionality work correctly
-                this.renderer.renderMessage(this.messages[i], i);
+                // IMPORTANT: Await to ensure messages render in correct order
+                await this.renderer.renderMessage(this.messages[i], i);
             } catch (error) {
                 console.error('Failed to render message:', error, this.messages[i]);
             }
@@ -421,9 +427,9 @@ class ChatStateManager {
             }
         });
 
-        this.wsManager.on('chat_replaced', (data) => {
+        this.wsManager.on('chat_replaced', async (data) => {
             console.log('chat_replaced event received:', data);
-            this.replaceChat(data.chat);
+            await this.replaceChat(data.chat);
         });
 
         this.wsManager.on('chat_cleared', (data) => {
@@ -512,18 +518,18 @@ class ChatStateManager {
             });
         });
 
-        this.wsManager.on('chat_truncated', (data) => {
+        this.wsManager.on('chat_truncated', async (data) => {
             console.log('chat_truncated event received:', data);
             this.messages = this.messages.slice(0, data.index + 1);
-            this.renderAll();
+            await this.renderAll();
             this.emit('state_changed');
         });
 
-        this.wsManager.on('message_deleted', (data) => {
+        this.wsManager.on('message_deleted', async (data) => {
             console.log('message_deleted event received:', data);
             if (data.index >= 0 && data.index < this.messages.length) {
                 this.messages.splice(data.index, 1);
-                this.renderAll();
+                await this.renderAll();
                 this.emit('state_changed');
             }
         });
@@ -666,8 +672,20 @@ class ChatStateManager {
             data.prompts.forEach(prompt => {
                 const card = document.createElement('div');
                 card.className = 'suggested-prompt-card';
-                card.textContent = prompt;
-                card.dataset.prompt = prompt;
+
+                // Hide file paths at the end of the prompt string
+                // Pattern: any text ending with whitespace + path (starting with / or ~)
+                // Supports paths with spaces like "/home/user/My Documents/file.txt"
+                let displayText = prompt;
+
+                // Match whitespace followed by a path (/ or ~) to end of string
+                const pathPattern = /\s+[/~].+$/;
+                if (pathPattern.test(prompt)) {
+                    displayText = prompt.replace(pathPattern, '').trim();
+                }
+
+                card.textContent = displayText;
+                card.dataset.prompt = prompt; // Keep full prompt for sending to agent
                 promptsContainer.appendChild(card);
             });
 
