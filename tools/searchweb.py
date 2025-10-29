@@ -88,7 +88,7 @@ class searchweb:
         return ""
 
     @staticmethod
-    async def _format_text_summary(results: list[dict], query: str, use_cache: bool = True) -> str:
+    async def _format_text_summary(results: List[dict], query: str, use_cache: bool = True) -> str:
         """ The original functionality: returns a single condensed string. """
         if not results:
             return "No web search results found."

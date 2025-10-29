@@ -12,7 +12,7 @@ from termcolor import colored
 from core.globals import g
 
 
-def get_provider_emoji_and_name(model_key: str) -> tuple[str, str]:
+def get_provider_emoji_and_name(model_key: str) -> Tuple[str, str]:
     """
     Get emoji and provider name for a model key.
 

@@ -16,6 +16,7 @@ from termcolor import colored
 # but might be used elsewhere in the project. We'll leave it for now.
 from core.globals import g
 from ollama._types import Message as OllamaMessage, Image as OllamaImage
+from shared.utils.project_storage import get_project_storage_path, ensure_project_directory
 
 logger = logging.getLogger(__name__)
 
@@ -368,7 +369,7 @@ class Chat:
 
     def save_to_json(self, file_name: str = "recent_chat.json", merge: bool = False, also_archive: bool = True):
         """
-        Saves the chat instance to a JSON file in a .cli-agent folder in the current working directory.
+        Saves the chat instance to a JSON file in centralized ~/.cli-agent/projects/ storage.
 
         :param file_name: The name of the file to save to.
         :param merge: Whether to merge with existing file content (read-modify-write operation).
@@ -376,12 +377,9 @@ class Chat:
                      For true append operations, consider using save_to_jsonl instead.
         :param also_archive: Whether to also save a timestamped copy to the archive.
         """
-        # Define the storage path in the current working directory
-        storage_path = os.path.join(os.getcwd(), ".cli-agent")
+        # Get centralized storage path for current project
+        storage_path = str(ensure_project_directory())
         file_path = os.path.join(storage_path, file_name)
-
-        # Ensure the directory exists
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
         if merge:
             try:
@@ -408,13 +406,13 @@ class Chat:
     @classmethod
     def load_from_json(cls, file_name: str = "recent_chat.json") -> "Chat":
         """
-        Loads a Chat instance from a JSON file in a .cli-agent folder in the current working directory.
+        Loads a Chat instance from a JSON file in centralized ~/.cli-agent/projects/ storage.
 
         :param file_name: The name of the file to load from.
         :return: The loaded Chat instance.
         """
-        # Define the storage path in the current working directory
-        storage_path = os.path.join(os.getcwd(), ".cli-agent")
+        # Get centralized storage path for current project
+        storage_path = str(ensure_project_directory())
         file_path = os.path.join(storage_path, file_name)
 
         with open(file_path, "r") as file:
@@ -539,10 +537,9 @@ class Chat:
                 break
         chat_hash = hashlib.md5(hash_input.encode()).hexdigest()[:4]
 
-        # Define paths
-        storage_path = os.path.join(os.getcwd(), ".cli-agent")
+        # Define paths in centralized storage
+        storage_path = str(ensure_project_directory())
         archive_path = os.path.join(storage_path, "chat_history")
-        os.makedirs(archive_path, exist_ok=True)
 
         # Save chat file
         filename = f"chat_{timestamp_str}_{chat_hash}.json"
@@ -560,7 +557,7 @@ class Chat:
     @staticmethod
     def _update_archive_index(chat_id: str, timestamp: float, filename: str):
         """Updates the chat history index with new chat metadata."""
-        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        storage_path = str(get_project_storage_path()) + "/chat_history"
         index_path = os.path.join(storage_path, "index.json")
 
         # Load existing index
@@ -633,7 +630,7 @@ class Chat:
 
         :return: List of chat metadata dictionaries.
         """
-        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        storage_path = str(get_project_storage_path()) + "/chat_history"
         index_path = os.path.join(storage_path, "index.json")
 
         if not os.path.exists(index_path):
@@ -652,7 +649,7 @@ class Chat:
         :param chat_id: The chat ID (hash).
         :return: The loaded Chat instance.
         """
-        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        storage_path = str(get_project_storage_path()) + "/chat_history"
         index_path = os.path.join(storage_path, "index.json")
 
         # Find the filename from index
@@ -683,7 +680,7 @@ class Chat:
         :param chat_id: The chat ID (hash).
         :return: True if deleted successfully.
         """
-        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        storage_path = str(get_project_storage_path()) + "/chat_history"
         index_path = os.path.join(storage_path, "index.json")
 
         # Load index
@@ -727,7 +724,7 @@ class Chat:
         import re
         from collections import Counter
 
-        storage_path = os.path.join(os.getcwd(), ".cli-agent", "chat_history")
+        storage_path = str(get_project_storage_path()) + "/chat_history"
         index_path = os.path.join(storage_path, "index.json")
 
         if not os.path.exists(index_path):

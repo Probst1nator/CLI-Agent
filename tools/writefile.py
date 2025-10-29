@@ -51,12 +51,22 @@ class writefile:
             # Resolve the path relative to the current working directory for safety.
             full_path = os.path.abspath(filepath)
 
+            # Check if write is allowed via --allow-write-path
+            allowed_write_paths = getattr(g, 'ALLOWED_WRITE_PATHS', [])
+            if allowed_write_paths and full_path not in allowed_write_paths:
+                return f"Error: Write access denied. File '{full_path}' is not in the allowed write paths list. Allowed paths: {allowed_write_paths}"
+
             # Ensure the parent directory exists before writing the file.
             parent_dir = os.path.dirname(full_path)
             os.makedirs(parent_dir, exist_ok=True)
 
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(file_content)
+
+            # Track recently accessed file path for autocomplete
+            if full_path not in g.RECENT_FILE_PATHS:
+                g.RECENT_FILE_PATHS.insert(0, full_path)
+                g.RECENT_FILE_PATHS = g.RECENT_FILE_PATHS[:g.MAX_RECENT_FILES]
 
             return f"Successfully wrote {len(file_content)} bytes to {full_path}"
 

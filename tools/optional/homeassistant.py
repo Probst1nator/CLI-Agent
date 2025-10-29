@@ -63,7 +63,7 @@ class _HomeAssistantAPI:
         cls._save_interacted_entities(interacted_entities)
 
     @staticmethod
-    def _get_config() -> 'tuple[str, str]':
+    def _get_config() -> 'Tuple[str, str]':
         load_dotenv()
         hass_url = os.environ.get("HASS_URL")
         hass_token = os.environ.get("HASS_TOKEN")
@@ -72,7 +72,7 @@ class _HomeAssistantAPI:
         return hass_url, hass_token
 
     @classmethod
-    def check_reachability(cls) -> tuple[bool, str]:
+    def check_reachability(cls) -> Tuple[bool, str]:
         hass_url = ""
         try:
             hass_url, hass_token = cls._get_config()

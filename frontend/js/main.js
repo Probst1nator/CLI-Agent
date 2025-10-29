@@ -622,6 +622,8 @@ class VisualResponseApp {
                 if (data.status === 'success' && data.state) {
                     console.log('📥 Initial state loaded:', data.state);
                     this.updateButtonStates(data.state);
+                    // Explicitly hide interrupt button on initial load (agent is not generating)
+                    this.hideInterruptButton();
                 }
             } catch (error) {
                 clearTimeout(timeoutId);
@@ -1136,6 +1138,19 @@ class VisualResponseApp {
         if (typeof ChatStateManager !== 'undefined') {
             this.chatState = new ChatStateManager(this.wsManager, this.renderer);
             window.chatState = this.chatState;
+
+            // Hide interrupt button after chat loads (defensive measure)
+            this.chatState.on('chat_loaded', () => {
+                window.logDebug('Chat loaded - hiding interrupt button');
+                this.hideInterruptButton();
+            });
+            this.chatState.on('state_changed', () => {
+                // Ensure button is hidden when state changes (unless explicitly shown by user action)
+                if (!this.agentGenerating) {
+                    this.hideInterruptButton();
+                }
+            });
+
             this.logger.info('ChatStateManager initialized');
         } else {
             this.logger.warn('ChatStateManager not available');
@@ -2319,8 +2334,9 @@ class VisualResponseApp {
         // Track agent state to show/hide button appropriately
         this.agentGenerating = false;
 
-        // Button starts in inactive (grayed out) state
+        // Button starts hidden - only shown when agent is generating
         interruptBtn.classList.remove('active', 'processing');
+        interruptBtn.style.display = 'none';
 
         interruptBtn.addEventListener('click', (e) => {
             e.preventDefault();
@@ -2347,6 +2363,7 @@ class VisualResponseApp {
 
                 // Reset button state after a delay
                 setTimeout(() => {
+                    interruptBtn.style.display = 'none';  // Hide button after interrupt
                     interruptBtn.classList.remove('processing', 'active');
                     interruptBtn.querySelector('.interrupt-icon').textContent = originalIcon;
                 }, 2000);
@@ -2367,6 +2384,7 @@ class VisualResponseApp {
      */
     showInterruptButton() {
         if (this.interruptBtn) {
+            this.interruptBtn.style.display = 'flex';  // Show button with flex layout
             this.interruptBtn.classList.add('active');
             this.interruptBtn.classList.remove('processing');
             this.agentGenerating = true;
@@ -2379,6 +2397,7 @@ class VisualResponseApp {
      */
     hideInterruptButton() {
         if (this.interruptBtn) {
+            this.interruptBtn.style.display = 'none';  // Hide button
             this.interruptBtn.classList.remove('active', 'processing');
             this.agentGenerating = false;
         }
@@ -4469,6 +4488,21 @@ function initializeApp() {
     window.app = app;  // Global reference for optimistic message tracking
     window.VisualResponseApp = app;
     window.agentInterface = app;  // For message edit/delete buttons
+
+    // Initialize autocomplete for chat input
+    if (typeof AutocompleteManager !== 'undefined') {
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput) {
+            window.autocompleteManager = new AutocompleteManager(chatInput, {
+                debounceMs: 500,
+                maxSuggestions: 5,
+                onSelect: (suggestion) => {
+                    console.log('Autocomplete suggestion selected:', suggestion);
+                }
+            });
+            console.log('Autocomplete initialized for chat input');
+        }
+    }
 }
 
 /**

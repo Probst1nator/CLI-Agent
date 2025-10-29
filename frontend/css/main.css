@@ -760,7 +760,7 @@ body {
     color: white;
     cursor: pointer;
     transition: all 0.2s ease;
-    display: flex;
+    display: none; /* Hidden by default - only shown when agent is generating */
     align-items: center;
     justify-content: center;
     width: 40px;
@@ -4237,4 +4237,107 @@ html[data-theme='light'] .fullscreen-container {
 
 .message-console-toggle-btn:active {
     transform: scale(0.95);
+}
+/* ==========================================
+   Autocomplete Styles
+   ========================================== */
+
+.autocomplete-container {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 4px;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    /* Width is set dynamically in JavaScript to match input field */
+}
+
+.autocomplete-item {
+    display: grid;
+    grid-template-columns: 30px 1fr 2fr;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.15s ease;
+    align-items: center;
+}
+
+.autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.selected {
+    background-color: var(--primary-color);
+    color: #ffffff;
+}
+
+.autocomplete-icon {
+    font-size: 16px;
+    text-align: center;
+    opacity: 0.7;
+}
+
+.autocomplete-item:hover .autocomplete-icon,
+.autocomplete-item.selected .autocomplete-icon {
+    opacity: 1;
+}
+
+.autocomplete-text {
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    font-weight: 500;
+    word-break: break-word;
+}
+
+.autocomplete-description {
+    font-size: 12px;
+    opacity: 0.7;
+    word-break: break-word;
+}
+
+.autocomplete-item:hover .autocomplete-description,
+.autocomplete-item.selected .autocomplete-description {
+    opacity: 0.9;
+}
+
+/* Dark theme specific adjustments */
+html[data-theme='dark'] .autocomplete-container {
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* Light theme specific adjustments */
+html[data-theme='light'] .autocomplete-container {
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+}
+
+html[data-theme='light'] .autocomplete-item:hover,
+html[data-theme='light'] .autocomplete-item.selected {
+    background-color: var(--primary-color);
+    color: #ffffff;
+}
+
+/* Scrollbar styling for autocomplete */
+.autocomplete-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.autocomplete-container::-webkit-scrollbar-track {
+    background-color: var(--bg-color);
+    border-radius: 4px;
+}
+
+.autocomplete-container::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border-radius: 4px;
+}
+
+.autocomplete-container::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-color);
 }

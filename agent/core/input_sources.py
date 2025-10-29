@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     from core.chat import Chat
     import argparse
 
+# Exit countdown configuration
+EXIT_COUNTDOWN_SECONDS = 5.0
+
 
 class CLIInputSource(InputSource_ABC):
     """CLI input source using prompt_toolkit."""
@@ -29,6 +32,8 @@ class CLIInputSource(InputSource_ABC):
     def __init__(self, context: AppContext):
         super().__init__(InputSource.CLI, context)
         self._session = None
+        self._exit_countdown_active = False
+        self._exit_countdown_start = None
 
     async def get_input(
         self,
@@ -101,17 +106,107 @@ class CLIInputSource(InputSource_ABC):
             )
 
         except KeyboardInterrupt:
-            return InputEvent(
-                event_type=InputEventType.INTERRUPT,
-                source=InputSource.CLI,
-                content="",
-                metadata={'reason': 'keyboard_interrupt'},
-                timestamp=time.time()
-            )
+            # Handle exit countdown logic
+            exit_result = await self._handle_exit_countdown()
+            if exit_result == 'exit':
+                # User pressed ESC during countdown - exit the application
+                raise SystemExit(0)
+            elif exit_result == 'timeout':
+                # Countdown expired - return to input prompt
+                return InputEvent(
+                    event_type=InputEventType.INTERRUPT,
+                    source=InputSource.CLI,
+                    content="",
+                    metadata={'reason': 'keyboard_interrupt', 'countdown_timeout': True},
+                    timestamp=time.time()
+                )
+            else:
+                # Normal interrupt handling
+                return InputEvent(
+                    event_type=InputEventType.INTERRUPT,
+                    source=InputSource.CLI,
+                    content="",
+                    metadata={'reason': 'keyboard_interrupt'},
+                    timestamp=time.time()
+                )
+
+    async def _handle_exit_countdown(self) -> str:
+        """
+        Handle the exit countdown when Ctrl+C is pressed.
+        Returns:
+            'exit' if ESC was pressed (should exit application)
+            'timeout' if countdown elapsed without ESC
+            'ignored' if countdown was already active (ignore this Ctrl+C)
+        """
+        import sys
+        import select
+        import termios
+        import tty
+        from termios import tcgetattr, tcsetattr, TCSADRAIN
+
+        # If countdown is already active, ignore this interrupt
+        if self._exit_countdown_active:
+            return 'ignored'
+
+        # Start countdown
+        self._exit_countdown_active = True
+        self._exit_countdown_start = time.time()
+
+        print(f"\n\033[93m⏱️  Press ESC within {EXIT_COUNTDOWN_SECONDS:.0f} seconds to exit, or wait to return to input...\033[0m", flush=True)
+
+        # Save terminal settings
+        fd = sys.stdin.fileno()
+        old_settings = tcgetattr(fd)
+
+        try:
+            # Set terminal to raw mode to detect ESC key
+            tty.setraw(fd)
+
+            countdown_duration = EXIT_COUNTDOWN_SECONDS
+            check_interval = 0.1
+
+            while True:
+                elapsed = time.time() - self._exit_countdown_start
+                remaining = countdown_duration - elapsed
+
+                if remaining <= 0:
+                    # Countdown expired
+                    print("\r\033[K\033[92m✓ Returning to input prompt...\033[0m", flush=True)
+                    self._exit_countdown_active = False
+                    return 'timeout'
+
+                # Display countdown
+                print(f"\r\033[93m⏱️  Exiting in {remaining:.1f}s... (press ESC to exit now)\033[0m", end='', flush=True)
+
+                # Check if input is available
+                ready, _, _ = select.select([sys.stdin], [], [], check_interval)
+
+                if ready:
+                    # Read the character
+                    char = sys.stdin.read(1)
+
+                    # ESC key is '\x1b'
+                    if char == '\x1b':
+                        print("\r\033[K\033[91m👋 Exiting CLI-Agent...\033[0m", flush=True)
+                        self._exit_countdown_active = False
+                        return 'exit'
+
+                    # Ignore Ctrl+C (which would have already triggered KeyboardInterrupt)
+                    # and any other keys during countdown
+
+                # Small sleep to prevent busy waiting
+                await asyncio.sleep(check_interval)
+
+        finally:
+            # Restore terminal settings
+            tcsetattr(fd, TCSADRAIN, old_settings)
+            print()  # New line after countdown
 
     async def cleanup(self) -> None:
         """Clean up CLI input source."""
         self._session = None
+        self._exit_countdown_active = False
+        self._exit_countdown_start = None
 
 
 class GUIInputSource(InputSource_ABC):

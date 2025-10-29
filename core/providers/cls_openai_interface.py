@@ -2,7 +2,7 @@ import tempfile
 import os
 import threading
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 from openai import OpenAI
 from termcolor import colored
 from core.chat import Chat
@@ -86,7 +86,7 @@ class OpenAIAPI(AIProviderInterface):
         return OpenAIAPI._create_cancellable_stream(raw_stream, model_key)
 
     @staticmethod
-    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional[Chat] = None) -> tuple[str,str]:
+    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional[Chat] = None) -> Tuple[str,str]:
         """
         Transcribes an audio file using the OpenAI Whisper API.
 
@@ -97,7 +97,7 @@ class OpenAIAPI(AIProviderInterface):
             chat (Optional[Chat]): The chat object for debug printing.
 
         Returns:
-            tuple[str,str]: (transcribed text from the audio file, language)
+            Tuple[str,str]: (transcribed text from the audio file, language)
 
         Raises:
             Exception: If an error occurs during transcription.

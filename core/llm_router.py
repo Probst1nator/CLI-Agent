@@ -1,11 +1,10 @@
-from collections.abc import Callable
 import hashlib
 import json
 import os
 import shutil
 import time
 import threading
-from typing import Dict, List, Optional, Set, Any, Union, Iterator
+from typing import Dict, List, Optional, Set, Any, Union, Iterator, Tuple, Callable
 from termcolor import colored
 import math # <-- Added for token calculation
 
@@ -179,7 +178,7 @@ class LlmRouter:
             temperature=temperature
         )
 
-    def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, debug_model_key: Optional[str] = None) -> tuple[bool, str | None]:
+    def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, debug_model_key: Optional[str] = None) -> Tuple[bool, Optional[str]]:
         """
         Check if a model is capable of handling the given constraints.
 
@@ -193,7 +192,7 @@ class LlmRouter:
             debug_model_key (str): Optional model key for debugging output.
 
         Returns:
-            tuple[bool, str | None]: (True, None) if capable, (False, reason) if not capable.
+            Tuple[bool, str | None]: (True, None) if capable, (False, reason) if not capable.
         """
         def debug_log(reason: str):
             if debug_model_key:
@@ -322,7 +321,7 @@ class LlmRouter:
         return available_models
 
     @classmethod
-    def get_provider_info(cls, model_key: str, colored_output: bool = False) -> tuple[str, str]:
+    def get_provider_info(cls, model_key: str, colored_output: bool = False) -> Tuple[str, str]:
         """
         Get provider info and emoji for a model_key.
 
@@ -331,7 +330,7 @@ class LlmRouter:
             colored_output (bool): Whether to return colored provider info
 
         Returns:
-            tuple[str, str]: (provider_info, provider_emoji) where provider_info is like " via <Provider>" or " on <host>"
+            Tuple[str, str]: (provider_info, provider_emoji) where provider_info is like " via <Provider>" or " on <host>"
         """
         try:
             models = cls.get_models([model_key])
@@ -948,8 +947,8 @@ class LlmRouter:
     @classmethod
     async def generate_completion(
         cls,
-        chat: Chat|str,
-        preferred_models: List[str] | List[Llm] = [],
+        chat: Union[Chat, str],
+        preferred_models: Union[List[str], List[Llm]] = [],
         strengths: List[AIStrengths] = [],
         temperature: float = 0,
         base64_images: List[str] = [],
@@ -1033,7 +1032,8 @@ class LlmRouter:
             chat.add_message(Role.USER, prompt)
 
         # Find llm and generate response, excepts on user interruption, or total failure
-        retry_count = 0
+        retry_count = 0  # Tracks global retry rounds (each round tries all models)
+        models_tried_in_round = set()  # Track which models we've tried in current round
         # Infinite retries with linear backoff (1s, 2s, 3s, etc.)
         while True:
             try:
@@ -1047,7 +1047,7 @@ class LlmRouter:
                             model = preferred_model
                             break
 
-                # If no model is available, all available models have failed.
+                # If no model is available, all available models have failed in this round
                 if not model:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
 
@@ -1435,17 +1435,56 @@ class LlmRouter:
                     if hasattr(chat, 'messages'):
                         print(f"🔍 CHAT MESSAGES: {len(chat.messages)}")
 
+                # Extract error message BEFORE calling _handle_model_error (for logging)
+                error_msg = str(e)
+                if not error_msg or error_msg.strip() == "":
+                    # Try alternative sources for error details
+                    if hasattr(e, 'message') and e.message:
+                        error_msg = str(e.message)
+                    elif hasattr(e, 'args') and e.args:
+                        error_msg = str(e.args[0]) if len(e.args) > 0 else repr(e.args)
+                    elif hasattr(e, '__dict__') and e.__dict__:
+                        error_msg = str(e.__dict__)
+                    else:
+                        error_msg = f"{type(e).__name__}: {repr(e)}"
+
                 cls._handle_model_error(e, model, instance, chat)
 
-                # Global retry limit: 3 attempts total
+                # Track that we've tried this model in the current round
+                if model:
+                    models_tried_in_round.add(model.model_key)
+
+                # Check if we have more models to try in this round
+                # Get the list of available models for fallback
+                available_models = instance.get_models(
+                    strengths=strengths,
+                    preferred_models=preferred_models,
+                    chat=chat,
+                    force_local=force_local,
+                    force_free=force_free,
+                    has_vision=bool(base64_images),
+                    force_preferred_model=force_preferred_model
+                )
+
+                # Check if there are untried models in this round
+                untried_models = [m for m in available_models if m.model_key not in models_tried_in_round]
+
+                if untried_models:
+                    # We have more models to try - continue immediately to next model
+                    prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                    g.debug_log(f"⚠️ Model {model.model_key if model else 'unknown'} failed: {error_msg[:100]}", "yellow", force_print=True, prefix=prefix)
+                    g.debug_log(f"➡️ Trying next fallback model ({len(untried_models)} remaining)", "cyan", force_print=True, prefix=prefix)
+                    continue  # Try next model immediately without waiting
+
+                # All models in this round have been tried - increment retry_count
+                retry_count += 1
+
+                # Global retry limit: 3 rounds total
                 if retry_count >= 3:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                     failure_reason = getattr(instance, '_last_failure_reason', str(e))
-                    g.debug_log("Model generation failed after 3 retry attempts", "red", is_error=True, prefix=prefix)
-                    raise ModelGenerationFailedException(f"Model generation failed after 3 attempts: {failure_reason}")
-
-                # Increment retry count
-                retry_count += 1
+                    g.debug_log(f"All {len(models_tried_in_round)} fallback models failed in 3 retry rounds", "red", is_error=True, prefix=prefix)
+                    raise ModelGenerationFailedException(f"Model generation failed after 3 rounds: {failure_reason}")
 
                 # Check if there's a suggested delay from the API (e.g., rate limiting)
                 suggested_delay = 0
@@ -1455,7 +1494,7 @@ class LlmRouter:
                 except Exception:
                     pass
 
-                # Determine wait time: 10s, 15s, 20s for attempts 1, 2, 3
+                # Determine wait time: 10s, 15s, 20s for rounds 1, 2, 3
                 base_delays = [10, 15, 20]
                 base_wait = base_delays[retry_count - 1] if retry_count <= 3 else 20
 
@@ -1469,20 +1508,20 @@ class LlmRouter:
 
                 # Show retry message to user with error details
                 prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                error_msg = str(e)
                 if suggested_delay > 0 and suggested_delay < 30:
-                    g.debug_log(f"🔄 API suggested {suggested_delay:.0f}s wait, using {wait_time:.0f}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
+                    g.debug_log(f"🔄 API suggested {suggested_delay:.0f}s wait, using {wait_time:.0f}s (round #{retry_count}/3, tried {len(models_tried_in_round)} models) - Last error: {error_msg[:100]}", "cyan", force_print=True, prefix=prefix)
                 elif suggested_delay >= 30:
-                    g.debug_log(f"🔄 Respecting API rate limit: waiting {wait_time:.0f}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
+                    g.debug_log(f"🔄 Respecting API rate limit: waiting {wait_time:.0f}s (round #{retry_count}/3, tried {len(models_tried_in_round)} models) - Last error: {error_msg[:100]}", "cyan", force_print=True, prefix=prefix)
                 else:
-                    g.debug_log(f"🔄 Retrying in {wait_time:.0f}s (attempt #{retry_count}/3) - Error: {error_msg}", "cyan", force_print=True, prefix=prefix)
+                    g.debug_log(f"🔄 All {len(models_tried_in_round)} models failed, retrying in {wait_time:.0f}s (round #{retry_count}/3)", "cyan", force_print=True, prefix=prefix)
 
                 # Wait with API-suggested delay or linear backoff
                 import asyncio
                 await asyncio.sleep(wait_time)
 
-                # Reset failed models to allow retrying them
+                # Start a new round - reset failed models and models_tried_in_round
                 instance.failed_models.clear()
+                models_tried_in_round.clear()
 
                 # IMPORTANT: Reset retry_models to full list before calling get_models()
                 # Otherwise get_models() searches through already-filtered retry_models and can't find the models

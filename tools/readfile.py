@@ -511,6 +511,16 @@ class readfile:
             if was_previously_truncated:
                 readfile._clear_truncation_state(full_path)
 
+            # Track recently accessed file path for autocomplete
+            try:
+                from core.globals import g
+                if full_path not in g.RECENT_FILE_PATHS:
+                    g.RECENT_FILE_PATHS.insert(0, full_path)
+                    g.RECENT_FILE_PATHS = g.RECENT_FILE_PATHS[:g.MAX_RECENT_FILES]
+            except Exception:
+                # Silently fail if globals not available
+                pass
+
             # Return full content - main.py will automatically create resource if too large
             return search_message + file_content
 
