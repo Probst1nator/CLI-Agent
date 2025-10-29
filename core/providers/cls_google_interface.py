@@ -4,7 +4,7 @@ import logging
 import threading
 from termcolor import colored
 import google.generativeai as genai
-from google.generativeai import types
+from google.generativeai import types, GenerativeModel
 from core.chat import Chat, Role
 from py_classes.unified_interfaces import AIProviderInterface
 from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
@@ -169,7 +169,7 @@ class GoogleAPI(AIProviderInterface):
         # Get the appropriate model
         if g.VERBOSE_DEBUG:
             print(f"🔍 CREATING MODEL: {model_key}")
-        model = genai.GenerativeModel(model_key)
+        model = GenerativeModel(model_key)
         if g.VERBOSE_DEBUG:
             print(f"🔍 MODEL CREATED: {model}")
 

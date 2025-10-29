@@ -35,6 +35,7 @@ aiohttp>=3.8.0  # Web server for GUI interface
 # Additional utilities
 pathspec>=0.9.0  # File pattern matching
 rank-bm25>=0.2.0  # BM25 ranking for search
+rapidfuzz>=3.0.0  # Fast fuzzy string matching for autocomplete
 fasttext>=0.9.0  # FastText word embeddings
 pyfiglet>=0.8.0  # ASCII art for startup banner
 psutil>=5.8.0  # System and process utilities

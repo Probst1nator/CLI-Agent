@@ -13,7 +13,7 @@ import struct
 import subprocess
 import time
 import traceback
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 import os
 import tempfile
 from datetime import datetime
@@ -427,7 +427,7 @@ def listen_microphone(
     private_remote_wake_detection: bool = False,
     remote_voice_enabled: bool = False,
     language: Optional[str] = None
-) -> Tuple[str, str, bool|str]:
+) -> Tuple[str, str, Union[bool, str]]:
     """High-level function to record audio and transcribe it using Faster-Whisper."""
     first_iteration = True
     while True:

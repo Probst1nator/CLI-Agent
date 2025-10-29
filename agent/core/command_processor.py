@@ -331,7 +331,7 @@ class UnifiedInputManager:
         force_input: bool = False,
         timeout: Optional[float] = None,
         **kwargs: Any
-    ) -> tuple[str, list[str]]:
+    ) -> Tuple[str, List[str]]:
         """
         Get user input through the unified system.
 

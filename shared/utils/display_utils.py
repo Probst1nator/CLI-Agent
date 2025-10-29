@@ -122,7 +122,7 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
 
     # Auto Execution status
     if args.yolo:
-        auto_status = 'ON (manual confirmation)'
+        auto_status = 'ON'
     else:
         auto_status = 'OFF'
     auto_color = 'green' if args.yolo else 'red'

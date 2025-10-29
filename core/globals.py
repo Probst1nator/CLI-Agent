@@ -208,6 +208,14 @@ class Globals:
         # --- Utility and Tool Management ---
         self.SELECTED_UTILS: List[str] = []
         self.AGENT_IS_COMPACTING: bool = False
+        self.ALLOWED_WRITE_PATHS: List[str] = []  # Paths that are explicitly allowed for writing
+
+        # --- Autocomplete Support ---
+        self.RECENT_FILE_PATHS: List[str] = []  # Track recently accessed files for autocomplete
+        self.MAX_RECENT_FILES: int = 50  # Maximum number of recent files to track
+        self.CACHED_FILE_PATHS: List[str] = []  # All filesystem paths (background cached)
+        self.PATH_CACHE_TASK = None  # Running background cache task
+        self.path_cache_manager = None  # PathCacheManager instance
 
         # --- Output Truncation Settings ---
         self.OUTPUT_TRUNCATE_HEAD_SIZE: int = 2000

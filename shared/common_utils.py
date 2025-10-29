@@ -3,12 +3,22 @@ import os
 import re
 import subprocess
 import tempfile
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 import sqlite3
-import chromadb
 # import pyaudio  # Moved to lazy import in functions that need it
 import logging
 from termcolor import colored
+
+# ChromaDB is optional - only import if available
+try:
+    import chromadb
+    CHROMADB_AVAILABLE = True
+except (ImportError, RuntimeError) as e:
+    CHROMADB_AVAILABLE = False
+    if "sqlite3" in str(e).lower():
+        logging.warning("ChromaDB unavailable due to SQLite version incompatibility. Some features may be limited.")
+    else:
+        logging.warning(f"ChromaDB unavailable: {e}")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,14 +64,14 @@ def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
 
 def listen_microphone(
     max_listening_duration: Optional[int] = 60, private_remote_wake_detection: bool = False
-) -> Tuple[str, str, bool|str]:
+) -> Tuple[str, str, Union[bool, str]]:
     """
     Listen to the microphone, save to a temporary file, and return transcription.
     Args:
     max_duration (Optional[int], optional): The maximum duration to listen. Defaults to 15.
     language (str): The language of the audio (optional).
     Returns:
-    Tuple[str, str, bool|str]: (transcribed text from the audio, language, used wake word)
+    Tuple[str, str, Union[bool, str]]: (transcribed text from the audio, language, used wake word)
     """
     from py_classes.cls_pyaihost_interface import PyAiHost
     global r, source
@@ -221,7 +231,7 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
-def _mask_quoted_xml_tags(text: str) -> tuple[str, dict]:
+def _mask_quoted_xml_tags(text: str) -> Tuple[str, dict]:
     """
     Masks XML tags that are inside quotes (single, double, or backticks) to prevent
     them from being parsed as actual tool calls.
@@ -285,7 +295,7 @@ def _unmask_quoted_xml_tags(text: str, replacements: dict) -> str:
     return result
 
 
-def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> List[str]:
+def extract_blocks(text: str, language: Optional[Union[str, List[str]]] = None) -> List[str]:
     """
     Extracts content from markdown code blocks (```) or XML-style tags (<tag>).
 

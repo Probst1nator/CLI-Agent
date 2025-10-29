@@ -230,6 +230,12 @@ class VisualServer:
         audit_base = Path(g.CONFIG_DIR if hasattr(g, 'CONFIG_DIR') else Path.home() / ".cli-agent")
         self.audit_logger = SessionAuditLogger(audit_base)
 
+        # Path cache manager for autocomplete
+        from api.path_cache_manager import PathCacheManager
+        g.path_cache_manager = PathCacheManager()
+        g.path_cache_manager.start_initial_scan()
+        logger.info("Path cache manager initialized and scanning started")
+
         # Background cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None
 
@@ -258,13 +264,14 @@ class VisualServer:
         self.app.router.add_get('/api/health', self.health_handler)
 
         # Register API routes
-        from api import chat_api, audio_api, tools_api, profile_api, agent_state_api, logs_api
+        from api import chat_api, audio_api, tools_api, profile_api, agent_state_api, logs_api, autocomplete_api
         chat_api.setup_routes(self.app)
         audio_api.setup_routes(self.app)
         tools_api.setup_routes(self.app)
         profile_api.setup_routes(self.app)
         agent_state_api.setup_routes(self.app)
         logs_api.setup_routes(self.app)
+        autocomplete_api.setup_routes(self.app)
 
         logger.info("All routes registered")
 
@@ -551,6 +558,10 @@ class VisualServer:
 
                     if user_message:
                         logger.info(f"Received user message via WebSocket (session {session_id}): {user_message[:50]}... with {len(images)} images")
+
+                        # Trigger path cache refresh for autocomplete
+                        if hasattr(g, 'path_cache_manager') and g.path_cache_manager:
+                            g.path_cache_manager.refresh_cache()
 
                         if images:
                             for image in images:

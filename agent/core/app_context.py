@@ -41,6 +41,7 @@ class AgentSettings:
     online_mode: bool = False
     full_output_mode: bool = False
     online_voice: bool = False
+    allowed_write_paths: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         pass
@@ -55,6 +56,7 @@ class AgentSettings:
         self.online_voice = getattr(args, 'online_voice', self.online_voice)
         self.debug_mode = getattr(args, 'debug', self.debug_mode)
         self.verbose_debug = getattr(args, 'verbose_debug', self.verbose_debug)
+        self.allowed_write_paths = getattr(args, 'allowed_write_paths', [])
 
 class AppContext:
     """

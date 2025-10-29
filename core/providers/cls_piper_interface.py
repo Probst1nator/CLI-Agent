@@ -170,7 +170,7 @@ class PiperInterface(AudioProviderInterface):
             logger.error(f"Failed to load voice {voice_name}: {e}")
             return None
 
-    def _select_voice(self, language: str = "en", gender: str = "female", quality: str = "medium", speaker_id: None | str = "") -> str:
+    def _select_voice(self, language: str = "en", gender: str = "female", quality: str = "medium", speaker_id: Union[None, str] = "") -> str:
         """Select appropriate voice based on parameters."""
         # Default voice mappings
         defaults = {

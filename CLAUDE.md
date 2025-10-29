@@ -147,6 +147,37 @@ The codebase has transitioned from argparse-dependent commands to an **AppContex
 - **`user_scripts/`**: User-facing setup and utility scripts
 - **`docker_files/`**: Dockerfiles for various deployment modes
 
+### Storage Architecture
+
+**Centralized project storage** in `~/.cli-agent/projects/`:
+
+```
+~/.cli-agent/
+  projects/
+    home_user_repos_myproject/      # Sanitized project path
+      metadata.json                  # Project info (path, name, timestamps, stats)
+      chat_history/                  # Archived chats
+        chat_20251028_123456_a1b2.json
+        index.json                   # Chat search index
+      recent_chat.json               # Active chat session
+    home_user_other_project/
+      metadata.json
+      chat_history/
+      recent_chat.json
+  logs/                              # Global application logs
+  suggested_prompts.json             # Customizable prompt suggestions
+  disabled_tools.json                # Tool configuration
+  tool_vectordb/                     # Vector DB for tool discovery
+  audit_logs/                        # Session audit logs
+```
+
+**Key features**:
+- **Per-project isolation**: Each directory gets isolated chat storage based on sanitized absolute path
+- **Auto-migration**: Automatically migrates from legacy `./.cli-agent/` on first access
+- **Project metadata**: Tracks path, name, created/accessed timestamps, chat count
+- **Centralized backups**: All project data in one location (`~/.cli-agent/`)
+- **Implementation**: `shared/utils/project_storage.py` with full test coverage
+
 ### LLM Routing Architecture
 
 **`core/llm_router.py`** is the singleton that manages all LLM interactions:
@@ -171,6 +202,9 @@ The codebase has transitioned from argparse-dependent commands to an **AppContex
 - **Message dataclass**: Role, content, images, metadata
 - **Compression**: Smart context window management via LLM-based summarization
 - **Persistence**: Save/load chat history to JSON with archiving
+- **Centralized storage**: All chats stored in `~/.cli-agent/projects/{sanitized-path}/`
+  - Per-project isolation with automatic migration from legacy `./.cli-agent/`
+  - Project metadata tracking (path, name, timestamps, chat count)
 - **Metadata tracking**: Extensible metadata system for timestamps, IDs, etc.
 
 ### Command System Architecture
@@ -463,10 +497,15 @@ Required for LLM providers:
 
 ### Working with Chat History
 
+- **Storage**: Centralized in `~/.cli-agent/projects/{project-name}/`
+  - Each project directory gets isolated chat storage
+  - Auto-migrates from old `./.cli-agent/` on first access
+  - Structure: `chat_history/` for archives, `recent_chat.json` for active session
 - **Save**: Chat auto-saves on new chat or exit
 - **Load**: Use `/chat load <id>` or web UI sidebar
-- **Archive**: Old chats stored in `~/.cli-agent/chat_history/`
+- **Archive**: Old chats stored in `~/.cli-agent/projects/{project-name}/chat_history/`
 - **Search**: Web UI has BM25 search with snippet highlighting
+- **Metadata**: Each project tracked with `metadata.json` (path, timestamps, stats)
 
 ### Using Isolated Mode
 

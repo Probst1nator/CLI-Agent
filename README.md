@@ -27,6 +27,7 @@ CLI-Agent is an AI agent framework that provides:
 - **Web Interface**: Real-time browser-based UI with multiple tabs support
 - **Docker Isolation**: Secure containerized execution (`--isolated` mode)
 - **Audio Integration**: Speech recognition and TTS support
+- **Centralized Storage**: Per-project chat isolation in `~/.cli-agent/projects/` with auto-migration
 - **Comprehensive Testing**: Full test suite with hierarchical test levels
 
 ## Deployment Options
@@ -68,24 +69,62 @@ Deploy CLI-Agent as a web service where each user gets an isolated container:
 
 ## Installation
 
+### Quick Install (Recommended)
+
 1. Clone the repository:
 ```bash
 git clone <repository-url>
 cd CLI-Agent
 ```
 
-2. Install dependencies:
+2. Run the automated installation script:
 ```bash
-pip install -r requirements.txt
+./install_dependencies.sh
 ```
 
-3. Install the packages in development mode:
+This will:
+- Install system dependencies (apt packages)
+- Create a Python virtual environment (`.venv`)
+- Install all Python packages from `requirements.txt`
+- Set up your `.env` file from `.env.example`
+
+3. Activate the virtual environment and configure your API keys:
 ```bash
+source .venv/bin/activate
+nano .env  # Add your API keys
+```
+
+### Manual Installation (Alternative)
+
+If you prefer to install manually or need custom configuration:
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd CLI-Agent
+```
+
+2. Install system dependencies:
+```bash
+sudo apt-get update
+sudo apt-get install -y python3-pip python3-dev python3-venv build-essential ffmpeg portaudio19-dev libsndfile1
+```
+
+3. Create and activate virtual environment:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+4. Install Python dependencies:
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
 pip install -e core/
 pip install -e shared/
 ```
 
-4. Set up environment variables:
+5. Set up environment variables:
 ```bash
 cp .env.example .env
 # Edit .env with your API keys

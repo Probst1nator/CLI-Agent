@@ -1179,7 +1179,7 @@ class ConfigCommand(BaseCommand):
             print(colored("--- Agent Configuration ---", "yellow"))
 
             # Auto-execution status
-            auto_status = 'ON (manual confirmation)' if g.auto_execute else 'OFF'
+            auto_status = 'ON' if g.auto_execute else 'OFF'
             auto_color = 'green' if g.auto_execute else 'red'
             print("Auto-execution:".ljust(24) + " " + colored(auto_status, auto_color))
 

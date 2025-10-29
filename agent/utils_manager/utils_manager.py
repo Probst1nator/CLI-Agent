@@ -2,7 +2,7 @@ import importlib
 import inspect
 import asyncio
 import logging
-from typing import List, Type, Optional, Dict, Any
+from typing import List, Type, Optional, Dict, Any, Tuple
 from pathlib import Path
 from termcolor import colored
 
@@ -259,7 +259,7 @@ from {util_cls.__module__} import {util_cls.__name__}
             logging.debug(f"Guidance search failed ({e}), returning empty list")
             return []
 
-    def get_relevant_tools_with_scores(self, query: str, top_k: int = 3) -> tuple[str, str]:
+    def get_relevant_tools_with_scores(self, query: str, top_k: int = 3) -> Tuple[str, str]:
         """
         Generates a combined prompt with relevant tools and their similarity scores.
         This is used to augment the user's prompt and provide score visibility.
@@ -269,7 +269,7 @@ from {util_cls.__module__} import {util_cls.__name__}
             top_k (int): The number of top relevant items to suggest.
 
         Returns:
-            tuple[str, str]: (formatted prompt string, score info string) or empty strings if no relevant items found.
+            Tuple[str, str]: (formatted prompt string, score info string) or empty strings if no relevant items found.
         """
         # Fetch relevant tools and guidance from the vector DB
         top_k_tools = top_k

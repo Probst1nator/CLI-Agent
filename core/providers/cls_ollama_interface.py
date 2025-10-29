@@ -1,6 +1,6 @@
 import json
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import ollama
 from termcolor import colored
 from core.chat import Chat, Role
@@ -357,7 +357,7 @@ class OllamaClient(AIProviderInterface):
             return False
 
     @staticmethod
-    def get_valid_client(model_key: str, chat: Optional[Chat] = None, is_small_model: bool = False) -> Tuple[ollama.Client|None, str, str]:
+    def get_valid_client(model_key: str, chat: Optional[Chat] = None, is_small_model: bool = False) -> Tuple[Optional[ollama.Client], str, str]:
         """
         Returns a valid client for the given model, automatically downloading if not found.
 
@@ -638,7 +638,7 @@ class OllamaClient(AIProviderInterface):
 
     @staticmethod
     def generate_response(
-        chat: Chat | str,
+        chat: Union[Chat, str],
         model_key: str = "phi3.5:3.8b",
         temperature: Optional[float] = None,
         silent_reason: str = "",
@@ -648,7 +648,7 @@ class OllamaClient(AIProviderInterface):
         Generates a response using the Ollama API, automatically downloading models if needed.
 
         Args:
-            chat (Chat | str): The chat object containing messages or a string prompt.
+            chat (Union[Chat, str]): The chat object containing messages or a string prompt.
             model_key (str): The model identifier (e.g., "phi3.5:3.8b", "llama3.1").
             temperature (Optional[float]): The temperature setting for the model.
             silent_reason (str): If provided, suppresses output and shows this reason.

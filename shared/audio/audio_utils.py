@@ -3,9 +3,12 @@ import os
 import re
 import subprocess
 import tempfile
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 import sqlite3
-import chromadb
+try:
+    import chromadb
+except (ImportError, RuntimeError):
+    pass  # ChromaDB optional due to SQLite version
 # import pyaudio  # Moved to lazy import in functions that need it
 import logging
 from termcolor import colored
@@ -56,7 +59,7 @@ def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
 
 def listen_microphone(
     max_listening_duration: Optional[int] = 60, private_remote_wake_detection: bool = False, remote_voice_enabled: bool = False
-) -> Tuple[str, str, bool|str]:
+) -> Tuple[str, str, Union[bool, str]]:
     """
     Listen to the microphone, save to a temporary file, and return transcription.
     Args:
@@ -64,7 +67,7 @@ def listen_microphone(
         private_remote_wake_detection (bool): Whether to use private remote wake detection.
         remote_voice_enabled (bool): Whether to enable cloud-based transcription. Defaults to False (local only).
     Returns:
-        Tuple[str, str, bool|str]: (transcribed text from the audio, language, used wake word)
+        Tuple[str, str, Union[bool, str]]: (transcribed text from the audio, language, used wake word)
     """
     from py_classes.cls_pyaihost_interface import PyAiHost
     global r, source
@@ -215,7 +218,7 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
-def extract_blocks(text: str, language: Optional[str | List[str]] = None) -> List[str]:
+def extract_blocks(text: str, language: Optional[Union[str, List[str]]] = None) -> List[str]:
     """
     Extracts content from markdown code blocks (```) or XML-style tags (<tag>).
 

@@ -10,7 +10,9 @@ Provides RESTful API for chat operations:
 
 import logging
 import time
-from typing import Any
+import json
+from pathlib import Path
+from typing import Any, List
 
 try:
     from aiohttp import web
@@ -563,25 +565,69 @@ async def truncate_and_continue(request: Any) -> Any:
         }, status=500)
 
 
+def _load_suggested_prompts() -> List[str]:
+    """
+    Load suggested prompts from JSON config file.
+
+    Falls back to default prompts if file doesn't exist or is invalid.
+
+    Returns:
+        List[str]: List of suggested prompt strings
+    """
+    # Default prompts as fallback
+    default_prompts = [
+        "What can you help me with?",
+        "Show me your capabilities and available tools",
+        "Explain how your tool system works",
+        "What programming languages and frameworks do you support?",
+        "Tell me about your key features"
+    ]
+
+    config_path = Path.home() / ".cli-agent" / "suggested_prompts.json"
+
+    try:
+        if not config_path.exists():
+            logger.info(f"Suggested prompts config not found at {config_path}, using defaults")
+            return default_prompts
+
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        prompts = config.get('prompts', [])
+
+        if not isinstance(prompts, list) or not prompts:
+            logger.warning(f"Invalid prompts format in {config_path}, using defaults")
+            return default_prompts
+
+        # Validate all prompts are strings
+        if not all(isinstance(p, str) for p in prompts):
+            logger.warning(f"Non-string prompts found in {config_path}, using defaults")
+            return default_prompts
+
+        logger.debug(f"Loaded {len(prompts)} suggested prompts from {config_path}")
+        return prompts
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse {config_path}: {e}, using defaults")
+        return default_prompts
+    except Exception as e:
+        logger.error(f"Error loading suggested prompts from {config_path}: {e}, using defaults")
+        return default_prompts
+
+
 async def get_suggested_prompts(request: Any) -> Any:
     """GET /api/chat/suggested-prompts
 
     Returns a list of suggested starting prompts for empty chats.
     These prompts help users get started with the agent.
+
+    Prompts are loaded from ~/.cli-agent/suggested_prompts.json
     """
     if not AIOHTTP_AVAILABLE:
         raise RuntimeError("aiohttp not available")
 
     try:
-        # Hardcoded exploratory prompts for now
-        # TODO: Make these dynamically generated based on available tools/context
-        prompts = [
-            "What can you help me with?",
-            "Show me your capabilities and available tools",
-            "Explain how your tool system works",
-            "What programming languages and frameworks do you support?",
-            "Tell me about your key features"
-        ]
+        prompts = _load_suggested_prompts()
 
         return web.json_response({
             'status': 'success',

@@ -79,7 +79,7 @@ class HumanAPI(AIProviderInterface):
         return full_response
 
     @staticmethod
-    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional['Chat'] = None) -> tuple[str,str]:
+    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional['Chat'] = None) -> Tuple[str,str]:
         """
         Transcribes an audio file using the OpenAI Whisper API.
 
@@ -90,7 +90,7 @@ class HumanAPI(AIProviderInterface):
             chat (Optional[Chat]): The chat object for debug printing.
 
         Returns:
-            tuple[str,str]: (transcribed text from the audio file, language)
+            Tuple[str,str]: (transcribed text from the audio file, language)
 
         Raises:
             Exception: If an error occurs during transcription.

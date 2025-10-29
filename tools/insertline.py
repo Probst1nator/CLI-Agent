@@ -45,6 +45,12 @@ class insertline:
             # Resolve the path relative to the current working directory
             full_path = os.path.abspath(filepath)
 
+            # Check if write is allowed via --allow-write-path
+            from core.globals import g
+            allowed_write_paths = getattr(g, 'ALLOWED_WRITE_PATHS', [])
+            if allowed_write_paths and full_path not in allowed_write_paths:
+                return f"Error: Write access denied. File '{full_path}' is not in the allowed write paths list. Allowed paths: {allowed_write_paths}"
+
             if not os.path.isfile(full_path):
                 return f"Error: File not found at '{full_path}' (resolved from '{filepath}')"
 

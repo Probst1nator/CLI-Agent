@@ -109,7 +109,7 @@ import signal
 import queue
 from pathlib import Path
 from termcolor import colored
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional, Callable, Any, Tuple
 from pyfiglet import figlet_format
 
 # Import with suppression in non-debug mode
@@ -167,6 +167,9 @@ from shared.utils.display_utils import colorize_model_list, print_startup_summar
 
 # Import logging utilities from extracted module
 from shared.utils.logging_utils import setup_logging, swap_to_simple_logging
+
+# Import project storage utilities from extracted module
+from shared.utils.project_storage import get_project_storage_path
 
 # Import tool discovery from extracted module
 from agent.core.tool_discovery import _generate_tool_documentation
@@ -733,6 +736,10 @@ def parse_cli_args() -> argparse.Namespace:
                         help="Enable specific tools (removes from disabled list). Example: --enable bash readfile")
     parser.add_argument("--disable", type=str, nargs='+', default=None, metavar='TOOL',
                         help="Disable specific tools. Example: --disable bash writefile editfile")
+    parser.add_argument("--read-only", action="store_true", default=False,
+                        help="Run in read-only mode (only enables safe, non-modifying tools: grepsearch, paralleltools, readdirectory, readfile, searchconversations, searchresource, think, todos, viewpermissions, visualresponse)")
+    parser.add_argument("--allow-write-path", type=str, nargs='+', default=None, metavar='PATH',
+                        help="Allow write operations only to specific paths (use with --read-only for fine-grained control). Example: --allow-write-path ~/.cli-agent/suggested_prompts.json")
     # --- End Tool Management Arguments ---
 
     # CORRECTED: Parse directly from sys.argv, as the pre-processing logic was removed.
@@ -794,6 +801,84 @@ if hasattr(args, 'enable') and args.enable:
 if hasattr(args, 'disable') and args.disable:
     tool_config_manager.disable_tools(args.disable)
     print(colored(f"✓ Disabled tools: {', '.join(args.disable)}", "red"))
+
+# --- Handle Allow Write Path (process before read-only mode) ---
+# Process --allow-write-path to expand and store allowed write paths
+if hasattr(args, 'allow_write_path') and args.allow_write_path:
+    import os
+    allowed_write_paths = []
+    for path in args.allow_write_path:
+        # Expand ~ and relative paths to absolute paths
+        expanded_path = os.path.abspath(os.path.expanduser(path))
+        allowed_write_paths.append(expanded_path)
+
+    # Store in args and g for later access by tools
+    args.allowed_write_paths = allowed_write_paths
+    g.ALLOWED_WRITE_PATHS = allowed_write_paths
+    print(colored(f"✓ Allowing writes to {len(allowed_write_paths)} specific path(s):", "green"))
+    for path in allowed_write_paths:
+        print(colored(f"  • {path}", "cyan"))
+
+    # Auto-approve permissions for these paths
+    try:
+        from core.permissions.permissions_manager import PermissionsManager
+        perms_manager = PermissionsManager()
+
+        # Add always-allow permission for each write tool + path combination
+        write_tools = ['writefile', 'editfile', 'insertline', 'deletelines']
+        for tool_name in write_tools:
+            for path in allowed_write_paths:
+                perms_manager.add_always_allow(tool_name, file_path=path)
+
+        print(colored(f"  Auto-approved permissions for {len(write_tools)} write tools", "green"))
+    except Exception as e:
+        print(colored(f"  Warning: Could not auto-approve permissions: {e}", "yellow"))
+else:
+    args.allowed_write_paths = []
+    g.ALLOWED_WRITE_PATHS = []
+
+# --- Handle Read-Only Mode ---
+# In read-only mode, disable all tools except safe read-only ones
+if hasattr(args, 'read_only') and args.read_only:
+    # Define read-only tools (safe, non-modifying tools)
+    READ_ONLY_TOOLS = [
+        'grepsearch', 'paralleltools', 'readdirectory', 'readfile',
+        'searchconversations', 'searchresource', 'think', 'todos',
+        'viewpermissions', 'visualresponse', 'response'
+    ]
+
+    # If --allow-write-path is specified, also allow restricted write tools
+    WRITE_TOOLS = ['writefile', 'editfile', 'insertline', 'deletelines']
+    if hasattr(args, 'allow_write_path') and args.allow_write_path:
+        READ_ONLY_TOOLS.extend(WRITE_TOOLS)
+        print(colored(f"  Enabled write tools (restricted to {len(args.allowed_write_paths)} path(s))", "cyan"))
+
+    # Get all available tools by doing a quick discovery
+    from pathlib import Path
+    tools_dir = Path(__file__).parent / "tools"
+    all_tool_names = []
+
+    # Scan tools directory
+    for file in tools_dir.glob("*.py"):
+        if file.name.startswith("_") or file.stem == "__init__":
+            continue
+        all_tool_names.append(file.stem)
+
+    # Scan optional tools
+    optional_dir = tools_dir / "optional"
+    if optional_dir.exists():
+        for file in optional_dir.glob("*.py"):
+            if file.name.startswith("_") or file.stem == "__init__":
+                continue
+            all_tool_names.append(file.stem)
+
+    # Disable all tools that aren't in the read-only list
+    tools_to_disable = [t for t in all_tool_names if t not in READ_ONLY_TOOLS]
+
+    if tools_to_disable:
+        tool_config_manager.set_disabled_tools(tools_to_disable)
+        print(colored(f"✓ Read-only mode enabled: {len(READ_ONLY_TOOLS)} safe tools available", "green"))
+        print(colored(f"  Disabled {len(tools_to_disable)} modifying tools", "yellow"))
 
 # --- Handle Tool Listing ---
 # List tools and exit if --list-tools was specified
@@ -1397,7 +1482,7 @@ def create_interruption_callback(
 
     return _callback
 
-def get_provider_emoji_and_name(model_key: str) -> tuple[str, str]:
+def get_provider_emoji_and_name(model_key: str) -> Tuple[str, str]:
     """
     Get the emoji and provider name for a model based on its provider class.
     Returns a tuple of (emoji, provider_name)
@@ -1993,7 +2078,7 @@ async def main(  # type: ignore[misc]
 
         if args.c or args.regenerate:
             # Try to restore previous chat state for persistent conversation across restarts
-            storage_path = os.path.join(os.getcwd(), ".cli-agent", "recent_chat.json")
+            storage_path = str(get_project_storage_path()) + "/recent_chat.json"
 
             if os.path.exists(storage_path):
                 try:
@@ -2462,43 +2547,77 @@ async def main(  # type: ignore[misc]
                                 # Check permissions for each tool that needs it
                                 should_execute = True  # Start optimistic
 
-                                for analysis in tool_analyses:
-                                    if not analysis['needs_permission']:
-                                        continue
+                                # --- LAYER 1: ALLOWED_WRITE_PATHS Enforcement ---
+                                # Check write path restrictions BEFORE showing permission prompts
+                                # This provides instant denial for unauthorized write attempts
+                                allowed_write_paths = getattr(g, 'ALLOWED_WRITE_PATHS', [])
+                                if allowed_write_paths:
+                                    write_tools = ['writefile', 'editfile', 'insertline', 'deletelines']
+                                    for analysis in tool_analyses:
+                                        tool_name = analysis['tool_name']
+                                        primary_path = analysis.get('primary_path')
 
-                                    # Use enhanced permission system for path-aware tools
-                                    permission_granted = await enhanced_permission_prompt(
-                                        args,
-                                        tool_name=analysis['tool_name'],
-                                        action_description=analysis['action_description'],
-                                        file_path=analysis['primary_path'],
-                                        command_hash=analysis['command_hash'],
-                                        command_pattern=analysis['command_pattern'],
-                                        has_paths=analysis['has_paths'],
-                                        xml_content=analysis.get('xml_content', ''),
-                                        input_event=input_event,
-                                        input_lock=input_lock,
-                                        shared_input=shared_input,
-                                        get_user_input_func=get_user_input_with_bindings
-                                    )
+                                        # If this is a write tool with a target path
+                                        if tool_name in write_tools and primary_path:
+                                            # Resolve to absolute path for consistent checking
+                                            import os
+                                            abs_path = os.path.abspath(primary_path)
 
-                                    if not permission_granted:
-                                        logging.info(colored("⛔ Code execution denied", "green"))
-                                        # Store rejection details for informative user message
-                                        if 'rejection_reason' not in locals():
-                                            rejection_reason = []
-                                        rejection_details = {
-                                            'tool': analysis['tool_name'],
-                                            'action': analysis['action_description'],
-                                            'paths': analysis.get('detected_paths', []),
-                                            'risk_level': analysis.get('risk_level', 'unknown'),
-                                            'xml_content': analysis.get('xml_content', '')[:100] + '...' if len(analysis.get('xml_content', '')) > 100 else analysis.get('xml_content', '')
-                                        }
-                                        rejection_reason.append(rejection_details)
+                                            # Check if path is in allowed list
+                                            if abs_path not in allowed_write_paths:
+                                                # INSTANT DENIAL - No permission prompt shown
+                                                should_execute = False
+                                                rejection_reason = [{
+                                                    'tool': tool_name,
+                                                    'action': analysis['action_description'],
+                                                    'paths': [abs_path],
+                                                    'risk_level': 'restricted',
+                                                    'xml_content': f"Write access denied: '{abs_path}' is not in the allowed write paths list.\nAllowed paths: {', '.join(allowed_write_paths)}",
+                                                    'restriction_type': 'ALLOWED_WRITE_PATHS'
+                                                }]
+                                                logging.info(colored(f"⛔ Write denied by ALLOWED_WRITE_PATHS enforcement: {abs_path}", "red"))
+                                                logging.info(colored(f"   Allowed paths: {allowed_write_paths}", "yellow"))
+                                                break
 
-                                        should_execute = False
-                                        break
-                                    logging.info(colored("✅ Code execution permitted", "green"))
+                                # Only proceed to permission prompt if not already denied by path restriction
+                                if should_execute:
+                                    for analysis in tool_analyses:
+                                        if not analysis['needs_permission']:
+                                            continue
+
+                                        # Use enhanced permission system for path-aware tools
+                                        permission_granted = await enhanced_permission_prompt(
+                                            args,
+                                            tool_name=analysis['tool_name'],
+                                            action_description=analysis['action_description'],
+                                            file_path=analysis['primary_path'],
+                                            command_hash=analysis['command_hash'],
+                                            command_pattern=analysis['command_pattern'],
+                                            has_paths=analysis['has_paths'],
+                                            xml_content=analysis.get('xml_content', ''),
+                                            input_event=input_event,
+                                            input_lock=input_lock,
+                                            shared_input=shared_input,
+                                            get_user_input_func=get_user_input_with_bindings
+                                        )
+
+                                        if not permission_granted:
+                                            logging.info(colored("⛔ Code execution denied", "green"))
+                                            # Store rejection details for informative user message
+                                            if 'rejection_reason' not in locals():
+                                                rejection_reason = []
+                                            rejection_details = {
+                                                'tool': analysis['tool_name'],
+                                                'action': analysis['action_description'],
+                                                'paths': analysis.get('detected_paths', []),
+                                                'risk_level': analysis.get('risk_level', 'unknown'),
+                                                'xml_content': analysis.get('xml_content', '')[:100] + '...' if len(analysis.get('xml_content', '')) > 100 else analysis.get('xml_content', '')
+                                            }
+                                            rejection_reason.append(rejection_details)
+
+                                            should_execute = False
+                                            break
+                                        logging.info(colored("✅ Code execution permitted", "green"))
 
                         if should_execute:
                             try:

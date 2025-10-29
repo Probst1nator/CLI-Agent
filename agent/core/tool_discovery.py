@@ -101,9 +101,12 @@ def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
                 if hasattr(module, tool_class_name):
                     tool_class = getattr(module, tool_class_name)
                     if hasattr(tool_class, 'get_delim') and hasattr(tool_class, 'get_tool_info'):
-                        if (tool_class_name in disabled_tools):
+                        # Track disabled status but DON'T skip registration
+                        # (tools must be in g.tool_classes to be detected and blocked during execution)
+                        is_disabled = tool_class_name in disabled_tools
+
+                        if is_disabled:
                             skipped_tools.append(f"{tool_class_name} (Disabled)")
-                            continue
 
                         # Special handling for optional tools
                         if tool_class_name == 'getuserfiles' and not _check_getuserfiles_available():
@@ -132,6 +135,11 @@ def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
     for tool_name in sorted_tool_names:
         tool_class = tool_classes[tool_name]
         try:
+            # Skip disabled tools in the system prompt (LLM shouldn't try to use them)
+            # But they're still in tool_classes for detection/blocking during execution
+            if tool_name in disabled_tools:
+                continue
+
             info = tool_class.get_tool_info()
             # Use four spaces for indentation in the final prompt
             docs_string += (
