@@ -1949,6 +1949,8 @@ async def main(  # type: ignore[misc]
                 context_chat = Chat.load_from_json()
 
                 # Reset bootstrap_message_count for loaded chats since they have grown beyond bootstrap
+                # This shows the initial file list/permissions conversation in loaded chats
+                # Note: System messages are always filtered by role in the frontend, not by this count
                 if context_chat and 'bootstrap_message_count' in context_chat.metadata:
                     context_chat.metadata['bootstrap_message_count'] = 0
 

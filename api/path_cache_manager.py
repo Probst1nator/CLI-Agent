@@ -8,7 +8,6 @@ Scans recursively without limits, runs async, refreshes on user messages.
 import os
 import asyncio
 import logging
-from pathlib import Path
 from typing import List, Set
 
 logger = logging.getLogger(__name__)

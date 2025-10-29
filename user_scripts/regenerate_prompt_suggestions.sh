@@ -110,27 +110,41 @@ while IFS= read -r file; do
 done <<< "$SELECTED_FILES"
 
 # Craft the prompt for CLI-Agent
-PROMPT="I would like you to come up with some enjoyable tasks you can perform for the user based on his recent computer activities. Here are some randomly selected files from the last month that seem relevant.
-You do not need to read all of them (although you may), focus on generating conversation starters which the user will prompt the agent with.
-Make them relevant in the sense that they kickstart a fun and engaging workflow.
-Keep them short, include any relevant filepaths, be intelligent about the trajectories they lead the user towards.
+PROMPT="I need you to generate 5 contextual prompt suggestions based on my recent study activities.
 
-Randomly selected recent files in ~/OneDrive/Studium:
+## Context: Recently modified files
+Here are randomly selected files from the last month:
 ${FILE_LIST}
 
-Your task:
-1. Read the content of these files to understand the topics, subjects, and current work.
-2. Generate 5 creative, actionable prompts that would help me start my day productively.
-3. Consider relationships between files (e.g., if there's a lab report and related lecture notes).
-4. Mix different types of day starters: review, explore, challenge knowledge, visualize, etc.
-5. Write the prompts to $SUGGESTED_PROMPTS_FILE in the correct JSON format:
+## Your Task
+
+1. **Understand my current focus**
+   - Analyze the provided files to identify key topics and subjects
+   - Explore the directory structure and read additional files within ~/OneDrive/Studium to build richer context
+   - Use your judgment on how much exploration is useful vs. excessive
+
+2. **Generate 5 prompts**
+   - Each prompt should be exactly one sentence
+   - You can reference a file by title in your prompt but if you do so also add the full filepath at the end of it. (Ensure your sentence finished fully before providing the filepath as any ending filepaths will be hidden from the user)
+
+3. **Write output to:** $SUGGESTED_PROMPTS_FILE
+   Use this exact JSON format:
+\`\`\`json
    {
      \"prompts\": [
        \"Prompt 1 here\",
        \"Prompt 2 here\",
-       ...
+       \"Prompt 3 here\",
+       \"Prompt 4 here\",
+       \"Prompt 5 here\"
      ]
-   }"
+   }
+\`\`\`
+
+## Guidelines
+- Be intelligent about inferring my real-world context and upcoming needs
+- Think across subject boundaries - connect concepts from different domains
+- Aim for prompts that are engaging and intellectually stimulating"
 
 # Run CLI-Agent with restricted permissions
 cd "$CLI_AGENT_DIR"
