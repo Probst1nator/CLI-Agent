@@ -4,8 +4,11 @@ import os
 import shutil
 import time
 import threading
+import asyncio
+import uuid
 from typing import Dict, List, Optional, Set, Any, Union, Iterator, Tuple, Callable
 from termcolor import colored
+from dataclasses import dataclass, field
 import math # <-- Added for token calculation
 
 from core.providers.cls_nvidia_interface import NvidiaAPI
@@ -24,6 +27,106 @@ import logging
 
 # Get a logger for this module. It will inherit its configuration from the root logger set up in main.py.
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GenerationMetrics:
+    """Tracks metrics for a single generation call."""
+    generation_id: str
+    model_key: str
+    start_time: float
+    tokens_generated: int = 0
+    last_broadcast_time: float = field(default_factory=time.time)
+
+    @property
+    def elapsed_ms(self) -> int:
+        """Calculate elapsed time in milliseconds."""
+        return int((time.time() - self.start_time) * 1000)
+
+    @property
+    def tokens_per_second(self) -> float:
+        """Calculate tokens per second."""
+        elapsed_s = (time.time() - self.start_time)
+        if elapsed_s > 0:
+            return self.tokens_generated / elapsed_s
+        return 0.0
+
+
+class GenerationTracker:
+    """
+    Singleton tracker for all active LLM generation calls.
+    Handles multiple concurrent generations and broadcasts metrics.
+    """
+    _instance: Optional["GenerationTracker"] = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialize()
+        return cls._instance
+
+    def _initialize(self):
+        """Initialize tracker state."""
+        self.active_generations: Dict[str, GenerationMetrics] = {}
+        self.broadcast_interval = 0.1  # Broadcast every 100ms max
+
+    def start_generation(self, model_key: str) -> str:
+        """
+        Start tracking a new generation.
+        Returns the generation_id for this call.
+        """
+        generation_id = str(uuid.uuid4())[:8]  # Short ID for readability
+
+        with self._lock:
+            self.active_generations[generation_id] = GenerationMetrics(
+                generation_id=generation_id,
+                model_key=model_key,
+                start_time=time.time()
+            )
+
+        logger.debug(f"Started tracking generation {generation_id} for model {model_key}")
+        return generation_id
+
+    def update_generation(self, generation_id: str, tokens_added: int) -> Optional[GenerationMetrics]:
+        """
+        Update token count for a generation.
+        Returns metrics if broadcast is due, None otherwise.
+        """
+        with self._lock:
+            if generation_id not in self.active_generations:
+                return None
+
+            metrics = self.active_generations[generation_id]
+            metrics.tokens_generated += tokens_added
+
+            # Check if we should broadcast (throttled to broadcast_interval)
+            current_time = time.time()
+            if current_time - metrics.last_broadcast_time >= self.broadcast_interval:
+                metrics.last_broadcast_time = current_time
+                return metrics
+
+            return None
+
+    def end_generation(self, generation_id: str) -> Optional[GenerationMetrics]:
+        """
+        End tracking for a generation.
+        Returns final metrics for one last broadcast.
+        """
+        with self._lock:
+            if generation_id not in self.active_generations:
+                return None
+
+            metrics = self.active_generations.pop(generation_id)
+            logger.debug(f"Ended tracking generation {generation_id}: {metrics.tokens_generated} tokens in {metrics.elapsed_ms}ms")
+            return metrics
+
+    def get_active_count(self) -> int:
+        """Get count of active generations."""
+        with self._lock:
+            return len(self.active_generations)
 
 # Custom exception for user interruption
 class UserInterruptedException(Exception):
@@ -1331,12 +1434,32 @@ class LlmRouter:
                     repetition_threshold = 500  # Characters to analyze
                     max_char_repetition = 0.8  # 80% of same character = spam
 
-                    # Enhanced stream callback that monitors activity and repetition
+                    # Start generation tracking
+                    tracker = GenerationTracker()
+                    generation_id = tracker.start_generation(model.model_key)
+
+                    # Enhanced stream callback that monitors activity, repetition, and metrics
                     async def activity_aware_callback(chunk: str) -> str:
                         nonlocal recent_chars
 
                         if chunk:
                             stream_monitor.add_chars(len(chunk))
+
+                            # Update generation metrics and broadcast if needed
+                            metrics = tracker.update_generation(generation_id, len(chunk))
+                            if metrics:
+                                # Broadcast metrics via WebSocket (non-blocking)
+                                try:
+                                    from api.server import broadcast_generation_metrics
+                                    asyncio.create_task(broadcast_generation_metrics(
+                                        generation_id=metrics.generation_id,
+                                        model_key=metrics.model_key,
+                                        tokens_generated=metrics.tokens_generated,
+                                        elapsed_ms=metrics.elapsed_ms,
+                                        tokens_per_second=metrics.tokens_per_second
+                                    ))
+                                except Exception as e:
+                                    logger.debug(f"Failed to broadcast generation metrics: {e}")
 
                             # Add characters to recent buffer
                             recent_chars.extend(list(chunk))
@@ -1380,6 +1503,21 @@ class LlmRouter:
 
                     finally:
                         signal.alarm(0)  # Clear the alarm
+
+                        # End generation tracking and broadcast final metrics
+                        final_metrics = tracker.end_generation(generation_id)
+                        if final_metrics:
+                            try:
+                                from api.server import broadcast_generation_complete
+                                asyncio.create_task(broadcast_generation_complete(
+                                    generation_id=final_metrics.generation_id,
+                                    model_key=final_metrics.model_key,
+                                    tokens_generated=final_metrics.tokens_generated,
+                                    elapsed_ms=final_metrics.elapsed_ms,
+                                    tokens_per_second=final_metrics.tokens_per_second
+                                ))
+                            except Exception as e:
+                                logger.debug(f"Failed to broadcast generation complete: {e}")
 
                     if (not full_response.endswith("\n") and not hidden_reason):
                         print()
@@ -1472,8 +1610,15 @@ class LlmRouter:
                 if untried_models:
                     # We have more models to try - continue immediately to next model
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                    g.debug_log(f"⚠️ Model {model.model_key if model else 'unknown'} failed: {error_msg[:100]}", "yellow", force_print=True, prefix=prefix)
-                    g.debug_log(f"➡️ Trying next fallback model ({len(untried_models)} remaining)", "cyan", force_print=True, prefix=prefix)
+
+                    # Check if error was already logged by provider
+                    if hasattr(e, 'already_logged') and getattr(e, 'already_logged'):
+                        # Error details already logged by provider - just show fallback message
+                        g.debug_log(f"➡️ Trying next fallback model ({len(untried_models)} remaining)", "cyan", force_print=True, prefix=prefix)
+                    else:
+                        # Show error details since they weren't logged yet
+                        g.debug_log(f"⚠️ Model {model.model_key if model else 'unknown'} failed: {error_msg[:100]}", "yellow", force_print=True, prefix=prefix)
+                        g.debug_log(f"➡️ Trying next fallback model ({len(untried_models)} remaining)", "cyan", force_print=True, prefix=prefix)
                     continue  # Try next model immediately without waiting
 
                 # All models in this round have been tried - increment retry_count

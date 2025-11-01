@@ -840,6 +840,78 @@ async def broadcast_token_stream(token: str, tokens_generated: int, elapsed_ms: 
         logger.debug(f"Failed to broadcast token_stream: {e}")
 
 
+async def broadcast_generation_metrics(generation_id: str, model_key: str,
+                                         tokens_generated: int, elapsed_ms: int,
+                                         tokens_per_second: float) -> None:
+    """
+    Broadcast generation_metrics event to all WebSocket clients.
+    Called periodically during LLM generation (throttled to 100ms intervals).
+
+    Args:
+        generation_id: Unique ID for this generation call
+        model_key: The LLM model being used
+        tokens_generated: Total tokens (characters) generated so far
+        elapsed_ms: Elapsed time in milliseconds since generation started
+        tokens_per_second: Current generation speed
+    """
+    server = get_server()
+    if not server:
+        return
+
+    try:
+        payload = {
+            'type': 'generation_metrics',
+            'timestamp': time.time(),
+            'generation_id': generation_id,
+            'model_key': model_key,
+            'tokens_generated': tokens_generated,
+            'elapsed_ms': elapsed_ms,
+            'tokens_per_second': tokens_per_second
+        }
+
+        await server.broadcast(payload)
+        logger.debug(f"Broadcasted generation_metrics: {generation_id} - {tokens_generated} tokens in {elapsed_ms}ms ({tokens_per_second:.1f} t/s)")
+
+    except Exception as e:
+        logger.debug(f"Failed to broadcast generation_metrics: {e}")
+
+
+async def broadcast_generation_complete(generation_id: str, model_key: str,
+                                          tokens_generated: int, elapsed_ms: int,
+                                          tokens_per_second: float) -> None:
+    """
+    Broadcast generation_complete event to all WebSocket clients.
+    Called when LLM generation finishes (success, error, or interruption).
+
+    Args:
+        generation_id: Unique ID for this generation call
+        model_key: The LLM model that was used
+        tokens_generated: Total tokens (characters) generated
+        elapsed_ms: Total elapsed time in milliseconds
+        tokens_per_second: Final generation speed
+    """
+    server = get_server()
+    if not server:
+        return
+
+    try:
+        payload = {
+            'type': 'generation_complete',
+            'timestamp': time.time(),
+            'generation_id': generation_id,
+            'model_key': model_key,
+            'tokens_generated': tokens_generated,
+            'elapsed_ms': elapsed_ms,
+            'tokens_per_second': tokens_per_second
+        }
+
+        await server.broadcast(payload)
+        logger.info(f"Broadcasted generation_complete: {generation_id} - {tokens_generated} tokens in {elapsed_ms}ms ({tokens_per_second:.1f} t/s)")
+
+    except Exception as e:
+        logger.debug(f"Failed to broadcast generation_complete: {e}")
+
+
 async def broadcast_tool_update(tool_name: str, status: str, description: str = "",
                                  result: str = "", duration_ms: int = 0, error: str = None) -> None:
     """

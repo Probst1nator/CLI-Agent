@@ -392,17 +392,30 @@ class GoogleAPI(AIProviderInterface):
                     api_error_summary = error_str.split('\n')[0][:200]  # First line, max 200 chars
                     g.debug_log(f"   API Error: {api_error_summary}", "yellow", force_print=True, prefix=prefix)
 
-                # Mark the exception as already logged and raise as RateLimitException
-                setattr(e, 'already_logged', True)
-                raise RateLimitException(f"Model {model_key} {limit_type.value} limit exceeded. Try again in {cooldown_seconds:.1f} seconds")
+                # Create RateLimitException with already_logged flag
+                rate_limit_exc = RateLimitException(f"Model {model_key} {limit_type.value} limit exceeded. Try again in {cooldown_seconds:.1f} seconds")
+                setattr(rate_limit_exc, 'already_logged', True)
+                raise rate_limit_exc
 
             # Log other errors here so we don't get duplicate logs
             if not silent_reason:
-                error_msg = f"❌ {model_key}: {str(e).split('.')[0]}"
+                # Extract meaningful error message
+                error_str = str(e)
+                # Try to get first sentence or first 200 chars
+                if '.' in error_str:
+                    error_summary = error_str.split('.')[0] + '.'
+                else:
+                    error_summary = error_str[:200]
+
+                error_msg = f"❌ {model_key}: {error_summary}"
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
 
-                # Mark the exception as already logged so the router won't log it again
-                setattr(e, 'already_logged', True)
+                # If error is very short/cryptic, also log the full error to file
+                if len(error_summary) < 20:
+                    logger.error(f"Google API error details for {model_key}: {error_str}")
+
+            # Mark the exception as already logged so the router won't log it again
+            setattr(e, 'already_logged', True)
 
             # Re-raise the original exception
             raise

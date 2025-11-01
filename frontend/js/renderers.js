@@ -29,17 +29,21 @@
 /**
  * Message metadata containing tool execution information
  * @typedef {Object} MessageMetadata
+ * @property {boolean} [is_bootstrap] - Whether this is a bootstrap training message
  * @property {ToolInfo[]} [tool_info] - Array of tool execution records (source of truth)
- * @property {string} [response_model] - LLM model used for response
- * @property {Object} [additionalData] - Additional dynamic metadata
+ * @property {string} [timestamp] - ISO 8601 timestamp
+ * @property {string} [model] - LLM model used for generation
+ * @property {string} [response_model] - LLM model used for response (legacy field)
+ * @property {number} [message_id] - Unique message identifier
  */
 
 /**
  * Tool execution information (from metadata - authoritative)
  * @typedef {Object} ToolInfo
  * @property {string} name - Tool name
- * @property {'success'|'error'} status - Execution status
+ * @property {'success'|'error'|'pending'} status - Execution status
  * @property {number} [duration_ms] - Execution duration in milliseconds
+ * @property {number} [execution_time] - Execution duration in seconds
  * @property {string} [model] - LLM model used for tool execution
  * @property {string} [args] - Tool arguments/parameters
  * @property {string} [context_returned] - Tool output/returned context

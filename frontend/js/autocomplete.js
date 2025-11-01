@@ -140,8 +140,8 @@ class AutocompleteManager {
         // Store current input
         this.lastInput = value;
 
-        // If input is empty, hide suggestions
-        if (!value.trim()) {
+        // Only fetch suggestions if at least 1 character is entered
+        if (value.trim().length < 1) {
             this.hide();
             return;
         }
@@ -228,6 +228,14 @@ class AutocompleteManager {
             description.className = 'autocomplete-description';
             description.textContent = suggestion.description;
             item.appendChild(description);
+
+            // Add score
+            if (suggestion.score !== undefined) {
+                const score = document.createElement('span');
+                score.className = 'autocomplete-score';
+                score.textContent = suggestion.score.toFixed(1);
+                item.appendChild(score);
+            }
 
             // Click handler
             item.addEventListener('click', (e) => {

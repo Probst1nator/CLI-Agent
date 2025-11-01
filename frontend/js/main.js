@@ -80,10 +80,12 @@
  * Tool execution information
  * @typedef {Object} ToolInfo
  * @property {string} name - Tool name
- * @property {'success'|'error'} status - Execution status
- * @property {number} duration_ms - Execution duration in milliseconds
+ * @property {'success'|'error'|'pending'} status - Execution status
+ * @property {number} [duration_ms] - Execution duration in milliseconds
+ * @property {number} [execution_time] - Execution duration in seconds
  * @property {string} [error] - Error message if status is 'error'
  * @property {string} [args] - Tool arguments
+ * @property {string} [model] - Model used for tool execution
  * @property {string} [context_returned] - Tool output/context
  */
 
@@ -1299,6 +1301,44 @@ class VisualResponseApp {
     }
 
     /**
+     * Update send button state based on LLM selection
+     * Disables the send button if no LLM is selected
+     * @private
+     * @returns {void}
+     */
+    updateSendButtonState() {
+        const sendButton = document.querySelector('#chat-form button[type="submit"]');
+        if (!sendButton) return;
+
+        const hasAnyLLM = window.dynamicLLMManager && window.dynamicLLMManager.hasAnyLLMSelected();
+
+        if (hasAnyLLM) {
+            sendButton.disabled = false;
+            sendButton.title = 'Send message';
+        } else {
+            sendButton.disabled = true;
+            sendButton.title = 'Please select at least one LLM model to send messages';
+        }
+    }
+
+    /**
+     * Show a warning message when user tries to send without selecting an LLM
+     * The warning auto-disappears after 4 seconds
+     * @private
+     * @returns {void}
+     */
+    showNoLLMSelectedWarning() {
+        const originalPlaceholder = this.chatInput.placeholder;
+        this.chatInput.placeholder = '⚠️ Please select at least one LLM model';
+        this.chatInput.style.borderColor = '#ffc107';
+
+        setTimeout(() => {
+            this.chatInput.placeholder = originalPlaceholder;
+            this.chatInput.style.borderColor = '';
+        }, 4000);
+    }
+
+    /**
      * Setup all event listeners for user interactions
      *
      * Configures event handlers for:
@@ -1375,6 +1415,27 @@ class VisualResponseApp {
 
         // Profile slot event listeners
         this.setupProfileSlots();
+
+        // Setup send button validation for LLM selection
+        this.setupSendButtonValidation();
+    }
+
+    /**
+     * Setup send button validation
+     * Initializes send button state and registers listener for LLM selection changes
+     * @private
+     * @returns {void}
+     */
+    setupSendButtonValidation() {
+        // Update initial send button state
+        this.updateSendButtonState();
+
+        // Register listener with DynamicLLMManager to update button state when LLM selection changes
+        if (window.dynamicLLMManager) {
+            window.dynamicLLMManager.addSendButtonUpdateListener(() => {
+                this.updateSendButtonState();
+            });
+        }
     }
 
     /**
@@ -1393,6 +1454,15 @@ class VisualResponseApp {
      */
     async handleChatSubmit() {
         const message = this.chatInput.value.trim();
+
+        // Check if no LLM is selected when user tries to send (skip for commands)
+        if (message && !message.startsWith('/')) {
+            const hasAnyLLM = window.dynamicLLMManager && window.dynamicLLMManager.hasAnyLLMSelected();
+            if (!hasAnyLLM) {
+                this.showNoLLMSelectedWarning();
+                return;
+            }
+        }
 
         if (message && this.wsManager.isConnected()) {
             const images = [];

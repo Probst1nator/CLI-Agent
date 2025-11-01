@@ -6,7 +6,7 @@ import logging
 import time
 import tkinter as tk
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Tuple, Union, Any
+from typing import Dict, List, Optional, Sequence, Tuple, Union, Any, TypedDict
 from dataclasses import dataclass, field
 import threading
 import queue
@@ -27,6 +27,40 @@ class Role(Enum):
     USER = "user"
     ASSISTANT = "assistant"
 
+
+# Metadata type definitions
+class ToolInfo(TypedDict, total=False):
+    """Tool execution information stored in message metadata"""
+    name: str
+    model: Optional[str]
+    execution_time: Optional[float]
+    status: Optional[str]  # 'success', 'error', 'pending'
+    args: Optional[str]
+    context_returned: Optional[str]
+
+
+class MessageMetadata(TypedDict, total=False):
+    """
+    Message-level metadata structure.
+
+    All fields are optional (total=False) to allow partial metadata.
+    """
+    is_bootstrap: bool  # Whether this is a bootstrap training message
+    timestamp: str  # ISO 8601 timestamp
+    model: str  # LLM model used to generate this message
+    tool_info: List[ToolInfo]  # Information about tools executed in this message
+    message_id: int  # Unique message identifier
+
+
+class ChatMetadata(TypedDict, total=False):
+    """
+    Chat-level metadata structure.
+
+    All fields are optional (total=False) to allow partial metadata.
+    """
+    created_at: str  # ISO 8601 creation timestamp
+    updated_at: str  # ISO 8601 last update timestamp
+
 @dataclass
 class Message:
     """
@@ -39,12 +73,12 @@ class Message:
         role: The role of the message sender (system, user, assistant, ipython)
         content: The text content of the message
         images: Optional list of base64-encoded images associated with this message
-        metadata: Optional metadata for the message (timestamps, IDs, etc.)
+        metadata: Message metadata (timestamps, tool_info, etc.) - conforms to MessageMetadata type
     """
     role: Role
     content: str
     images: List[str] = field(default_factory=list)
-    metadata: Optional[Dict[str, Any]] = field(default_factory=dict)
+    metadata: MessageMetadata = field(default_factory=dict)  # Runtime: dict, Type hint: MessageMetadata
 
 class Chat:
     # Role-to-color mapping for terminal output
@@ -63,7 +97,7 @@ class Chat:
         :param debug_title: Optional title for the debug window.
         """
         self.messages: List[Message] = []
-        self.metadata: Dict[str, Any] = {}  # Dictionary to store additional metadata
+        self.metadata: ChatMetadata = {}  # Chat-level metadata - conforms to ChatMetadata type
         self.base64_images: List[str] = []  # DEPRECATED: Use Message.images instead
         self._window: Optional[tk.Tk] = None
         self._text_widget: Optional[tk.Text] = None

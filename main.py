@@ -1628,7 +1628,11 @@ async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False, 
         from tools.bash import bash
         from tools.viewpermissions import viewpermissions
 
-        context_chat.add_message(Role.USER, "Please list the 5 most recently modified files of the cwd")
+        context_chat.add_message(
+            Role.USER,
+            "Please list the 5 most recently modified files of the cwd",
+            metadata={'is_bootstrap': True}
+        )
 
         if gui_mode:
             bootstrap_message_1 = f"""<think>
@@ -1674,11 +1678,21 @@ The 5 most recently modified files have been listed. Would you like me to inspec
 I have successfully viewed my permissions. Is there anything else I can assist you with?
 </response>"""
 
-        context_chat.add_message(Role.ASSISTANT, bootstrap_message_1)
+        context_chat.add_message(
+            Role.ASSISTANT,
+            bootstrap_message_1,
+            metadata={'is_bootstrap': True}
+        )
         permissions_str = viewpermissions.run()
         if "No automatic permissions set" not in permissions_str:
-            context_chat.add_message(Role.USER, "view your permissions")
-            context_chat.add_message(Role.ASSISTANT, f"""<think>
+            context_chat.add_message(
+                Role.USER,
+                "view your permissions",
+                metadata={'is_bootstrap': True}
+            )
+            context_chat.add_message(
+                Role.ASSISTANT,
+                f"""<think>
 This task can be completed using the viewpermssions tool.</think><todos>
 - [ ] View permissions.
 </todos><viewpermissions>
@@ -1686,11 +1700,9 @@ This task can be completed using the viewpermssions tool.</think><todos>
 {permissions_str}
 </context><todos>
 - [x] View permissions.
-</todos>""" + bootstrap_message_2)
-
-        # Store count of bootstrap messages in metadata (includes system message)
-        message_count_after = len(context_chat.messages)
-        context_chat.metadata['bootstrap_message_count'] = message_count_after
+</todos>""" + bootstrap_message_2,
+                metadata={'is_bootstrap': True}
+            )
 
     return context_chat
 
@@ -1722,7 +1734,7 @@ async def reset_agent_state(args: argparse.Namespace, context_chat: Chat) -> Cha
     g.AGENT_RESET_REQUESTED = False
 
     # Reconstruct fresh engineered prompt (without bootstrap on reset)
-    fresh_context_chat = await construct_engineered_prompt(args.voice, args.gui or args.api, add_bootstrap=False)
+    fresh_context_chat = await construct_engineered_prompt(args.voice, args.gui or args.api, add_bootstrap=True)
 
     # Clear visual interface
     try:
@@ -1948,12 +1960,6 @@ async def main(  # type: ignore[misc]
             try:
                 context_chat = Chat.load_from_json()
 
-                # Reset bootstrap_message_count for loaded chats since they have grown beyond bootstrap
-                # This shows the initial file list/permissions conversation in loaded chats
-                # Note: System messages are always filtered by role in the frontend, not by this count
-                if context_chat and 'bootstrap_message_count' in context_chat.metadata:
-                    context_chat.metadata['bootstrap_message_count'] = 0
-
                 if args.regenerate:
                     if not tui_callback: logging.info(colored("Loading previous chat for regeneration.", "green"))
                     if not context_chat or len(context_chat.messages) < 2:
@@ -2074,6 +2080,49 @@ async def main(  # type: ignore[misc]
 
                 tools_status = ", ".join(status_parts)
                 logging.info(colored(f"Tools ready: {tools_status}.", "blue"))
+
+                # Show detailed information about failed tools
+                if failed_count > 0:
+                    logging.warning(colored(f"⚠️  Failed to load {failed_count} tool(s):", "yellow"))
+                    for failed_tool in tool_info.get('failed_tools', []):
+                        logging.warning(colored(f"   - {failed_tool}", "yellow"))
+
+                # Show detailed information about disabled tools
+                if skipped_count > 0:
+                    # Separate user-disabled from unavailable tools
+                    skipped_tools = tool_info.get('skipped_tools', [])
+
+                    # Extract tool names that are user-disabled
+                    user_disabled_names = set()
+                    user_disabled = []
+                    for t in skipped_tools:
+                        if '(' not in t or 'Disabled' in t:
+                            tool_name = t.replace(' (Disabled)', '')
+                            if tool_name not in user_disabled_names:
+                                user_disabled_names.add(tool_name)
+                                user_disabled.append(t)
+
+                    # Extract tools that are unavailable but NOT user-disabled
+                    unavailable = []
+                    for t in skipped_tools:
+                        if '(' in t and 'Disabled' not in t:
+                            # Extract the tool name from entries like "getuserfiles (GUI not connected)"
+                            tool_name = t.split(' (')[0] if ' (' in t else t
+                            # Only add if not already in user_disabled list
+                            if tool_name not in user_disabled_names:
+                                unavailable.append(t)
+
+                    if user_disabled:
+                        logging.info(colored(f"ℹ️  User-disabled tools ({len(user_disabled)}):", "cyan"))
+                        for disabled_tool in user_disabled:
+                            # Remove the " (Disabled)" suffix for cleaner display
+                            tool_name = disabled_tool.replace(' (Disabled)', '')
+                            logging.info(colored(f"   - {tool_name}", "cyan"))
+
+                    if unavailable:
+                        logging.info(colored(f"ℹ️  Unavailable tools ({len(unavailable)}):", "cyan"))
+                        for unavailable_tool in unavailable:
+                            logging.info(colored(f"   - {unavailable_tool}", "cyan"))
             else:
                 # Fallback if detailed tool info is not available
                 logging.info(colored("Tools ready.", "blue"))
@@ -2149,6 +2198,7 @@ async def main(  # type: ignore[misc]
 
             # Sync context_chat with g.chat (in case API updated it)
             # Only sync if g.chat has more messages (legitimate update), not if it's a fresh/empty chat
+            # Note: Intentional chat clears are handled immediately after user input (line 2196)
             if hasattr(g, 'chat') and g.chat is not None and g.chat is not context_chat:
                 if len(g.chat.messages) >= len(context_chat.messages):
                     context_chat = g.chat
@@ -2179,6 +2229,15 @@ async def main(  # type: ignore[misc]
 
             # Reset user_interrupt flag after successful input to allow queue processing
             user_interrupt = False
+
+            # Check for intentional chat clear IMMEDIATELY after getting input (before adding message)
+            # This ensures we use the new chat context when adding the user's message
+            if hasattr(g, 'chat') and g.chat is not None and g.chat is not context_chat:
+                chat_intentionally_cleared = getattr(g, 'CHAT_INTENTIONALLY_CLEARED', False)
+                if chat_intentionally_cleared:
+                    context_chat = g.chat
+                    logging.info("🔄 Switched to new chat (cleared via API) before processing user input")
+                    g.CHAT_INTENTIONALLY_CLEARED = False  # Reset flag
 
             # Reset tools executed flag for new user input
             tools_executed_this_turn = False
@@ -2457,8 +2516,16 @@ async def main(  # type: ignore[misc]
                         logging.debug(f"Could not get response model: {e}")
 
                     context_chat.add_message(Role.ASSISTANT, assistant_response, metadata=metadata)
-                    # Note: AI response to visual interface will be sent after tool execution
-                    # to properly detect if visualresponse was used
+
+                    # Broadcast assistant response immediately so frontend can display tool calls
+                    # The message will be updated later with tool_info metadata after execution
+                    if args.gui or args.api:
+                        try:
+                            from api.server import broadcast_message_added
+                            await broadcast_message_added(context_chat.messages[-1])
+                            logging.debug("Broadcasted assistant message with tool calls")
+                        except Exception as e:
+                            logging.debug(f"Failed to broadcast assistant message: {e}")
 
                     # # Display the response in summary mode (since streaming doesn't show it)
                     # print(assistant_response)

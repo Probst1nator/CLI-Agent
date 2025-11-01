@@ -1,11 +1,8 @@
 /**
  * StatusDisplay - Real-time backend operation status display
  *
- * Integrates status data directly into loading-tool-items:
- * - Token generation progress (for LLM completions)
- * - Tool execution status (running/success/error)
- *
- * Creates tool items when tools start, updates them with live data.
+ * Displays LLM generation metrics in a single line above tool-toggles-container.
+ * Integrates tool execution status into loading-tool-items within messages.
  */
 
 class StatusDisplay {
@@ -13,12 +10,52 @@ class StatusDisplay {
         this.wsManager = wsManager;
         this.currentToolItem = null;
         this.currentToolId = null;
+        this.activeGenerations = new Map(); // Track multiple concurrent generations: generation_id -> metrics data
 
         // Listen to real-time status events from backend
-        this.wsManager.on('token_stream', (data) => this.handleTokenStream(data));
+        this.wsManager.on('token_stream', (data) => this.handleTokenStream(data));  // Legacy support
+        this.wsManager.on('generation_metrics', (data) => this.handleGenerationMetrics(data));
+        this.wsManager.on('generation_complete', (data) => this.handleGenerationComplete(data));
         this.wsManager.on('tool_update', (data) => this.handleToolUpdate(data));
 
-        console.log('✅ StatusDisplay initialized (integrated with loading-tool-items)');
+        console.log('✅ StatusDisplay initialized (generation metrics in dedicated line)');
+    }
+
+    /**
+     * Update the generation status line display with all active generations
+     */
+    updateGenerationStatusLine() {
+        const statusLine = document.getElementById('generation-status-line');
+        if (!statusLine) return;
+
+        const contentEl = statusLine.querySelector('.generation-status-content');
+        if (!contentEl) return;
+
+        // If no active generations, hide the line
+        if (this.activeGenerations.size === 0) {
+            statusLine.classList.add('hidden');
+            return;
+        }
+
+        // Show the line and build content
+        statusLine.classList.remove('hidden');
+
+        // Build display for each active generation
+        const generationDisplays = [];
+        this.activeGenerations.forEach((data, generationId) => {
+            const modelName = data.model_key ? data.model_key.split('/').pop() : 'LLM';
+            const elapsed = (data.elapsed_ms / 1000).toFixed(1);
+            const tokensPerSecond = data.tokens_per_second.toFixed(1);
+
+            generationDisplays.push(
+                `<span class="generation-item">` +
+                `<strong>${this.escapeHtml(modelName)}</strong>: ` +
+                `${data.tokens_generated} tokens, ${tokensPerSecond} t/s, ${elapsed}s` +
+                `</span>`
+            );
+        });
+
+        contentEl.innerHTML = `⚡ Generating response → ${generationDisplays.join(' <span class="generation-separator">|</span> ')}`;
     }
 
     /**
@@ -108,38 +145,74 @@ class StatusDisplay {
     }
 
     /**
+     * Handle generation metrics events (real-time LLM generation with generation_id)
+     * Updates the dedicated generation status line above tool-toggles-container
+     */
+    handleGenerationMetrics(data) {
+        if (!data || !data.generation_id) return;
+
+        try {
+            // Store/update generation data
+            this.activeGenerations.set(data.generation_id, {
+                generation_id: data.generation_id,
+                model_key: data.model_key,
+                tokens_generated: data.tokens_generated,
+                elapsed_ms: data.elapsed_ms,
+                tokens_per_second: data.tokens_per_second
+            });
+
+            // Update the status line display
+            this.updateGenerationStatusLine();
+        } catch (e) {
+            console.error('Error handling generation_metrics:', e);
+        }
+    }
+
+    /**
+     * Handle generation complete events (LLM generation finished)
+     * Removes the generation from tracking and updates the status line
+     */
+    handleGenerationComplete(data) {
+        if (!data || !data.generation_id) return;
+
+        try {
+            // Remove from active generations
+            this.activeGenerations.delete(data.generation_id);
+
+            // Update the status line (will hide if no active generations remain)
+            this.updateGenerationStatusLine();
+        } catch (e) {
+            console.error('Error handling generation_complete:', e);
+        }
+    }
+
+    /**
      * Handle token streaming events (real-time LLM generation)
+     * LEGACY: Kept for backward compatibility with old token_stream events
+     * Uses a fake generation_id for tracking
      */
     handleTokenStream(data) {
         if (!data) return;
 
         try {
-            // Find the current running tool item (or create generic one for LLM generation)
-            let toolItem = this.currentToolItem;
+            // Use a legacy generation ID for backward compatibility
+            const legacyGenerationId = 'legacy_generation';
 
-            if (!toolItem) {
-                // Create a tool item for the LLM generation if none exists
-                toolItem = this.getOrCreateToolItem('LLM Generation');
-            }
-
-            const statusDataEl = toolItem.querySelector('.loading-tool-status-data');
-            if (!statusDataEl) return;
-
-            const elapsed = (data.elapsed_ms / 1000).toFixed(1);
             const tokensPerSecond = data.tokens_generated > 0 && data.elapsed_ms > 0
-                ? (data.tokens_generated / (data.elapsed_ms / 1000)).toFixed(1)
-                : '0';
+                ? (data.tokens_generated / (data.elapsed_ms / 1000))
+                : 0;
 
-            statusDataEl.innerHTML = `
-                <div style="font-size: 0.85rem; padding: 8px; background: rgba(0, 122, 204, 0.08); border-radius: 4px;">
-                    <div style="margin-bottom: 4px;"><strong>⚡ Generating response</strong></div>
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 0.8rem;">
-                        <div><span style="opacity: 0.7;">Tokens:</span> ${data.tokens_generated}</div>
-                        <div><span style="opacity: 0.7;">Speed:</span> ${tokensPerSecond} t/s</div>
-                        <div><span style="opacity: 0.7;">Time:</span> ${elapsed}s</div>
-                    </div>
-                </div>
-            `;
+            // Store/update generation data
+            this.activeGenerations.set(legacyGenerationId, {
+                generation_id: legacyGenerationId,
+                model_key: 'LLM',
+                tokens_generated: data.tokens_generated,
+                elapsed_ms: data.elapsed_ms,
+                tokens_per_second: tokensPerSecond
+            });
+
+            // Update the status line display
+            this.updateGenerationStatusLine();
         } catch (e) {
             console.error('Error handling token_stream:', e);
         }
@@ -244,5 +317,6 @@ class StatusDisplay {
 
         this.currentToolItem = null;
         this.currentToolId = null;
+        this.activeGenerations.clear(); // Clear generation tracking
     }
 }
