@@ -190,6 +190,17 @@ async def new_chat(request: Any) -> Any:
             new_chat.add_message(Role.SYSTEM, "You are a helpful AI assistant.")
             g.chat = new_chat
 
+        # Save the new chat to recent_chat.json to prevent loading old archived chat
+        if hasattr(g, 'chat') and g.chat:
+            try:
+                g.chat.save_to_json(also_archive=False)
+                logger.info("Saved new empty chat to recent_chat.json")
+            except Exception as e:
+                logger.warning(f"Failed to save new chat: {e}")
+
+        # Set flag to tell main loop this was an intentional chat reset
+        g.CHAT_INTENTIONALLY_CLEARED = True
+
         # Broadcast to all connected clients
         from api.server import get_server
         server = get_server()

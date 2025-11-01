@@ -7,6 +7,7 @@
 
 /**
  * @typedef {Object} MessageMetadata
+ * @property {boolean} [is_bootstrap] - Whether this is a bootstrap training message
  * @property {string} [timestamp] - ISO 8601 timestamp
  * @property {string} [model] - LLM model used for generation
  * @property {ToolInfo[]} [tool_info] - Information about tools used
@@ -18,7 +19,7 @@
  * @property {string} name - Tool name
  * @property {string} [model] - Model used for tool invocation
  * @property {number} [execution_time] - Execution time in seconds
- * @property {string} [status] - Execution status ('success', 'error')
+ * @property {string} [status] - Execution status ('success', 'error', 'pending')
  */
 
 /**
@@ -32,7 +33,6 @@
  * @typedef {Object} ChatMetadata
  * @property {string} [created_at] - ISO 8601 creation timestamp
  * @property {string} [updated_at] - ISO 8601 last update timestamp
- * @property {number} [bootstrap_message_count] - Number of initial bootstrap messages to skip in rendering
  */
 
 /**
@@ -129,13 +129,6 @@ class ChatStateManager {
          * @private
          */
         this.pendingRender = null;
-
-        /**
-         * Bootstrap message start index (cached to prevent re-calculation)
-         * @type {number|undefined}
-         * @private
-         */
-        this._bootstrapStartIdx = undefined;
 
         this.setupWebSocketHandlers();
         window.logInfo('ChatStateManager initialized');
@@ -333,42 +326,43 @@ class ChatStateManager {
     /**
      * Re-render all messages in UI
      * Clears the DOM and re-renders all messages from current state.
-     * Respects bootstrap_message_count to skip initial system messages.
+     * Filters out system messages and bootstrap messages.
      */
     async renderAll() {
         window.logDebug(`Rendering ${this.messages.length} messages`);
 
         this.renderer.clearContent();
 
-        // On first render, use bootstrap_message_count from metadata
-        // On subsequent renders, keep the same startIdx we used before
-        if (this._bootstrapStartIdx === undefined) {
-            this._bootstrapStartIdx = this.metadata.bootstrap_message_count || 0;
-        }
+        // Track if we rendered any real messages
+        let renderedAnyMessages = false;
 
-        const startIdx = this._bootstrapStartIdx;
-
-        if (startIdx > 0) {
-            window.logDebug(`Skipping first ${startIdx} bootstrap messages`);
-        }
-
-        for (let i = startIdx; i < this.messages.length; i++) {
+        for (let i = 0; i < this.messages.length; i++) {
             try {
                 // Skip system messages - they should never be displayed to users
                 if (this.messages[i].role === 'system') {
                     continue;
                 }
 
+                // Skip bootstrap messages - training examples for the agent
+                if (this.messages[i].metadata?.is_bootstrap) {
+                    continue;
+                }
+
                 // Pass the actual array index (i) so tool_info and edit functionality work correctly
                 // IMPORTANT: Await to ensure messages render in correct order
                 await this.renderer.renderMessage(this.messages[i], i);
+                renderedAnyMessages = true;
             } catch (error) {
                 console.error('Failed to render message:', error, this.messages[i]);
             }
         }
 
-        // Show suggested prompts if chat is empty
-        this.showSuggestedPrompts();
+        // Show suggested prompts only if no messages were rendered
+        if (renderedAnyMessages) {
+            this.hideSuggestedPrompts();
+        } else {
+            this.showSuggestedPrompts();
+        }
     }
 
     /**
@@ -621,20 +615,22 @@ class ChatStateManager {
     /**
      * Show suggested prompts for empty chats
      * Fetches prompts from backend and displays them as clickable cards
-     * Only shows when chat has no user/assistant messages (after bootstrap messages)
+     * Only shows when chat has no user/assistant messages (excluding system and bootstrap messages)
      *
      * @private
      */
     async showSuggestedPrompts() {
-        // Check if chat is truly empty by looking at messages after bootstrap
-        const bootstrapCount = this.metadata.bootstrap_message_count || 0;
-        const userMessages = this.messages.slice(bootstrapCount);
+        // Check if chat is truly empty by filtering out system and bootstrap messages
+        const hasRealMessages = this.messages.some(msg => {
+            // Skip system messages
+            if (msg.role === 'system') return false;
+            // Skip bootstrap messages
+            if (msg.metadata?.is_bootstrap) return false;
+            // Count user and assistant messages
+            return msg.role === 'user' || msg.role === 'assistant';
+        });
 
-        const hasUserMessages = userMessages.some(msg =>
-            msg.role === 'user' || msg.role === 'assistant'
-        );
-
-        if (hasUserMessages) {
+        if (hasRealMessages) {
             return;
         }
 

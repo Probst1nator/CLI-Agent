@@ -50,7 +50,8 @@ The `Chat.add_message()` method automatically concatenates content when the same
       }
     ],
     metadata: {
-      bootstrap_message_count: 5
+      created_at: "2025-01-30T12:00:00Z",
+      updated_at: "2025-01-30T12:05:00Z"
     }
   }
 }
@@ -61,7 +62,7 @@ The `Chat.add_message()` method automatically concatenates content when the same
 - Single broadcast function: `broadcast_chat_state(chat)`
 - Called after any state mutation
 - Serializes entire chat to JSON
-- Includes bootstrap metadata for proper rendering
+- Bootstrap messages marked with `metadata.is_bootstrap = true` per-message
 
 ## Frontend Architecture
 
@@ -73,7 +74,6 @@ The `ChatStateManager` maintains the local chat state and syncs with backend:
 class ChatStateManager {
   messages: []          // Full message array
   metadata: {}          // Chat-level metadata
-  _bootstrapStartIdx    // Cached bootstrap skip index
 }
 ```
 
@@ -94,9 +94,10 @@ wsManager.on('chat_sync', (data) => {
 
 The `renderAll()` function:
 1. Clears the content wrapper
-2. Skips bootstrap messages (based on `metadata.bootstrap_message_count`)
-3. Renders all visible messages
-4. Preserves scroll position if needed
+2. Filters out system messages (`role === 'system'`)
+3. Filters out bootstrap messages (`metadata.is_bootstrap === true`)
+4. Renders all visible messages
+5. Preserves scroll position if needed
 
 ### Tool Loading States
 

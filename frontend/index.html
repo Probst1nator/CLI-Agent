@@ -174,16 +174,24 @@
         <div id="molecule-wrapper"></div>
     </div></body>
 
-    <!-- Tool Toggle Controls -->
-    <div class="tool-toggles-container">
-        <div class="tool-toggles">
-            <div id="tool-toggles" class="tool-toggles-list">
-                <!-- "Tools:" header and tool checkboxes will be dynamically generated here -->
+    <!-- Bottom Controls Wrapper - Contains generation status, tool toggles, and chat input -->
+    <div class="bottom-controls-wrapper">
+        <!-- Generation Status Line (dynamically shown/hidden) -->
+        <div id="generation-status-line" class="generation-status-line hidden">
+            <div class="generation-status-content"></div>
+        </div>
+
+        <!-- Tool Toggle Controls -->
+        <div class="tool-toggles-container">
+            <div class="tool-toggles">
+                <div id="tool-toggles" class="tool-toggles-list">
+                    <!-- "Tools:" header and tool checkboxes will be dynamically generated here -->
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class="chat-input-container">
+        <!-- Chat Input -->
+        <div class="chat-input-container">
         <!-- Status display integrated into loading-tool-item instead -->
         <form id="chat-form">
             <button type="button" id="file-upload-btn" class="file-upload-button" title="Upload files">
@@ -242,6 +250,7 @@
         </form>
         <input type="file" id="file-input" multiple hidden>
         <div id="upload-status" class="file-upload-status" style="display: none;"></div>
+        </div>
     </div>
 
     <!-- Application Modules -->

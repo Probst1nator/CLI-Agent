@@ -40,12 +40,11 @@ body {
     height: 100vh;
     overflow: hidden;
     display: grid;
-    grid-template-rows: auto 1fr auto auto;
+    grid-template-rows: auto 1fr auto;
     grid-template-areas:
         "header"
         "content"
-        "tools"
-        "footer";
+        "bottom";
 }
 
 .container {
@@ -1628,7 +1627,6 @@ code:not(pre > code) {
 
 /* --- Chat Input Field Styles --- */
 .chat-input-container {
-    grid-area: footer;
     padding: 10px 15px;
     background-color: var(--surface-color);
     /* border-top: 1px solid var(--border-color); */
@@ -3431,9 +3429,78 @@ html[data-theme='light'] .llm-context {
     opacity: 1;
 }
 
+/* Bottom Controls Wrapper - Flexbox container for generation status, tool toggles, and chat input */
+.bottom-controls-wrapper {
+    grid-area: bottom;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--surface-color);
+}
+
+/* Generation Status Line - Single line display above tool toggles */
+.generation-status-line {
+    background: linear-gradient(90deg, rgba(0, 122, 204, 0.12) 0%, rgba(0, 122, 204, 0.04) 100%);
+    border-top: 1px solid rgba(0, 122, 204, 0.3);
+    border-bottom: 1px solid rgba(0, 122, 204, 0.3);
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 122, 204, 0.15);
+}
+
+.generation-status-line.hidden {
+    display: none;
+}
+
+.generation-status-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.generation-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(0, 122, 204, 0.08);
+    border-radius: 4px;
+    border: 1px solid rgba(0, 122, 204, 0.2);
+    font-size: 12px;
+}
+
+.generation-item strong {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.generation-separator {
+    color: rgba(0, 122, 204, 0.4);
+    font-weight: bold;
+    font-size: 14px;
+}
+
+/* Responsive behavior for generation status line */
+@media (max-width: 768px) {
+    .generation-status-line {
+        padding: 8px 12px;
+        font-size: 11px;
+    }
+
+    .generation-item {
+        font-size: 10px;
+        padding: 3px 8px;
+    }
+}
+
 /* Tool Toggles Styles */
 .tool-toggles-container {
-    grid-area: tools;
     background-color: var(--surface-color);
     border-top: 1px solid var(--border-color);
     padding: 8px 16px 0px;
@@ -4259,7 +4326,7 @@ html[data-theme='light'] .fullscreen-container {
 
 .autocomplete-item {
     display: grid;
-    grid-template-columns: 30px 1fr 2fr;
+    grid-template-columns: 30px 1fr 2fr 50px;
     gap: 8px;
     padding: 8px 12px;
     cursor: pointer;
@@ -4305,6 +4372,21 @@ html[data-theme='light'] .fullscreen-container {
 .autocomplete-item:hover .autocomplete-description,
 .autocomplete-item.selected .autocomplete-description {
     opacity: 0.9;
+}
+
+.autocomplete-score {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: right;
+    opacity: 0.6;
+    color: var(--primary-color);
+}
+
+.autocomplete-item:hover .autocomplete-score,
+.autocomplete-item.selected .autocomplete-score {
+    opacity: 1;
+    color: #ffffff;
 }
 
 /* Dark theme specific adjustments */

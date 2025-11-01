@@ -363,9 +363,9 @@ class ContainerManager:
                 pids_limit=100,
 
                 # Disk I/O limits (10 MB/s read, 10 MB/s write)
-                # Note: Requires host device path, typically /dev/sda or /dev/vda
-                device_write_bps=[{"Path": "/dev/sda", "Rate": 10485760}],  # 10 MB/s
-                device_read_bps=[{"Path": "/dev/sda", "Rate": 10485760}],   # 10 MB/s
+                # Note: Requires host device path, typically /dev/sda or /dev/vda or /dev/nvme0n1
+                device_write_bps=[{"Path": "/dev/nvme0n1", "Rate": 10485760}],  # 10 MB/s
+                device_read_bps=[{"Path": "/dev/nvme0n1", "Rate": 10485760}],   # 10 MB/s
 
                 # Security profiles
                 security_opt=[

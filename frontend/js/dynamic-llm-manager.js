@@ -175,6 +175,9 @@ class DynamicLLMManager {
                     // Initialization complete - allow saves from now on
                     this.isInitializing = false;
 
+                    // Notify listeners about initial state after loading configuration
+                    this.notifySendButtonUpdateListeners();
+
                     this.logger.info('[DynamicLLMManager] Configuration loaded successfully');
                 } else {
                     throw new Error(data.error || 'Failed to load configuration');
@@ -192,6 +195,9 @@ class DynamicLLMManager {
             this.renderSelectors('override', []);
             // Initialization complete even if failed - allow saves from now on
             this.isInitializing = false;
+
+            // Notify listeners about initial state even on error
+            this.notifySendButtonUpdateListeners();
         }
     }
 
@@ -367,6 +373,9 @@ class DynamicLLMManager {
 
         this.saveConfiguration(role);
         this.logger.info(`[DynamicLLMManager] Removed selector ${selectorId} from ${role}`);
+
+        // Notify listeners about the removal (for send button state update)
+        this.notifySendButtonUpdateListeners();
     }
 
     /**
@@ -389,6 +398,9 @@ class DynamicLLMManager {
             window.logDebug(`[DynamicLLMManager] Saving configuration for ${role}`);
             this.saveConfiguration(role);
         }
+
+        // Notify listeners about the selection change (for send button state update)
+        this.notifySendButtonUpdateListeners();
     }
 
     /**
@@ -536,6 +548,49 @@ class DynamicLLMManager {
             planner: getModelsForRole('planner'),
             fallbacks: getModelsForRole('fallbacks')
         };
+    }
+
+    /**
+     * Check if any LLM is selected across all roles
+     * Returns true if at least one model is selected in any role
+     * @returns {boolean} True if any LLM is selected
+     */
+    hasAnyLLMSelected() {
+        const config = this.getCurrentConfig();
+        return config.override.length > 0 ||
+               config.router.length > 0 ||
+               config.planner.length > 0 ||
+               config.fallbacks.length > 0;
+    }
+
+    /**
+     * Register a callback to be called when LLM selection changes
+     * This is used to update the send button state
+     * @param {function():void} callback - Callback function to call on selection change
+     * @returns {void}
+     */
+    addSendButtonUpdateListener(callback) {
+        if (!this.sendButtonUpdateCallbacks) {
+            this.sendButtonUpdateCallbacks = [];
+        }
+        this.sendButtonUpdateCallbacks.push(callback);
+    }
+
+    /**
+     * Notify registered listeners about selection change
+     * @private
+     * @returns {void}
+     */
+    notifySendButtonUpdateListeners() {
+        if (this.sendButtonUpdateCallbacks) {
+            this.sendButtonUpdateCallbacks.forEach(callback => {
+                try {
+                    callback();
+                } catch (error) {
+                    console.error('[DynamicLLMManager] Error in send button update callback:', error);
+                }
+            });
+        }
     }
 
     /**

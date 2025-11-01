@@ -41,44 +41,42 @@ class response:
             The content string in GUI/API mode, empty string in CLI mode
         """
         try:
-            from core.globals import g
             import logging
 
-            # Check if we're in GUI or API mode
-            gui_mode = getattr(g, 'GUI_MODE', False)
-            api_mode = getattr(g, 'API_MODE', False)
+            # Try to broadcast to frontend if visualresponse server is available
+            # We check if the server exists rather than relying on flags, since flags
+            # may not be properly set in containerized/multi-user setups
+            try:
+                from tools.visualresponse import visualresponse
+                import time
 
-            if gui_mode or api_mode:
-                # In GUI/API mode, broadcast the content to frontend
-                try:
-                    from tools.visualresponse import visualresponse
-                    import time
+                session = visualresponse._get_session()
+                if session and session.is_healthy():
+                    # Server is running, so we're in GUI/API mode
+                    payload = {
+                        'type': 'assistant_message',
+                        'action': 'display',
+                        'message': content,
+                        'id': int(time.time() * 1000000),
+                        'timestamp': time.time()
+                    }
 
-                    session = visualresponse._get_session()
-                    if session and session.is_healthy():
-                        payload = {
-                            'type': 'assistant_message',
-                            'action': 'display',
-                            'message': content,
-                            'id': int(time.time() * 1000000),
-                            'timestamp': time.time()
-                        }
+                    # Use sync send_update which handles async properly
+                    session.send_update(payload)
 
-                        # Use sync send_update which handles async properly
-                        session.send_update(payload)
+                    logging.info(f"Response tool: Broadcasted text message to frontend ({len(content)} chars)")
 
-                        logging.debug(f"Response tool: Broadcasted text message to frontend ({len(content)} chars)")
+                    # Return content so it gets added to chat context
+                    return content
 
-                        # Return content so it gets added to chat context
-                        return content
-
-                except Exception as e:
-                    logging.debug(f"Response tool: Failed to broadcast to frontend: {e}")
+            except Exception as e:
+                logging.debug(f"Response tool: Failed to broadcast to frontend: {e}")
 
             # In CLI mode or if broadcast failed, return empty string
             # Main loop will display the content from the <response> tags directly
             return ""
 
-        except Exception:
+        except Exception as e:
             # If anything fails, maintain backward compatibility
+            logging.error(f"Response tool: Unexpected error: {e}")
             return ""

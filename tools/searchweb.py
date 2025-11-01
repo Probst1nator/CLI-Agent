@@ -10,6 +10,7 @@ import re
 import html
 import asyncio
 import datetime
+from typing import List
 from dotenv import load_dotenv
 from core.llm_router import LlmRouter
 from core.chat import Chat, Role

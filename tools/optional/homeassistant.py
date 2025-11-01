@@ -10,7 +10,7 @@ import requests
 import json
 import re
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Tuple
 from dotenv import load_dotenv
 from datetime import datetime
 

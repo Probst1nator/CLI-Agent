@@ -393,6 +393,13 @@ async def get_autocomplete_suggestions(request: Any) -> Any:
         input_text = data.get('input', '').strip()
         max_suggestions = data.get('max_suggestions', 5)
 
+        # Return empty list if no input provided
+        if len(input_text) < 1:
+            return web.json_response({
+                'status': 'success',
+                'suggestions': []
+            })
+
         # Collect all suggestions
         all_suggestions = []
 
@@ -404,13 +411,17 @@ async def get_autocomplete_suggestions(request: Any) -> Any:
             all_suggestions.extend(get_tool_suggestions(input_text))
             all_suggestions.extend(get_file_path_suggestions(input_text))
 
-        # Sort by score (descending) and take top N
+        # Sort by score (descending) and filter by minimum threshold
         all_suggestions.sort(key=lambda s: s['score'], reverse=True)
-        top_suggestions = all_suggestions[:max_suggestions]
 
-        # Remove score from response (internal use only)
+        # Only return suggestions with score >= 50
+        filtered_suggestions = [s for s in all_suggestions if s.get('score', 0) >= 50]
+        top_suggestions = filtered_suggestions[:max_suggestions]
+
+        # Round scores to 1 decimal place for cleaner display
         for suggestion in top_suggestions:
-            suggestion.pop('score', None)
+            if 'score' in suggestion:
+                suggestion['score'] = round(suggestion['score'], 1)
 
         return web.json_response({
             'status': 'success',
