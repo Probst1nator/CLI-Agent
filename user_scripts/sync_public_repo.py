@@ -3,8 +3,8 @@
 Sync script for maintaining public repository from private development repo.
 
 This script:
-1. Moves experimental tools to tools/experimental/ with warning headers
-2. Excludes multi-user SaaS infrastructure
+1. Moves privileged tools to tools/privileged/ with warning headers
+2. Excludes internal development directories
 3. Filters out secrets and logs
 4. Creates a clean public-ready branch
 
@@ -79,9 +79,9 @@ class PublicRepoSync:
         print("✅ Prerequisites OK")
         return True
 
-    def create_experimental_warning_header(self) -> str:
-        """Generate warning header for experimental tools."""
-        warning_text = self.config['tools']['experimental']['warning']
+    def create_privileged_warning_header(self) -> str:
+        """Generate warning header for privileged tools."""
+        warning_text = self.config['tools']['privileged']['warning']
 
         return f'''"""
 {'=' * 80}
@@ -91,36 +91,36 @@ class PublicRepoSync:
 
 '''
 
-    def mark_experimental_tool(self, tool_path: Path, experimental_dir: Path) -> None:
-        """Move tool to experimental directory and add warning header."""
+    def mark_privileged_tool(self, tool_path: Path, privileged_dir: Path) -> None:
+        """Move tool to privileged directory and add warning header."""
         # Read original tool
         with open(tool_path, 'r') as f:
             original_content = f.read()
 
         # Check if already marked
-        if 'EXPERIMENTAL' in original_content[:500]:
+        if 'PRIVILEGED TOOL' in original_content[:500]:
             print(f"  ⏭️  Already marked: {tool_path.name}")
             return
 
-        # Create experimental directory if needed
-        experimental_dir.mkdir(exist_ok=True)
+        # Create privileged directory if needed
+        privileged_dir.mkdir(exist_ok=True)
 
         # Add warning header
-        warning_header = self.create_experimental_warning_header()
+        warning_header = self.create_privileged_warning_header()
         marked_content = warning_header + original_content
 
-        # Write to experimental directory
-        new_path = experimental_dir / tool_path.name
+        # Write to privileged directory
+        new_path = privileged_dir / tool_path.name
         with open(new_path, 'w') as f:
             f.write(marked_content)
 
-        print(f"  ✅ Marked: {tool_path.name} → tools/experimental/")
+        print(f"  ✅ Marked: {tool_path.name} → tools/privileged/")
 
-    def create_experimental_readme(self, experimental_dir: Path) -> None:
-        """Create simple README for experimental tools."""
-        content = """# Experimental Tools
+    def create_privileged_readme(self, privileged_dir: Path) -> None:
+        """Create simple README for privileged tools."""
+        content = """# Privileged Tools
 
-⚠️ **WARNING: These tools modify system state.**
+⚠️ **WARNING: These tools perform system-level operations.**
 
 ## Usage Guidelines
 
@@ -167,10 +167,10 @@ For read-only operations, use:
 - Permission system: `../core/permissions/`
 """
 
-        readme_path = experimental_dir / "README.md"
+        readme_path = privileged_dir / "README.md"
         with open(readme_path, 'w') as f:
             f.write(content)
-        print(f"  ✅ Created: tools/experimental/README.md")
+        print(f"  ✅ Created: tools/privileged/README.md")
 
     def prepare_public_branch(self, dry_run: bool = False) -> bool:
         """Prepare public branch with filtered content."""
@@ -187,34 +187,34 @@ For read-only operations, use:
                 self._run_git('merge', 'main')
                 print(f"✅ Updated branch: {self.public_branch}")
 
-        # Process experimental tools
-        print("\n📦 Processing experimental tools...")
+        # Process privileged tools
+        print("\n📦 Processing privileged tools...")
         tools_dir = self.repo_root / "tools"
-        experimental_dir = tools_dir / "experimental"
+        privileged_dir = tools_dir / "privileged"
 
-        for tool_name in self.config['tools']['experimental']['tools']:
+        for tool_name in self.config['tools']['privileged']['tools']:
             tool_path = tools_dir / tool_name
             if tool_path.exists():
                 if dry_run:
                     print(f"  [DRY RUN] Would mark: {tool_name}")
                 else:
-                    self.mark_experimental_tool(tool_path, experimental_dir)
+                    self.mark_privileged_tool(tool_path, privileged_dir)
 
-        # Remove original experimental tools from main tools directory
+        # Remove original privileged tools from main tools directory
         if not dry_run:
             print("\n🗑️  Removing originals from tools/...")
-            for tool_name in self.config['tools']['experimental']['tools']:
+            for tool_name in self.config['tools']['privileged']['tools']:
                 tool_path = tools_dir / tool_name
-                if tool_path.exists() and (experimental_dir / tool_name).exists():
+                if tool_path.exists() and (privileged_dir / tool_name).exists():
                     tool_path.unlink()
                     print(f"  ✅ Removed: {tool_name}")
 
-        # Create experimental README
+        # Create privileged README
         if dry_run:
-            print("\n📝 Would create: tools/experimental/README.md")
+            print("\n📝 Would create: tools/privileged/README.md")
         else:
-            print("\n📝 Creating experimental tools documentation...")
-            self.create_experimental_readme(experimental_dir)
+            print("\n📝 Creating privileged tools documentation...")
+            self.create_privileged_readme(privileged_dir)
 
         # Remove excluded directories
         self._remove_excluded_content(dry_run)
@@ -229,7 +229,7 @@ For read-only operations, use:
                 self._run_git(
                     'commit',
                     '-m',
-                    'Prepare public release: mark experimental tools, exclude infrastructure'
+                    'Prepare public release: mark privileged tools, filter internal dirs'
                 )
                 print("\n✅ Changes committed to public branch")
             except subprocess.CalledProcessError:
@@ -317,7 +317,7 @@ docker_files/traefik/
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sync public repository with experimental tool filtering"
+        description="Sync public repository with privileged tool filtering"
     )
     parser.add_argument(
         '--dry-run',
@@ -327,7 +327,7 @@ def main():
     parser.add_argument(
         '--prepare',
         action='store_true',
-        help="Prepare public branch (mark experimental tools, exclude infrastructure)"
+        help="Prepare public branch (mark privileged tools, filter internal dirs)"
     )
     parser.add_argument(
         '--push',

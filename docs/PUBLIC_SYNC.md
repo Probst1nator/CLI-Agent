@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository has a public version at https://github.com/Probst1nator/CLI-Agent that filters experimental tools and infrastructure for wider distribution.
+This repository has a public version at https://github.com/Probst1nator/CLI-Agent that filters privileged tools for wider distribution.
 
 ## Quick Usage
 
@@ -22,16 +22,15 @@ python user_scripts/sync_public_repo.py --push
 
 ## What Gets Filtered
 
-### Experimental Tools → `tools/experimental/`
-System-modifying tools moved to experimental directory with warning headers:
+### Privileged Tools → `tools/privileged/`
+System-level tools moved to privileged directory with warning headers:
 - `bash.py` - Shell command execution
 - `writefile.py`, `editfile.py`, `insertline.py`, `deletelines.py` - File modifications
 - `computercontrol.py` - System control
 
-### Excluded Completely
-- `saas_scripts/` - Multi-user infrastructure (experimental, untested)
-- `docker_files/traefik/` - Load balancer config (multi-user only)
+### Excluded
 - `.env`, `*.log` - Secrets and logs
+- Various internal development directories
 
 ## Configuration
 
