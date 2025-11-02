@@ -1,0 +1,399 @@
+#!/usr/bin/env python3
+"""
+Sync script for maintaining public repository from private development repo.
+
+This script:
+1. Moves experimental tools to tools/experimental/ with warning headers
+2. Excludes multi-user SaaS infrastructure
+3. Filters out secrets and logs
+4. Creates a clean public-ready branch
+
+Usage:
+    python user_scripts/sync_public_repo.py --dry-run     # Preview changes
+    python user_scripts/sync_public_repo.py --prepare     # Prepare public branch
+    python user_scripts/sync_public_repo.py --push        # Push to public remote
+"""
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import Dict
+
+
+class PublicRepoSync:
+    def __init__(self, repo_root: Path, config_path: Path):
+        self.repo_root = repo_root
+        self.config = self._load_config(config_path)
+        self.public_branch = "public-release"
+
+    def _load_config(self, config_path: Path) -> Dict:
+        """Load configuration from JSON file."""
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+
+        with open(config_path, 'r') as f:
+            return json.load(f)
+
+    def _run_git(self, *args) -> subprocess.CompletedProcess:
+        """Run git command in repo root."""
+        return subprocess.run(
+            ['git', *args],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+    def check_prerequisites(self, skip_prompts: bool = False) -> bool:
+        """Verify git status and prerequisites."""
+        print("🔍 Checking prerequisites...")
+
+        # Check if we're in a git repo
+        try:
+            self._run_git('status')
+        except subprocess.CalledProcessError:
+            print("❌ Not a git repository")
+            return False
+
+        # Check for uncommitted changes
+        result = self._run_git('status', '--porcelain')
+        if result.stdout.strip():
+            print("⚠️  Warning: Uncommitted changes detected:")
+            print(result.stdout)
+            if not skip_prompts:
+                response = input("Continue anyway? (y/N): ")
+                if response.lower() != 'y':
+                    return False
+            else:
+                print("⚠️  Continuing (--dry-run mode)")
+
+        # Check if public remote exists
+        result = self._run_git('remote', '-v')
+        if 'git_public' not in result.stdout:
+            print("❌ git_public remote not configured")
+            print("Add with: git remote add git_public <public-repo-url>")
+            return False
+
+        print("✅ Prerequisites OK")
+        return True
+
+    def create_experimental_warning_header(self) -> str:
+        """Generate warning header for experimental tools."""
+        warning_text = self.config['tools']['experimental']['warning']
+
+        return f'''"""
+{'=' * 80}
+{warning_text}
+{'=' * 80}
+"""
+
+'''
+
+    def mark_experimental_tool(self, tool_path: Path, experimental_dir: Path) -> None:
+        """Move tool to experimental directory and add warning header."""
+        # Read original tool
+        with open(tool_path, 'r') as f:
+            original_content = f.read()
+
+        # Check if already marked
+        if 'EXPERIMENTAL' in original_content[:500]:
+            print(f"  ⏭️  Already marked: {tool_path.name}")
+            return
+
+        # Create experimental directory if needed
+        experimental_dir.mkdir(exist_ok=True)
+
+        # Add warning header
+        warning_header = self.create_experimental_warning_header()
+        marked_content = warning_header + original_content
+
+        # Write to experimental directory
+        new_path = experimental_dir / tool_path.name
+        with open(new_path, 'w') as f:
+            f.write(marked_content)
+
+        print(f"  ✅ Marked: {tool_path.name} → tools/experimental/")
+
+    def create_experimental_readme(self, experimental_dir: Path) -> None:
+        """Create simple README for experimental tools."""
+        content = """# Experimental Tools
+
+⚠️ **WARNING: These tools modify system state.**
+
+## Usage Guidelines
+
+These tools can alter your filesystem and execute commands. Use with appropriate safeguards:
+
+### Recommended Approach
+
+**Docker Isolated Mode** (safest):
+```bash
+python main.py --isolated
+```
+
+This runs the agent in a containerized environment with filesystem isolation.
+
+### Alternative: Permission Prompts
+
+Enable permission prompts before dangerous operations:
+```bash
+python main.py  # Prompts before modifications
+/perms view     # Check current permissions
+/perms add ask bash(*)  # Require confirmation for bash commands
+```
+
+## Tools in This Directory
+
+- `bash.py` - Execute shell commands
+- `writefile.py` - Create/modify files
+- `editfile.py` - Edit existing files
+- `insertline.py` - Insert lines into files
+- `deletelines.py` - Delete lines from files
+- `computercontrol.py` - Computer control operations
+
+## Safe Alternatives
+
+For read-only operations, use:
+- `readfile.py` - Read file contents
+- `readdirectory.py` - List directory contents
+- `grepsearch.py` - Search code
+
+## Documentation
+
+- Main README: `../README.md`
+- Architecture: `../CLAUDE.md`
+- Permission system: `../core/permissions/`
+"""
+
+        readme_path = experimental_dir / "README.md"
+        with open(readme_path, 'w') as f:
+            f.write(content)
+        print(f"  ✅ Created: tools/experimental/README.md")
+
+    def prepare_public_branch(self, dry_run: bool = False) -> bool:
+        """Prepare public branch with filtered content."""
+        print(f"\n{'🔍 DRY RUN MODE' if dry_run else '🚀 PREPARING PUBLIC BRANCH'}")
+        print("=" * 80)
+
+        if not dry_run:
+            # Create/checkout public branch
+            try:
+                self._run_git('checkout', '-b', self.public_branch)
+                print(f"✅ Created branch: {self.public_branch}")
+            except subprocess.CalledProcessError:
+                self._run_git('checkout', self.public_branch)
+                self._run_git('merge', 'main')
+                print(f"✅ Updated branch: {self.public_branch}")
+
+        # Process experimental tools
+        print("\n📦 Processing experimental tools...")
+        tools_dir = self.repo_root / "tools"
+        experimental_dir = tools_dir / "experimental"
+
+        for tool_name in self.config['tools']['experimental']['tools']:
+            tool_path = tools_dir / tool_name
+            if tool_path.exists():
+                if dry_run:
+                    print(f"  [DRY RUN] Would mark: {tool_name}")
+                else:
+                    self.mark_experimental_tool(tool_path, experimental_dir)
+
+        # Remove original experimental tools from main tools directory
+        if not dry_run:
+            print("\n🗑️  Removing originals from tools/...")
+            for tool_name in self.config['tools']['experimental']['tools']:
+                tool_path = tools_dir / tool_name
+                if tool_path.exists() and (experimental_dir / tool_name).exists():
+                    tool_path.unlink()
+                    print(f"  ✅ Removed: {tool_name}")
+
+        # Create experimental README
+        if dry_run:
+            print("\n📝 Would create: tools/experimental/README.md")
+        else:
+            print("\n📝 Creating experimental tools documentation...")
+            self.create_experimental_readme(experimental_dir)
+
+        # Remove excluded directories
+        self._remove_excluded_content(dry_run)
+
+        # Update .gitignore
+        self._update_gitignore(dry_run)
+
+        if not dry_run:
+            # Commit changes
+            self._run_git('add', '.')
+            try:
+                self._run_git(
+                    'commit',
+                    '-m',
+                    'Prepare public release: mark experimental tools, exclude infrastructure'
+                )
+                print("\n✅ Changes committed to public branch")
+            except subprocess.CalledProcessError:
+                print("\n⚠️  No changes to commit")
+
+        return True
+
+    def _remove_excluded_content(self, dry_run: bool):
+        """Remove excluded directories and files."""
+        print("\n🗑️  Processing excluded content...")
+
+        for dir_pattern in self.config['tools']['excluded']['directories']:
+            dir_path = self.repo_root / dir_pattern.rstrip('/')
+            if dir_path.exists():
+                if dry_run:
+                    print(f"  [DRY RUN] Would exclude: {dir_pattern}")
+                else:
+                    # Use git rm to remove from index
+                    try:
+                        self._run_git('rm', '-rf', str(dir_path.relative_to(self.repo_root)))
+                        print(f"  ✅ Excluded: {dir_pattern}")
+                    except subprocess.CalledProcessError:
+                        print(f"  ⚠️  Could not remove: {dir_pattern}")
+
+    def _update_gitignore(self, dry_run: bool):
+        """Add public-specific gitignore entries."""
+        gitignore_additions = """
+# Public repository exclusions
+.env
+*.log
+deployment_logs/
+saas_scripts/
+docker_files/traefik/
+"""
+
+        gitignore_path = self.repo_root / ".gitignore"
+
+        if dry_run:
+            print("\n📝 Would update: .gitignore")
+            return
+
+        # Check if additions already present
+        if gitignore_path.exists():
+            with open(gitignore_path, 'r') as f:
+                current = f.read()
+            if 'Public repository exclusions' in current:
+                print("\n⏭️  .gitignore already updated")
+                return
+
+        with open(gitignore_path, 'a') as f:
+            f.write(gitignore_additions)
+        print("\n✅ Updated: .gitignore")
+
+    def push_to_public(self, force: bool = False) -> bool:
+        """Push public branch to public remote."""
+        print("\n🚀 Pushing to public repository...")
+
+        # Confirm
+        if not force:
+            print("\n⚠️  This will push to the public repository!")
+            print("Remote:", self._run_git('remote', 'get-url', 'git_public').stdout.strip())
+            response = input("Continue? (y/N): ")
+            if response.lower() != 'y':
+                print("❌ Aborted")
+                return False
+
+        # Push
+        try:
+            self._run_git('push', 'git_public', f'{self.public_branch}:main', '--force' if force else '')
+            print("✅ Successfully pushed to public repository!")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Push failed: {e.stderr}")
+            return False
+
+    def cleanup(self):
+        """Clean up and return to original branch."""
+        print("\n🧹 Cleaning up...")
+        try:
+            self._run_git('checkout', 'main')
+            print("✅ Returned to main branch")
+        except subprocess.CalledProcessError:
+            print("⚠️  Could not return to main branch")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Sync public repository with experimental tool filtering"
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help="Preview changes without modifying anything"
+    )
+    parser.add_argument(
+        '--prepare',
+        action='store_true',
+        help="Prepare public branch (mark experimental tools, exclude infrastructure)"
+    )
+    parser.add_argument(
+        '--push',
+        action='store_true',
+        help="Push public branch to remote (requires --prepare first)"
+    )
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help="Force push without confirmation"
+    )
+
+    args = parser.parse_args()
+
+    # Determine repository root
+    repo_root = Path(__file__).parent.parent
+    config_path = repo_root / ".public-repo-config.json"
+
+    # Create sync manager
+    sync = PublicRepoSync(repo_root, config_path)
+
+    # Check prerequisites
+    if not sync.check_prerequisites(skip_prompts=args.dry_run):
+        sys.exit(1)
+
+    try:
+        # Dry run
+        if args.dry_run:
+            sync.prepare_public_branch(dry_run=True)
+            print("\n" + "=" * 80)
+            print("✅ Dry run complete. Run with --prepare to apply changes.")
+            return
+
+        # Prepare branch
+        if args.prepare:
+            sync.prepare_public_branch(dry_run=False)
+            print("\n" + "=" * 80)
+            print("✅ Public branch prepared. Review changes, then run with --push")
+            print(f"\nTo review: git diff main..{sync.public_branch}")
+            return
+
+        # Push
+        if args.push:
+            # Check if public branch exists
+            try:
+                sync._run_git('rev-parse', '--verify', sync.public_branch)
+            except subprocess.CalledProcessError:
+                print(f"❌ Public branch '{sync.public_branch}' doesn't exist")
+                print("Run with --prepare first")
+                sys.exit(1)
+
+            sync.push_to_public(force=args.force)
+            return
+
+        # No action specified
+        parser.print_help()
+        print("\n💡 Suggested workflow:")
+        print("  1. python user_scripts/sync_public_repo.py --dry-run")
+        print("  2. python user_scripts/sync_public_repo.py --prepare")
+        print("  3. Review: git diff main..public-release")
+        print("  4. python user_scripts/sync_public_repo.py --push")
+
+    finally:
+        if not args.dry_run and (args.prepare or args.push):
+            sync.cleanup()
+
+
+if __name__ == "__main__":
+    main()
