@@ -4,17 +4,17 @@ This file implements the 'searchweb' tool. It allows the agent to perform
 a web search using the Brave Search API. It supports different search types
 like text, images, and cited results.
 """
-import os
-import sys
-import re
-import html
 import asyncio
 import datetime
-from typing import List
-from dotenv import load_dotenv
-from core.llm_router import LlmRouter
-from core.chat import Chat, Role
+import html
+import os
+import re
+import sys
 
+from dotenv import load_dotenv
+
+from core.chat import Chat, Role
+from core.llm_router import LlmRouter
 
 # Load environment variables
 load_dotenv()
@@ -89,7 +89,7 @@ class searchweb:
         return ""
 
     @staticmethod
-    async def _format_text_summary(results: List[dict], query: str, use_cache: bool = True) -> str:
+    async def _format_text_summary(results: list[dict], query: str, use_cache: bool = True) -> str:
         """ The original functionality: returns a single condensed string. """
         if not results:
             return "No web search results found."

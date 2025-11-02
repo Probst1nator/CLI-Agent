@@ -1,21 +1,27 @@
-import os
-from typing import Optional, List, Dict, Any, Union
 import logging
-import threading
-from termcolor import colored
-import google.generativeai as genai
-from google.generativeai import types, GenerativeModel
-from core.chat import Chat, Role
-from py_classes.unified_interfaces import AIProviderInterface
-from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
-from infrastructure.rate_limiting.cls_rate_limit_parsers import RateLimitParserFactory
-from infrastructure.rate_limiting.cls_rate_limit_config import RateLimitConfig
-from core.globals import g
-# Import audio utility functions
-from shared.utils_audio import save_binary_file, convert_to_wav
 import mimetypes
+import os
+import threading
+from typing import Any, Optional
+
+import google.generativeai as genai
+from google.generativeai import GenerativeModel, types
+from termcolor import colored
+
+from core.chat import Chat, Role
+from core.globals import g
+
 # Import exceptions from Groq interface to avoid duplication
 from core.providers.cls_groq_interface import RateLimitException
+from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import (
+    enhanced_rate_limit_tracker,
+)
+from infrastructure.rate_limiting.cls_rate_limit_config import RateLimitConfig
+from infrastructure.rate_limiting.cls_rate_limit_parsers import RateLimitParserFactory
+from py_classes.unified_interfaces import AIProviderInterface
+
+# Import audio utility functions
+from shared.utils_audio import convert_to_wav, save_binary_file
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +85,7 @@ class GoogleAPI(AIProviderInterface):
 
     @staticmethod
     def generate_response(
-        chat: Union[Chat, str],
+        chat: Chat | str,
         model_key: str = "gemini-1.5-pro-latest",
         temperature: float = 0,
         silent_reason: str = "",
@@ -394,7 +400,7 @@ class GoogleAPI(AIProviderInterface):
 
                 # Create RateLimitException with already_logged flag
                 rate_limit_exc = RateLimitException(f"Model {model_key} {limit_type.value} limit exceeded. Try again in {cooldown_seconds:.1f} seconds")
-                setattr(rate_limit_exc, 'already_logged', True)
+                rate_limit_exc.already_logged = True
                 raise rate_limit_exc
 
             # Log other errors here so we don't get duplicate logs
@@ -415,17 +421,17 @@ class GoogleAPI(AIProviderInterface):
                     logger.error(f"Google API error details for {model_key}: {error_str}")
 
             # Mark the exception as already logged so the router won't log it again
-            setattr(e, 'already_logged', True)
+            e.already_logged = True
 
             # Re-raise the original exception
             raise
 
     @staticmethod
     def generate_embeddings(
-        text: Union[str, List[str]],
+        text: str | list[str],
         model: str = "embedding-001",
         chat: Optional[Chat] = None
-    ) -> Optional[Union[List[float], List[List[float]]]]:
+    ) -> list[float] | list[list[float]] | None:
         """
         Generates embeddings for the given text using the Google Gemini API.
 
@@ -483,7 +489,7 @@ class GoogleAPI(AIProviderInterface):
             return None
 
     @staticmethod
-    def get_available_models(chat: Optional[Chat] = None) -> List[Dict[str, Any]]:
+    def get_available_models(chat: Optional[Chat] = None) -> list[dict[str, Any]]:
         """
         Discovers and returns available Gemini models.
 
@@ -552,7 +558,7 @@ class GoogleAPI(AIProviderInterface):
         model: str = "gemini-2.5-flash-preview-tts",
         temperature: float = 1.0,
         chat: Optional[Chat] = None,
-        speaker_config: Optional[List[Dict[str, str]]] = None
+        speaker_config: list[dict[str, str]] | None = None
     ) -> str:
         """
         Generates speech from text using Google's TTS API with multi-speaker support.
@@ -676,7 +682,7 @@ class GoogleAPI(AIProviderInterface):
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             logger.error(error_msg)
             # Mark the exception as already logged so the router won't log it again
-            setattr(e, 'already_logged', True)
+            e.already_logged = True
             # Re-raise the original exception
             raise
 

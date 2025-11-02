@@ -45,7 +45,7 @@ line 5"""
         assert result.startswith("Successfully edited file:"), f"Expected success, got: {result}"
 
         # Verify file content was changed
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_content = """line 1
@@ -88,7 +88,7 @@ def function3():
         assert "Successfully edited line 5" in result, f"Expected line edit success, got: {result}"
 
         # Verify file content was changed
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         lines = new_content.split('\n')
@@ -178,7 +178,7 @@ def test_editfile_edge_cases():
         assert "Successfully edited line 1" in result, "Should succeed on single line file"
 
         # Verify content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             content = f.read()
         assert content == "modified line\n", f"Content should be 'modified line\\n', got: {repr(content)}"
 

@@ -6,14 +6,16 @@ using prompt_toolkit infrastructure with standardized event handling.
 """
 
 import asyncio
-from typing import List, Optional, Callable
+from collections.abc import Callable
 from datetime import datetime
+
 from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.widgets import TextArea
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.widgets import TextArea
 
+from typing import Optional
 # Import standardized event system
 from agent.gui.event_manager import GUIEvent, GUIEventType, GUISession
 
@@ -72,7 +74,7 @@ class ChatDisplay:
 
     def __init__(self, session: Optional[GUISession] = None):
         self.session = session
-        self.messages: List[ChatMessage] = []
+        self.messages: list[ChatMessage] = []
         self.streaming_message: Optional[str] = None
         self.streaming_sender: Optional[str] = None
         self._control = FormattedTextControl(
@@ -80,7 +82,7 @@ class ChatDisplay:
             focusable=False,
             show_cursor=False
         )
-        self._refresh_callbacks: List[Callable] = []
+        self._refresh_callbacks: list[Callable] = []
 
     def _get_formatted_text(self) -> FormattedText:
         """Get formatted text for all messages."""
@@ -174,7 +176,7 @@ class StatusPanel:
     """Status panel widget for showing system status and information."""
 
     def __init__(self):
-        self.status_messages: List[str] = []
+        self.status_messages: list[str] = []
         self.max_messages = 50  # Keep last 50 status messages
         self._control = FormattedTextControl(
             text=self._get_formatted_text,
@@ -219,7 +221,7 @@ class StatusPanel:
 class InputArea:
     """Input area widget for user message input."""
 
-    def __init__(self, on_submit: Optional[Callable[[str], None]] = None):
+    def __init__(self, on_submit: Callable[[str], None] | None = None):
         self.on_submit = on_submit
         self.text_area = TextArea(
             height=Dimension(min=3, max=8),
@@ -287,14 +289,14 @@ class ConsoleLogWidget:
 
     def __init__(self, session: Optional[GUISession] = None):
         self.session = session
-        self.log_lines: List[str] = []
+        self.log_lines: list[str] = []
         self.max_lines = 1000  # Keep last 1000 lines
         self._control = FormattedTextControl(
             text=self._get_formatted_text,
             focusable=True,
             show_cursor=False
         )
-        self._refresh_callbacks: List[Callable] = []
+        self._refresh_callbacks: list[Callable] = []
 
     def _get_formatted_text(self) -> FormattedText:
         """Get formatted text for console log."""

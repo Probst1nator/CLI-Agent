@@ -1,12 +1,14 @@
+import asyncio
 import importlib
 import inspect
-import asyncio
 import logging
-from typing import List, Type, Optional, Dict, Any, Tuple
 from pathlib import Path
+from typing import Any, Optional
+
 from termcolor import colored
 
 from .util_base import UtilBase
+
 
 class UtilsManager:
     def __init__(self):
@@ -15,8 +17,8 @@ class UtilsManager:
         self.cli_agent_root = Path(__file__).parent.parent.parent.absolute()
         self.utils_directory = "utils"
         self.utils_path = self.cli_agent_root / self.utils_directory
-        self.utils: List[Type[UtilBase]] = []
-        self.util_history: List[Type[UtilBase]] = []
+        self.utils: list[type[UtilBase]] = []
+        self.util_history: list[type[UtilBase]] = []
 
         # Initialize stream painter for text output
         from agent.text_painter.stream_painter import TextStreamPainter
@@ -82,7 +84,7 @@ class UtilsManager:
                 if "No module named" not in str(e):
                     print(colored(f"Error loading utility from {file}: {str(e)}", "red"))
 
-    def get_util(self, name: str) -> Type[UtilBase]:
+    def get_util(self, name: str) -> type[UtilBase]:
         """Get a utility by name and add it to the utility history"""
         # Search through utilities to find matching name
         name = name.lower()
@@ -99,7 +101,7 @@ class UtilsManager:
 
         raise KeyError(f"Utility '{name}' not found")
 
-    def get_utils(self) -> List[Type[UtilBase]]:
+    def get_utils(self) -> list[type[UtilBase]]:
         """Get all available utilities
 
         Returns:
@@ -107,7 +109,7 @@ class UtilsManager:
         """
         return self.utils.copy()
 
-    def get_util_names(self) -> List[str]:
+    def get_util_names(self) -> list[str]:
         """Get names of all available utilities
 
         Returns:
@@ -115,7 +117,7 @@ class UtilsManager:
         """
         return [UtilBase.get_name(util_cls) for util_cls in self.utils]
 
-    def get_available_utils_info(self, util_names: Optional[List[str]] = None) -> str:
+    def get_available_utils_info(self, util_names: list[str] | None = None) -> str:
         """Generate a prompt that describes available utilities.
 
         Args:
@@ -175,6 +177,7 @@ from {util_cls.__module__} import {util_cls.__name__}
         """Initialize the vector database for smart tool retrieval"""
         try:
             import logging
+
             from infrastructure.vector_db.vector_database import ToolVectorDB
 
             # Reset singleton to ensure we get a fresh instance with correct configuration
@@ -192,7 +195,7 @@ from {util_cls.__module__} import {util_cls.__name__}
             logging.warning(colored(f"Warning: Could not initialize vector database: {e}", "red"))
             self.vector_db = None
 
-    def get_relevant_utils(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    def get_relevant_utils(self, query: str, top_k: int = 3) -> list[dict[str, Any]]:
         """
         Get utilities most relevant to a query using vector search.
 
@@ -238,7 +241,7 @@ from {util_cls.__module__} import {util_cls.__name__}
 
         return results
 
-    def get_relevant_guidance(self, query: str, top_k: int = 2) -> List[str]:
+    def get_relevant_guidance(self, query: str, top_k: int = 2) -> list[str]:
         """
         Get relevant guidance hints for a query.
 
@@ -259,7 +262,7 @@ from {util_cls.__module__} import {util_cls.__name__}
             logging.debug(f"Guidance search failed ({e}), returning empty list")
             return []
 
-    def get_relevant_tools_with_scores(self, query: str, top_k: int = 3) -> Tuple[str, str]:
+    def get_relevant_tools_with_scores(self, query: str, top_k: int = 3) -> tuple[str, str]:
         """
         Generates a combined prompt with relevant tools and their similarity scores.
         This is used to augment the user's prompt and provide score visibility.
@@ -303,7 +306,7 @@ from {util_cls.__module__} import {util_cls.__name__}
         prompt, _ = self.get_relevant_tools_with_scores(query, top_k)
         return prompt
 
-    def _build_tools_prompt(self, relevant_tools: List[Dict[str, Any]], relevant_guidance: List[Dict[str, Any]]) -> str:
+    def _build_tools_prompt(self, relevant_tools: list[dict[str, Any]], relevant_guidance: list[dict[str, Any]]) -> str:
         """
         Build the tools prompt from relevant tools and guidance.
         """

@@ -1,12 +1,13 @@
 import logging
 import warnings
-from typing import Tuple, Optional
-import soundfile as sf
+
 import numpy as np
+import soundfile as sf
 from termcolor import colored
 
 from core.providers.cls_whisper_interface import WhisperInterface
 from shared import utils_audio
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,9 @@ class PyAiHost:
         )
         if cls.remote_host_client is None:
             try:
-                from py_classes.remote_host.cls_remote_host_client import RemoteHostClient
+                from py_classes.remote_host.cls_remote_host_client import (
+                    RemoteHostClient,
+                )
                 cls.remote_host_client = RemoteHostClient()
                 logger.info("Remote host client initialized")
             except ImportError as e:
@@ -68,7 +71,7 @@ class PyAiHost:
                 cls.remote_host_client = None
 
     @classmethod
-    def wait_for_wake_word(cls, use_remote: bool = False) -> Optional[str]:
+    def wait_for_wake_word(cls, use_remote: bool = False) -> str | None:
         """
         DEPRECATED: This method is deprecated.
 
@@ -138,7 +141,7 @@ class PyAiHost:
     def record_audio(cls, sample_rate: int = 44100, threshold: float = 0.05,
                     silence_duration: float = 2.0, min_duration: float = 1.0,
                     max_duration: float = 30.0, use_wake_word: bool = True,
-                    use_remote: bool = False) -> Tuple[np.ndarray, int]:
+                    use_remote: bool = False) -> tuple[np.ndarray, int]:
         """
         DEPRECATED: This method is deprecated.
 
@@ -176,7 +179,7 @@ class PyAiHost:
         cls._get_whisper_interface().play_audio_data(audio_array, sample_rate, blocking)
 
     @classmethod
-    def transcribe_audio(cls, audio_path: str, whisper_model_key: str = 'base') -> Tuple[str, str]:
+    def transcribe_audio(cls, audio_path: str, whisper_model_key: str = 'base') -> tuple[str, str]:
         """
         DEPRECATED: This method is deprecated.
 

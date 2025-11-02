@@ -4,14 +4,16 @@ Utility to clear rate limit cooldowns for CLI-Agent models.
 This can be used when models appear to be stuck in rate limited state.
 """
 
-import sys
 import os
-from typing import List
+import sys
 
 # Add the CLI-Agent root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
+from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import (
+    enhanced_rate_limit_tracker,
+)
+
 
 def clear_all_rate_limits():
     """Clear all rate limit cooldowns for all models."""
@@ -32,7 +34,7 @@ def clear_all_rate_limits():
         print(f"❌ Error clearing rate limits: {e}")
         return False
 
-def clear_specific_models(model_keys: List[str]):
+def clear_specific_models(model_keys: list[str]):
     """Clear rate limit cooldowns for specific models."""
     try:
         cleared = []

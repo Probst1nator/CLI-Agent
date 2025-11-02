@@ -8,8 +8,10 @@ German language support, and scientific vocabulary handling.
 import os
 import sys
 from pathlib import Path
+
 import numpy as np
 import soundfile as sf
+
 # import pytest  # Not available in this environment
 
 # Add project root to path
@@ -17,11 +19,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from shared.utils_audio import (
-    get_torch_device,
-    reset_audio_models,
-    initialize_faster_whisper_model,
     _transcribe_with_faster_whisper,
-    _try_google_speech_recognition
+    _try_google_speech_recognition,
+    get_torch_device,
+    initialize_faster_whisper_model,
+    reset_audio_models,
 )
 
 

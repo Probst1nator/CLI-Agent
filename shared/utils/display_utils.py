@@ -7,7 +7,7 @@ reusable formatting and colorization functionality across the codebase.
 
 import argparse
 import logging
-from typing import List
+
 from termcolor import colored
 
 # --- FIX: The import from main.py has been removed from the top level ---
@@ -61,7 +61,7 @@ def colorize_model_name(model_name: str, tui_mode: bool = False) -> str:
         return colored(model_name, color)
 
 
-def colorize_model_list(model_list: List[str], tui_mode: bool = False) -> str:
+def colorize_model_list(model_list: list[str], tui_mode: bool = False) -> str:
     """
     Colorizes a list of model names and joins them into a string.
 
@@ -107,7 +107,7 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
     DESC_WIDTH = 28
 
     # Use logger.info to ensure timed prefix is applied
-    from core.globals import g # Lazy import to avoid circular dependency at top level
+    from core.globals import g  # Lazy import to avoid circular dependency at top level
 
     header = "[yellow]--- Agent Configuration ---[/yellow]" if tui_mode else colored("--- Agent Configuration ---", "yellow")
     logging.info(header)
@@ -165,20 +165,34 @@ def print_startup_summary(args: argparse.Namespace, tui_mode: bool = False) -> N
         else:
             logging.info(colored(label, count_color) + " " + models_str)
 
-        # Display planner and router LLMs if configured
-        if hasattr(g, 'planner_llm') and g.planner_llm:
-            planner_label = "  Planner LLM:".ljust(DESC_WIDTH)
-            if tui_mode:
-                logging.info(f"[cyan]{planner_label}[/cyan] {g.planner_llm}")
-            else:
-                logging.info(colored(planner_label, "cyan") + " " + g.planner_llm)
+        # Display role-specific LLMs (Override, Autocomplete, Router, Planner)
+        override_llm = getattr(g, 'override_llm', None) or 'None'
+        override_label = "  Override LLM:".ljust(DESC_WIDTH)
+        if tui_mode:
+            logging.info(f"[red]{override_label}[/red] {override_llm}")
+        else:
+            logging.info(colored(override_label, "red") + " " + override_llm)
 
-        if hasattr(g, 'router_llm') and g.router_llm:
-            router_label = "  Router LLM:".ljust(DESC_WIDTH)
-            if tui_mode:
-                logging.info(f"[cyan]{router_label}[/cyan] {g.router_llm}")
-            else:
-                logging.info(colored(router_label, "cyan") + " " + g.router_llm)
+        autocomplete_llm = getattr(g, 'autocomplete_llm', None) or 'None'
+        autocomplete_label = "  Autocomplete LLM:".ljust(DESC_WIDTH)
+        if tui_mode:
+            logging.info(f"[cyan]{autocomplete_label}[/cyan] {autocomplete_llm}")
+        else:
+            logging.info(colored(autocomplete_label, "cyan") + " " + autocomplete_llm)
+
+        router_llm = getattr(g, 'router_llm', None) or 'None'
+        router_label = "  Router LLM:".ljust(DESC_WIDTH)
+        if tui_mode:
+            logging.info(f"[cyan]{router_label}[/cyan] {router_llm}")
+        else:
+            logging.info(colored(router_label, "cyan") + " " + router_llm)
+
+        planner_llm = getattr(g, 'planner_llm', None) or 'None'
+        planner_label = "  Planner LLM:".ljust(DESC_WIDTH)
+        if tui_mode:
+            logging.info(f"[cyan]{planner_label}[/cyan] {planner_llm}")
+        else:
+            logging.info(colored(planner_label, "cyan") + " " + planner_llm)
 
     # Display final status line
     status_line = "[yellow]--- Ready for User Input ---[/yellow]" if tui_mode else colored("--- Ready for User Input ---", "yellow")

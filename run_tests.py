@@ -11,7 +11,8 @@ import time
 import traceback
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
+
 from termcolor import colored
 
 # Add project root to path
@@ -44,9 +45,9 @@ class TestRunner:
         self.max_level = max_level
         self.verbose = verbose
         self.quick = quick
-        self.results: List[TestResult] = []
+        self.results: list[TestResult] = []
 
-    async def run_all_tests(self) -> Dict[str, Any]:
+    async def run_all_tests(self) -> dict[str, Any]:
         """Run all tests up to the specified level"""
         test_functions = self._discover_tests()
 
@@ -113,7 +114,7 @@ class TestRunner:
             'results': self.results
         }
 
-    def _discover_tests(self) -> List[tuple]:
+    def _discover_tests(self) -> list[tuple]:
         """Discover all test functions based on the current level"""
         test_functions = []
 
@@ -147,7 +148,7 @@ class TestRunner:
 
         return test_functions
 
-    def _scan_module_for_tests(self, module_name: str, level: TestLevel) -> List[tuple]:
+    def _scan_module_for_tests(self, module_name: str, level: TestLevel) -> list[tuple]:
         """Scan a module for test functions"""
         try:
             module = __import__(module_name, fromlist=[''])

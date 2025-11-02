@@ -639,6 +639,12 @@ class WebSocketManager {
             return;
         }
 
+        // Handle prompts_regenerated events (suggested prompts updated)
+        if (data.type === 'prompts_regenerated') {
+            this.emit('prompts_regenerated', data);
+            return;
+        }
+
         // Handle configuration messages
         if (data.type === 'config' && data.action === 'connection_init') {
             this.handleConnectionConfig(data);

@@ -47,8 +47,9 @@ class response:
             # We check if the server exists rather than relying on flags, since flags
             # may not be properly set in containerized/multi-user setups
             try:
-                from tools.visualresponse import visualresponse
                 import time
+
+                from tools.visualresponse import visualresponse
 
                 session = visualresponse._get_session()
                 if session and session.is_healthy():

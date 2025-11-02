@@ -10,16 +10,17 @@ This script:
 
 import os
 import sys
+
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-from typing import Tuple
 
 # Add parent directory to path to import RemoteHostClient
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from py_classes.remote_host.cls_remote_host_client import RemoteHostClient
 
-def record_audio(duration: float = 5.0, sample_rate: int = 16000) -> Tuple[np.ndarray, int]:
+
+def record_audio(duration: float = 5.0, sample_rate: int = 16000) -> tuple[np.ndarray, int]:
     """
     Record audio from the microphone.
 

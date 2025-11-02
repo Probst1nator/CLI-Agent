@@ -53,6 +53,9 @@ COPY --from=builder /install /usr/local
 COPY . /cli-agent/
 WORKDIR /cli-agent
 
+# Install core and shared packages
+RUN pip install --no-cache-dir -e ./core -e ./shared
+
 # Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash cliagent && \
     mkdir -p /workspace/data /workspace/logs /workspace/config && \

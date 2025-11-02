@@ -6,14 +6,16 @@ clean, reusable component with proper typing.
 """
 
 from __future__ import annotations
+
+import argparse
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
-import argparse
-from termcolor import colored
+from typing import TYPE_CHECKING, Optional
+
 from pyfiglet import figlet_format
+from termcolor import colored
 
 if TYPE_CHECKING:
     from agent.core.app_context import AppContext

@@ -41,7 +41,7 @@ def test_deletelines_single_line():
         assert "3→Line 3" in result, "Should show deleted content with line number"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = ["Line 1", "Line 2", "Line 4", "Line 5"]
@@ -78,7 +78,7 @@ def test_deletelines_range():
         assert "4→Line 4" in result, "Should show deleted content"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = ["Line 1", "Line 5", "Line 6"]
@@ -112,7 +112,7 @@ def test_deletelines_first_line():
         assert "First line" in result, "Should show deleted content"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = ["Second line", "Third line"]
@@ -146,7 +146,7 @@ def test_deletelines_last_line():
         assert "Last line" in result, "Should show deleted content"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = ["First line", "Second line"]
@@ -180,7 +180,7 @@ def test_deletelines_entire_file():
         assert "Successfully deleted lines 1-3" in result, f"Expected success message, got: {result}"
 
         # Verify file is now empty
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         assert new_content == "", f"File should be empty, got: {repr(new_content)}"
@@ -210,7 +210,7 @@ def test_deletelines_single_line_file():
         assert "Only line" in result, "Should show deleted content"
 
         # Verify file is empty
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         assert new_content == "", f"File should be empty, got: {repr(new_content)}"
@@ -242,7 +242,7 @@ def test_deletelines_same_start_end():
         assert "2→Line 2" in result, "Should show deleted content"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = ["Line 1", "Line 3"]
@@ -370,7 +370,7 @@ def test_deletelines_special_characters():
         assert "ñáéíóú ☀️ 🚀" in result, "Should preserve special characters in output"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = [
@@ -416,7 +416,7 @@ def test_deletelines_whitespace_lines():
         assert "Successfully deleted line 6" in result, f"Expected success, got: {result}"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = [

@@ -5,13 +5,12 @@ Orchestrates Docker container execution for isolated CLI-Agent runs.
 Provides transparent containerization with cached image builds.
 """
 
-import os
-import sys
-import subprocess
-import shutil
 import hashlib
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
-from typing import List
 
 
 class DockerRunner:
@@ -96,7 +95,7 @@ class DockerRunner:
             self.print_error(f"Failed to sync source code: {e}")
             raise
 
-    def prepare_docker_run_command(self, args: List[str]) -> List[str]:
+    def prepare_docker_run_command(self, args: list[str]) -> list[str]:
         """Prepare docker run command with all necessary flags"""
 
         # Filter out --isolated from args
@@ -162,7 +161,7 @@ class DockerRunner:
 
         return cmd, container_name
 
-    def run_container(self, args: List[str]):
+    def run_container(self, args: list[str]):
         """Run CLI-Agent in isolated Docker container"""
 
         # Ensure Docker is available
@@ -213,7 +212,7 @@ class DockerRunner:
             sys.exit(1)
 
 
-def run_in_isolated_container(argv: List[str]):
+def run_in_isolated_container(argv: list[str]):
     """
     Main entry point for --isolated mode
 

@@ -4,8 +4,9 @@ This file implements the 'todos' tool. It allows the agent to maintain a
 persistent checklist to track its progress on a task.
 """
 import os
-from typing import Optional
+
 from core.globals import g
+
 
 class todos:
     @staticmethod
@@ -36,11 +37,11 @@ class todos:
             with open(storage_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             return "Todos list updated successfully."
-        except IOError as e:
+        except OSError as e:
             return f"Error saving todos: {str(e)}"
 
     @staticmethod
-    def get_next_unchecked_task() -> Optional[str]:
+    def get_next_unchecked_task() -> str | None:
         """
         Reads the todos file and returns the first unchecked task.
         An unchecked task is a line that starts with "- [ ]".
@@ -50,13 +51,13 @@ class todos:
             if not os.path.exists(storage_path):
                 return None
 
-            with open(storage_path, 'r', encoding='utf-8') as f:
+            with open(storage_path, encoding='utf-8') as f:
                 for line in f:
                     stripped_line = line.strip()
                     if stripped_line.startswith("- [ ]"):
                         # Remove the checkbox prefix to get the task text.
                         return stripped_line[len("- [ ]"):].strip()
             return None # No unchecked tasks were found
-        except IOError as e:
+        except OSError as e:
             # In a real application, you might want to log this error
             return f"Error reading todos: {str(e)}"

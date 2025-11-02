@@ -5,16 +5,18 @@ Layout definitions and management for the prompt_toolkit-based GUI.
 Provides structured layouts for chat, input, and status areas.
 """
 
-from typing import Callable, Optional
+from collections.abc import Callable
+
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.widgets import Frame
-from prompt_toolkit.formatted_text import HTML
 
-from .widgets import ChatDisplay, StatusPanel, InputArea, ConsoleLogWidget
+from .widgets import ChatDisplay, ConsoleLogWidget, InputArea, StatusPanel
 
 
+from typing import Optional
 class CLIAgentGUILayout:
     """Main layout manager for CLI-Agent GUI."""
 

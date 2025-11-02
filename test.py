@@ -1,5 +1,6 @@
-from anthropic import Anthropic
 import asyncio
+
+from anthropic import Anthropic
 
 # No API key needed - uses your Claude Code subscription auth
 client = Anthropic()

@@ -1,12 +1,13 @@
 import os
 import subprocess
 import sys
-from typing import List, Tuple, Dict
+
 import chromadb
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout
 from prompt_toolkit.widgets import CheckboxList, Frame, Label
+
 from core.globals import g
 from core.providers.cls_ollama_interface import OllamaClient
 
@@ -15,7 +16,7 @@ import pyperclip
 from termcolor import colored
 
 
-def format_command_result(result: Dict[str, str]) -> str:
+def format_command_result(result: dict[str, str]) -> str:
     """
     Format the command execution result for chatbot output.
 
@@ -32,7 +33,7 @@ def format_command_result(result: Dict[str, str]) -> str:
 
     return formatted_result
 
-def run_command(command: str, verbose: bool = True, detached: bool = False) -> Dict[str, str]:
+def run_command(command: str, verbose: bool = True, detached: bool = False) -> dict[str, str]:
     """
     Run a shell command and capture its output, optimized for chatbot interaction.
 
@@ -103,7 +104,7 @@ def run_command(command: str, verbose: bool = True, detached: bool = False) -> D
             "truncated": False
         }
 
-def select_and_execute_commands(commands: List[str], auto_execute: bool = False, verbose: bool = True, detached: bool = False) -> Tuple[str, str]:
+def select_and_execute_commands(commands: list[str], auto_execute: bool = False, verbose: bool = True, detached: bool = False) -> tuple[str, str]:
     """
     Allow the user to select and execute a list of commands.
 

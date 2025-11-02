@@ -5,16 +5,17 @@ This module provides a service for transcribing audio using Faster Whisper,
 an optimized implementation of OpenAI's Whisper model.
 """
 
+import base64
+import gc
 import logging
 import os
-import base64
-import time
-from typing import Dict, Any
-import numpy as np
-import warnings
-import torch
 import subprocess
-import gc
+import time
+import warnings
+from typing import Any
+
+import numpy as np
+import torch
 from faster_whisper import WhisperModel
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ def optimize_torch_for_jetson():
         # Only run on Jetson
         is_jetson = False
         try:
-            with open('/proc/device-tree/model', 'r') as f:
+            with open('/proc/device-tree/model') as f:
                 model = f.read()
                 is_jetson = 'Jetson' in model
         except:
@@ -155,7 +156,7 @@ class WhisperService:
     def _check_is_jetson(self) -> bool:
         """Check if we're running on a Jetson device."""
         try:
-            with open('/proc/device-tree/model', 'r') as f:
+            with open('/proc/device-tree/model') as f:
                 model = f.read()
                 is_jetson = 'Jetson' in model
                 if is_jetson:
@@ -241,7 +242,7 @@ class WhisperService:
         except (subprocess.SubprocessError, FileNotFoundError):
             return False
 
-    def download_all_models(self) -> Dict[str, bool]:
+    def download_all_models(self) -> dict[str, bool]:
         """
         Download all Whisper models that aren't already downloaded.
 
@@ -440,7 +441,7 @@ class WhisperService:
             logger.error(traceback.format_exc())
             return False
 
-    def get_available_models(self) -> Dict[str, Dict[str, Any]]:
+    def get_available_models(self) -> dict[str, dict[str, Any]]:
         """
         Get information about available Whisper models.
 
@@ -465,7 +466,7 @@ class WhisperService:
         return model_info
 
     def transcribe_audio(self, audio_data_b64: str, sample_rate: int,
-                        model_name: str = "large-v2") -> Dict[str, Any]:
+                        model_name: str = "large-v2") -> dict[str, Any]:
         """
         Transcribe audio data using the specified Whisper model.
 
@@ -507,6 +508,7 @@ class WhisperService:
 
             # Save audio to temporary file for Whisper
             import tempfile
+
             import soundfile as sf
 
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:

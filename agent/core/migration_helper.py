@@ -6,20 +6,22 @@ main.py gradually from the legacy input system to the new unified system.
 """
 
 from __future__ import annotations
+
 import asyncio
-import threading
 import logging
-from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
+import threading
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from agent.core.app_context import AppContext
-    from core.chat import Chat
     import argparse
 
+    from agent.core.app_context import AppContext
+    from core.chat import Chat
+
 from agent.core.input_compatibility import (
-    setup_unified_input_system,
+    cleanup_unified_input_system,
     get_unified_input_manager,
-    cleanup_unified_input_system
+    setup_unified_input_system,
 )
 from core.globals import g
 
@@ -53,8 +55,8 @@ class MainPyMigrationHelper:
         force_input: bool = False,
         input_event: Optional[asyncio.Event] = None,
         input_lock: Optional[threading.Lock] = None,
-        shared_input: Optional[Dict[str, Any]] = None
-    ) -> Tuple[str, List[str]]:
+        shared_input: Optional[dict[str, Any]] = None
+    ) -> tuple[str, list[str]]:
         """
         Drop-in replacement for get_user_input_with_bindings.
 
@@ -65,7 +67,9 @@ class MainPyMigrationHelper:
 
         try:
             # Use the unified input system
-            from agent.core.input_compatibility import get_user_input_with_bindings_unified
+            from agent.core.input_compatibility import (
+                get_user_input_with_bindings_unified,
+            )
             return await get_user_input_with_bindings_unified(
                 args=args,
                 context_chat=context_chat,
@@ -86,7 +90,7 @@ class MainPyMigrationHelper:
         from agent.core.input_compatibility import handle_multiline_input_unified
         return handle_multiline_input_unified()
 
-    async def handle_screenshot_capture_replacement(self) -> List[str]:
+    async def handle_screenshot_capture_replacement(self) -> list[str]:
         """Drop-in replacement for handle_screenshot_capture."""
         from agent.core.input_compatibility import handle_screenshot_capture_unified
         return await handle_screenshot_capture_unified()
@@ -99,7 +103,7 @@ class MainPyMigrationHelper:
             self.logger.info("Migration helper cleaned up")
 
 
-def create_migration_patches(context: AppContext) -> Dict[str, Any]:
+def create_migration_patches(context: AppContext) -> dict[str, Any]:
     """
     Create migration patches for main.py functions.
 
@@ -211,7 +215,7 @@ class LegacyInputIntegration:
             self.logger.error(f"Failed to integrate with agent loop: {e}")
             raise
 
-    def get_legacy_function_mapping(self) -> Dict[str, str]:
+    def get_legacy_function_mapping(self) -> dict[str, str]:
         """
         Get mapping of legacy function names to their replacements.
 
@@ -224,7 +228,7 @@ class LegacyInputIntegration:
             'handle_screenshot_capture': 'agent.core.input_compatibility.handle_screenshot_capture_unified',
         }
 
-    def validate_migration_compatibility(self) -> List[str]:
+    def validate_migration_compatibility(self) -> list[str]:
         """
         Validate that the migration is compatible with the current codebase.
 

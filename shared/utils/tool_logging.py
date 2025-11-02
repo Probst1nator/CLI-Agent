@@ -8,6 +8,7 @@ with dedicated log files separated from the main application logs.
 import logging
 import sys
 
+
 def setup_tool_logger(tool_name: str, debug_mode: bool = None) -> logging.Logger:
     """
     Set up a logger for a specific tool with dedicated log file.

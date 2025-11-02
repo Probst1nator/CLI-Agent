@@ -7,12 +7,12 @@ Now supports reading images and registering them as base64 data for vision model
 If the file is not found at the specified path, it will attempt a recursive
 search from the expected parent directory.
 """
-import os
 import base64
-import mimetypes
-import sys
-import json
 import hashlib
+import json
+import mimetypes
+import os
+import sys
 
 # Add parent directory to path for imports
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -68,9 +68,9 @@ class readfile:
         """Load the state of previously truncated files."""
         try:
             if os.path.exists(readfile.STATE_FILE):
-                with open(readfile.STATE_FILE, 'r') as f:
+                with open(readfile.STATE_FILE) as f:
                     return json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             pass
         return {}
 
@@ -80,7 +80,7 @@ class readfile:
         try:
             with open(readfile.STATE_FILE, 'w') as f:
                 json.dump(state, f)
-        except IOError:
+        except OSError:
             # Silently fail if we can't save state
             pass
 
@@ -266,8 +266,8 @@ class readfile:
         # Method 3: OCR fallback with pdf2image + pytesseract
         if not extracted_text:
             try:
-                from pdf2image import convert_from_path
                 import pytesseract
+                from pdf2image import convert_from_path
                 from PIL import Image
 
                 # Convert PDF to images
@@ -338,19 +338,7 @@ class readfile:
                 header = f.read(20)  # Read first 20 bytes
 
             # Check for common image magic bytes
-            if header.startswith(b'\x89PNG'):  # PNG
-                return True
-            elif header.startswith(b'\xff\xd8\xff'):  # JPEG
-                return True
-            elif header.startswith(b'GIF8'):  # GIF
-                return True
-            elif header.startswith(b'BM'):  # BMP
-                return True
-            elif header.startswith(b'RIFF') and b'WEBP' in header[:20]:  # WebP
-                return True
-            elif header.startswith(b'\x00\x00\x01\x00') or header.startswith(b'\x00\x00\x02\x00'):  # ICO
-                return True
-            elif header.startswith((b'II*\x00', b'MM\x00*')):  # TIFF
+            if header.startswith(b'\x89PNG') or header.startswith(b'\xff\xd8\xff') or (header.startswith(b'GIF8') or header.startswith(b'BM')) or (header.startswith(b'RIFF') and b'WEBP' in header[:20] or (header.startswith(b'\x00\x00\x01\x00') or header.startswith(b'\x00\x00\x02\x00')) or header.startswith((b'II*\x00', b'MM\x00*'))):  # PNG
                 return True
 
         except Exception:
@@ -483,12 +471,12 @@ class readfile:
 
             # Attempt to read the file with UTF-8 encoding, replacing errors
             try:
-                with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
+                with open(full_path, encoding='utf-8', errors='replace') as f:
                     file_content = f.read()
             except Exception:
                 # Fallback for non-UTF-8 files
                 try:
-                    with open(full_path, 'r', encoding='latin-1') as f:
+                    with open(full_path, encoding='latin-1') as f:
                         file_content = f.read()
                 except Exception as read_error:
                      return f"Error: Could not read file '{full_path}'. Tried UTF-8 and Latin-1. Reason: {read_error}"

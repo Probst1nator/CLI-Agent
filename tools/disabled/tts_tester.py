@@ -12,21 +12,25 @@ Usage:
     python test_tts_system.py --config         # Configuration wizard
 """
 
+import argparse
 import os
 import sys
 import time
-import argparse
-from typing import Dict, List, Optional, Tuple
 
 # Add the project root to path so we can import our modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from shared.utils_audio import (
-    _try_openai_tts, _try_elevenlabs_tts,
-    _try_coqui_tts, _try_modern_hf_tts, _try_improved_system_tts
-)
-from core.providers.cls_piper_interface import get_piper_interface
 from termcolor import colored
+
+from core.providers.cls_piper_interface import get_piper_interface
+from shared.utils_audio import (
+    _try_coqui_tts,
+    _try_elevenlabs_tts,
+    _try_improved_system_tts,
+    _try_modern_hf_tts,
+    _try_openai_tts,
+)
+
 
 class TTSTestSuite:
     """Comprehensive TTS testing and configuration utility."""
@@ -74,7 +78,7 @@ class TTSTestSuite:
         print(f"{colored(title.center(60), 'cyan', attrs=['bold'])}")
         print(f"{colored('=' * 60, 'cyan')}")
 
-    def check_environment(self) -> Dict[str, bool]:
+    def check_environment(self) -> dict[str, bool]:
         """Check which TTS engines are properly configured."""
         print(self.colored_text("🔍 Checking TTS Engine Availability...", "yellow"))
 
@@ -132,12 +136,12 @@ class TTSTestSuite:
         """Return colored status icon."""
         return colored("✓ Available", "green") if available else colored("✗ Missing", "red")
 
-    def colored_text(self, text: str, color: str, attrs: Optional[List[str]] = None) -> str:
+    def colored_text(self, text: str, color: str, attrs: list[str] | None = None) -> str:
         """Return colored text."""
         return colored(text, color, attrs=attrs or [])
 
     def test_single_engine(self, engine_name: str, phrase: str = None, voice: str = "default",
-                          speed: float = 1.0, save_output: bool = False) -> Tuple[bool, float]:
+                          speed: float = 1.0, save_output: bool = False) -> tuple[bool, float]:
         """Test a single TTS engine with timing."""
         if engine_name not in self.engines:
             print(f"Unknown engine: {engine_name}")

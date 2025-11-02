@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Audio processing utilities for voice interaction pipeline.
 
@@ -8,15 +7,15 @@ and text-to-speech synthesis using local models with lazy loading for efficiency
 
 import json
 import logging
+import os
 import queue
 import struct
 import subprocess
+import tempfile
 import time
 import traceback
-from typing import Any, Dict, Optional, Tuple, Union
-import os
-import tempfile
 from datetime import datetime
+from typing import Any, Optional
 
 import numpy as np
 import psutil
@@ -54,9 +53,10 @@ DEFAULT_TRANSCRIPTION_PARAMS = {
 logger = logging.getLogger(__name__)
 
 # audio.py
-import fasttext
-from pathlib import Path
 import urllib.request
+from pathlib import Path
+
+import fasttext
 
 _FASTTEXT_MODEL_PATH = Path.home() / ".cache" / "piper-tts" / "lid.176.bin"
 _FASTTEXT_MODEL_URL = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
@@ -245,7 +245,7 @@ def _transcribe_with_faster_whisper(
     sample_rate: int = 16000,
     language: Optional[str] = None,
     fallback_to_google: bool = True
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Transcribe audio with Faster-Whisper, with optional Google fallback."""
     if ENABLE_EXTENDED_LOGGING:
         print(f"<{colored('Faster-Whisper', 'cyan')}> Starting local transcription...")
@@ -427,7 +427,7 @@ def listen_microphone(
     private_remote_wake_detection: bool = False,
     remote_voice_enabled: bool = False,
     language: Optional[str] = None
-) -> Tuple[str, str, Union[bool, str]]:
+) -> tuple[str, str, bool | str]:
     """High-level function to record audio and transcribe it using Faster-Whisper."""
     first_iteration = True
     while True:
@@ -579,7 +579,7 @@ def transcribe_audio(
     whisper_model_key: str = None,
     language: Optional[str] = None,
     use_faster_whisper: bool = True
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """High-level function to transcribe audio, preferring Faster-Whisper."""
     if use_faster_whisper:
         try:
@@ -802,8 +802,9 @@ def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
                   language: str = "auto", volume: float = 1.0, **kwargs) -> bool:
     """Try Coqui TTS XTTS model for natural multi-lingual speech."""
     try:
-        from TTS.api import TTS
         import tempfile
+
+        from TTS.api import TTS
 
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'magenta')}> Using Coqui XTTS")
 
@@ -852,8 +853,9 @@ def _try_openai_tts(text: str, voice: str = "default", speed: float = 1.0,
                    output_path: Optional[str] = None, play: bool = True, volume: float = 1.0, **kwargs) -> bool:
     """Try OpenAI TTS API for highest quality speech synthesis."""
     try:
-        import openai
         import tempfile
+
+        import openai
 
         # Check for API key
         api_key = os.getenv('OPENAI_API_KEY')
@@ -922,8 +924,9 @@ def _try_elevenlabs_tts(text: str, voice: str = "default", speed: float = 1.0,
                        output_path: Optional[str] = None, play: bool = True, volume: float = 1.0, **kwargs) -> bool:
     """Try ElevenLabs TTS API for high-quality natural voices."""
     try:
-        import requests
         import tempfile
+
+        import requests
 
         # Check for API key
         api_key = os.getenv('ELEVENLABS_API_KEY')
@@ -1005,8 +1008,9 @@ def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
                   language: str = "auto", volume: float = 1.0, **kwargs) -> bool:
     """Try Coqui TTS XTTS model for natural multi-lingual speech."""
     try:
-        from TTS.api import TTS
         import tempfile
+
+        from TTS.api import TTS
 
         if ENABLE_EXTENDED_LOGGING: print(f"<{colored('TTS Coqui', 'magenta')}> Using Coqui XTTS")
 
@@ -1059,8 +1063,9 @@ def _try_modern_hf_tts(text: str, voice: str = "default", speed: float = 1.0,
                       output_path: Optional[str] = None, play: bool = True, volume: float = 1.0, **kwargs) -> bool:
     """Try modern Hugging Face TTS models (better than speecht5)."""
     try:
-        from transformers import pipeline
         import tempfile
+
+        from transformers import pipeline
 
         # Use better HF models
         modern_models = [
@@ -1198,7 +1203,7 @@ def save_binary_file(file_name: str, data: bytes) -> str:
         raise
 
 
-def parse_audio_mime_type(mime_type: str) -> Dict[str, int]:
+def parse_audio_mime_type(mime_type: str) -> dict[str, int]:
     """Parse audio parameters from a MIME type string."""
     bits_per_sample, rate = 16, 24000
     for param in mime_type.split(";"):

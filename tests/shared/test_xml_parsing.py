@@ -3,12 +3,14 @@
 Test XML parsing infrastructure to diagnose the visualresponse XML validation issue.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from shared.common_utils import extract_blocks
 import xml.etree.ElementTree as ET
+
+from shared.common_utils import extract_blocks
 
 
 def test_case_1_basic_visualresponse():

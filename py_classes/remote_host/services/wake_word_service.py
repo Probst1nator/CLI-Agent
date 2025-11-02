@@ -4,11 +4,12 @@ Wake Word Detection Service.
 This module provides a service for detecting wake words using the Vosk speech recognition model.
 """
 
-import logging
 import base64
 import json
-from typing import Dict, Any, List
-from vosk import Model, KaldiRecognizer
+import logging
+from typing import Any
+
+from vosk import KaldiRecognizer, Model
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class WakeWordService:
         """
         return self.ready and self.model is not None
 
-    def process_audio(self, audio_data_b64: str, sample_rate: int) -> Dict[str, Any]:
+    def process_audio(self, audio_data_b64: str, sample_rate: int) -> dict[str, Any]:
         """
         Process audio data to detect wake words.
 
@@ -61,7 +62,7 @@ class WakeWordService:
 
         try:
             # Define the wake words to detect
-            wake_words: List[str] = [
+            wake_words: list[str] = [
                 # Single words
                 "computer", "nova",
                 # Full phrases

@@ -7,20 +7,19 @@ instead of generic Dict usage.
 
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 # Setup test imports
 test_root = Path(__file__).parent.parent
 sys.path.insert(0, str(test_root))
 
 
-def find_generic_dict_usage(file_path: Path) -> List[Tuple[int, str]]:
+def find_generic_dict_usage(file_path: Path) -> list[tuple[int, str]]:
     """Find usage of generic Dict without type parameters"""
-    if not file_path.suffix == ".py":
+    if file_path.suffix != ".py":
         return []
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             content = f.read()
 
         # Use regex to find Dict usage that's NOT followed by [
@@ -119,13 +118,13 @@ def test_proper_imports_in_typing():
             continue
 
         try:
-            with open(py_file, 'r', encoding='utf-8') as f:
+            with open(py_file, encoding='utf-8') as f:
                 content = f.read()
 
             total_checked += 1
 
             # Check for proper typing imports
-            if "from typing import" in content and ("Dict" in content or "List" in content):
+            if "from typing import" in content and ("Dict" in content or "List" in content):, Optional
                 proper_imports += 1
 
         except UnicodeDecodeError:

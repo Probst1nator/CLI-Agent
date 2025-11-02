@@ -6,7 +6,9 @@ or an absolute path if provided.
 """
 import os
 import re
+
 from core.globals import g
+
 
 class writefile:
     @staticmethod

@@ -8,11 +8,11 @@ Provides RESTful API for chat operations:
 - Managing chat state
 """
 
+import json
 import logging
 import time
-import json
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 try:
     from aiohttp import web
@@ -89,8 +89,8 @@ async def load_chat(request: Any) -> Any:
         raise RuntimeError("aiohttp not available")
 
     try:
-        from core.globals import g
         from core.chat import Chat
+        from core.globals import g
 
         chat_id = request.match_info.get('id')
         if not chat_id:
@@ -576,7 +576,7 @@ async def truncate_and_continue(request: Any) -> Any:
         }, status=500)
 
 
-def _load_suggested_prompts() -> List[str]:
+def _load_suggested_prompts() -> list[str]:
     """
     Load suggested prompts from JSON config file.
 
@@ -601,7 +601,7 @@ def _load_suggested_prompts() -> List[str]:
             logger.info(f"Suggested prompts config not found at {config_path}, using defaults")
             return default_prompts
 
-        with open(config_path, 'r', encoding='utf-8') as f:
+        with open(config_path, encoding='utf-8') as f:
             config = json.load(f)
 
         prompts = config.get('prompts', [])
@@ -654,6 +654,79 @@ async def get_suggested_prompts(request: Any) -> Any:
         }, status=500)
 
 
+async def regenerate_prompts(request: Any) -> Any:
+    """POST /api/chat/regenerate-prompts
+
+    Regenerates suggested prompts by analyzing recent study files using LLM.
+    Uses the prompt_regenerator utility to intelligently generate contextual prompts.
+
+    Request body (optional):
+    {
+        "num_files": 5,        // Number of files to analyze (default: 5)
+        "time_frame_days": 30  // Days to look back (default: 30)
+    }
+
+    Response:
+    {
+        "status": "success" | "partial" | "error",
+        "prompts": [...],
+        "message": "...",
+        "files_analyzed": N
+    }
+
+    Broadcasts WebSocket event 'prompts_regenerated' when complete.
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        # Parse request body for optional parameters
+        num_files = 5
+        time_frame_days = 30
+
+        if request.body_exists:
+            try:
+                body = await request.json()
+                num_files = body.get('num_files', 5)
+                time_frame_days = body.get('time_frame_days', 30)
+            except Exception as e:
+                logger.warning(f"Failed to parse request body: {e}, using defaults")
+
+        logger.info(f"Regenerating prompts (num_files={num_files}, time_frame_days={time_frame_days})")
+
+        # Import the regenerator (lazy import to avoid startup overhead)
+        from shared.utils.prompt_regenerator import regenerate_prompts as regen_fn
+
+        # Run regeneration
+        result = await regen_fn(
+            num_files=num_files,
+            time_frame_days=time_frame_days
+        )
+
+        # Broadcast WebSocket event to notify all clients
+        from api.server import get_server
+        server = get_server()
+        if server:
+            await server.broadcast({
+                'type': 'prompts_regenerated',
+                'prompts': result['prompts'],
+                'status': result['status'],
+                'timestamp': time.time()
+            })
+            logger.debug("Broadcasted prompts_regenerated event")
+
+        return web.json_response(result)
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate prompts: {e}", exc_info=True)
+        return web.json_response({
+            'status': 'error',
+            'error': str(e),
+            'code': 'INTERNAL_ERROR',
+            'message': 'An error occurred while regenerating prompts'
+        }, status=500)
+
+
 def setup_routes(app: Any):
     """Register all chat API routes"""
     app.router.add_get('/api/chat/current', get_current_chat)
@@ -667,4 +740,5 @@ def setup_routes(app: Any):
     app.router.add_get('/api/chat/search', search_chats)
     app.router.add_delete('/api/chat/archive/{id}', delete_archived_chat)
     app.router.add_get('/api/chat/suggested-prompts', get_suggested_prompts)
+    app.router.add_post('/api/chat/regenerate-prompts', regenerate_prompts)
     logger.info("Chat API routes registered")

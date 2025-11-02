@@ -7,9 +7,10 @@ consistency between static definitions and dynamic command registration.
 """
 
 from __future__ import annotations
+
 import logging
-from typing import Dict, List, Any, Optional, Set, TYPE_CHECKING
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from agent.commands.base_command import BaseCommand
@@ -19,9 +20,9 @@ if TYPE_CHECKING:
 class CommandDefinition:
     """Canonical definition of a command."""
     canonical: str
-    aliases: List[str]
+    aliases: list[str]
     description: str
-    sub_commands: Optional[Dict[str, str]] = None
+    sub_commands: Optional[dict[str, str]] = None
     implementation: Optional[BaseCommand] = None
     category: str = "general"
     deprecated: bool = False
@@ -42,8 +43,8 @@ class CommandRegistry:
 
     def __init__(self):
         self.logger = logging.getLogger("command_registry")
-        self._commands: Dict[str, CommandDefinition] = {}
-        self._alias_map: Dict[str, str] = {}
+        self._commands: dict[str, CommandDefinition] = {}
+        self._alias_map: dict[str, str] = {}
         self._initialized = False
 
     def initialize_builtin_commands(self) -> None:
@@ -311,23 +312,23 @@ class CommandRegistry:
         """Get command definition by canonical name."""
         return self._commands.get(canonical)
 
-    def get_all_commands(self) -> Dict[str, CommandDefinition]:
+    def get_all_commands(self) -> dict[str, CommandDefinition]:
         """Get all registered commands."""
         return self._commands.copy()
 
-    def get_commands_by_category(self, category: str) -> List[CommandDefinition]:
+    def get_commands_by_category(self, category: str) -> list[CommandDefinition]:
         """Get all commands in a specific category."""
         return [cmd for cmd in self._commands.values() if cmd.category == category]
 
-    def get_all_aliases(self) -> Dict[str, str]:
+    def get_all_aliases(self) -> dict[str, str]:
         """Get mapping of all aliases to canonical names."""
         return self._alias_map.copy()
 
-    def list_categories(self) -> Set[str]:
+    def list_categories(self) -> set[str]:
         """Get all command categories."""
         return {cmd.category for cmd in self._commands.values()}
 
-    def get_command_definitions_for_completion(self) -> Dict[str, Any]:
+    def get_command_definitions_for_completion(self) -> dict[str, Any]:
         """Get command definitions in format expected by completion system."""
         definitions = {}
         for alias, canonical in self._alias_map.items():
@@ -338,7 +339,7 @@ class CommandRegistry:
                 definitions[alias] = None
         return definitions
 
-    def get_command_descriptions_for_completion(self) -> Dict[str, str]:
+    def get_command_descriptions_for_completion(self) -> dict[str, str]:
         """Get command descriptions in format expected by completion system."""
         descriptions = {}
 
@@ -354,7 +355,7 @@ class CommandRegistry:
 
         return descriptions
 
-    def validate_registry(self) -> List[str]:
+    def validate_registry(self) -> list[str]:
         """Validate the command registry and return any issues found."""
         issues = []
 
@@ -374,7 +375,7 @@ class CommandRegistry:
 
         return issues
 
-    def get_registry_stats(self) -> Dict[str, Any]:
+    def get_registry_stats(self) -> dict[str, Any]:
         """Get statistics about the command registry."""
         implemented_count = sum(1 for cmd in self._commands.values() if cmd.implementation is not None)
         deprecated_count = sum(1 for cmd in self._commands.values() if cmd.deprecated)
@@ -391,7 +392,7 @@ class CommandRegistry:
             }
         }
 
-    def export_command_map(self) -> Dict[str, str]:
+    def export_command_map(self) -> dict[str, str]:
         """Export command map in legacy format for backwards compatibility."""
         return self._alias_map.copy()
 

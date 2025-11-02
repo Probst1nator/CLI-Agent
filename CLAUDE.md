@@ -25,6 +25,15 @@ black .
 ruff check .
 ```
 
+**⚠️ NOTE: Static Analysis Tools (Ruff, Pyright, etc.)**
+
+Do not proactively fix linter/type checker warnings. Only address them when:
+- User explicitly requests it
+- Errors block functionality
+- Working on code quality improvements
+
+Avoid unnecessary complexity (`# type: ignore`, `TYPE_CHECKING` blocks) for minor diagnostics.
+
 ### Running the Agent
 ```bash
 # Basic CLI mode
@@ -64,6 +73,13 @@ cp .env.example .env
 ```
 
 ### Debugging & Logging
+
+**⚠️ CRITICAL: Always check logs FIRST before re-running or debugging!**
+
+All logs are captured at DEBUG level in files **regardless of `--debug` flag**. The `--debug` flag only controls console verbosity, not file logging. This means you can investigate issues without re-running anything.
+
+#### Quick Log Access
+
 ```bash
 # View all recent logs (unified viewer)
 ./user_scripts/view_logs.sh
@@ -75,19 +91,115 @@ cp .env.example .env
 ./user_scripts/search_logs.py --sources backend --pattern "timeout"
 ./user_scripts/search_logs.py --level ERROR --format json > errors.json
 
-# Direct log access
+# Direct log access (most common)
 tail -f ~/.cli-agent/logs/session.log        # Backend logs (always DEBUG level)
 tail -f ~/.cli-agent/logs/client_errors.log  # Frontend errors
 tail -f ~/.cli-agent/logs/tools_bash.log     # Tool-specific logs
 ls ~/.cli-agent/deployment_logs/             # Deployment history
 ```
 
+#### Essential Debugging Patterns
+
+**1. Find errors/failures in last session:**
+```bash
+grep -E "(ERROR|Failed|Exception)" ~/.cli-agent/logs/session.log | tail -50
+```
+
+**2. Trace a specific tool execution:**
+```bash
+grep "toolname" ~/.cli-agent/logs/session.log | tail -100
+# OR check tool-specific log:
+cat ~/.cli-agent/logs/tools_toolname.log
+```
+
+**3. Track WebSocket broadcasts (generation metrics, tool updates):**
+```bash
+grep -E "(broadcast|generation_metrics|generation_complete|tool_update)" ~/.cli-agent/logs/session.log | tail -50
+```
+
+**4. Debug LLM routing and model selection:**
+```bash
+grep -E "(generate_completion|Model.*selected|Failed to|retry)" ~/.cli-agent/logs/session.log | tail -100
+```
+
+**5. Find issues with specific request (using request ID):**
+```bash
+# Request IDs appear in all logs: [req_1730123456_abc123]
+grep "req_1730123456_abc123" ~/.cli-agent/logs/session.log
+```
+
+**6. Check for broadcast failures:**
+```bash
+grep "Failed to broadcast" ~/.cli-agent/logs/session.log | tail -20
+```
+
+**7. Trace TTS/voice pipeline:**
+```bash
+grep "TTS:" ~/.cli-agent/logs/session.log | tail -50
+```
+
+#### Common Debugging Scenarios
+
+**Tool not showing live updates:**
+```bash
+# 1. Check if generation tracking started
+grep "Start.*generation.*tracking\|generation_id" ~/.cli-agent/logs/session.log | tail -20
+
+# 2. Check for broadcast failures
+grep "Failed to broadcast generation" ~/.cli-agent/logs/session.log | tail -20
+
+# 3. Check if server is running
+grep -E "(server.*start|WebSocket.*connect)" ~/.cli-agent/logs/session.log | tail -20
+```
+
+**Tool execution failed:**
+```bash
+# 1. Check tool-specific logs first
+cat ~/.cli-agent/logs/tools_<toolname>.log
+
+# 2. Search session log for tool mentions
+grep -i "toolname" ~/.cli-agent/logs/session.log | tail -100
+
+# 3. Look for exceptions during tool call
+grep -A 10 "toolname" ~/.cli-agent/logs/session.log | grep -E "(ERROR|Exception)"
+```
+
+**Model not responding:**
+```bash
+# 1. Check if model was selected
+grep -E "Model.*selected|Using model" ~/.cli-agent/logs/session.log | tail -10
+
+# 2. Check for timeout/rate limit errors
+grep -E "(timeout|rate.?limit|429)" ~/.cli-agent/logs/session.log | tail -20
+
+# 3. Check provider errors
+grep -E "(provider|API.*error)" ~/.cli-agent/logs/session.log | tail -50
+```
+
+#### Log Structure & Retention
+
 **Key Features:**
 - All logs persist at DEBUG level (even without `--debug` flag)
 - Request IDs trace requests across frontend → backend → tools
 - Frontend errors auto-ship to backend logs
 - Automatic log rotation (session: 30d/50MB, tools: 14d/20MB, deployments: 30d)
-- See `docs/DEBUGGING_ENHANCEMENTS.md` for full documentation
+- Logs are **always available** - no need to re-run with `--debug`
+
+**Log Locations:**
+- `~/.cli-agent/logs/session.log` - Main backend logs (30 day retention, 50MB max)
+- `~/.cli-agent/logs/tools_<name>.log` - Per-tool logs (14 day retention, 20MB max)
+- `~/.cli-agent/logs/client_errors.log` - Frontend JavaScript errors
+- `~/.cli-agent/audit_logs/sessions/` - Session audit trails (90 day retention)
+
+**Log Format:**
+```
+[  0.12s] [req_1730123456_abc123] [DEBUG   ] Message text here
+ ^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^
+ Elapsed   Request ID (traceable) Log Level
+ Time      across entire stack
+```
+
+See `docs/DEBUGGING_ENHANCEMENTS.md` for full documentation.
 
 ## Architecture Overview
 
@@ -322,12 +434,35 @@ logger = get_logger_for_tool_module(__name__)
 
 ### Permission System (`core/permissions/`)
 
-**Enhanced permission architecture** (`enhanced_permissions.py`):
-- **Path-aware rules**: Granular control over file/directory access
-- **Tool-level permissions**: Enable/disable tools individually
-- **Persistent rules**: Saved across sessions
-- **Interactive prompts**: User confirmation for sensitive operations
-- **Permission command**: `/perms add dev grepsearch` for direct rule creation
+**Simplified Claude Code-style permission system**:
+- **Config-based approach**: `~/.cli-agent/settings.json` with allow/deny/ask lists
+- **Simple pattern matching**: `bash(npm:*)`, `readfile(./src/**)` - no aliases, raw tool names
+- **3-level precedence**: deny → ask → allow (simple and predictable)
+- **No smart detection**: Users explicitly declare what they allow
+- **Minimal codebase**: 450 lines (vs 2,400 lines in old system - 81% reduction)
+
+**Key files**:
+- `settings_manager.py`: Load/save settings, pattern matching (150 lines)
+- `permission_prompt.py`: Simple allow/deny/always prompts (200 lines)
+- `dev_tool_hints.py`: Optional hints for common tools (50 lines, help text only)
+
+**Commands**:
+- `/perms view`: Show current settings
+- `/perms add allow bash(npm:*)`: Add to allow list
+- `/perms add deny readfile(.env)`: Add to deny list
+- `/perms remove <rule>`: Remove a rule
+- `/perms template`: Copy default template
+
+**Example settings.json**:
+```json
+{
+  "permissions": {
+    "allow": ["bash(npm:*)", "readfile(./src/**)"],
+    "deny": ["readfile(.env)", "bash(sudo:*)"],
+    "ask": ["bash(git push:*)"]
+  }
+}
+```
 
 ### Audio System (`shared/utils_audio.py`, `shared/audio_router.py`)
 
@@ -398,6 +533,51 @@ Required for LLM providers:
 - `BRAVE_API_KEY`: Web search (optional)
 
 ## Common Workflows
+
+### Debugging Workflow
+
+**ALWAYS follow this pattern when investigating issues:**
+
+1. **Check logs FIRST** - Don't re-run anything yet:
+   ```bash
+   # Quick error scan
+   grep -E "(ERROR|Failed|Exception)" ~/.cli-agent/logs/session.log | tail -50
+
+   # Or search for specific issue
+   grep -i "relevant_keyword" ~/.cli-agent/logs/session.log | tail -100
+   ```
+
+2. **Identify the issue** - Look for error messages, exceptions, or unexpected behavior in logs
+
+3. **Trace the request** - Use request ID if available:
+   ```bash
+   grep "req_1730123456_abc123" ~/.cli-agent/logs/session.log
+   ```
+
+4. **Check tool-specific logs** if investigating tool behavior:
+   ```bash
+   cat ~/.cli-agent/logs/tools_<toolname>.log
+   ```
+
+5. **Only re-run if logs are insufficient** - Use `--debug` flag for console output:
+   ```bash
+   python main.py --debug  # Shows DEBUG messages on console
+   ```
+
+**Example: Tool not showing live updates**
+```bash
+# Step 1: Check if broadcast is failing
+grep "Failed to broadcast generation" ~/.cli-agent/logs/session.log | tail -20
+
+# Step 2: Check if generation tracking started
+grep "generation_id" ~/.cli-agent/logs/session.log | tail -20
+
+# Step 3: Identify the root cause from error messages
+# Step 4: Fix the issue
+# Step 5: Test (logs will show if fix worked)
+```
+
+Remember: Logs are comprehensive and always at DEBUG level. Re-running is rarely necessary for diagnosis.
 
 ### Adding a New Command
 
@@ -487,13 +667,31 @@ Required for LLM providers:
 
 ### Debugging TTS Issues
 
-1. Run agent (logs are automatic): `python main.py -s`
-2. Tail logs: `tail -f ~/.cli-agent/logs/session.log | grep "TTS:"`
-3. Check for:
-   - `voice_mode=False` → Enable with `-s`
-   - `No visualresponse blocks found` → Check XML structure
-   - `skip_tts=True` → Visual-only content
-   - `response_text=0 chars` → Extraction failed
+**IMPORTANT: Check logs first!** TTS issues are usually captured in existing logs.
+
+1. **Check existing logs** (if agent already ran):
+   ```bash
+   grep "TTS:" ~/.cli-agent/logs/session.log | tail -50
+   ```
+
+2. **Run agent with voice mode** (if needed):
+   ```bash
+   python main.py -s  # Logs are automatic at DEBUG level
+   ```
+
+3. **Tail logs in real-time** (optional):
+   ```bash
+   tail -f ~/.cli-agent/logs/session.log | grep "TTS:"
+   ```
+
+4. **Check for common issues in logs**:
+   - `voice_mode=False` → Enable with `-s` flag
+   - `No visualresponse blocks found` → Check XML structure in response
+   - `skip_tts=True` → Visual-only content (intentional)
+   - `response_text=0 chars` → Text extraction failed
+   - `Failed to broadcast` → Check server status
+
+Remember: All TTS debug info is logged at DEBUG level regardless of `--debug` flag.
 
 ### Working with Chat History
 
@@ -543,7 +741,7 @@ python main.py --isolated  # Rebuilds automatically
 ## Critical Notes
 
 1. **Use `main.py`, not `main_refactored.py`** for development and deployment
-2. **Always-on logging**: Logs are captured at DEBUG level even without `--debug` flag
+2. **Always check logs FIRST when debugging**: All logs are captured at DEBUG level in `~/.cli-agent/logs/` even without `--debug` flag. The `--debug` flag only controls console output. Never suggest re-running with `--debug` - the information is already in the log files.
 3. **AppContext over argparse**: Commands must use `self.context.settings`, not args parameter
 4. **API separation**: Backend API (`api/`) is separate from tool system (`tools/`)
 5. **WebSocket state sync**: Frontend re-renders via events, no page reload needed

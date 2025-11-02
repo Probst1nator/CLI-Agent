@@ -1,12 +1,14 @@
-import tempfile
 import os
-from typing import Optional, Callable, Union, TYPE_CHECKING
+import tempfile
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Optional, Union
+
+import speech_recognition as sr
 from openai import OpenAI
 from termcolor import colored
-import speech_recognition as sr
-from core.globals import g
-from agent.text_painter.stream_painter import TextStreamPainter
 
+from agent.text_painter.stream_painter import TextStreamPainter
+from core.globals import g
 from py_classes.unified_interfaces import AIProviderInterface
 
 # Only used for type annotations, not actual imports

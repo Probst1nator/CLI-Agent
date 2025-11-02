@@ -5,9 +5,9 @@ Run the CLI-Agent Remote Host server.
 This script provides a command-line interface for starting the remote host server.
 """
 
-import os
 import argparse
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(

@@ -6,14 +6,16 @@ ensuring consistent behavior and proper session management.
 """
 
 from __future__ import annotations
+
 import asyncio
-import threading
 import logging
+import threading
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
-from typing import Dict, Any, Optional, Callable, List, TYPE_CHECKING
 from datetime import datetime
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from agent.core.app_context import AppContext
@@ -38,7 +40,7 @@ class GUIEvent:
     """Represents a GUI event."""
     event_type: GUIEventType
     source: str  # Widget or component that generated the event
-    data: Dict[str, Any]
+    data: dict[str, Any]
     timestamp: datetime
     handled: bool = False
 
@@ -85,18 +87,18 @@ class GUISession:
         # Input handling
         self.input_event: Optional[asyncio.Event] = None
         self.input_lock: Optional[threading.Lock] = None
-        self.shared_input: Optional[Dict[str, Any]] = None
+        self.shared_input: Optional[dict[str, Any]] = None
 
         # Event handling
-        self.event_handlers: List[GUIEventHandler] = []
+        self.event_handlers: list[GUIEventHandler] = []
         self.event_queue: asyncio.Queue = asyncio.Queue()
 
         # Session data
-        self.session_data: Dict[str, Any] = {}
+        self.session_data: dict[str, Any] = {}
 
         self.logger.info(f"GUI session {session_id} created")
 
-    def setup_input_coordination(self) -> Tuple[asyncio.Event, threading.Lock, Dict[str, Any]]:
+    def setup_input_coordination(self) -> Tuple[asyncio.Event, threading.Lock, dict[str, Any]]:
         """Set up input coordination for threaded GUI operations."""
         self.input_event = asyncio.Event()
         self.input_lock = threading.Lock()
@@ -165,7 +167,7 @@ class GUISession:
         self.is_active = False
         self.logger.info(f"GUI session {self.session_id} closed")
 
-    def get_session_info(self) -> Dict[str, Any]:
+    def get_session_info(self) -> dict[str, Any]:
         """Get information about the session."""
         return {
             "session_id": self.session_id,
@@ -183,7 +185,7 @@ class GUISessionManager:
     def __init__(self, context: AppContext):
         self.context = context
         self.logger = logging.getLogger("gui_session_manager")
-        self.sessions: Dict[str, GUISession] = {}
+        self.sessions: dict[str, GUISession] = {}
         self._session_counter = 0
 
     def create_session(self, session_id: Optional[str] = None) -> GUISession:
@@ -236,7 +238,7 @@ class GUISessionManager:
 
         return cleaned_count
 
-    def get_all_sessions(self) -> Dict[str, Dict[str, Any]]:
+    def get_all_sessions(self) -> dict[str, dict[str, Any]]:
         """Get information about all sessions."""
         return {
             session_id: session.get_session_info()
@@ -284,7 +286,7 @@ class StandardGUIEventHandlers:
     class KeypressEventHandler(GUIEventHandler):
         """Handles keypress events."""
 
-        def __init__(self, key_bindings: Dict[str, Callable]):
+        def __init__(self, key_bindings: dict[str, Callable]):
             self.key_bindings = key_bindings
 
         def can_handle(self, event: GUIEvent) -> bool:

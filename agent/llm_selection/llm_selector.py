@@ -7,17 +7,16 @@ language models with status indicators, persistence, and live editing.
 import asyncio
 import json
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 # --- prompt_toolkit imports ---
 from prompt_toolkit import Application
 from prompt_toolkit.data_structures import Point
-from prompt_toolkit.formatted_text import (HTML, FormattedText,
-                                            to_formatted_text)
-from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.filters import Condition
+from prompt_toolkit.formatted_text import HTML, FormattedText, to_formatted_text
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
@@ -91,15 +90,9 @@ class LlmSelector:
                 provider = item.get('provider', '').lower()
 
                 # Primary match: model name contains search term
-                if search_term in model_key:
-                    self.filtered_data.append(item)
-                # Secondary match: provider name (but exclude generic matches like "client")
-                elif (search_term in provider and
+                if search_term in model_key or (search_term in provider and
                       search_term not in ['client', 'llama'] and  # Avoid matching "OllamaClient" when searching "llama"
-                      len(search_term) > 2):  # Avoid very short provider matches
-                    self.filtered_data.append(item)
-                # Specific provider searches
-                elif ((search_term == 'ollama' and 'ollama' in provider) or
+                      len(search_term) > 2) or ((search_term == 'ollama' and 'ollama' in provider) or
                       (search_term == 'openai' and 'openai' in provider) or
                       (search_term == 'anthropic' and 'anthropic' in provider)):
                     self.filtered_data.append(item)
@@ -222,6 +215,7 @@ class LlmSelector:
             # Try to get model info from Ollama
             try:
                 import ollama
+
                 from core.globals import g
 
                 # Try each reachable Ollama host
@@ -285,19 +279,19 @@ class LlmSelector:
         except Exception:
             return False
 
-    def _load_discovered_models(self) -> Dict[str, Any]:
+    def _load_discovered_models(self) -> dict[str, Any]:
         """Load previously discovered models from cache."""
         if not self.discovered_models_file or not self.discovered_models_file.exists():
             return {}
 
         try:
-            with open(self.discovered_models_file, 'r') as f:
+            with open(self.discovered_models_file) as f:
                 return json.load(f)
         except Exception as e:
             logging.warning(f"Failed to load discovered models: {e}")
             return {}
 
-    def _save_discovered_models(self, discovered_models: Dict[str, Any]) -> None:
+    def _save_discovered_models(self, discovered_models: dict[str, Any]) -> None:
         """Save discovered models to cache with timestamp, replacing previous cache completely."""
         if not self.discovered_models_file:
             return
@@ -328,14 +322,16 @@ class LlmSelector:
         Show progress interface and discover new models.
         Returns True if models were updated, False if cancelled or failed.
         """
+        import asyncio
+
         from prompt_toolkit.application import Application
+        from prompt_toolkit.formatted_text import HTML, to_formatted_text
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.layout.containers import Window
         from prompt_toolkit.layout.controls import FormattedTextControl
         from prompt_toolkit.layout.layout import Layout
-        from prompt_toolkit.formatted_text import HTML, to_formatted_text
+
         from core.llm import Llm
-        import asyncio
 
         # Progress tracking state
         progress_state = {
@@ -771,9 +767,9 @@ class LlmSelector:
         x_pos = 0
         return Point(x=x_pos, y=y_pos)
 
-    async def get_selection(self, preselected_llms: Optional[List[str]] = None,
+    async def get_selection(self, preselected_llms: list[str] | None = None,
                              force_local: bool = False,
-                             save_selection: bool = True) -> Dict[str, Any]:
+                             save_selection: bool = True) -> dict[str, Any]:
 
         import time
         total_start = time.time()
@@ -783,8 +779,8 @@ class LlmSelector:
 
         try:
             step_start = time.time()
-            from core.llm import Llm
             from core.globals import g
+            from core.llm import Llm
             from core.providers.cls_ollama_interface import OllamaClient
             logging.info(f"🔍 LLM SELECTOR: Imports took {(time.time() - step_start)*1000:.1f}ms")
 
@@ -974,7 +970,9 @@ class LlmSelector:
                         try:
                             parsed_ts = 0
                             if 'ago' in date_str:
-                                from core.providers.cls_ollama_interface import parse_relative_date
+                                from core.providers.cls_ollama_interface import (
+                                    parse_relative_date,
+                                )
                                 parsed_dt = parse_relative_date(date_str)
                                 if parsed_dt: parsed_ts = parsed_dt.timestamp()
                             else:
@@ -1416,7 +1414,7 @@ class LlmSelector:
             logging.error(f"Failed to run LLM selection: {e}", exc_info=True)
             return {"status": "Error", "selected_configs": [], "message": f"Failed to run LLM selection: {e}"}
 
-    def _save_config(self, config: Dict[str, Any]) -> None:
+    def _save_config(self, config: dict[str, Any]) -> None:
         try:
             self.config_file.parent.mkdir(parents=True, exist_ok=True)
             if 'Any but local' in config:
@@ -1459,17 +1457,17 @@ class LlmSelector:
         except Exception as e:
             logging.warning(f"Could not save LLM configuration: {e}")
 
-    def _load_config(self) -> Dict[str, Any]:
+    def _load_config(self) -> dict[str, Any]:
         if not self.config_file or not self.config_file.exists():
             return {}
         try:
-            with open(self.config_file, 'r') as f:
+            with open(self.config_file) as f:
                 return json.load(f)
         except (json.JSONDecodeError, Exception) as e:
             logging.warning(f"Could not load LLM configuration: {e}")
             return {}
 
-    async def _auto_download_selected_models(self, final_data: List[Dict[str, Any]]) -> None:
+    async def _auto_download_selected_models(self, final_data: list[dict[str, Any]]) -> None:
         """
         Automatically download selected Ollama models that are not yet downloaded.
         Shows progress for each individual model download.
@@ -1490,10 +1488,10 @@ class LlmSelector:
 
         # Get available Ollama hosts for downloading
         try:
-            from core.providers.cls_ollama_interface import OllamaClient
-
             # Get hosts from environment or use defaults
             import os
+
+            from core.providers.cls_ollama_interface import OllamaClient
             ollama_host_env = os.getenv("OLLAMA_HOST", "")
             if ollama_host_env:
                 ollama_hosts = ollama_host_env.split(",")
@@ -1598,18 +1596,18 @@ class LlmSelector:
             print(f"\n{colored(f'Error during auto-download: {str(e)}', 'red')}")
             logging.error(f"Auto-download failed: {e}", exc_info=True)
 
-    async def _configure_host_for_model(self, row_data: Dict[str, Any]) -> None:
+    async def _configure_host_for_model(self, row_data: dict[str, Any]) -> None:
         """
         Configure the Ollama host for a specific model.
         Shows an interactive menu to select from available hosts or add new ones.
         """
         from prompt_toolkit.application import Application
-        from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.filters import Condition
+        from prompt_toolkit.formatted_text import HTML, to_formatted_text
+        from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.layout.containers import Window
         from prompt_toolkit.layout.controls import FormattedTextControl
         from prompt_toolkit.layout.layout import Layout
-        from prompt_toolkit.formatted_text import HTML, to_formatted_text
 
         try:
             model_key = row_data.get('model_key', '')
@@ -1910,7 +1908,7 @@ class LlmSelector:
         except:
             return False
 
-    def _load_saved_hosts(self) -> List[str]:
+    def _load_saved_hosts(self) -> list[str]:
         """Load previously saved custom hosts from configuration."""
         try:
             config = self._load_config()
@@ -1950,7 +1948,7 @@ class LlmSelector:
         except Exception as e:
             logging.warning(f"Failed to remove custom host {host}: {e}")
 
-    def _update_model_status_for_host(self, row_data: Dict[str, Any], host: str) -> None:
+    def _update_model_status_for_host(self, row_data: dict[str, Any], host: str) -> None:
         """Update model download status for the specified host."""
         try:
             from core.providers.cls_ollama_interface import OllamaClient
@@ -1993,8 +1991,9 @@ async def main_test():
 
     # Load environment variables when running standalone
     try:
-        from dotenv import load_dotenv
         import os
+
+        from dotenv import load_dotenv
         env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
         load_dotenv(env_file)
         print(f"✅ Loaded environment from: {env_file}")

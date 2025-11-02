@@ -40,7 +40,7 @@ def test_todos_save_list():
             assert os.path.exists(expected_path), "Todo file should be created"
 
             # Verify content was saved correctly
-            with open(expected_path, 'r', encoding='utf-8') as f:
+            with open(expected_path, encoding='utf-8') as f:
                 saved_content = f.read()
 
             assert saved_content == todo_content, f"Content mismatch. Expected: {repr(todo_content)}, Got: {repr(saved_content)}"
@@ -71,7 +71,7 @@ def test_todos_update_existing_list():
 
             # Verify updated content
             expected_path = os.path.join(temp_dir, "todos.md")
-            with open(expected_path, 'r', encoding='utf-8') as f:
+            with open(expected_path, encoding='utf-8') as f:
                 saved_content = f.read()
 
             assert saved_content == updated_content, f"Updated content mismatch. Expected: {repr(updated_content)}, Got: {repr(saved_content)}"
@@ -181,7 +181,7 @@ def test_todos_empty_content():
             expected_path = os.path.join(temp_dir, "todos.md")
             assert os.path.exists(expected_path), "Empty todo file should be created"
 
-            with open(expected_path, 'r', encoding='utf-8') as f:
+            with open(expected_path, encoding='utf-8') as f:
                 saved_content = f.read()
 
             assert saved_content == "", f"Expected empty content, got: {repr(saved_content)}"

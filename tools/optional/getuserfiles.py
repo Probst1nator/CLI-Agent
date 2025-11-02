@@ -14,14 +14,15 @@ Discovery Strategy:
 """
 
 import asyncio
+import json
+import os
+import time
+from pathlib import Path
+
 import websockets
 from termcolor import colored
-import os
-import json
-from pathlib import Path
-from typing import Optional
-import time
 
+from typing import Optional
 # Discovery configuration
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 8765
@@ -101,7 +102,7 @@ class WebSocketDiscovery:
             return None
 
         try:
-            with open(USER_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            with open(USER_CONFIG_FILE, encoding='utf-8') as f:
                 config = json.load(f)
 
             host = config.get('host', DEFAULT_HOST)
@@ -112,7 +113,7 @@ class WebSocketDiscovery:
                 print(colored(f"📁 Found user config: {uri}", "blue"))
                 return uri
 
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(colored(f"⚠️  Error reading user config: {e}", "yellow"))
 
         return None
@@ -130,7 +131,7 @@ class WebSocketDiscovery:
                 continue
 
             try:
-                with open(config_path, 'r', encoding='utf-8') as f:
+                with open(config_path, encoding='utf-8') as f:
                     config = json.load(f)
 
                 # Check for websocket server info in global section
@@ -141,7 +142,7 @@ class WebSocketDiscovery:
                         print(colored(f"🖥️  Found GUI config: {uri}", "blue"))
                         return uri
 
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 print(colored(f"⚠️  Error reading GUI config {config_path}: {e}", "yellow"))
 
         return None
@@ -173,11 +174,7 @@ class WebSocketDiscovery:
                 if content and not str(content).startswith("Error:"):
                     return True
 
-        except (websockets.exceptions.ConnectionClosed,
-                websockets.exceptions.WebSocketException,
-                ConnectionRefusedError,
-                asyncio.TimeoutError,
-                OSError):
+        except (TimeoutError, websockets.exceptions.ConnectionClosed, websockets.exceptions.WebSocketException, ConnectionRefusedError, OSError):
             pass
         except Exception as e:
             if not quick_test:
@@ -223,7 +220,7 @@ class getuserfiles:
 
         except ConnectionError as e:
             return f"Error: {e}"
-        except (ConnectionRefusedError, asyncio.TimeoutError):
+        except (TimeoutError, ConnectionRefusedError):
             return "Error: Could not connect to the File Copier GUI. Please ensure the GUI application is running with WebSocket server enabled."
         except websockets.exceptions.ConnectionClosed as e:
             return f"Error: Connection to the File Copier GUI was closed unexpectedly. Reason: {e.code} {e.reason}"

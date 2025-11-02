@@ -13,13 +13,14 @@ test_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(test_root))
 
 from shared.path_resolver import setup_cli_agent_imports
+
 setup_cli_agent_imports()
 
 
 def test_all_tools_can_import_core():
     """Test that all tools can import core infrastructure"""
     try:
-        from core import LlmRouter, Chat, Role, AIStrengths, g
+        from core import AIStrengths, Chat, LlmRouter, Role, g
         return True
     except ImportError:
         return False
@@ -28,7 +29,7 @@ def test_all_tools_can_import_core():
 def test_all_tools_can_import_shared():
     """Test that all tools can import shared utilities"""
     try:
-        from shared import get_dia_model, extract_blocks
+        from shared import extract_blocks, get_dia_model
         return True
     except ImportError:
         return False

@@ -1,7 +1,9 @@
 """Tool management commands for enabling and disabling tools."""
 
 from __future__ import annotations
-from typing import List, Any, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Any
+
 from termcolor import colored
 
 from agent.commands.base_command import BaseCommand, CommandResponse, CommandResult
@@ -14,7 +16,7 @@ class EnableToolCommand(BaseCommand):
     """Command for enabling specific tools."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/enable', '/enable-tool']
 
     @property
@@ -33,7 +35,7 @@ Examples:
   /enable bash readfile     Enable multiple tools at once
         """
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         """Execute enable command."""
         tool_names = parts[1:] if len(parts) > 1 else []
 
@@ -71,7 +73,7 @@ class DisableToolCommand(BaseCommand):
     """Command for disabling specific tools."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/disable', '/disable-tool']
 
     @property
@@ -90,7 +92,7 @@ Examples:
   /disable bash writefile    Disable multiple tools at once
         """
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         """Execute disable command."""
         tool_names = parts[1:] if len(parts) > 1 else []
 

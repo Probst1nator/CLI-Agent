@@ -1,7 +1,9 @@
 """Screenshot command implementation."""
 
 from __future__ import annotations
-from typing import List, Any, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Any
+
 from termcolor import colored
 
 from agent.commands.base_command import BaseCommand, CommandResponse, CommandResult
@@ -13,7 +15,7 @@ class ScreenshotCommand(BaseCommand):
     """Command to take screenshots for visual analysis."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/img', '/screenshot']
 
     @property
@@ -22,7 +24,7 @@ class ScreenshotCommand(BaseCommand):
 
     async def execute(
         self,
-        parts: List[str],
+        parts: list[str],
         **kwargs: Any
     ) -> CommandResponse:
         """Execute screenshot capture."""
@@ -47,7 +49,7 @@ class ScreenshotCommand(BaseCommand):
                 message=f"Screenshot capture failed: {str(e)}"
             )
 
-    async def _handle_screenshot_capture(self) -> List[str]:
+    async def _handle_screenshot_capture(self) -> list[str]:
         """Handle screenshot capture logic (extracted from main.py)."""
         # Import screenshot utility
         from agent.core.input_handlers import handle_screenshot_capture

@@ -6,18 +6,20 @@ enabling migration to the new unified input management system.
 """
 
 from __future__ import annotations
+
 import asyncio
 import threading
-from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from agent.core.app_context import AppContext
-    from core.chat import Chat
-    from agent.core.command_processor import UnifiedInputManager
     import argparse
 
+    from agent.core.app_context import AppContext
+    from agent.core.command_processor import UnifiedInputManager
+    from core.chat import Chat
+
 # Global instance for compatibility
-_unified_input_manager: Optional['UnifiedInputManager'] = None
+_unified_input_manager: Optional[UnifiedInputManager] = None
 
 
 def initialize_unified_input(context) -> None:
@@ -35,7 +37,7 @@ def initialize_unified_input(context) -> None:
             _unified_input_manager = None
 
 
-async def get_unified_input_manager() -> 'UnifiedInputManager':
+async def get_unified_input_manager() -> UnifiedInputManager:
     """Get the global unified input manager."""
     if _unified_input_manager is None:
         # Auto-initialize with a minimal context if not already initialized
@@ -70,8 +72,8 @@ async def get_user_input_with_bindings_unified(
     force_input: bool = False,
     input_event: Optional[asyncio.Event] = None,
     input_lock: Optional[threading.Lock] = None,
-    shared_input: Optional[Dict[str, Any]] = None
-) -> Tuple[str, List[str]]:
+    shared_input: Optional[dict[str, Any]] = None
+) -> tuple[str, list[str]]:
     """
     Unified replacement for get_user_input_with_bindings.
 
@@ -87,8 +89,8 @@ async def get_user_input_with_bindings_unified(
     # Handle GUI mode setup
     if input_event and input_lock and shared_input:
         # Set up GUI input source
-        from agent.core.input_sources import GUIInputSource
         from agent.core.input_manager import InputSource
+        from agent.core.input_sources import GUIInputSource
 
         gui_source = manager.input_manager._sources.get(InputSource.GUI)
         if gui_source and isinstance(gui_source, GUIInputSource):
@@ -163,19 +165,21 @@ def handle_multiline_input_unified() -> str:
     return "\n".join(lines)
 
 
-async def handle_screenshot_capture_unified() -> List[str]:
+async def handle_screenshot_capture_unified() -> list[str]:
     """Unified screenshot capture handler."""
     import base64
-    import tempfile
-    import subprocess
-    import os
     import datetime
-    import pyperclip
     import logging
+    import os
+    import subprocess
+    import tempfile
+
+    import pyperclip
     from termcolor import colored
+
     from core.globals import g
 
-    base64_images: List[str] = []
+    base64_images: list[str] = []
     max_attempts = 3
 
     for attempt in range(1, max_attempts + 1):
@@ -264,7 +268,7 @@ class InputCompatibilityAdapter:
         args: argparse.Namespace,
         context_chat: Optional[Chat],
         **kwargs: Any
-    ) -> Tuple[str, List[str]]:
+    ) -> tuple[str, list[str]]:
         """
         Migration helper for get_user_input_with_bindings calls.
 
@@ -277,7 +281,7 @@ class InputCompatibilityAdapter:
             **kwargs
         )
 
-    def get_legacy_compatibility_shims(self) -> Dict[str, Any]:
+    def get_legacy_compatibility_shims(self) -> dict[str, Any]:
         """
         Get compatibility shims for legacy functions.
 

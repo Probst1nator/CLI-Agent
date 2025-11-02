@@ -7,7 +7,7 @@ import asyncio
 import logging
 import os
 import signal
-from typing import Set
+
 
 class ConnectionMonitor:
     """Monitors active connections and handles auto-restart logic."""
@@ -16,7 +16,7 @@ class ConnectionMonitor:
         self.idle_timeout = idle_timeout
         self.last_activity = asyncio.get_event_loop().time()
         self.monitoring_task = None
-        self.clients: Set = set()
+        self.clients: set = set()
         self.logger = logging.getLogger("connection_monitor")
         
     def register_client(self, client):

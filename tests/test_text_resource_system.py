@@ -5,12 +5,13 @@ This module tests the TextResourceManager, searchresource tool, and integration
 with taskmanager and readfile tools for handling large text content.
 """
 import os
-import tempfile
-import unittest
-from unittest.mock import patch, MagicMock
 
 # Add project root to path
 import sys
+import tempfile
+import unittest
+from unittest.mock import MagicMock, patch
+
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -458,8 +459,9 @@ class TestIntegrationWithTaskManager(unittest.TestCase):
     @patch('tools.taskmanager.bash._background_processes')
     def test_large_output_resource_creation(self, mock_processes):
         """Test that taskmanager creates resources for large outputs."""
-        from tools.taskmanager import taskmanager
         import io
+
+        from tools.taskmanager import taskmanager
 
         # Mock a process with large output
         large_output = "\n".join([f"Output line {i}" for i in range(1, 201)])  # 200 lines

@@ -9,19 +9,21 @@ This addresses the original user request for simple, repeatable testing.
 
 import os
 import sys
-from pathlib import Path
-from typing import Dict
 import time
+from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from shared.utils_audio import (
-    initialize_faster_whisper_model, _transcribe_with_faster_whisper, reset_audio_models,
-    text_to_speech
-)
 import soundfile as sf
+
+from shared.utils_audio import (
+    _transcribe_with_faster_whisper,
+    initialize_faster_whisper_model,
+    reset_audio_models,
+    text_to_speech,
+)
 
 # Test configuration - exactly as user requested
 TEST_SENTENCES = {
@@ -61,9 +63,9 @@ class PiperTranscriptionPipeline:
 
         # Calculate expected files: 3 sentences × 2 languages × 2 genders = 12 files
         expected_files = []
-        for language in TEST_SENTENCES.keys():
+        for language in TEST_SENTENCES:
             for i in range(3):
-                for gender in VOICE_CONFIG.keys():
+                for gender in VOICE_CONFIG:
                     filename = f"piper_{language}_{i+1}_{gender}.wav"
                     expected_files.append(self.test_dir / filename)
 
@@ -124,7 +126,7 @@ class PiperTranscriptionPipeline:
         print(f"\n✅ Generated/verified {final_count}/12 high-quality Piper audio files")
         return final_count >= 10  # Allow for some failures
 
-    def test_transcription_accuracy(self) -> Dict:
+    def test_transcription_accuracy(self) -> dict:
         """Test transcription accuracy across different Whisper models."""
         print("\\n🧪 Testing transcription accuracy with Piper-generated audio...")
 
@@ -156,7 +158,7 @@ class PiperTranscriptionPipeline:
                 for i, expected_sentence in enumerate(sentences):
                     sentence_results = {}
 
-                    for gender in VOICE_CONFIG.keys():
+                    for gender in VOICE_CONFIG:
                         filename = f"piper_{language}_{i+1}_{gender}.wav"
                         filepath = self.test_dir / filename
 
@@ -337,7 +339,7 @@ class PiperTranscriptionPipeline:
         overlap = len(expected_words.intersection(actual_words))
         return overlap / len(expected_words)
 
-    def generate_report(self, results: Dict) -> None:
+    def generate_report(self, results: dict) -> None:
         """Generate comprehensive test report."""
         print("\\n" + "="*70)
         print("📋 PIPER TTS + WHISPER TRANSCRIPTION TEST REPORT")

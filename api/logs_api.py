@@ -10,7 +10,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 
 try:
     from aiohttp import web
@@ -53,7 +53,7 @@ class LogReader:
         return log_dir
 
     @staticmethod
-    def list_available_logs() -> List[Dict[str, Any]]:
+    def list_available_logs() -> list[dict[str, Any]]:
         """List all available log files with metadata"""
         log_dir = LogReader.get_log_directory()
 
@@ -90,7 +90,7 @@ class LogReader:
             return "other"
 
     @staticmethod
-    def tail_log(log_name: str, lines: int = 500, offset: int = 0) -> Dict[str, Any]:
+    def tail_log(log_name: str, lines: int = 500, offset: int = 0) -> dict[str, Any]:
         """
         Read the last N lines from a log file
 
@@ -113,7 +113,7 @@ class LogReader:
 
         entries = []
         try:
-            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(log_path, encoding='utf-8', errors='replace') as f:
                 all_lines = f.readlines()
 
             start_idx = max(0, len(all_lines) - lines - offset)
@@ -146,7 +146,7 @@ class LogReader:
             raise
 
     @staticmethod
-    def _parse_log_line(line: str) -> Dict[str, str]:
+    def _parse_log_line(line: str) -> dict[str, str]:
         """Parse a log line into structured format"""
         match = LogReader.LOG_PATTERN.match(line)
 
@@ -262,7 +262,7 @@ async def handle_tail_stream(request: web.Request) -> web.StreamResponse:
         await response.prepare(request)
 
         file_position = 0
-        with open(log_path, 'r', encoding='utf-8') as f:
+        with open(log_path, encoding='utf-8') as f:
             f.seek(0, os.SEEK_END)
             file_position = f.tell()
 
@@ -272,7 +272,7 @@ async def handle_tail_stream(request: web.Request) -> web.StreamResponse:
             for line in backlog_lines:
                 entry = LogReader._parse_log_line(line.rstrip('\n\r'))
                 data = json.dumps(entry)
-                await response.write(f"data: {data}\n\n".encode('utf-8'))
+                await response.write(f"data: {data}\n\n".encode())
 
         poll_interval = 0.5
         last_size = log_path.stat().st_size
@@ -284,7 +284,7 @@ async def handle_tail_stream(request: web.Request) -> web.StreamResponse:
                 current_size = log_path.stat().st_size
 
                 if current_size > last_size:
-                    with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                    with open(log_path, encoding='utf-8', errors='replace') as f:
                         f.seek(file_position)
                         new_lines = f.readlines()
                         file_position = f.tell()
@@ -294,7 +294,7 @@ async def handle_tail_stream(request: web.Request) -> web.StreamResponse:
                         if clean_line:
                             entry = LogReader._parse_log_line(clean_line)
                             data = json.dumps(entry)
-                            await response.write(f"data: {data}\n\n".encode('utf-8'))
+                            await response.write(f"data: {data}\n\n".encode())
 
                     last_size = current_size
 

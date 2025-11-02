@@ -23,20 +23,48 @@ class AutocompleteManager {
         this.options = {
             debounceMs: options.debounceMs || 500,
             maxSuggestions: options.maxSuggestions || 5,
-            onSelect: options.onSelect || (() => {})
+            onSelect: options.onSelect || (() => {}),
+            chatState: options.chatState || null,  // Reference to ChatStateManager
+            enableCustomSuggestions: options.enableCustomSuggestions !== false  // Default: enabled
         };
 
         this.suggestions = [];
+        this.suggestedPrompts = [];  // Store suggested prompts for empty input
+        this.customSuggestions = [];  // Store custom async LLM-generated suggestions
+        this.previousCustomSuggestions = [];  // Store previous custom suggestions at score: 50
         this.isVisible = false;
         this.selectedIndex = -1;
-        this.debounceTimer = null;
+        this.debounceTimer = null;  // For regular backend autocomplete (500ms)
+        this.customSuggestionsTimer = null;  // For LLM-based suggestions (1000ms)
         this.lastInput = '';
+        this.showingSuggestedPrompts = false;  // Track which type is shown
+
+        // Abort controller for cancelling in-flight custom suggestion requests
+        this.customSuggestionsAbortController = null;
 
         // Create UI elements
         this.createUI();
         this.attachEventListeners();
 
+        // Load suggested prompts on initialization
+        this.fetchSuggestedPrompts();
+
+        // Trigger initial custom autocomplete (context-based, empty input)
+        this.triggerInitialCustomSuggestions();
+
         window.visualLogger.info('[Autocomplete] Initialized');
+    }
+
+    /**
+     * Trigger initial custom suggestions on page load
+     * Called automatically in constructor - generates suggestions using conversation context
+     */
+    triggerInitialCustomSuggestions() {
+        if (this.options.enableCustomSuggestions) {
+            window.visualLogger.debug('[Autocomplete] Triggering initial custom suggestions');
+            // Fetch suggestions with empty input (context-based from conversation history)
+            this.fetchCustomSuggestions('');
+        }
     }
 
     /**
@@ -48,8 +76,8 @@ class AutocompleteManager {
         this.container.className = 'autocomplete-container';
         this.container.style.display = 'none';
 
-        // Set width to match input field
-        this.updateContainerWidth();
+        // Set width and max-height to match available space
+        this.updateContainerSize();
 
         // Insert after input element
         this.inputElement.parentElement.insertBefore(
@@ -59,15 +87,33 @@ class AutocompleteManager {
     }
 
     /**
-     * Update container width and position to match input element
+     * Update container width and max-height to match available space
+     * Max-height extends up to the header element
      */
-    updateContainerWidth() {
+    updateContainerSize() {
         const inputWidth = this.inputElement.offsetWidth;
         const inputLeft = this.inputElement.offsetLeft;
 
         if (inputWidth > 0) {
             this.container.style.width = inputWidth + 'px';
             this.container.style.left = inputLeft + 'px';
+        }
+
+        // Calculate max-height based on available space to header
+        const header = document.querySelector('.header');
+        if (header) {
+            const inputRect = this.inputElement.getBoundingClientRect();
+            const headerRect = header.getBoundingClientRect();
+
+            // Available space = distance from top of input to bottom of header
+            // Subtract 8px for margin/padding
+            const availableHeight = inputRect.top - headerRect.bottom - 8;
+
+            if (availableHeight > 100) {  // Minimum 100px
+                this.container.style.maxHeight = `${availableHeight}px`;
+            } else {
+                this.container.style.maxHeight = '300px';  // Fallback
+            }
         }
     }
 
@@ -125,31 +171,70 @@ class AutocompleteManager {
                 this.hide();
             }, 200);
         });
+
+        // Focus event - show suggested prompts if input is empty
+        this.inputElement.addEventListener('focus', () => {
+            if (this.inputElement.value.trim().length === 0 && this.suggestedPrompts.length > 0) {
+                this.showSuggestedPromptsDropdown();
+            }
+        });
     }
 
     /**
      * Handle input changes with debouncing
+     * Triggers both regular backend suggestions (500ms) and custom LLM suggestions (5000ms)
+     * Previous suggestions are always preserved at score: 50
      * @param {string} value - Current input value
      */
     handleInput(value) {
-        // Clear existing timer
+        // Clear existing timers
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
+        }
+        if (this.customSuggestionsTimer) {
+            clearTimeout(this.customSuggestionsTimer);
+        }
+
+        // Cancel any in-flight custom suggestion requests
+        if (this.customSuggestionsAbortController) {
+            this.customSuggestionsAbortController.abort();
+            this.customSuggestionsAbortController = null;
         }
 
         // Store current input
         this.lastInput = value;
 
-        // Only fetch suggestions if at least 1 character is entered
-        if (value.trim().length < 1) {
-            this.hide();
+        // If input is empty, show suggested prompts and keep previous custom suggestions
+        if (value.trim().length === 0) {
+            // Trigger custom suggestions regeneration with empty input after 5 seconds
+            if (this.options.enableCustomSuggestions) {
+                this.customSuggestionsTimer = setTimeout(() => {
+                    this.fetchCustomSuggestions('');
+                }, 5000);  // 5 seconds idle time
+            }
+
+            if (this.suggestedPrompts.length > 0) {
+                this.showSuggestedPromptsDropdown();
+            } else {
+                // Show previous custom suggestions even if no suggested prompts
+                this.renderMergedSuggestions();
+            }
             return;
         }
 
-        // Set debounce timer
+        // Input has text - trigger both suggestion types with different delays
+
+        // 1. Fast: Regular backend autocomplete (500ms)
         this.debounceTimer = setTimeout(() => {
             this.fetchSuggestions(value);
         }, this.options.debounceMs);
+
+        // 2. Slow: Custom LLM-powered suggestions (5000ms idle)
+        if (this.options.enableCustomSuggestions) {
+            this.customSuggestionsTimer = setTimeout(() => {
+                this.fetchCustomSuggestions(value);
+            }, 5000);  // 5 seconds idle time
+        }
     }
 
     /**
@@ -181,20 +266,106 @@ class AutocompleteManager {
 
             if (data.status === 'success') {
                 this.suggestions = data.suggestions || [];
-                window.visualLogger.debug(`[Autocomplete] Received ${this.suggestions.length} suggestions`);
+                this.showingSuggestedPrompts = false;  // Regular autocomplete
+                window.visualLogger.debug(`[Autocomplete] Received ${this.suggestions.length} backend suggestions`);
 
-                if (this.suggestions.length > 0) {
-                    this.render();
-                    this.show();
-                } else {
-                    this.hide();
-                }
+                // Merge with custom suggestions if available
+                this.renderMergedSuggestions();
             } else {
                 window.visualLogger.error('[Autocomplete] API error:', data.error);
                 this.hide();
             }
         } catch (error) {
             window.visualLogger.error('[Autocomplete] Fetch error:', error);
+            this.hide();
+        }
+    }
+
+    /**
+     * Fetch custom LLM-powered suggestions (async, triggered after 1s idle)
+     * Uses context_chat from backend and LLM routing
+     * @param {string} input - Current input text
+     */
+    async fetchCustomSuggestions(input) {
+        try {
+            window.visualLogger.debug(`[Autocomplete] Fetching custom LLM suggestions for: "${input}"`);
+
+            // Create new abort controller for this request
+            this.customSuggestionsAbortController = new AbortController();
+
+            // Build API URL
+            const url = window.backendConnector
+                ? await window.backendConnector.buildURL('/api/autocomplete/custom')
+                : '/api/autocomplete/custom';
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || ''
+                },
+                body: JSON.stringify({
+                    input: input,
+                    max_suggestions: this.options.maxSuggestions
+                }),
+                signal: this.customSuggestionsAbortController.signal
+            });
+
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                // Move current suggestions to previous (with reduced score)
+                if (this.customSuggestions.length > 0) {
+                    this.previousCustomSuggestions = this.customSuggestions.map(s => ({
+                        ...s,
+                        score: 50.0,  // Reduce score for previous suggestions
+                        isPrevious: true  // Mark as previous for potential styling
+                    }));
+                }
+
+                // Store new suggestions
+                this.customSuggestions = data.suggestions || [];
+                window.visualLogger.debug(`[Autocomplete] Received ${this.customSuggestions.length} custom LLM suggestions`);
+
+                // Merge with backend suggestions and re-render
+                this.renderMergedSuggestions();
+            } else {
+                window.visualLogger.error('[Autocomplete] Custom suggestions API error:', data.error);
+            }
+        } catch (error) {
+            // Ignore abort errors (user kept typing)
+            if (error.name === 'AbortError') {
+                window.visualLogger.debug('[Autocomplete] Custom suggestions request aborted');
+                return;
+            }
+            window.visualLogger.error('[Autocomplete] Custom suggestions fetch error:', error);
+        } finally {
+            this.customSuggestionsAbortController = null;
+        }
+    }
+
+    /**
+     * Merge backend suggestions with custom LLM suggestions and render
+     * Order: Backend (fast) → Custom LLM (current, score 95) → Previous Custom (score 50)
+     */
+    renderMergedSuggestions() {
+        // Combine all suggestion types
+        const mergedSuggestions = [
+            ...this.suggestions,                // Backend autocomplete (fast)
+            ...this.customSuggestions,          // Custom LLM (current, score: 95)
+            ...this.previousCustomSuggestions   // Previous LLM (score: 50, always visible)
+        ];
+
+        if (mergedSuggestions.length > 0) {
+            // Temporarily set suggestions to merged list for rendering
+            const originalSuggestions = this.suggestions;
+            this.suggestions = mergedSuggestions;
+            this.render();
+            this.show();
+            this.suggestions = originalSuggestions;  // Restore for next fetch
+        } else if (this.suggestions.length === 0 &&
+                   this.customSuggestions.length === 0 &&
+                   this.previousCustomSuggestions.length === 0) {
             this.hide();
         }
     }
@@ -255,7 +426,7 @@ class AutocompleteManager {
 
     /**
      * Get icon for suggestion type
-     * @param {string} type - Suggestion type (command, tool, file)
+     * @param {string} type - Suggestion type (command, tool, file, suggestion)
      * @returns {string} Icon character
      */
     getIconForType(type) {
@@ -266,6 +437,8 @@ class AutocompleteManager {
                 return '⚙';
             case 'file':
                 return '📄';
+            case 'suggestion':
+                return '💡';
             default:
                 return '•';
         }
@@ -275,8 +448,8 @@ class AutocompleteManager {
      * Show autocomplete dropdown
      */
     show() {
-        // Update width to match input (in case it was resized)
-        this.updateContainerWidth();
+        // Update width and max-height (in case window was resized)
+        this.updateContainerSize();
         this.container.style.display = 'block';
         this.isVisible = true;
     }
@@ -336,16 +509,20 @@ class AutocompleteManager {
 
     /**
      * Insert selected suggestion into input
+     * Populates input field but does NOT auto-submit
      * @param {Object} suggestion - Suggestion to insert
      */
     insertSuggestion(suggestion) {
         window.visualLogger.info(`[Autocomplete] Selected: ${suggestion.text} (${suggestion.type})`);
 
-        // For commands, replace the entire input
+        // Set input value based on type
         if (suggestion.type === 'command') {
             this.inputElement.value = suggestion.text + ' ';
+        } else if (suggestion.type === 'suggestion') {
+            // For suggested prompts, use the full text (not display text)
+            this.inputElement.value = suggestion.fullText || suggestion.text;
         } else {
-            // For tools and files, append or replace based on context
+            // For tools and files
             this.inputElement.value = suggestion.text;
         }
 
@@ -364,6 +541,115 @@ class AutocompleteManager {
             this.inputElement.value.length,
             this.inputElement.value.length
         );
+
+        // NOTE: Does NOT auto-submit - user must press Enter to send
+    }
+
+    /**
+     * Fetch suggested prompts from backend
+     * Called on initialization and when prompts are regenerated
+     */
+    async fetchSuggestedPrompts() {
+        try {
+            window.visualLogger.debug('[Autocomplete] Fetching suggested prompts');
+
+            // Build API URL (handle both local and multi-user modes)
+            const url = window.backendConnector
+                ? await window.backendConnector.buildURL('/api/chat/suggested-prompts')
+                : '/api/chat/suggested-prompts';
+
+            const response = await fetch(url, {
+                headers: {
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.status === 'success' && data.prompts) {
+                this.suggestedPrompts = data.prompts.map(prompt => {
+                    // Hide file paths at end (same pattern as card UI)
+                    const pathPattern = /\s+[/~].+$/;
+                    const displayText = pathPattern.test(prompt)
+                        ? prompt.replace(pathPattern, '').trim()
+                        : prompt;
+
+                    return {
+                        text: displayText,
+                        fullText: prompt,  // Keep original for submission
+                        type: 'suggestion',
+                        description: 'Suggested prompt',
+                        score: 100
+                    };
+                });
+
+                window.visualLogger.debug(`[Autocomplete] Loaded ${this.suggestedPrompts.length} suggested prompts`);
+            }
+        } catch (error) {
+            window.visualLogger.error('[Autocomplete] Failed to fetch suggested prompts:', error);
+            this.suggestedPrompts = [];
+        }
+    }
+
+    /**
+     * Check if suggested prompts should be shown
+     * @returns {boolean} True if conditions are met (empty input + no user messages)
+     */
+    shouldShowSuggestedPrompts() {
+        // Check if chat state is available
+        if (!this.options.chatState) {
+            return false;
+        }
+
+        // Check if any user messages exist in chat
+        const hasUserMessages = this.options.chatState.messages.some(msg => msg.role === 'user');
+
+        return !hasUserMessages && this.suggestedPrompts.length > 0;
+    }
+
+    /**
+     * Show suggested prompts in dropdown
+     */
+    showSuggestedPromptsDropdown() {
+        if (this.suggestedPrompts.length === 0) {
+            this.hide();
+            return;
+        }
+
+        this.suggestions = this.suggestedPrompts;
+        this.showingSuggestedPrompts = true;
+        this.render();
+        this.show();
+    }
+
+    /**
+     * Update suggested prompts (called from WebSocket event)
+     * @param {Array<string>} prompts - New prompt strings
+     */
+    updateSuggestedPrompts(prompts) {
+        window.visualLogger.info('[Autocomplete] Updating suggested prompts from WebSocket');
+
+        this.suggestedPrompts = prompts.map(prompt => {
+            // Hide file paths at end
+            const pathPattern = /\s+[/~].+$/;
+            const displayText = pathPattern.test(prompt)
+                ? prompt.replace(pathPattern, '').trim()
+                : prompt;
+
+            return {
+                text: displayText,
+                fullText: prompt,
+                type: 'suggestion',
+                description: 'Suggested prompt',
+                score: 10
+            };
+        });
+
+        // Auto-show regenerated prompts if input is empty (even if conversation exists)
+        // This is triggered by user action (clicking regenerate button), so always show
+        if (this.inputElement.value.trim().length === 0 && this.suggestedPrompts.length > 0) {
+            this.showSuggestedPromptsDropdown();
+        }
     }
 
     /**

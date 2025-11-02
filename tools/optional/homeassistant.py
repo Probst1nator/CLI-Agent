@@ -5,17 +5,19 @@ with a Home Assistant server to control entities, read states, and manage automa
 It acts as a user-friendly wrapper around a powerful Home Assistant API client.
 """
 
-import os
-import requests
 import json
-import re
 import logging
-from typing import Dict, Optional, Any, Tuple
-from dotenv import load_dotenv
+import os
+import re
 from datetime import datetime
+from typing import Any, Optional
+
+import requests
+from dotenv import load_dotenv
 
 # Assumes g is initialized and available from the project's core
 from core.globals import g
+
 
 # --- Helper Class: The Core API Logic ---
 # This class contains the original, powerful logic from the utility file.
@@ -31,17 +33,17 @@ class _HomeAssistantAPI:
     _AUTOMATION_BACKUP_DIR = os.path.join(g.CLIAGENT_PERSISTENT_STORAGE_PATH, 'homeassistant_automation_backups')
 
     @classmethod
-    def _load_interacted_entities(cls) -> Dict[str, list]:
+    def _load_interacted_entities(cls) -> dict[str, list]:
         try:
             if os.path.exists(cls._INTERACTED_ENTITIES_FILE):
-                with open(cls._INTERACTED_ENTITIES_FILE, 'r') as f:
+                with open(cls._INTERACTED_ENTITIES_FILE) as f:
                     return json.load(f).get('entities', {})
         except Exception:
             pass
         return {}
 
     @classmethod
-    def _save_interacted_entities(cls, interacted_entities: Dict[str, list]) -> None:
+    def _save_interacted_entities(cls, interacted_entities: dict[str, list]) -> None:
         try:
             os.makedirs(os.path.dirname(cls._INTERACTED_ENTITIES_FILE), exist_ok=True)
             # Trim history to the latest 50 entries per entity
@@ -63,7 +65,7 @@ class _HomeAssistantAPI:
         cls._save_interacted_entities(interacted_entities)
 
     @staticmethod
-    def _get_config() -> 'Tuple[str, str]':
+    def _get_config() -> 'tuple[str, str]':
         load_dotenv()
         hass_url = os.environ.get("HASS_URL")
         hass_token = os.environ.get("HASS_TOKEN")
@@ -72,7 +74,7 @@ class _HomeAssistantAPI:
         return hass_url, hass_token
 
     @classmethod
-    def check_reachability(cls) -> Tuple[bool, str]:
+    def check_reachability(cls) -> tuple[bool, str]:
         hass_url = ""
         try:
             hass_url, hass_token = cls._get_config()
@@ -98,7 +100,7 @@ class _HomeAssistantAPI:
             return False, f"An unexpected error occurred during reachability check: {str(e)}"
 
     @classmethod
-    def _make_request(cls, method: str, endpoint: str, payload: Optional[Dict] = None) -> requests.Response:
+    def _make_request(cls, method: str, endpoint: str, payload: Optional[dict] = None) -> requests.Response:
         hass_url, hass_token = cls._get_config()
         api_url = f"{hass_url.rstrip('/')}/api/{endpoint}"
         headers = {"Authorization": f"Bearer {hass_token}", "Content-Type": "application/json"}
@@ -107,7 +109,7 @@ class _HomeAssistantAPI:
         return response
 
     @classmethod
-    def call_service(cls, domain: str, service: str, entity_id: Optional[str], service_data: Optional[Dict]) -> Dict:
+    def call_service(cls, domain: str, service: str, entity_id: Optional[str], service_data: Optional[dict]) -> dict:
         payload = service_data or {}
         if entity_id: payload['entity_id'] = entity_id
         response = cls._make_request("POST", f"services/{domain}/{service}", payload)
@@ -120,7 +122,7 @@ class _HomeAssistantAPI:
         return {"status": "Success", "message": f"Service {domain}.{service} called successfully.", "response": response.json()}
 
     @classmethod
-    def get_state(cls, entity_id: str) -> Dict:
+    def get_state(cls, entity_id: str) -> dict:
         response = cls._make_request("GET", f"states/{entity_id}")
         cls._track_entity_interaction(entity_id, "get_state", "Queried entity state")
         return response.json()
@@ -200,7 +202,7 @@ class homeassistant:
         }
 
     @staticmethod
-    def _parse_args(content: str) -> Dict[str, Any]:
+    def _parse_args(content: str) -> dict[str, Any]:
         """Parses XML-like tags into a dictionary."""
         args = {}
         tags = ['action', 'domain', 'service', 'entity_id', 'keyword', 'service_data']

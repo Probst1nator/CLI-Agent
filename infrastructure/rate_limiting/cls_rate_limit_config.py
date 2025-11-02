@@ -3,7 +3,11 @@ Rate limit configuration and initialization for different providers and models.
 """
 
 import logging
-from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker, LimitType
+
+from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import (
+    LimitType,
+    enhanced_rate_limit_tracker,
+)
 
 logger = logging.getLogger(__name__)
 

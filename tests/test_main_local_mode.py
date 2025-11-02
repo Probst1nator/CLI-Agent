@@ -3,16 +3,16 @@ Integration tests for main.py local mode functionality
 Tests the specific issue where -l flag doesn't properly filter models
 """
 
+import argparse
 import sys
 from pathlib import Path
-import argparse
 
 # Add project root to path for imports
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-from core.llm_router import LlmRouter
 from core.globals import g
+from core.llm_router import LlmRouter
 
 
 def test_main_local_mode_flag_processing():

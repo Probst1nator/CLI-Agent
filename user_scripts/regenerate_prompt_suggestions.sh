@@ -27,6 +27,8 @@ STUDIUM_DIR="$HOME/OneDrive/Studium"
 SUGGESTED_PROMPTS_FILE="$HOME/.cli-agent/suggested_prompts.json"
 CLI_AGENT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# NEW: We now call the Python module instead of running CLI-Agent with message
+
 # --- NEW: Configuration from script arguments with defaults ---
 NUM_FILES_TO_PICK="${1:-5}"     # Default to 5 random files
 TIME_FRAME_DAYS="${2:-30}"    # Default to 30 days (a month)
@@ -50,10 +52,9 @@ if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE") -gt 10485760 ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Log rotated (previous log saved to .old)" >> "$LOG_FILE"
 fi
 
-# --- NEW: Prerequisite check for 'shuf' command ---
-if ! command -v shuf &> /dev/null; then
-    log_message "${RED}Error: The 'shuf' command is required for random selection but was not found.${NC}"
-    log_message "${YELLOW}Please install GNU coreutils ('sudo apt-get install coreutils' on Debian/Ubuntu, or 'brew install coreutils' on macOS).${NC}"
+# --- Prerequisite check for Python (no longer need shuf) ---
+if ! command -v python3 &> /dev/null; then
+    log_message "${RED}Error: python3 is required but was not found.${NC}"
     exit 1
 fi
 
@@ -64,109 +65,30 @@ if [ ! -d "$STUDIUM_DIR" ]; then
 fi
 
 log_message "${BLUE}=== CLI-Agent Study Prompt Generator ===${NC}"
-log_message "${GREEN}Searching for files modified in the last ${TIME_FRAME_DAYS} days in Studium...${NC}"
+log_message "${GREEN}Analyzing files from the last ${TIME_FRAME_DAYS} days in Studium...${NC}"
 
-# --- MODIFIED: Find all files in the last month/week, then randomly pick 5 ---
-# 1. `find`: Locates all files modified within the last `TIME_FRAME_DAYS`.
-#    Excludes hidden files and common binary extensions.
-# 2. `shuf -n`: Randomly shuffles the input lines and picks `NUM_FILES_TO_PICK`.
-SELECTED_FILES=$(find "$STUDIUM_DIR" -type f -mtime "-${TIME_FRAME_DAYS}" \
-    ! -path "*/.*" \
-    ! -name "*.exe" \
-    ! -name "*.dll" \
-    ! -name "*.so" \
-    ! -name "*.dylib" \
-    ! -name "*.zip" \
-    ! -name "*.tar.gz" \
-    ! -name "*.rar" \
-    2>/dev/null \
-    | shuf -n "$NUM_FILES_TO_PICK")
-
-# Check if we found any files
-if [ -z "$SELECTED_FILES" ]; then
-    log_message "${RED}Error: No files found in $STUDIUM_DIR modified in the last ${TIME_FRAME_DAYS} days.${NC}"
-    exit 1
-fi
-
-# --- MODIFIED: Updated log messages to reflect the new logic ---
-file_count=$(echo "$SELECTED_FILES" | wc -l)
-log_message "${GREEN}Randomly selected ${file_count} files:${NC}"
-echo "$SELECTED_FILES" | while read -r file; do
-    filename=$(basename "$file")
-    mod_time=$(stat -c '%y' "$file" 2>/dev/null | cut -d' ' -f1)
-    echo -e "  ${YELLOW}•${NC} $filename (modified: $mod_time)"
-done
-
-echo ""
-log_message "${BLUE}Generating creative prompts with CLI-Agent...${NC}"
-echo ""
-
-# Build the file list for the prompt
-FILE_LIST=""
-while IFS= read -r file; do
-    filename=$(basename "$file")
-    mod_time=$(stat -c '%y' "$file" 2>/dev/null | cut -d' ' -f1)
-    FILE_LIST="${FILE_LIST}- $file (modified: $mod_time)\n"
-done <<< "$SELECTED_FILES"
-
-# Craft the prompt for CLI-Agent
-PROMPT="I need you to generate 5 contextual prompt suggestions based on my recent study activities.
-
-## Context: Recently modified files
-Here are randomly selected files from the last month:
-${FILE_LIST}
-
-## Your Task
-
-1. **Understand my current focus**
-   - Analyze the provided files to identify key topics and subjects
-   - Explore the directory structure and read additional files within ~/OneDrive/Studium to build richer context
-   - Use your judgment on how much exploration is useful vs. excessive
-
-2. **Generate 5 prompts**
-   - Each prompt should be exactly one sentence
-   - You can reference a file by title in your prompt but if you do so also add the full filepath at the end of it. (Ensure your sentence finished fully before providing the filepath as any ending filepaths will be hidden from the user)
-
-3. **Write output to:** $SUGGESTED_PROMPTS_FILE
-   Use this exact JSON format:
-\`\`\`json
-   {
-     \"prompts\": [
-       \"Prompt 1 here\",
-       \"Prompt 2 here\",
-       \"Prompt 3 here\",
-       \"Prompt 4 here\",
-       \"Prompt 5 here\"
-     ]
-   }
-\`\`\`
-
-## Guidelines
-- Be intelligent about inferring my real-world context and upcoming needs
-- Think across subject boundaries - connect concepts from different domains
-- Aim for prompts that are engaging and intellectually stimulating"
-
-# Run CLI-Agent with restricted permissions
+# --- NEW: Call Python module directly instead of running full CLI-Agent ---
+# This is much faster and better integrated with the framework
 cd "$CLI_AGENT_DIR"
 
-# Debug: Print full command before execution
 echo ""
-echo -e "${BLUE}=== Executing CLI-Agent Command ===${NC}"
-echo -e "${YELLOW}python3 main.py \\${NC}"
-echo -e "${YELLOW}    --read-only \\${NC}"
-echo -e "${YELLOW}    --allow-write-path \"$SUGGESTED_PROMPTS_FILE\" \\${NC}"
-echo -e "${YELLOW}    -m \"<prompt hidden for brevity>\" \\${NC}" # Hide long prompt
-echo -e "${YELLOW}    --yolo${NC}"
+log_message "${BLUE}Calling Python regenerator module...${NC}"
+echo -e "${YELLOW}python3 -m shared.utils.prompt_regenerator \\${NC}"
+echo -e "${YELLOW}    --studium-dir \"$STUDIUM_DIR\" \\${NC}"
+echo -e "${YELLOW}    --num-files $NUM_FILES_TO_PICK \\${NC}"
+echo -e "${YELLOW}    --time-frame-days $TIME_FRAME_DAYS${NC}"
 echo ""
 
-python3 main.py \
-    --read-only \
-    --allow-write-path "$SUGGESTED_PROMPTS_FILE" \
-    -m "$PROMPT" \
-    --yolo
+python3 -m shared.utils.prompt_regenerator \
+    --studium-dir "$STUDIUM_DIR" \
+    --num-files "$NUM_FILES_TO_PICK" \
+    --time-frame-days "$TIME_FRAME_DAYS"
+
+# Capture exit code
+REGENERATE_EXIT_CODE=$?
 
 # Check if the prompts file was updated
-if [ -f "$SUGGESTED_PROMPTS_FILE" ]; then
+if [ $REGENERATE_EXIT_CODE -eq 0 ] && [ -f "$SUGGESTED_PROMPTS_FILE" ]; then
     echo ""
     log_message "${GREEN}✓ Successfully updated study prompts!${NC}"
     log_message "${BLUE}New prompts:${NC}"
@@ -181,6 +103,6 @@ if [ -f "$SUGGESTED_PROMPTS_FILE" ]; then
         cat "$SUGGESTED_PROMPTS_FILE"
     fi
 else
-    log_message "${RED}✗ Failed to update prompts file${NC}"
+    log_message "${RED}✗ Failed to update prompts file (exit code: $REGENERATE_EXIT_CODE)${NC}"
     exit 1
 fi

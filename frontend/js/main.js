@@ -561,6 +561,27 @@ class VisualResponseApp {
                 this.repositionLoadingIndicator();
             });
 
+            // Listen for prompts_regenerated events to refresh suggested prompts
+            this.wsManager.on('prompts_regenerated', (data) => {
+                console.log('🔄 Prompts regenerated event received:', data);
+
+                // Check if we have prompts in the event data
+                if (!data.prompts || !Array.isArray(data.prompts)) {
+                    console.warn('⚠️ Prompts regenerated event missing prompts array');
+                    return;
+                }
+
+                console.log(`📝 Received ${data.prompts.length} prompts via WebSocket`);
+
+                // Update autocomplete manager with new prompts
+                if (window.autocompleteManager) {
+                    window.autocompleteManager.updateSuggestedPrompts(data.prompts);
+                    console.log('✅ Autocomplete updated with new suggested prompts');
+                } else {
+                    console.warn('⚠️ Autocomplete manager not available');
+                }
+            });
+
             // Legacy: Listen for message_end events (not currently sent by backend)
             this.wsManager.on('message_end', async (data) => {
                 if (this.speakModeEnabled && data.content) {
@@ -1366,21 +1387,7 @@ class VisualResponseApp {
             this.handleChatSubmit();
         });
 
-        // Suggested prompts click handler (event delegation)
-        const contentWrapper = document.getElementById('content-wrapper');
-        if (contentWrapper) {
-            contentWrapper.addEventListener('click', (event) => {
-                // Check if clicked element is a suggested prompt card
-                const promptCard = event.target.closest('.suggested-prompt-card');
-                if (promptCard) {
-                    const promptText = promptCard.dataset.prompt || promptCard.textContent;
-                    // Set the input value
-                    this.chatInput.value = promptText;
-                    // Submit the form
-                    this.handleChatSubmit();
-                }
-            });
-        }
+        // Note: Suggested prompts now handled by autocomplete dropdown (no card UI)
 
         // File upload event listeners
         this.setupFileUpload();
@@ -1400,6 +1407,8 @@ class VisualResponseApp {
         // Global JS toggle event listener
         this.setupGlobalJSToggle();
 
+        // Regenerate prompts button event listener
+        this.setupRegeneratePrompts();
 
         // Setup interrupt button
         const interruptBtn = document.getElementById('interrupt-btn');
@@ -2255,6 +2264,153 @@ class VisualResponseApp {
             window.visualLogger.debug(`Global JS ${newState ? 'enabled' : 'disabled'}`);
         });
     }
+
+    /**
+     * Setup regenerate prompts button event handler
+     * Allows users to regenerate suggested prompts from recent study files
+     * @private
+     */
+    setupRegeneratePrompts() {
+        const regenerateBtn = document.getElementById('regenerate-prompts-btn');
+        if (!regenerateBtn) {
+            console.warn('Regenerate prompts button not found');
+            return;
+        }
+
+        regenerateBtn.addEventListener('click', async () => {
+            window.logDebug('🔄 Regenerate prompts button clicked');
+
+            try {
+                // Show loading state
+                this.setRegeneratePromptsLoading(regenerateBtn, true);
+
+                // Build URL using BackendConnector for multi-user compatibility
+                const url = window.backendConnector
+                    ? await window.backendConnector.buildURL('/api/chat/regenerate-prompts')
+                    : '/api/chat/regenerate-prompts';
+
+                window.logDebug(`Calling regenerate API: ${url}`);
+
+                // Call API endpoint with timeout (60 seconds for LLM generation)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Session-ID': window.sessionId || ''
+                        },
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    window.logDebug(`API response status: ${response.status}`);
+
+                    // Check if response is ok before parsing
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+
+                    const result = await response.json();
+                    window.logDebug('API response:', result);
+
+                    if (result.status === 'success') {
+                        window.logInfo('✅ Prompts regenerated successfully');
+                        if (this.chatState && this.chatState.showSuccess) {
+                            this.chatState.showSuccess(`Generated ${result.prompts.length} new prompts from ${result.files_analyzed} files`);
+                        }
+
+                        // Show brief success animation
+                        this.setRegeneratePromptsSuccess(regenerateBtn);
+
+                        // Note: WebSocket event will trigger prompt refresh automatically
+                    } else if (result.status === 'partial') {
+                        window.logInfo('⚠️ Prompts regenerated with fallback');
+                        if (this.chatState && this.chatState.showSuccess) {
+                            this.chatState.showSuccess(result.message || 'Using default prompts');
+                        }
+                        this.setRegeneratePromptsSuccess(regenerateBtn);
+                    } else {
+                        throw new Error(result.message || result.error || 'Unknown error');
+                    }
+
+                } catch (fetchError) {
+                    clearTimeout(timeoutId);
+
+                    if (fetchError.name === 'AbortError') {
+                        throw new Error('Request timed out after 60 seconds');
+                    }
+                    throw fetchError;
+                }
+
+            } catch (error) {
+                console.error('❌ Failed to regenerate prompts:', error);
+                if (this.chatState && this.chatState.showError) {
+                    this.chatState.showError(`Failed to regenerate prompts: ${error.message}`);
+                }
+                this.setRegeneratePromptsError(regenerateBtn);
+            }
+        });
+
+        window.logDebug('Regenerate prompts button initialized');
+    }
+
+    /**
+     * Set regenerate prompts button to loading state
+     * @private
+     * @param {HTMLElement} button - The button element
+     * @param {boolean} loading - Whether to show loading state
+     */
+    setRegeneratePromptsLoading(button, loading) {
+        if (loading) {
+            button.classList.add('loading');
+            button.disabled = true;
+            button.title = 'Generating prompts...';
+        } else {
+            button.classList.remove('loading');
+            button.disabled = false;
+            button.title = 'Suggest prompts';
+        }
+    }
+
+    /**
+     * Show success animation on regenerate button
+     * @private
+     * @param {HTMLElement} button - The button element
+     */
+    setRegeneratePromptsSuccess(button) {
+        button.classList.add('success');
+        button.title = 'Prompts generated!';
+
+        // Reset to normal state after 2 seconds
+        setTimeout(() => {
+            button.classList.remove('success', 'loading');
+            button.disabled = false;
+            button.title = 'Suggest prompts';
+        }, 2000);
+    }
+
+    /**
+     * Show error state on regenerate button
+     * @private
+     * @param {HTMLElement} button - The button element
+     */
+    setRegeneratePromptsError(button) {
+        button.classList.add('error');
+        button.title = 'Failed to generate prompts';
+
+        // Reset to normal state after 3 seconds
+        setTimeout(() => {
+            button.classList.remove('error', 'loading');
+            button.disabled = false;
+            button.title = 'Suggest prompts';
+        }, 3000);
+    }
+
 
     /**
      * Update the visual state of the global JS toggle button
@@ -4566,6 +4722,7 @@ function initializeApp() {
             window.autocompleteManager = new AutocompleteManager(chatInput, {
                 debounceMs: 500,
                 maxSuggestions: 5,
+                chatState: this.chatState,  // Pass chat state reference for suggested prompts
                 onSelect: (suggestion) => {
                     console.log('Autocomplete suggestion selected:', suggestion);
                 }

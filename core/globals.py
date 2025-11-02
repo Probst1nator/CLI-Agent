@@ -6,16 +6,19 @@ Using a class-based singleton pattern ensures that all parts of the application
 share the same state instance, which is crucial for managing settings like
 LLM selection, force flags, and other runtime configurations.
 """
-import os
 import atexit
-import shutil
+import datetime
 import json
 import logging
-import datetime
+import os
+import shutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import List, Optional, Any, Callable, Dict, Set, Protocol, Union
-from typing_extensions import TypedDict, NotRequired
+from typing import Any, NotRequired, Protocol, Optional
+
 from termcolor import colored
+from typing_extensions import TypedDict
+
 
 # --- Helper Functions for XDG Base Directory Path Management ---
 def _get_xdg_config_dir() -> str:
@@ -62,7 +65,7 @@ class LLMModelConfig(TypedDict):
     """Configuration for an individual LLM model."""
     selected: NotRequired[bool]
     host: NotRequired[str]
-    branches: NotRequired[List[str]]
+    branches: NotRequired[list[str]]
     eval: NotRequired[bool]
     guard: NotRequired[bool]
     router: NotRequired[bool]
@@ -76,10 +79,11 @@ class LLMRoleConfig(TypedDict, total=False):
     LLM role configuration structure.
     Each role can be either a single model (str) or a fallback chain (List[str]).
     """
-    planner: Union[Optional[str], List[str]]
-    router: Union[Optional[str], List[str]]
-    override: Union[Optional[str], List[str]]
-    fallbacks: List[str]
+    planner: Optional[str] | list[str]
+    router: Optional[str] | list[str]
+    override: Optional[str] | list[str]
+    autocomplete: Optional[str] | list[str]
+    fallbacks: list[str]
 
 class LLMConfig(TypedDict, total=False):
     """Complete LLM configuration structure."""
@@ -87,10 +91,10 @@ class LLMConfig(TypedDict, total=False):
 
 class UserConfig(TypedDict, total=False):
     """User configuration structure."""
-    tts_engine_priority: List[str]
-    tts_disabled_engines: List[str]
-    tts_context_settings: Dict[str, Dict[str, Any]]
-    tts_defaults: Dict[str, Any]
+    tts_engine_priority: list[str]
+    tts_disabled_engines: list[str]
+    tts_context_settings: dict[str, dict[str, Any]]
+    tts_defaults: dict[str, Any]
 
 class TTSContextSettings(TypedDict):
     """TTS settings for a specific context."""
@@ -110,14 +114,14 @@ class ModelInfo(TypedDict):
     """Model information in discovery cache."""
     name: str
     provider: str
-    variants: Dict[str, ModelVariant]
+    variants: dict[str, ModelVariant]
     description: NotRequired[str]
-    tags: NotRequired[List[str]]
+    tags: NotRequired[list[str]]
 
 class ModelDiscoveryCache(TypedDict):
     """Structure for model discovery cache."""
     timestamp: float
-    model_data: Dict[str, ModelInfo]
+    model_data: dict[str, ModelInfo]
     version: int
 
 class DebugLogProtocol(Protocol):
@@ -172,9 +176,10 @@ class Globals:
             'planner': None,
             'router': None,
             'override': None,
+            'autocomplete': None,
             'fallbacks': [],
         }
-        self.DEFAULT_OLLAMA_HOSTS: List[str] = ["http://localhost:11434"]
+        self.DEFAULT_OLLAMA_HOSTS: list[str] = ["http://localhost:11434"]
 
         # --- Forcing Flags (runtime modifiers) ---
         import time
@@ -206,14 +211,14 @@ class Globals:
         self.online_mode: bool = False  # Online mode flag
 
         # --- Utility and Tool Management ---
-        self.SELECTED_UTILS: List[str] = []
+        self.SELECTED_UTILS: list[str] = []
         self.AGENT_IS_COMPACTING: bool = False
-        self.ALLOWED_WRITE_PATHS: List[str] = []  # Paths that are explicitly allowed for writing
+        self.ALLOWED_WRITE_PATHS: list[str] = []  # Paths that are explicitly allowed for writing
 
         # --- Autocomplete Support ---
-        self.RECENT_FILE_PATHS: List[str] = []  # Track recently accessed files for autocomplete
+        self.RECENT_FILE_PATHS: list[str] = []  # Track recently accessed files for autocomplete
         self.MAX_RECENT_FILES: int = 50  # Maximum number of recent files to track
-        self.CACHED_FILE_PATHS: List[str] = []  # All filesystem paths (background cached)
+        self.CACHED_FILE_PATHS: list[str] = []  # All filesystem paths (background cached)
         self.PATH_CACHE_TASK = None  # Running background cache task
         self.path_cache_manager = None  # PathCacheManager instance
 
@@ -233,12 +238,12 @@ class Globals:
 
         # --- Tool and Agent State ---
         self.last_executed_tools_info: Optional[Any] = None  # Stores information about last executed tools
-        self.loaded_tool_info: Optional[Dict[str, Any]] = None  # Stores information about loaded tools
-        self.current_images: List[str] = []  # Current images for vision models (legacy, use session context)
-        self.disabled_tools: List[str] = []  # List of disabled tools from frontend tool manager
+        self.loaded_tool_info: Optional[dict[str, Any]] = None  # Stores information about loaded tools
+        self.current_images: list[str] = []  # Current images for vision models (legacy, use session context)
+        self.disabled_tools: list[str] = []  # List of disabled tools from frontend tool manager
 
         # --- Session Management (Multi-Tab Support) ---
-        self.sessions: Dict[str, Any] = {}  # Session ID -> SessionContext mapping
+        self.sessions: dict[str, Any] = {}  # Session ID -> SessionContext mapping
         self._active_session_id: Optional[str] = None  # Active session for CLI mode
         self._chat: Optional[Any] = None  # Direct chat storage for backward compat when no sessions exist
 
@@ -248,8 +253,8 @@ class Globals:
 
         # --- TTS Configuration ---
         # Default: Local models first, then remote APIs (prioritize privacy and offline capability)
-        self.TTS_ENGINE_PRIORITY: List[str] = ["piper", "coqui", "huggingface", "system", "openai", "elevenlabs"]
-        self.TTS_DISABLED_ENGINES: List[str] = []
+        self.TTS_ENGINE_PRIORITY: list[str] = ["piper", "coqui", "huggingface", "system", "openai", "elevenlabs"]
+        self.TTS_DISABLED_ENGINES: list[str] = []
         self.TTS_DEFAULT_VOICE: str = "default"
         self.TTS_DEFAULT_SPEED: float = 1.0
         self.TTS_DEFAULT_VOLUME: float = 0.8  # Volume level (0.0 to 1.0)
@@ -262,7 +267,7 @@ class Globals:
         self.TTS_CACHE_ENABLED: bool = True
 
         # --- TTS Voice Mappings ---
-        self.TTS_VOICE_MAPPINGS: Dict[str, Dict[str, str]] = {
+        self.TTS_VOICE_MAPPINGS: dict[str, dict[str, str]] = {
             "openai": {
                 "default": "nova",
                 "female": "nova",
@@ -289,7 +294,7 @@ class Globals:
         }
 
         # --- TTS Context-Specific Settings ---
-        self.TTS_CONTEXT_SETTINGS: Dict[str, Dict[str, Any]] = {
+        self.TTS_CONTEXT_SETTINGS: dict[str, dict[str, Any]] = {
             "system_message": {
                 "speed": 0.9,
                 "volume": 0.6,
@@ -324,7 +329,7 @@ class Globals:
 
 
         # --- Model Discovery Cache ---
-        self._model_discovery_cache: Optional[Dict[str, ModelInfo]] = None
+        self._model_discovery_cache: Optional[dict[str, ModelInfo]] = None
         self._model_discovery_task: Optional[Any] = None  # Background asyncio task
         self._model_discovery_timestamp: float = 0
         self.MODEL_CACHE_PATH: str = os.path.join(self.CLIAGENT_CACHE_DIR, 'model_cache.json')
@@ -366,8 +371,8 @@ class Globals:
         logging.info(f"🚀 GLOBALS INIT: Total initialization took {total_time*1000:.1f}ms")
 
         # --- Cleanup callbacks ---
-        self._cleanup_callbacks: List[Callable] = []
-        self._persistent_services: Set[Callable] = set()  # Services that should persist
+        self._cleanup_callbacks: list[Callable] = []
+        self._persistent_services: set[Callable] = set()  # Services that should persist
         atexit.register(self._run_cleanup)
 
     def _initialize_directories(self):
@@ -544,7 +549,7 @@ class Globals:
         """Load user configuration from JSON file."""
         if os.path.exists(self.USER_CONFIG_PATH):
             try:
-                with open(self.USER_CONFIG_PATH, 'r') as f:
+                with open(self.USER_CONFIG_PATH) as f:
                     self._user_config = json.load(f)
             except (json.JSONDecodeError, Exception) as e:
                 logging.warning(f"Could not load user config file, it may be corrupt: {e}")
@@ -573,7 +578,7 @@ class Globals:
         """Load the LLM selection/configuration from its JSON file."""
         if os.path.exists(self.LLM_CONFIG_PATH):
             try:
-                with open(self.LLM_CONFIG_PATH, 'r') as f:
+                with open(self.LLM_CONFIG_PATH) as f:
                     self._llm_config = json.load(f)
             except (json.JSONDecodeError, Exception) as e:
                 logging.warning(f"Could not load LLM config file, it may be corrupt: {e}")
@@ -632,7 +637,7 @@ class Globals:
                 for f in os.listdir(self.CLIAGENT_TEMP_STORAGE_PATH):
                     if f.endswith('.py') and re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$', f):
                         os.remove(os.path.join(self.CLIAGENT_TEMP_STORAGE_PATH, f))
-            except (OSError, IOError) as e:
+            except OSError as e:
                 logging.warning(f"Could not clean up temporary files: {e}")
             except Exception as e:
                 logging.error(f"An unexpected error occurred during temp file cleanup: {e}")
@@ -646,7 +651,7 @@ class Globals:
                 for f in os.listdir(self.CLIAGENT_TEMP_STORAGE_PATH):
                     if f.endswith('.py') and re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$', f):
                         os.remove(os.path.join(self.CLIAGENT_TEMP_STORAGE_PATH, f))
-            except (OSError, IOError) as e:
+            except OSError as e:
                 logging.warning(f"Could not clean up temporary files: {e}")
             except Exception as e:
                 logging.error(f"An unexpected error occurred during temp file cleanup: {e}")
@@ -720,7 +725,7 @@ class Globals:
             # If no event loop is running, we'll do lazy loading instead
             logging.debug("No event loop available for background model discovery")
 
-    def get_cached_model_discovery(self) -> Optional[Dict[str, ModelInfo]]:
+    def get_cached_model_discovery(self) -> Optional[dict[str, ModelInfo]]:
         """Get cached model discovery results."""
         return self._model_discovery_cache
 
@@ -745,7 +750,7 @@ class Globals:
             # Use run_until_complete to properly await the task
             loop.run_until_complete(asyncio.wait_for(self._model_discovery_task, timeout=timeout))
             return self._model_discovery_cache is not None
-        except asyncio.TimeoutError:
+        except TimeoutError:
             elapsed = time.time() - start_time
             logging.debug(f"Model discovery timeout after {elapsed:.1f}s")
             return False
@@ -793,13 +798,13 @@ class Globals:
 
         return age_minutes > max_age_minutes
 
-    def load_persistent_model_cache(self) -> Optional[Dict[str, ModelInfo]]:
+    def load_persistent_model_cache(self) -> Optional[dict[str, ModelInfo]]:
         """Load model cache from persistent storage."""
         if not os.path.exists(self.MODEL_CACHE_PATH):
             return None
 
         try:
-            with open(self.MODEL_CACHE_PATH, 'r') as f:
+            with open(self.MODEL_CACHE_PATH) as f:
                 cache_data = json.load(f)
 
             # Check cache age (default: cache valid for 24 hours)
@@ -818,7 +823,7 @@ class Globals:
             logging.warning(f"Failed to load persistent model cache: {e}")
             return None
 
-    def save_persistent_model_cache(self, model_data: Dict[str, ModelInfo]) -> None:
+    def save_persistent_model_cache(self, model_data: dict[str, ModelInfo]) -> None:
         """Save model cache to persistent storage."""
         try:
             import time
@@ -850,7 +855,7 @@ class Globals:
             return float('inf')
 
         try:
-            with open(self.MODEL_CACHE_PATH, 'r') as f:
+            with open(self.MODEL_CACHE_PATH) as f:
                 cache_data = json.load(f)
             cache_timestamp = cache_data.get('timestamp', 0)
             import time
@@ -860,11 +865,11 @@ class Globals:
 
     # --- TTS Configuration Methods ---
 
-    def get_tts_engine_priority(self) -> List[str]:
+    def get_tts_engine_priority(self) -> list[str]:
         """Get TTS engine priority list, excluding disabled engines."""
         return [engine for engine in self.TTS_ENGINE_PRIORITY if engine not in self.TTS_DISABLED_ENGINES]
 
-    def set_tts_engine_priority(self, engines: List[str]) -> None:
+    def set_tts_engine_priority(self, engines: list[str]) -> None:
         """Set TTS engine priority order and save to config."""
         self.TTS_ENGINE_PRIORITY = engines
         self.set_config_value('tts_engine_priority', engines)
@@ -972,7 +977,7 @@ class Globals:
         return planner
 
     @property
-    def planner_llms_list(self) -> List[str]:
+    def planner_llms_list(self) -> list[str]:
         """Get planner LLM fallback chain."""
         planner = self.llm_roles.get('planner')
         if isinstance(planner, list):
@@ -990,7 +995,7 @@ class Globals:
         return router
 
     @property
-    def router_llms_list(self) -> List[str]:
+    def router_llms_list(self) -> list[str]:
         """Get router LLM fallback chain."""
         router = self.llm_roles.get('router')
         if isinstance(router, list):
@@ -1008,7 +1013,7 @@ class Globals:
         return override
 
     @property
-    def override_llms_list(self) -> List[str]:
+    def override_llms_list(self) -> list[str]:
         """Get override LLM fallback chain."""
         override = self.llm_roles.get('override')
         if isinstance(override, list):
@@ -1018,40 +1023,58 @@ class Globals:
         return []
 
     @property
-    def FALLBACK_MODELS(self) -> List[str]:
+    def autocomplete_llm(self) -> Optional[str]:
+        """Backward compatibility property for autocomplete LLM. Returns first item if array."""
+        autocomplete = self.llm_roles.get('autocomplete')
+        if isinstance(autocomplete, list):
+            return autocomplete[0] if autocomplete else None
+        return autocomplete
+
+    @property
+    def autocomplete_llms_list(self) -> list[str]:
+        """Get autocomplete LLM fallback chain."""
+        autocomplete = self.llm_roles.get('autocomplete')
+        if isinstance(autocomplete, list):
+            return autocomplete
+        elif autocomplete:
+            return [autocomplete]
+        return []
+
+    @property
+    def FALLBACK_MODELS(self) -> list[str]:
         """Backward compatibility property for fallback models."""
         return self.llm_roles.get('fallbacks', [])
 
     @FALLBACK_MODELS.setter
-    def FALLBACK_MODELS(self, value: List[str]) -> None:
+    def FALLBACK_MODELS(self, value: list[str]) -> None:
         """Setter for fallback models."""
         self.llm_roles['fallbacks'] = value
         self.save_llm_roles()
 
     @property
-    def SELECTED_LLMS(self) -> List[str]:
+    def SELECTED_LLMS(self) -> list[str]:
         """Backward compatibility property for selected LLMs. Now points to fallbacks array."""
         return self.llm_roles.get('fallbacks', [])
 
     @SELECTED_LLMS.setter
-    def SELECTED_LLMS(self, value: List[str]) -> None:
+    def SELECTED_LLMS(self, value: list[str]) -> None:
         """Setter for selected LLMs. Now updates fallbacks array."""
         self.llm_roles['fallbacks'] = value
         self.save_llm_roles()
 
-    def update_llm_role(self, role: str, model_key: Optional[str] = None, model_keys: Optional[List[str]] = None) -> None:
+    def update_llm_role(self, role: str, model_key: Optional[str] = None, model_keys: Optional[list[str]] = None) -> None:
         """
         Unified method to update LLM roles with automatic persistence.
 
         All roles now support both single model (model_key) and multi-model arrays (model_keys).
-        This enables dynamic fallback chains for Router, Planner, Override, and Default roles.
+        This enables dynamic fallback chains for Router, Planner, Override, Autocomplete, and Default roles.
 
         Args:
-            role: The role to update ('planner', 'router', 'override', 'fallbacks')
+            role: The role to update ('planner', 'router', 'override', 'autocomplete', 'fallbacks')
             model_key: Single model key (backward compatibility, converted to single-item array)
             model_keys: List of model keys for multi-model fallback chains
         """
-        if role in ['planner', 'router', 'override', 'fallbacks']:
+        if role in ['planner', 'router', 'override', 'autocomplete', 'fallbacks']:
             # Support both single model and model arrays for all roles
             if model_keys is not None and model_key is not None:
                 raise ValueError("Cannot specify both model_key and model_keys")
@@ -1394,7 +1417,7 @@ class Globals:
 
 # --- Type Validation Helpers ---
 
-def validate_llm_config(config: Dict[str, Any]) -> LLMConfig:
+def validate_llm_config(config: dict[str, Any]) -> LLMConfig:
     """Validate and convert a dictionary to LLMConfig type."""
     # Ensure the config is a dict-like object
     if not isinstance(config, dict):
@@ -1441,7 +1464,7 @@ def validate_llm_config(config: Dict[str, Any]) -> LLMConfig:
 
     return validated_config
 
-def validate_user_config(config: Dict[str, Any]) -> UserConfig:
+def validate_user_config(config: dict[str, Any]) -> UserConfig:
     """Validate and convert a dictionary to UserConfig type."""
     if not isinstance(config, dict):
         raise TypeError(f"User config must be a dictionary, got {type(config)}")
@@ -1469,7 +1492,7 @@ def validate_user_config(config: Dict[str, Any]) -> UserConfig:
 
     return validated_config
 
-def validate_tts_context_settings(settings: Dict[str, Any]) -> TTSContextSettings:
+def validate_tts_context_settings(settings: dict[str, Any]) -> TTSContextSettings:
     """Validate and convert a dictionary to TTSContextSettings type."""
     if not isinstance(settings, dict):
         raise TypeError(f"TTS context settings must be a dictionary, got {type(settings)}")

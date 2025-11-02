@@ -23,12 +23,13 @@ import argparse
 import json
 import re
 import subprocess
-from dataclasses import dataclass, asdict
+from collections import defaultdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict
-from collections import defaultdict
 
+
+from typing import Optional
 # Color codes for terminal output
 class Colors:
     RED = '\033[0;31m'
@@ -51,8 +52,8 @@ class LogEntry:
     message: str
     request_id: Optional[str] = None
     session_id: Optional[str] = None
-    context_before: List[str] = None
-    context_after: List[str] = None
+    context_before: list[str] = None
+    context_after: list[str] = None
     raw_line: str = ""
 
     def __post_init__(self):
@@ -71,7 +72,7 @@ class LogSearcher:
         self.audit_dir = self.home / ".cli-agent" / "audit_logs" / "sessions"
         self.deployment_dir = self.home / ".cli-agent" / "deployment_logs"
 
-    def get_log_files(self, sources: List[str]) -> Dict[str, List[Path]]:
+    def get_log_files(self, sources: list[str]) -> dict[str, list[Path]]:
         """Get log files organized by source"""
         files = defaultdict(list)
 
@@ -198,11 +199,11 @@ class LogSearcher:
             raw_line=line
         )
 
-    def read_file_logs(self, file_path: Path, source: str) -> List[LogEntry]:
+    def read_file_logs(self, file_path: Path, source: str) -> list[LogEntry]:
         """Read and parse logs from a file"""
         entries = []
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(file_path, encoding='utf-8', errors='ignore') as f:
                 for line in f:
                     entry = self.parse_log_line(line, source)
                     if entry:
@@ -211,7 +212,7 @@ class LogSearcher:
             print(f"Warning: Could not read {file_path}: {e}")
         return entries
 
-    def read_container_logs(self, container_name: str, source: str, since: str = "24h") -> List[LogEntry]:
+    def read_container_logs(self, container_name: str, source: str, since: str = "24h") -> list[LogEntry]:
         """Read logs from a Docker container"""
         entries = []
         try:
@@ -231,7 +232,7 @@ class LogSearcher:
 
     def search(
         self,
-        sources: List[str] = None,
+        sources: list[str] = None,
         pattern: str = None,
         level: str = None,
         request_id: str = None,
@@ -239,7 +240,7 @@ class LogSearcher:
         since: str = None,
         until: str = None,
         context_lines: int = 0
-    ) -> List[LogEntry]:
+    ) -> list[LogEntry]:
         """
         Search logs with filters
 
@@ -337,7 +338,7 @@ class LogSearcher:
             # Try ISO format
             return datetime.fromisoformat(time_str)
 
-    def format_output(self, entries: List[LogEntry], color: bool = True, format_type: str = "text") -> str:
+    def format_output(self, entries: list[LogEntry], color: bool = True, format_type: str = "text") -> str:
         """Format search results for display"""
         if format_type == "json":
             return json.dumps([asdict(e) for e in entries], indent=2)

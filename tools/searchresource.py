@@ -12,10 +12,10 @@ The tool supports:
 This tool is designed to work with resources created by enhanced readfile and
 taskmanager tools that use the TextResourceManager for large content.
 """
+import os
 import re
 import sys
-import os
-from typing import Dict, Any, List
+from typing import Any
 
 # Add parent directory to path for imports
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -61,7 +61,7 @@ class searchresource:
         }
 
     @staticmethod
-    def _parse_xml_tags(content: str) -> Dict[str, str]:
+    def _parse_xml_tags(content: str) -> dict[str, str]:
         """Parse XML tags from content string."""
         tags = {}
 
@@ -156,7 +156,7 @@ class searchresource:
             return (line_num, line_num)
 
     @staticmethod
-    def _format_search_results(results: Dict[str, Any]) -> str:
+    def _format_search_results(results: dict[str, Any]) -> str:
         """Format search results for display."""
         if "error" in results:
             return f"❌ Search Error: {results['error']}"
@@ -202,7 +202,7 @@ class searchresource:
         return "\n".join(output_lines)
 
     @staticmethod
-    def _format_global_search_results(search_query: str, all_results: List[Dict[str, Any]]) -> str:
+    def _format_global_search_results(search_query: str, all_results: list[dict[str, Any]]) -> str:
         """Format global search results across multiple resources."""
         total_matches = sum(r['total_matches'] for r in all_results if 'total_matches' in r)
         resources_with_matches = [r for r in all_results if r.get('total_matches', 0) > 0]
@@ -246,7 +246,7 @@ class searchresource:
         return "\n".join(output_lines)
 
     @staticmethod
-    def _format_line_range_results(results: Dict[str, Any]) -> str:
+    def _format_line_range_results(results: dict[str, Any]) -> str:
         """Format line range results for display."""
         if "error" in results:
             return f"❌ Line Range Error: {results['error']}"
@@ -268,7 +268,7 @@ class searchresource:
         return "\n".join(output_lines)
 
     @staticmethod
-    def _format_resource_list(resources: List[Dict[str, Any]]) -> str:
+    def _format_resource_list(resources: list[dict[str, Any]]) -> str:
         """Format resource list for display."""
         if not resources:
             return "📋 No text resources are currently available"

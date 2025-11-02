@@ -14,24 +14,24 @@ import hashlib
 import logging
 import os
 import re
-import sqlite3
 import shutil
-from datetime import datetime, timedelta
-from dataclasses import dataclass
-from typing import List, Optional
-from pathlib import Path
+import sqlite3
 from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from typing import Optional
+# Configure logging with file persistence
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import docker
 import httpx
 import websockets
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.concurrency import run_in_threadpool
-
-# Configure logging with file persistence
-from logging.handlers import RotatingFileHandler
 
 LOG_DIR = Path("/logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -537,7 +537,7 @@ class ContainerManager:
                 (uuid, datetime.utcnow().isoformat(), event_type)
             )
 
-    def list_active_containers(self) -> List[ContainerInfo]:
+    def list_active_containers(self) -> list[ContainerInfo]:
         """List all active containers"""
         with self.get_db_connection() as conn:
             cursor = conn.execute(

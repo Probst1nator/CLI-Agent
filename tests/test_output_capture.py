@@ -3,13 +3,15 @@
 Quick test for improved background process output capture.
 """
 
-import sys
-import os
 import asyncio
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tools.bash import bash
 from tools.taskmanager import taskmanager
+
 
 async def test_output_capture():
     """Test background process output capture"""

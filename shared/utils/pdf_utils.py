@@ -10,11 +10,11 @@ import os
 import pickle
 import re
 from io import StringIO
-from typing import List, Union
 
 from core.globals import g
 
 
+from typing import Optional
 def clean_pdf_text(text: str) -> str:
     """
     Clean and format extracted PDF text for better readability.
@@ -64,7 +64,7 @@ def get_cache_file_path(file_path: str, cache_key: str) -> str:
     return os.path.join(cache_dir, f"{cache_key}_{full_cache_key}.pickle")
 
 
-def load_from_cache(cache_file: str) -> Union[str, List[str], None]:
+def load_from_cache(cache_file: str) -> str | Optional[list[str]]:
     """
     Load cached content from pickle file.
 
@@ -80,7 +80,7 @@ def load_from_cache(cache_file: str) -> Union[str, List[str], None]:
     return None
 
 
-def save_to_cache(cache_file: str, content: Union[str, List[str]]) -> None:
+def save_to_cache(cache_file: str, content: str | list[str]) -> None:
     """
     Save content to pickle cache file.
 
@@ -92,7 +92,7 @@ def save_to_cache(cache_file: str, content: Union[str, List[str]]) -> None:
         pickle.dump(content, f)
 
 
-def extract_text_from_pdf(pdf_path: str) -> List[str]:
+def extract_text_from_pdf(pdf_path: str) -> list[str]:
     """
     Extract text from PDF file page by page.
 
@@ -103,9 +103,9 @@ def extract_text_from_pdf(pdf_path: str) -> List[str]:
         List of text content for each page
     """
     # Lazy import pdfminer modules
-    from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
     from pdfminer.converter import TextConverter
     from pdfminer.layout import LAParams
+    from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
     from pdfminer.pdfpage import PDFPage
     from termcolor import colored
 

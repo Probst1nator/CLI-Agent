@@ -1,13 +1,14 @@
-from anthropic import Anthropic
+import logging
 import os
 import threading
-import logging
-from typing import Optional, Any
-from termcolor import colored
-from core.chat import Chat, Role
-from py_classes.unified_interfaces import AIProviderInterface
+from typing import Any, Optional
 
+from anthropic import Anthropic
+from termcolor import colored
+
+from core.chat import Chat, Role
 from core.globals import g
+from py_classes.unified_interfaces import AIProviderInterface
 
 logger = logging.getLogger(__name__)
 

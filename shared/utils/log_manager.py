@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centralized Log Retention and Cleanup Management System
 
@@ -9,11 +8,11 @@ for all CLI-Agent logging operations.
 import logging
 import os
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from typing import Any, Optional
 
 try:
     from core.globals import g
@@ -67,10 +66,10 @@ class LogRetentionManager:
 
     def __init__(self):
         """Initialize the log retention manager."""
-        self.policies: Dict[str, LogRetentionConfig] = self.DEFAULT_POLICIES.copy()
+        self.policies: dict[str, LogRetentionConfig] = self.DEFAULT_POLICIES.copy()
         self.cleanup_thread: Optional[threading.Thread] = None
         self.cleanup_stop_event = threading.Event()
-        self.managed_handlers: List[logging.Handler] = []
+        self.managed_handlers: list[logging.Handler] = []
 
         # Ensure log directory exists in cache directory
         self.log_directory = Path(g.CLIAGENT_CACHE_DIR) / "logs"
@@ -141,7 +140,7 @@ class LogRetentionManager:
         self.managed_handlers.append(handler)
         return handler
 
-    def cleanup_old_logs(self, policy_name: str = None) -> Dict[str, Any]:
+    def cleanup_old_logs(self, policy_name: str = None) -> dict[str, Any]:
         """
         Clean up old log files based on retention policies.
 
@@ -176,7 +175,7 @@ class LogRetentionManager:
 
         return stats
 
-    def _cleanup_by_policy(self, policy_name: str, policy: LogRetentionConfig) -> Dict[str, Any]:
+    def _cleanup_by_policy(self, policy_name: str, policy: LogRetentionConfig) -> dict[str, Any]:
         """Apply cleanup policy to matching log files."""
         stats = {'files_removed': 0, 'bytes_freed': 0, 'errors': []}
 
@@ -232,10 +231,10 @@ class LogRetentionManager:
                 return False
 
             return True
-        except (OSError, IOError):
+        except OSError:
             return False
 
-    def cleanup_temp_audio_files(self) -> Dict[str, Any]:
+    def cleanup_temp_audio_files(self) -> dict[str, Any]:
         """Clean up temporary audio files created during debugging."""
         stats = {'files_removed': 0, 'bytes_freed': 0, 'errors': []}
 
@@ -277,7 +276,7 @@ class LogRetentionManager:
 
         return stats
 
-    def get_log_statistics(self) -> Dict[str, Any]:
+    def get_log_statistics(self) -> dict[str, Any]:
         """Get comprehensive statistics about log files."""
         stats = {
             'total_files': 0,
@@ -330,7 +329,7 @@ class LogRetentionManager:
                         largest_size = file_size
                         stats['largest_file'] = str(log_file)
 
-                except (OSError, IOError):
+                except OSError:
                     continue
 
             if location_stats['files'] > 0:
@@ -392,7 +391,7 @@ class LogRetentionManager:
         if handler in self.managed_handlers:
             self.managed_handlers.remove(handler)
 
-    def shutdown(self) -> Dict[str, Any]:
+    def shutdown(self) -> dict[str, Any]:
         """Gracefully shutdown the log manager and perform final cleanup."""
         # Stop periodic cleanup
         self.stop_periodic_cleanup()

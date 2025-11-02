@@ -9,16 +9,18 @@ for both German and English with minimal, repeatable test cases.
 import os
 import sys
 from pathlib import Path
-from typing import Dict
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from shared.utils_audio import (
-    initialize_faster_whisper_model, _transcribe_with_faster_whisper, reset_audio_models
-)
 import soundfile as sf
+
+from shared.utils_audio import (
+    _transcribe_with_faster_whisper,
+    initialize_faster_whisper_model,
+    reset_audio_models,
+)
 
 # Test configuration
 TEST_SENTENCES = {
@@ -55,9 +57,9 @@ class VoicePipelineTest:
 
         # First check if we already have the files
         expected_files = []
-        for language in TEST_SENTENCES.keys():
+        for language in TEST_SENTENCES:
             for i in range(3):
-                for gender in VOICE_PERSONAS.keys():
+                for gender in VOICE_PERSONAS:
                     filename = f"piper_{language}_{i+1}_{gender}.wav"
                     expected_files.append(self.test_dir / filename)
 
@@ -168,7 +170,7 @@ class VoicePipelineTest:
         except Exception as e:
             print(f"   Failed to create placeholder: {e}")
 
-    def test_transcription_accuracy(self) -> Dict:
+    def test_transcription_accuracy(self) -> dict:
         """Test transcription accuracy across different models."""
         print("\n🧪 Testing transcription accuracy...")
 
@@ -196,7 +198,7 @@ class VoicePipelineTest:
                 for i, expected_sentence in enumerate(sentences):
                     sentence_results = {}
 
-                    for gender in VOICE_PERSONAS.keys():
+                    for gender in VOICE_PERSONAS:
                         filename = f"piper_{language}_{i+1}_{gender}.wav"
                         filepath = self.test_dir / filename
 
@@ -261,7 +263,7 @@ class VoicePipelineTest:
         overlap = len(expected_words.intersection(actual_words))
         return overlap / len(expected_words)
 
-    def generate_report(self, results: Dict) -> None:
+    def generate_report(self, results: dict) -> None:
         """Generate simple pass/fail report."""
         print("\n" + "="*60)
         print("📋 VOICE PIPELINE TEST REPORT")

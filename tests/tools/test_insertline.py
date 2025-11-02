@@ -43,7 +43,7 @@ def test_insertline_after_specific_line():
         assert new_line in result, "Should show the inserted content"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = ["Line 1", "Line 2", new_line, "Line 3", "Line 4"]
@@ -78,7 +78,7 @@ def test_insertline_before_specific_line():
         assert "Successfully inserted line before line 3" in result, f"Expected success message, got: {result}"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = ["Line 1", "Line 2", new_line, "Line 3", "Line 4"]
@@ -113,7 +113,7 @@ def test_insertline_at_beginning():
         assert "Successfully inserted line before line 1" in result, f"Expected success message, got: {result}"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = [new_line, "Line 1", "Line 2", "Line 3"]
@@ -147,7 +147,7 @@ def test_insertline_at_end():
         assert "Successfully inserted line at end of file" in result, f"Expected success message, got: {result}"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = ["Line 1", "Line 2", "Line 3", new_line]
@@ -182,7 +182,7 @@ def test_insertline_after_zero():
         assert "Successfully inserted line after line 0" in result, f"Expected success message, got: {result}"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_lines = [new_line, "Line 1", "Line 2"]
@@ -213,7 +213,7 @@ def test_insertline_newline_handling():
         result = insertline.run(xml_input)
 
         # Verify file content has proper newlines
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_content = "Line 1\nLine without newline\nLine 2"
@@ -232,7 +232,7 @@ def test_insertline_newline_handling():
 
         insertline.run(xml_input)
 
-        with open(test_file2, 'r', encoding='utf-8') as f:
+        with open(test_file2, encoding='utf-8') as f:
             content2 = f.read()
 
         # Should not have double newlines
@@ -262,7 +262,7 @@ def test_insertline_empty_file():
         assert "Successfully inserted line at end of file" in result, f"Expected success message, got: {result}"
 
         # Verify file content
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         expected_content = new_line + "\n"
@@ -354,7 +354,7 @@ def test_insertline_special_content():
         assert "Successfully inserted line" in result, f"Should handle special characters, got: {result}"
 
         # Verify content preservation
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             new_content = f.read()
 
         assert special_content in new_content, f"Special characters not preserved: {repr(new_content)}"

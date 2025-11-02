@@ -2,13 +2,13 @@
 LLM Profile Management System
 
 Allows saving and loading different LLM configurations as profiles.
-Each profile contains: override, router, planner, and fallback models.
+Each profile contains: override, autocomplete, router, planner, and fallback models.
 """
 
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Optional
 
 
 class LLMProfile:
@@ -17,29 +17,32 @@ class LLMProfile:
     def __init__(
         self,
         id: str,
-        override: Optional[List[str]] = None,
-        router: Optional[List[str]] = None,
-        planner: Optional[List[str]] = None,
-        fallbacks: Optional[List[str]] = None
+        override: Optional[list[str]] = None,
+        autocomplete: Optional[list[str]] = None,
+        router: Optional[list[str]] = None,
+        planner: Optional[list[str]] = None,
+        fallbacks: Optional[list[str]] = None
     ):
         self.id = id
         self.override = override or []
+        self.autocomplete = autocomplete or []
         self.router = router or []
         self.planner = planner or []
         self.fallbacks = fallbacks or []
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert profile to dictionary for JSON serialization."""
         return {
             "id": self.id,
             "override": self.override,
+            "autocomplete": self.autocomplete,
             "router": self.router,
             "planner": self.planner,
             "fallbacks": self.fallbacks
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'LLMProfile':
+    def from_dict(cls, data: dict[str, Any]) -> 'LLMProfile':
         """Create profile from dictionary. Handles both old (single value) and new (array) formats."""
         def normalize_to_list(value):
             """Convert single value or None to list."""
@@ -52,6 +55,7 @@ class LLMProfile:
         return cls(
             id=data.get("id", ""),
             override=normalize_to_list(data.get("override")),
+            autocomplete=normalize_to_list(data.get("autocomplete")),
             router=normalize_to_list(data.get("router")),
             planner=normalize_to_list(data.get("planner")),
             fallbacks=normalize_to_list(data.get("fallbacks"))
@@ -61,6 +65,7 @@ class LLMProfile:
         """Check if this profile is empty/corrupted (all None/empty values)."""
         return (
             len(self.override) == 0 and
+            len(self.autocomplete) == 0 and
             len(self.router) == 0 and
             len(self.planner) == 0 and
             len(self.fallbacks) == 0
@@ -74,6 +79,7 @@ class LLMProfile:
             raise ValueError(f"Cannot apply empty profile '{self.id}' - all configuration values are None/empty")
 
         g.update_llm_role('override', model_keys=self.override if self.override else None)
+        g.update_llm_role('autocomplete', model_keys=self.autocomplete if self.autocomplete else None)
         g.update_llm_role('router', model_keys=self.router if self.router else None)
         g.update_llm_role('planner', model_keys=self.planner if self.planner else None)
         g.update_llm_role('fallbacks', model_keys=self.fallbacks if self.fallbacks else None)
@@ -88,6 +94,7 @@ class LLMProfile:
         return cls(
             id=id,
             override=g.override_llms_list.copy() if g.override_llms_list else [],
+            autocomplete=g.autocomplete_llms_list.copy() if g.autocomplete_llms_list else [],
             router=g.router_llms_list.copy() if g.router_llms_list else [],
             planner=g.planner_llms_list.copy() if g.planner_llms_list else [],
             fallbacks=g.FALLBACK_MODELS.copy() if g.FALLBACK_MODELS else []
@@ -112,7 +119,7 @@ class LLMProfileManager:
             config_dir.mkdir(parents=True, exist_ok=True)
             self.profiles_file = config_dir / "llm_profiles.json"
 
-        self._profiles: Dict[str, LLMProfile] = {}
+        self._profiles: dict[str, LLMProfile] = {}
         self.load_profiles()
 
     def load_profiles(self) -> None:
@@ -122,7 +129,7 @@ class LLMProfileManager:
             return
 
         try:
-            with open(self.profiles_file, 'r') as f:
+            with open(self.profiles_file) as f:
                 data = json.load(f)
 
             self._profiles = {
@@ -201,7 +208,7 @@ class LLMProfileManager:
         """Get a profile by id."""
         return self._profiles.get(id)
 
-    def list_profiles(self) -> List[LLMProfile]:
+    def list_profiles(self) -> list[LLMProfile]:
         """List all available profiles."""
         return list(self._profiles.values())
 
@@ -221,7 +228,7 @@ class LLMProfileManager:
 
         logging.info(f"Applied LLM profile: {id}")
 
-    def detect_corrupted_profiles(self) -> List[str]:
+    def detect_corrupted_profiles(self) -> list[str]:
         """Detect profiles that are empty/corrupted."""
         corrupted = []
         for profile_id, profile in self._profiles.items():
@@ -229,7 +236,7 @@ class LLMProfileManager:
                 corrupted.append(profile_id)
         return corrupted
 
-    def cleanup_corrupted_profiles(self, delete: bool = False) -> List[str]:
+    def cleanup_corrupted_profiles(self, delete: bool = False) -> list[str]:
         """
         Detect and optionally delete corrupted profiles.
 
@@ -254,7 +261,7 @@ class LLMProfileManager:
 
         return corrupted
 
-    def delete_corrupted_profiles_on_startup(self) -> List[str]:
+    def delete_corrupted_profiles_on_startup(self) -> list[str]:
         """
         FATAL ERROR handler: Detect and DELETE corrupted profiles at startup.
 

@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Optional, Any
+from typing import Any
 
 
 def find_dia_locations() -> list:
@@ -73,7 +73,7 @@ def add_dia_to_path() -> bool:
         return False
 
 
-def get_dia_model(force_cpu: bool = False, **kwargs) -> Optional[Any]:
+def get_dia_model(force_cpu: bool = False, **kwargs) -> Any | None:
     """
     Get a Dia model instance, handling errors and path issues.
 

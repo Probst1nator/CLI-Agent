@@ -8,8 +8,9 @@ speech processing, and potentially other services in the future.
 
 import logging
 import os
-from flask import Flask, request, jsonify
 import time
+
+from flask import Flask, jsonify, request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -4,10 +4,11 @@ Cache management utility for the SearchWeb Vector Database.
 Provides commands for viewing statistics, cleaning up old cache entries,
 and inspecting the enhanced metadata structure.
 """
+import argparse
 import os
 import sys
-import argparse
 from datetime import datetime, timedelta
+
 try:
     from dateutil import parser as date_parser
 except ImportError:
@@ -156,7 +157,7 @@ def audit_provenance(args):
             return
 
         matching_summaries = []
-        for i, (metadata, document) in enumerate(zip(all_summaries['metadatas'], all_summaries['documents'])):
+        for i, (metadata, document) in enumerate(zip(all_summaries['metadatas'], all_summaries['documents'], strict=False)):
             if (args.query.lower() in metadata.get('original_query', '').lower() or
                 args.query.lower() in document.lower()):
                 matching_summaries.append((i, metadata, document))

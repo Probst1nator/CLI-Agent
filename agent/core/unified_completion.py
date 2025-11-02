@@ -7,7 +7,9 @@ real-time command discovery.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Any
+
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 
@@ -41,7 +43,7 @@ class UnifiedCommandCompleter(Completer):
             self._cached_descriptions = {}
             self._cache_valid = False
 
-    def get_completions(self, document: Document, complete_event) -> List[Completion]:
+    def get_completions(self, document: Document, complete_event) -> list[Completion]:
         """Generate completions for the current input."""
         if not self._cache_valid:
             self._refresh_cache()
@@ -68,7 +70,7 @@ class UnifiedCommandCompleter(Completer):
         # No completions for more than 2 words
         return []
 
-    def _complete_main_command(self, prefix: str) -> List[Completion]:
+    def _complete_main_command(self, prefix: str) -> list[Completion]:
         """Complete main command based on prefix."""
         completions = []
 
@@ -84,7 +86,7 @@ class UnifiedCommandCompleter(Completer):
 
         return sorted(completions, key=lambda x: x.text)
 
-    def _complete_sub_command(self, main_command: str, sub_prefix: str) -> List[Completion]:
+    def _complete_sub_command(self, main_command: str, sub_prefix: str) -> list[Completion]:
         """Complete sub-command based on main command and sub-prefix."""
         completions = []
 
@@ -105,14 +107,14 @@ class UnifiedCommandCompleter(Completer):
 
         return sorted(completions, key=lambda x: x.text)
 
-    def get_command_help(self, command: str) -> Optional[str]:
+    def get_command_help(self, command: str) -> str | None:
         """Get help text for a specific command."""
         if not self._cache_valid:
             self._refresh_cache()
 
         return self._cached_descriptions.get(command)
 
-    def list_all_commands(self) -> List[str]:
+    def list_all_commands(self) -> list[str]:
         """Get a list of all available commands."""
         if not self._cache_valid:
             self._refresh_cache()
@@ -135,7 +137,7 @@ class WebCommandCompleter:
     def __init__(self, command_handler: CommandHandler):
         self.unified_completer = UnifiedCommandCompleter(command_handler)
 
-    def get_completions_json(self, text: str, cursor_position: int = None) -> Dict[str, Any]:
+    def get_completions_json(self, text: str, cursor_position: int = None) -> dict[str, Any]:
         """
         Get command completions in JSON format for web interfaces.
 
@@ -171,7 +173,7 @@ class WebCommandCompleter:
             'total_count': len(json_completions)
         }
 
-    def get_command_list_json(self) -> Dict[str, Any]:
+    def get_command_list_json(self) -> dict[str, Any]:
         """Get a complete list of commands in JSON format."""
         commands = []
 
@@ -203,7 +205,7 @@ class GUICommandCompleter:
         """Get a prompt_toolkit compatible completer."""
         return self.unified_completer
 
-    def get_command_suggestions(self, partial_text: str) -> List[Tuple[str, str]]:
+    def get_command_suggestions(self, partial_text: str) -> list[tuple[str, str]]:
         """
         Get command suggestions for GUI display.
 
@@ -226,7 +228,7 @@ class GUICommandCompleter:
         return suggestions
 
 
-def create_unified_completer_system(command_handler: CommandHandler) -> Dict[str, Any]:
+def create_unified_completer_system(command_handler: CommandHandler) -> dict[str, Any]:
     """
     Create a complete unified completion system for all interfaces.
 
@@ -275,7 +277,7 @@ class CompletionManager:
         # This would be called whenever the command handler registers new commands
         self.refresh_all_completers()
 
-    def get_completion_stats(self) -> Dict[str, Any]:
+    def get_completion_stats(self) -> dict[str, Any]:
         """Get statistics about the completion system."""
         unified_completer = self.completers['unified']
         if not unified_completer._cache_valid:

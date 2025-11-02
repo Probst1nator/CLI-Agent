@@ -6,7 +6,7 @@ into a reusable component that maintains the exact same logic.
 """
 
 import logging
-from typing import List
+
 from termcolor import colored
 
 from core.globals import g
@@ -24,7 +24,7 @@ def get_provider_emoji_and_name(model_key: str) -> Tuple[str, str]:
     return main_get_provider_emoji_and_name(model_key)
 
 
-def colorize_model_list(model_list: List[str], tui_mode: bool = False) -> str:
+def colorize_model_list(model_list: list[str], tui_mode: bool = False) -> str:
     """
     Colorize a list of model names.
 

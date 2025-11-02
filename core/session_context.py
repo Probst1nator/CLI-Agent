@@ -12,9 +12,9 @@ enables true multi-user/multi-tab support.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
 
 
+from typing import Optional
 @dataclass
 class SessionContext:
     """
@@ -34,7 +34,7 @@ class SessionContext:
     """
     session_id: str
     chat: 'Chat'  # Forward reference to avoid circular import
-    current_images: List[str] = field(default_factory=list)
+    current_images: list[str] = field(default_factory=list)
     voice_mode: bool = False
     tts_only_mode: bool = False
     auto_execute: bool = False

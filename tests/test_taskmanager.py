@@ -3,11 +3,13 @@
 Test script for the taskmanager tool functionality.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tools.taskmanager import taskmanager
+
 
 def test_taskmanager_tool():
     """Test basic taskmanager tool functionality"""

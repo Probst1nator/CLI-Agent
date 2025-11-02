@@ -8,7 +8,9 @@
     ".git",
     ".venv",
     "venv",
-    "env"
+    "env",
+    "build",
+    "dist"
   ],
   "pythonVersion": "3.11",
   "pythonPlatform": "Linux",
@@ -23,5 +25,7 @@
   "reportMissingTypeStubs": false,
   "reportGeneralTypeIssues": true,
   "reportUndefinedVariable": true,
+  "reportUnusedParameter": false,
+  "reportOptionalMemberAccess": false,
   "stubPath": "./typings"
 }

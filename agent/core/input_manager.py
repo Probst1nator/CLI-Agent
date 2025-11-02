@@ -7,13 +7,14 @@ the entire application.
 """
 
 from __future__ import annotations
+
 import asyncio
+import logging
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
-import logging
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from agent.core.app_context import AppContext
@@ -44,9 +45,9 @@ class InputEvent:
     event_type: InputEventType
     source: InputSource
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
     timestamp: float
-    images: List[str] = field(default_factory=list)  # Base64 encoded images
+    images: list[str] = field(default_factory=list)  # Base64 encoded images
 
 
 @dataclass
@@ -54,7 +55,7 @@ class InputResponse:
     """Response from input processing."""
     success: bool
     message: str = ""
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
     should_continue: bool = True
 
 
@@ -122,10 +123,10 @@ class InputManager:
         self.logger = logging.getLogger("input_manager")
 
         # Input sources registry
-        self._sources: Dict[InputSource, InputSource_ABC] = {}
+        self._sources: dict[InputSource, InputSource_ABC] = {}
 
         # Input processors registry
-        self._processors: List[InputProcessor] = []
+        self._processors: list[InputProcessor] = []
 
         # Event handling
         self._event_queue: asyncio.Queue = asyncio.Queue()
@@ -164,7 +165,7 @@ class InputManager:
         self._default_source = source_type
         self.logger.debug(f"Default input source set to: {source_type.value}")
 
-    def set_fallback_sources(self, sources: List[InputSource]) -> None:
+    def set_fallback_sources(self, sources: list[InputSource]) -> None:
         """Set fallback input sources in order of preference."""
         self._fallback_sources = sources
         self.logger.info(f"Fallback sources set to: {[s.value for s in sources]}")
@@ -333,11 +334,11 @@ class InputManager:
 
         self.logger.info("InputManager cleanup completed")
 
-    def get_available_sources(self) -> List[InputSource]:
+    def get_available_sources(self) -> list[InputSource]:
         """Get list of available input sources."""
         return [source_type for source_type, source in self._sources.items() if source.is_enabled()]
 
-    def get_source_status(self) -> Dict[str, Dict[str, Any]]:
+    def get_source_status(self) -> dict[str, dict[str, Any]]:
         """Get status information for all registered sources."""
         status = {}
         for source_type, source in self._sources.items():

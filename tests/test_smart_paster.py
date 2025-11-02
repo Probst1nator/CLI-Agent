@@ -1,17 +1,17 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 # Set up environment to import the modules
 test_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(test_root))
 
+from tools.file_copier.ai_path_finder import AIFixPath
 from tools.file_copier.smart_paster import (
     parse_clipboard_for_paths_and_code,
-    process_smart_request
+    process_smart_request,
 )
-from tools.file_copier.ai_path_finder import AIFixPath
 
 # --- Setup for Test Project ---
 TEST_PROJECT_DIR = Path(__file__).parent / "test_project"

@@ -4,17 +4,19 @@ This file implements the 'bash' tool. It allows the agent to execute
 shell commands within a persistent pseudo-terminal, with live
 streaming of output to the console and robust timeout handling.
 """
-import pexpect
-import io
-import uuid
-import re
 import asyncio
-import threading
-import sys
-import warnings
 import contextlib
+import io
 import os
-from typing import Callable, Optional, Dict, Any
+import re
+import sys
+import threading
+import uuid
+import warnings
+from collections.abc import Callable
+from typing import Any, Optional
+
+import pexpect
 from termcolor import colored
 
 # Assumes g is initialized and available from the project's core
@@ -22,6 +24,7 @@ from core.globals import g
 
 # Set up tool-specific logging
 from shared.utils.tool_logging import get_logger_for_tool_module
+
 logger = get_logger_for_tool_module(__name__)
 
 # Add warning suppression for bash tool specifically
@@ -56,8 +59,8 @@ class BashSession:
     and robust, global timeout enforcement.
     """
     def __init__(self,
-                 stdout_callback: Optional[Callable[[str], None]] = None,
-                 stderr_callback: Optional[Callable[[str], None]] = None,
+                 stdout_callback: Callable[[str], None] | None = None,
+                 stderr_callback: Callable[[str], None] | None = None,
                  fallback_mode: bool = False):
 
         self.stdout_callback = stdout_callback or (lambda text: print(text, end=''))
@@ -190,8 +193,8 @@ class BashSession:
 
             # COMMAND HEADER: Show execution context before starting
             import getpass
-            import socket
             import os
+            import socket
             current_user = getpass.getuser()
             hostname = socket.gethostname()
             current_dir = os.getcwd()
@@ -267,7 +270,7 @@ class BashSession:
 
         try:
             return await asyncio.wait_for(_read_loop(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return self._convert_to_background_process(command, timeout)
         except pexpect.exceptions.EOF:
             error_string = "\n[Error: EOF while executing command. The session closed unexpectedly.]\n"
@@ -326,7 +329,7 @@ class BashSession:
                     if output.startswith(clean_command):
                         output = output[len(clean_command):].lstrip()
                     output_capture.write(output)
-                    raise asyncio.TimeoutError
+                    raise TimeoutError
                 except pexpect.EOF:
                     output_capture.write((self.child.before or "").strip())
                     raise
@@ -338,7 +341,7 @@ class BashSession:
 
         try:
             return await asyncio.wait_for(_read_loop_silent(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Silent mode doesn't convert to background, it just returns partial output on timeout
             partial_output = (self.child.before or "").strip()
             self._try_recover_session()
@@ -408,7 +411,7 @@ class BashSession:
 
 class bash:
     _session: Optional[BashSession] = None
-    _background_processes: Dict[str, Dict[str, Any]] = {}
+    _background_processes: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def get_delim() -> str:

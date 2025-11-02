@@ -6,18 +6,22 @@ clean, modular component with proper error handling and typing.
 """
 
 from __future__ import annotations
+
 import asyncio
 import logging
 import threading
-from typing import Optional, Dict, Any, Callable, List, Tuple, TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Optional
+
 from termcolor import colored
 
-from agent.commands.command_handler import CommandHandler
 from agent.commands.base_command import CommandResult
+from agent.commands.command_handler import CommandHandler
 
 if TYPE_CHECKING:
-    from agent.core.app_context import AppContext
     import argparse
+
+    from agent.core.app_context import AppContext
 
 class AgentLoop:
     """
@@ -38,7 +42,7 @@ class AgentLoop:
         args: argparse.Namespace,
         input_event: Optional[asyncio.Event] = None,
         input_lock: Optional[threading.Lock] = None,
-        shared_input: Optional[Dict[str, Any]] = None,
+        shared_input: Optional[dict[str, Any]] = None,
         tui_callback: Optional[Callable] = None
     ) -> None:
         """
@@ -127,8 +131,8 @@ class AgentLoop:
         context_chat,
         input_event: Optional[asyncio.Event] = None,
         input_lock: Optional[threading.Lock] = None,
-        shared_input: Optional[Dict[str, Any]] = None
-    ) -> Tuple[str, List[str]]:
+        shared_input: Optional[dict[str, Any]] = None
+    ) -> tuple[str, list[str]]:
         """Get user input using the enhanced input system."""
         try:
             # Import here to reduce startup time
@@ -148,7 +152,7 @@ class AgentLoop:
     async def _process_ai_interaction(
         self,
         user_input: str,
-        base64_images: List[str],
+        base64_images: list[str],
         context_chat,
         args: argparse.Namespace
     ) -> None:

@@ -1,6 +1,7 @@
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Type, Dict
+from typing import Any
+
 
 class UtilBase(ABC):
     """
@@ -75,18 +76,18 @@ class UtilBase(ABC):
         pass
 
     @staticmethod
-    def get_name(util_cls: Type['UtilBase']) -> str:
+    def get_name(util_cls: type['UtilBase']) -> str:
         """Get the name of a utility class."""
         return util_cls.__name__.lower()
 
     @staticmethod
-    def get_description(util_cls: Type['UtilBase']) -> str:
+    def get_description(util_cls: type['UtilBase']) -> str:
         """Get the description of a utility class from its docstring."""
         import inspect
         docstring = inspect.getdoc(util_cls)
         return docstring or "No description available"
 
     @staticmethod
-    def get_metadata() -> Dict[str, Any]:
+    def get_metadata() -> dict[str, Any]:
         """Get comprehensive metadata for the utility."""
         return {"keywords": [], "use_cases": [], "arguments": {}}

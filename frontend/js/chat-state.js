@@ -269,10 +269,7 @@ class ChatStateManager {
         this.emit('message_added', message);
         this.emit('state_changed');
 
-        // Hide suggested prompts when first message is added
-        if (message.role === 'user' || message.role === 'assistant') {
-            this.hideSuggestedPrompts();
-        }
+        // Note: Autocomplete manager now handles showing/hiding suggested prompts
     }
 
     /**
@@ -319,8 +316,7 @@ class ChatStateManager {
 
         this.showSuccess('New chat started. Previous conversation archived.');
 
-        // Show suggested prompts for the new empty chat
-        this.showSuggestedPrompts();
+        // Note: Autocomplete manager now handles showing suggested prompts
     }
 
     /**
@@ -333,8 +329,8 @@ class ChatStateManager {
 
         this.renderer.clearContent();
 
-        // Track if we rendered any real messages
-        let renderedAnyMessages = false;
+        // Track if we rendered any user messages
+        let hasUserMessages = false;
 
         for (let i = 0; i < this.messages.length; i++) {
             try {
@@ -348,21 +344,20 @@ class ChatStateManager {
                     continue;
                 }
 
+                // Track if we have any user messages
+                if (this.messages[i].role === 'user') {
+                    hasUserMessages = true;
+                }
+
                 // Pass the actual array index (i) so tool_info and edit functionality work correctly
                 // IMPORTANT: Await to ensure messages render in correct order
                 await this.renderer.renderMessage(this.messages[i], i);
-                renderedAnyMessages = true;
             } catch (error) {
                 console.error('Failed to render message:', error, this.messages[i]);
             }
         }
 
-        // Show suggested prompts only if no messages were rendered
-        if (renderedAnyMessages) {
-            this.hideSuggestedPrompts();
-        } else {
-            this.showSuggestedPrompts();
-        }
+        // Note: Autocomplete manager now handles showing/hiding suggested prompts
     }
 
     /**
@@ -612,101 +607,6 @@ class ChatStateManager {
         }
     }
 
-    /**
-     * Show suggested prompts for empty chats
-     * Fetches prompts from backend and displays them as clickable cards
-     * Only shows when chat has no user/assistant messages (excluding system and bootstrap messages)
-     *
-     * @private
-     */
-    async showSuggestedPrompts() {
-        // Check if chat is truly empty by filtering out system and bootstrap messages
-        const hasRealMessages = this.messages.some(msg => {
-            // Skip system messages
-            if (msg.role === 'system') return false;
-            // Skip bootstrap messages
-            if (msg.metadata?.is_bootstrap) return false;
-            // Count user and assistant messages
-            return msg.role === 'user' || msg.role === 'assistant';
-        });
-
-        if (hasRealMessages) {
-            return;
-        }
-
-        try {
-            // Build URL using BackendConnector for multi-user compatibility
-            const url = window.backendConnector
-                ? await window.backendConnector.buildURL('/api/chat/suggested-prompts')
-                : '/api/chat/suggested-prompts';
-
-            const response = await fetch(url, {
-                headers: {
-                    'X-Session-ID': window.sessionId || ''
-                }
-            });
-
-            const data = await response.json();
-
-            if (data.status !== 'success') {
-                throw new Error(data.error || 'Failed to fetch suggested prompts');
-            }
-
-            // Render prompts in content wrapper
-            const contentWrapper = document.getElementById('content-wrapper');
-            if (!contentWrapper) {
-                console.error('Content wrapper not found');
-                return;
-            }
-
-            // Create container for suggested prompts
-            const promptsContainer = document.createElement('div');
-            promptsContainer.className = 'suggested-prompts-container';
-            promptsContainer.id = 'suggested-prompts-container';
-
-            // Create prompt cards
-            data.prompts.forEach(prompt => {
-                const card = document.createElement('div');
-                card.className = 'suggested-prompt-card';
-
-                // Hide file paths at the end of the prompt string
-                // Pattern: any text ending with whitespace + path (starting with / or ~)
-                // Supports paths with spaces like "/home/user/My Documents/file.txt"
-                let displayText = prompt;
-
-                // Match whitespace followed by a path (/ or ~) to end of string
-                const pathPattern = /\s+[/~].+$/;
-                if (pathPattern.test(prompt)) {
-                    displayText = prompt.replace(pathPattern, '').trim();
-                }
-
-                card.textContent = displayText;
-                card.dataset.prompt = prompt; // Keep full prompt for sending to agent
-                promptsContainer.appendChild(card);
-            });
-
-            contentWrapper.appendChild(promptsContainer);
-            window.logDebug(`Displayed ${data.prompts.length} suggested prompts`);
-
-        } catch (error) {
-            console.error('Failed to show suggested prompts:', error);
-            // Fail silently - suggested prompts are optional UX enhancement
-        }
-    }
-
-    /**
-     * Hide suggested prompts
-     * Removes the suggested prompts container from the DOM
-     *
-     * @private
-     */
-    hideSuggestedPrompts() {
-        const promptsContainer = document.getElementById('suggested-prompts-container');
-        if (promptsContainer) {
-            promptsContainer.remove();
-            window.logDebug('Suggested prompts hidden');
-        }
-    }
 
     /**
      * Show success message to user

@@ -1,8 +1,9 @@
+import logging
 import time
-from typing import Dict, List, Optional, Any
+from typing import Any, Optional
+
 from core.ai_strengths import AIStrengths
 from py_classes.unified_interfaces import AIProviderInterface
-import logging
 
 
 class Llm:
@@ -16,7 +17,7 @@ class Llm:
         model_key: str,
         pricing_in_dollar_per_1M_tokens: Optional[float],
         context_window: Optional[int],
-        strengths: List[AIStrengths] = [],
+        strengths: list[AIStrengths] = [],
     ):
         """
         Initialize an LLM instance.
@@ -76,9 +77,9 @@ class Llm:
         # For Ollama models, fetch context length dynamically
         if self.provider.__class__.__name__ == 'OllamaClient':
             try:
-                from core.providers.cls_ollama_interface import OllamaClient
                 # Try different Ollama hosts
                 from core.globals import g
+                from core.providers.cls_ollama_interface import OllamaClient
                 ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
                 for host in ollama_hosts:
                     try:
@@ -105,7 +106,7 @@ class Llm:
         return default_context
 
     @classmethod
-    def get_available_llms(cls, exclude_guards: bool = False, include_dynamic: bool = True) -> List["Llm"]:
+    def get_available_llms(cls, exclude_guards: bool = False, include_dynamic: bool = True) -> list["Llm"]:
         """
         Get the list of available LLMs, optionally including dynamically discovered Ollama models.
 
@@ -255,7 +256,7 @@ class Llm:
         return llms
 
     @classmethod
-    def discover_models_with_progress(cls, progress_callback=None) -> Dict[str, Any]:
+    def discover_models_with_progress(cls, progress_callback=None) -> dict[str, Any]:
         """
         Manually discover models from all providers with progress tracking.
         Uses parallel execution to update progress as each provider completes.
@@ -504,8 +505,8 @@ class Llm:
                 progress_callback('Ollama', 'starting', 0)
 
             try:
-                from core.providers.cls_ollama_interface import OllamaClient
                 from core.globals import g
+                from core.providers.cls_ollama_interface import OllamaClient
 
                 # For model discovery progress, only get downloaded models (fast)
                 # Skip the slow comprehensive web scraping for better UX
@@ -636,6 +637,7 @@ class Llm:
         """Load previously discovered models from cache to avoid showing them as 'new'."""
         try:
             from pathlib import Path
+
             from core.globals import g
 
             # Use the same path as LlmSelector for consistency
@@ -644,7 +646,7 @@ class Llm:
                 return set()
 
             import json
-            with open(discovered_models_file, 'r') as f:
+            with open(discovered_models_file) as f:
                 data = json.load(f)
 
             if 'models' not in data:
@@ -678,6 +680,7 @@ class Llm:
         cls._discovery_in_progress = True
         try:
             import asyncio
+
             from core.globals import g
 
             # Get current static models
@@ -715,7 +718,7 @@ class Llm:
             cls._discovery_in_progress = False
 
     @classmethod
-    async def _discover_from_host_async(cls, host: str, existing_models: set) -> List["Llm"]:
+    async def _discover_from_host_async(cls, host: str, existing_models: set) -> list["Llm"]:
         """Discover models from a single Ollama host asynchronously."""
         import asyncio
 
@@ -765,7 +768,7 @@ class Llm:
 
             return new_models
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logging.debug(f"Ollama host {host} discovery timed out")
             return []
         except Exception as e:

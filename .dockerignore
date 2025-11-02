@@ -160,4 +160,6 @@ docs/
 Pipfile
 Pipfile.lock
 poetry.lock
-pyproject.toml
+# Allow core/ and shared/ pyproject.toml for proper package installation
+# Exclude only root pyproject.toml if it exists
+/pyproject.toml

@@ -5,10 +5,10 @@ Test suite for XML tool routing and validation.
 This module tests the XML validation and tool routing functionality
 that prevents malformed XML from causing incorrect tool execution.
 """
+import asyncio
 import os
 import sys
 from unittest.mock import Mock
-import asyncio
 
 # Add project root to path for imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))

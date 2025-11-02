@@ -64,6 +64,15 @@
                     <button class="add-llm-selector-btn" data-role="override" title="Add override fallback model">+</button>
                 </div>
             </div>
+            <div class="autocomplete-llm-container">
+                <span class="autocomplete-llm-label">Autocomplete:</span>
+                <div class="autocomplete-llm-selector-wrapper" title="Autocomplete LLM: Used for generating contextual autocomplete suggestions.">
+                    <div id="autocomplete-llm-selectors-container" class="dynamic-llm-selectors-container" data-role="autocomplete">
+                        <!-- Dynamic autocomplete LLM selectors will be added here -->
+                    </div>
+                    <button class="add-llm-selector-btn" data-role="autocomplete" title="Add autocomplete fallback model">+</button>
+                </div>
+            </div>
             <div class="router-llm-container">
                 <span class="router-llm-label">Router:</span>
                 <div class="router-llm-selector-wrapper" title="Router LLM: Used for selecting the responding llm. Can be set to None to disable routing.">
@@ -98,6 +107,11 @@
             <button id="console-toggle-btn" class="console-toggle-button" title="Toggle console log sidebar">
                 <span class="console-icon">📺</span>
                 <span class="console-text">Console</span>
+            </button>
+            <button id="regenerate-prompts-btn" class="regenerate-prompts-button" title="Suggest prompts">
+                <svg width="16" height="16" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M29.92,16.38a1,1,0,0,0,0-.76,1,1,0,0,0-.21-.33l-6-6a1,1,0,0,0-1.42,1.42L26.59,15H16V7a2,2,0,0,0-2-2H10V4A2,2,0,0,0,8,2H4A2,2,0,0,0,2,4V8a2,2,0,0,0,2,2H8a2,2,0,0,0,2-2V7h4v8H10V14a2,2,0,0,0-2-2H4a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2H8a2,2,0,0,0,2-2V17h4v8H10V24a2,2,0,0,0-2-2H4a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2H8a2,2,0,0,0,2-2V27h4a2,2,0,0,0,2-2V17H26.59l-4.3,4.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0l6-6A1,1,0,0,0,29.92,16.38ZM8,8H4V4H8ZM8,18H4V14H8ZM8,28H4V24H8Z"/>
+                </svg>
             </button>
         </div>
     </div>

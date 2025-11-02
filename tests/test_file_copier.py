@@ -13,6 +13,7 @@ test_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(test_root))
 
 from shared.path_resolver import setup_cli_agent_imports
+
 setup_cli_agent_imports()
 
 
@@ -38,7 +39,7 @@ def test_smart_paster_imports():
         tool_path = Path(__file__).parent.parent.parent.parent / "tools" / "file_copier"
         sys.path.insert(0, str(tool_path))
 
-        from smart_paster import build_clipboard_content, apply_changes_to_files
+        from smart_paster import apply_changes_to_files, build_clipboard_content
 
         # Test basic function availability
         assert callable(build_clipboard_content), "build_clipboard_content not callable"

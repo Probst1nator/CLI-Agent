@@ -10,7 +10,8 @@ robust retrieval across diverse query types.
 """
 
 import re
-from typing import List, Dict, Any
+from typing import Any
+
 from shared.utils.tool_logging import get_logger_for_tool_module
 
 logger = get_logger_for_tool_module(__name__)
@@ -53,7 +54,7 @@ class searchconversations:
         }
 
     @staticmethod
-    def _parse_parameters(content: str) -> Dict[str, Any]:
+    def _parse_parameters(content: str) -> dict[str, Any]:
         """
         Parse XML parameters from tool input.
 
@@ -110,7 +111,7 @@ class searchconversations:
     @staticmethod
     def _search_conversations(
         query: str, top_k: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Search archived conversations using Chat.search_chats() method.
 
@@ -134,7 +135,7 @@ class searchconversations:
             raise
 
     @staticmethod
-    def _apply_sorting(results: List[Dict[str, Any]], order_by: str) -> List[Dict[str, Any]]:
+    def _apply_sorting(results: list[dict[str, Any]], order_by: str) -> list[dict[str, Any]]:
         """
         Apply sorting to search results.
 
@@ -158,7 +159,7 @@ class searchconversations:
         return sorted_results
 
     @staticmethod
-    def _format_result(result: Dict[str, Any], index: int) -> str:
+    def _format_result(result: dict[str, Any], index: int) -> str:
         """
         Format a single search result for display.
 
@@ -204,7 +205,7 @@ class searchconversations:
         return "\n".join(lines)
 
     @staticmethod
-    def _format_output(results: List[Dict[str, Any]], query: str, order_by: str) -> str:
+    def _format_output(results: list[dict[str, Any]], query: str, order_by: str) -> str:
         """
         Format search results for LLM consumption.
 

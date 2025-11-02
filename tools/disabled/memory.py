@@ -4,13 +4,13 @@ A self-contained vector database memory tool for the CLI-Agent.
 Handles its own database connection, querying, and memory compaction logic.
 """
 import json
-import re
-import uuid
 import logging
+import re
 import sys
-from pathlib import Path
+import uuid
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from pathlib import Path
+from typing import Any
 
 # Add project root to path to ensure 'core' can be imported.
 project_root = Path(__file__).resolve().parents[3]
@@ -18,7 +18,9 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from termcolor import colored
+
 from core.globals import g
+
 
 class memory:
     """
@@ -134,10 +136,11 @@ class memory:
         """Summarizes conversation turns and stores them in memory."""
         # This async method is called by the main loop during compaction.
         try:
-            from core.llm_router import LlmRouter
-            from core.chat import Chat, Role
             import json
             import time
+
+            from core.chat import Chat, Role
+            from core.llm_router import LlmRouter
 
             if not chat or not chat.messages:
                 return json.dumps({"status": "skipped", "message": "No conversation to compact"})
@@ -233,7 +236,7 @@ Provide a structured markdown summary."""
             })
 
     @classmethod
-    def _add_memory(cls, summary_text: str, metadata: Dict[str, Any]):
+    def _add_memory(cls, summary_text: str, metadata: dict[str, Any]):
         """Internal method to add a new memory to the ChromaDB collection."""
         if not cls._initialized: cls._initialize_db()
         try:
@@ -246,7 +249,7 @@ Provide a structured markdown summary."""
             logging.error(f"Failed to add memory: {e}")
 
     @classmethod
-    def _query_memory(cls, semantic_query: str, filters: Optional[Dict[str, Any]] = None, limit: int = 5) -> List[Dict[str, Any]]:
+    def _query_memory(cls, semantic_query: str, filters: dict[str, Any] | None = None, limit: int = 5) -> list[dict[str, Any]]:
         """Performs a hybrid search on the memory, ensuring results are sorted by date."""
         try:
             # Fetch more results than needed to ensure we can sort by date accurately after retrieval.

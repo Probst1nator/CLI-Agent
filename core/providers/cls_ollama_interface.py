@@ -1,22 +1,24 @@
+import asyncio
+import atexit
 import json
-import sys
-from typing import Any, Dict, List, Optional, Tuple, Union
-import ollama
-from termcolor import colored
-from core.chat import Chat, Role
-from py_classes.unified_interfaces import AIProviderInterface
+import logging
 import os
+import re
 import socket
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from typing import Any, Optional
+
+import ollama
+from termcolor import colored
+
+from core.chat import Chat, Role
 from core.globals import g
-import logging
-import time
-import re
-import asyncio
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import atexit
+from py_classes.unified_interfaces import AIProviderInterface
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +101,7 @@ class OllamaModelList:
     Attributes:
         models (List[OllamaModel]): A list of OllamaModel instances.
     """
-    models: List[OllamaModel] = field(default_factory=list)
+    models: list[OllamaModel] = field(default_factory=list)
 
     def to_json(self) -> str:
         """
@@ -138,11 +140,11 @@ class OllamaClient(AIProviderInterface):
     """
     Implementation of the ChatClientInterface for the Ollama API.
     """
-    reached_hosts: List[str] = []
-    unreachable_hosts: List[str] = []
+    reached_hosts: list[str] = []
+    unreachable_hosts: list[str] = []
     current_host: Optional[str] = None
     # Host discovery cache with timestamps (host -> timestamp)
-    _host_cache: Dict[str, Dict[str, float]] = {"reachable": {}, "unreachable": {}}
+    _host_cache: dict[str, dict[str, float]] = {"reachable": {}, "unreachable": {}}
     _cache_ttl: float = 30.0  # Cache for 30 seconds
 
     # Stream cancellation support
@@ -152,7 +154,7 @@ class OllamaClient(AIProviderInterface):
     _executor: Optional[ThreadPoolExecutor] = None
 
     # Track active clients for cleanup
-    _active_clients: List[ollama.Client] = []
+    _active_clients: list[ollama.Client] = []
     _cleanup_registered: bool = False
 
     @classmethod
@@ -346,7 +348,7 @@ class OllamaClient(AIProviderInterface):
                 # Cache successful result
                 cls._host_cache["reachable"][host] = current_time
                 return True
-        except (socket.timeout, socket.error, ValueError):
+        except (TimeoutError, OSError, ValueError):
             # Cache failure result
             cls._host_cache["unreachable"][host] = current_time
             if chat:
@@ -357,7 +359,7 @@ class OllamaClient(AIProviderInterface):
             return False
 
     @staticmethod
-    def get_valid_client(model_key: str, chat: Optional[Chat] = None, is_small_model: bool = False) -> Tuple[Optional[ollama.Client], str, str]:
+    def get_valid_client(model_key: str, chat: Optional[Chat] = None, is_small_model: bool = False) -> tuple[Optional[ollama.Client], str, str]:
         """
         Returns a valid client for the given model, automatically downloading if not found.
 
@@ -638,7 +640,7 @@ class OllamaClient(AIProviderInterface):
 
     @staticmethod
     def generate_response(
-        chat: Union[Chat, str],
+        chat: Chat | str,
         model_key: str = "phi3.5:3.8b",
         temperature: Optional[float] = None,
         silent_reason: str = "",
@@ -767,7 +769,7 @@ class OllamaClient(AIProviderInterface):
                 raise e
 
     @staticmethod
-    def get_downloaded_models(host: str = "localhost") -> List[Dict[str, Any]]:
+    def get_downloaded_models(host: str = "localhost") -> list[dict[str, Any]]:
         """
         Get list of downloaded models from specified Ollama host.
 
@@ -818,7 +820,7 @@ class OllamaClient(AIProviderInterface):
             return []
 
     @staticmethod
-    def get_comprehensive_model_status(hosts: List[str]) -> Dict[str, Dict[str, Any]]:
+    def get_comprehensive_model_status(hosts: list[str]) -> dict[str, dict[str, Any]]:
         """
         Get comprehensive model status across multiple hosts.
 
@@ -901,7 +903,7 @@ class OllamaClient(AIProviderInterface):
                 pass
 
     @staticmethod
-    def get_model_variants_from_web(model_name: str, timeout: int = 10) -> List[Dict[str, Any]]:
+    def get_model_variants_from_web(model_name: str, timeout: int = 10) -> list[dict[str, Any]]:
         """
         Scrape comprehensive model variant information from Ollama library pages.
 
@@ -913,9 +915,10 @@ class OllamaClient(AIProviderInterface):
             List[Dict[str, Any]]: List of model variant information with tags, sizes, and specs
         """
         try:
+            import re
+
             import requests
             from bs4 import BeautifulSoup
-            import re
 
             url = f"https://ollama.com/library/{model_name}"
 
@@ -1150,7 +1153,7 @@ class OllamaClient(AIProviderInterface):
             return []
 
     @staticmethod
-    def get_comprehensive_downloadable_models(hosts: List[str]) -> Dict[str, Dict[str, Any]]:
+    def get_comprehensive_downloadable_models(hosts: list[str]) -> dict[str, dict[str, Any]]:
         """
         Get comprehensive list of downloadable models using web scraping and API integration.
 
@@ -1299,7 +1302,7 @@ class OllamaClient(AIProviderInterface):
         return model_status
 
     @staticmethod
-    def generate_embedding(text: str, model: str = "embeddinggemma:latest", **kwargs) -> Optional[List[float]]:
+    def generate_embedding(text: str, model: str = "embeddinggemma:latest", **kwargs) -> Optional[list[float]]:
         """
         Generate embeddings for text using Ollama embedding models.
 

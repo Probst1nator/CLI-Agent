@@ -3,12 +3,14 @@
 Test script for the timeout and path detection fixes.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from core.permissions.enhanced_permissions import format_xml_args
 from core.permissions.path_detector import PathDetector
+
 
 def test_timeout_args_parsing():
     """Test that timeout tags are properly handled"""

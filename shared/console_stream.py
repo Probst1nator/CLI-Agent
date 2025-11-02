@@ -8,14 +8,15 @@ Captures all terminal output (stdout/stderr) and streams it to:
 """
 
 import io
+import logging
 import os
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional, Callable
-import logging
 
+from typing import Optional
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +32,7 @@ class TeeStream(io.TextIOBase):
         self,
         original_stream,
         log_file_path: Path,
-        broadcast_callback: Optional[Callable[[str], None]] = None,
+        broadcast_callback: Callable[[str], None] | None = None,
         strip_ansi: bool = False
     ):
         self.original_stream = original_stream
@@ -125,7 +126,7 @@ class LogTailer:
         self._running = True
 
         if self.log_file_path.exists():
-            with open(self.log_file_path, 'r', encoding='utf-8') as f:
+            with open(self.log_file_path, encoding='utf-8') as f:
                 f.seek(0, os.SEEK_END)
                 self._file_position = f.tell()
 
@@ -162,7 +163,7 @@ class LogTailer:
                     continue
 
                 with self._lock:
-                    with open(self.log_file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    with open(self.log_file_path, encoding='utf-8', errors='replace') as f:
                         f.seek(self._file_position)
                         new_lines = f.readlines()
                         self._file_position = f.tell()
@@ -185,7 +186,7 @@ class LogTailer:
         """Reset file position to end of file"""
         with self._lock:
             if self.log_file_path.exists():
-                with open(self.log_file_path, 'r', encoding='utf-8') as f:
+                with open(self.log_file_path, encoding='utf-8') as f:
                     f.seek(0, os.SEEK_END)
                     self._file_position = f.tell()
 
@@ -200,7 +201,7 @@ class ConsoleStreamManager:
     def __init__(
         self,
         log_file_path: Path,
-        broadcast_callback: Optional[Callable[[str], None]] = None,
+        broadcast_callback: Callable[[str], None] | None = None,
         strip_ansi: bool = False
     ):
         self.log_file_path = log_file_path
@@ -286,7 +287,7 @@ def get_console_stream_manager() -> Optional[ConsoleStreamManager]:
 
 def init_console_streaming(
     log_file_path: Path,
-    broadcast_callback: Optional[Callable[[str], None]] = None,
+    broadcast_callback: Callable[[str], None] | None = None,
     strip_ansi: bool = True
 ):
     """Initialize global console streaming"""

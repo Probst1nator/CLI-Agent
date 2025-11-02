@@ -1,7 +1,9 @@
 """Simple command implementations that don't require complex logic."""
 
 from __future__ import annotations
-from typing import List, Any, Dict, Optional, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Any
+
 from termcolor import colored
 
 from agent.commands.base_command import BaseCommand, CommandResponse, CommandResult
@@ -13,14 +15,14 @@ class MultilineCommand(BaseCommand):
     """Command for multiline input mode."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/m', '/message']
 
     @property
     def description(self) -> str:
         return 'Enter multiline input mode'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         multiline_input = self._handle_multiline_input()
         return CommandResponse(
             result=CommandResult.SUCCESS,
@@ -46,14 +48,14 @@ class ExitCommand(BaseCommand):
     """Command to exit CLI-Agent."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/e', '/exit']
 
     @property
     def description(self) -> str:
         return 'Exit CLI-Agent'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         print(colored("# cli-agent: Goodbye!", "cyan"))
         return CommandResponse(result=CommandResult.EXIT)
 
@@ -62,14 +64,14 @@ class UnsayCommand(BaseCommand):
     """Command to remove last user message and AI response."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/unsay']
 
     @property
     def description(self) -> str:
         return 'Remove last user message and AI response'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         context_chat = kwargs.get('context_chat')
         if context_chat and len(context_chat.messages) >= 2:
             context_chat.messages.pop()  # Remove AI response
@@ -83,14 +85,14 @@ class PrintCommand(BaseCommand):
     """Command to print complete chat history."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/p', '/print']
 
     @property
     def description(self) -> str:
         return 'Print complete chat history'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         context_chat = kwargs.get('context_chat')
         if context_chat:
             print(colored("=== Chat History ===", "blue", attrs=["bold"]))
@@ -107,14 +109,14 @@ class YoloCommand(BaseCommand):
     """Toggle YOLO mode (automatic code execution)."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/yolo', '/y']
 
     @property
     def description(self) -> str:
         return 'Toggle YOLO mode (automatic code execution)'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         from core.globals import g
 
         self.context.settings.auto_execute = not self.context.settings.auto_execute
@@ -126,8 +128,9 @@ class YoloCommand(BaseCommand):
 
         # Broadcast state change to frontend
         try:
-            from api.server import get_server
             import asyncio
+
+            from api.server import get_server
             server = get_server()
             if server:
                 asyncio.create_task(server.broadcast_state_change())
@@ -140,16 +143,17 @@ class VoiceCommand(BaseCommand):
     """Toggle voice input/output mode."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/v', '/voice']
 
     @property
     def description(self) -> str:
         return 'Toggle voice input/output mode'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
-        from core.globals import g
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         import logging
+
+        from core.globals import g
 
         self.context.settings.voice_mode = not self.context.settings.voice_mode
         # Sync with global state for compatibility
@@ -167,8 +171,9 @@ class VoiceCommand(BaseCommand):
 
         # Broadcast state change to frontend
         try:
-            from api.server import get_server
             import asyncio
+
+            from api.server import get_server
             server = get_server()
             if server:
                 asyncio.create_task(server.broadcast_state_change())
@@ -183,14 +188,14 @@ class LocalCommand(BaseCommand):
     """Toggle local-only LLM mode."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/l', '/local']
 
     @property
     def description(self) -> str:
         return 'Toggle local-only LLM mode'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         from core.globals import g
 
         self.context.settings.local_mode = not self.context.settings.local_mode
@@ -202,8 +207,9 @@ class LocalCommand(BaseCommand):
 
         # Broadcast state change to frontend
         try:
-            from api.server import get_server
             import asyncio
+
+            from api.server import get_server
             server = get_server()
             if server:
                 asyncio.create_task(server.broadcast_state_change())
@@ -216,14 +222,14 @@ class OnlineCommand(BaseCommand):
     """Toggle online mode for web-enabled features."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/o', '/online']
 
     @property
     def description(self) -> str:
         return 'Toggle online mode for web-enabled features'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         from core.globals import g
 
         self.context.settings.online_mode = not self.context.settings.online_mode
@@ -238,14 +244,14 @@ class FullOutputCommand(BaseCommand):
     """Toggle full model output mode."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/fo', '/full_output']
 
     @property
     def description(self) -> str:
         return 'Show full model output instead of summary'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         self.context.settings.full_output_mode = not self.context.settings.full_output_mode
         status = "enabled" if self.context.settings.full_output_mode else "disabled"
         print(colored(f"# cli-agent: Full output mode {status}.", "green"))
@@ -256,14 +262,14 @@ class LlmCommand(BaseCommand):
     """LLM selection command implementation."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/llm']
 
     @property
     def description(self) -> str:
         return 'Open LLM selection interface'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         """Execute LLM selection using the enhanced LlmSelector UI."""
         try:
             from agent.llm_selection import LlmSelector
@@ -348,69 +354,58 @@ class LlmCommand(BaseCommand):
             return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
 class PermissionCommand(BaseCommand):
-    """Permission management command implementation."""
+    """Simplified permission management command."""
 
     @property
-    def aliases(self) -> List[str]:
-        return ['/perms', '/permissions']
+    def aliases(self) -> list[str]:
+        return ['/perms', '/permissions', '/settings']
 
     @property
     def description(self) -> str:
-        return 'Manage tool execution permissions'
+        return 'Manage tool execution permissions (simplified system)'
 
     @property
-    def sub_commands(self) -> Optional[Dict[str, str]]:
+    def sub_commands(self) -> dict[str, str] | None:
         return {
-            'list': 'List all permissions with IDs for removal (default)',
-            'view': 'View permissions in a user-friendly format',
-            'add': 'Add new permission with guided prompts',
-            'add dev <category>': 'Add development tool permission',
-            'add tool <name> <target>': 'Add tool permission',
-            'add group <name> <target>': 'Add group permission',
-            'add command <pattern> <scope>': 'Add command permission',
-            'remove': 'Remove specific permission by ID',
-            'clear': 'Clear all saved permissions',
+            'view': 'View current permission settings (default)',
+            'add allow <rule>': 'Add permission to allow list',
+            'add deny <rule>': 'Add permission to deny list',
+            'add ask <rule>': 'Add permission to ask list',
+            'remove <rule>': 'Remove a permission rule',
+            'reset': 'Reset to empty settings',
+            'template': 'Copy default template to ~/.cli-agent/settings.json',
         }
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
-        """Execute permission management command."""
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
+        """Execute simplified permission management command."""
+        from core.permissions.settings_manager import SettingsManager
+
         try:
-            # Import the new tool for the 'view' command
-            from tools.viewpermissions import viewpermissions
+            mgr = SettingsManager()
+            action = parts[1].lower() if len(parts) > 1 else "view"
 
-            action = parts[1].lower() if len(parts) > 1 else "list"
+            if action == "view":
+                self._view_settings(mgr)
+                return CommandResponse(result=CommandResult.CONTINUE, message="Settings viewed")
 
-            if action == "list":
-                # List permissions with numbers for management
-                result = self._list_permissions_for_management()
-                print(result)
-                return CommandResponse(result=CommandResult.CONTINUE, message="Permissions listed")
+            elif action == "add" and len(parts) >= 4:
+                list_name = parts[2].lower()  # allow, deny, ask
+                rule = " ".join(parts[3:])  # Join remaining parts as the rule
+                return self._add_rule(mgr, list_name, rule)
 
-            elif action == "view":
-                # Use the new tool for a pretty, readable view
-                result = viewpermissions.run("")
-                print(result)
-                return CommandResponse(result=CommandResult.CONTINUE, message="Permissions viewed")
+            elif action == "remove" and len(parts) >= 3:
+                rule = " ".join(parts[2:])
+                return self._remove_rule(mgr, rule)
 
-            elif action == "add":
-                # Add new permission with guided wizard
-                await self._add_permission_wizard(parts)
-                return CommandResponse(result=CommandResult.CONTINUE, message="Add permission completed")
+            elif action == "reset":
+                return self._reset_settings(mgr)
 
-            elif action == "remove" and len(parts) > 2:
-                perm_id = parts[2]
-                result = self._remove_permission(perm_id)
-                print(result)
-                return CommandResponse(result=CommandResult.CONTINUE, message=f"Permission {perm_id} processed")
-
-            elif action == "clear":
-                result = self._clear_all_permissions()
-                print(result)
-                return CommandResponse(result=CommandResult.CONTINUE, message="Permissions cleared")
+            elif action == "template":
+                return self._copy_template(mgr)
 
             else:
-                error_msg = f"Unknown permission action: {action}. Valid actions: list, view, remove <id>, clear, interactive"
-                print(colored(f"❓ {error_msg}", "red"))
+                error_msg = "Usage: /perms [view|add <allow|deny|ask> <rule>|remove <rule>|reset|template]"
+                print(colored(error_msg, "yellow"))
                 return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
         except Exception as e:
@@ -418,372 +413,124 @@ class PermissionCommand(BaseCommand):
             print(colored(f"❌ {error_msg}", "red"))
             return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
-    async def _add_permission_wizard(self, parts: List[str]) -> None:
-        """Simple add permission wizard."""
-        try:
-            print()
-            print(colored("✨ Add Permission Wizard", "cyan", attrs=['bold']))
-            print(colored("=" * 40, "cyan"))
+    def _view_settings(self, mgr) -> None:
+        """Display current permission settings."""
+        perms = mgr.get_all_permissions()
 
-            # Check if specific type was provided
-            if len(parts) >= 3:
-                perm_type = parts[2].lower()
-                if perm_type == "dev":
-                    await self._add_dev_permission(parts[3:])
-                elif perm_type == "tool":
-                    await self._add_tool_permission(parts[3:])
-                elif perm_type == "group":
-                    await self._add_group_permission(parts[3:])
-                elif perm_type == "command":
-                    await self._add_command_permission(parts[3:])
-                else:
-                    print(colored(f"❌ Unknown permission type: {perm_type}", "red"))
-                    print(colored("Valid types: dev, tool, group, command", "yellow"))
-                return
+        print("\n" + "=" * 60)
+        print(colored("📋 Permission Settings", "cyan", attrs=['bold']))
+        print("=" * 60)
 
-            # Interactive type selection
-            print(colored("\n📂 Choose permission type:", "yellow"))
-            types = [
-                ("1", "dev", "Development tools (grep, find, etc.)"),
-                ("2", "tool", "Specific tools on files/directories"),
-                ("3", "group", "Groups of related tools"),
-                ("4", "command", "Command patterns"),
-            ]
+        print(colored("\n✅ ALLOW (execute without asking):", "green", attrs=['bold']))
+        if perms.get("allow"):
+            for rule in perms["allow"]:
+                print(f"  • {rule}")
+        else:
+            print(colored("  (none)", "yellow"))
 
-            for key, ptype, desc in types:
-                print(f"  {colored(key, 'green', attrs=['bold'])}: {colored(ptype, 'white')} - {desc}")
+        print(colored("\n❓ ASK (require confirmation):", "yellow", attrs=['bold']))
+        if perms.get("ask"):
+            for rule in perms["ask"]:
+                print(f"  • {rule}")
+        else:
+            print(colored("  (none)", "yellow"))
 
-            try:
-                choice = input(colored("\nEnter choice (1-4): ", "cyan")).strip()
+        print(colored("\n❌ DENY (blocked):", "red", attrs=['bold']))
+        if perms.get("deny"):
+            for rule in perms["deny"]:
+                print(f"  • {rule}")
+        else:
+            print(colored("  (none)", "yellow"))
 
-                if choice == '1':
-                    await self._add_dev_permission([])
-                elif choice == '2':
-                    await self._add_tool_permission([])
-                elif choice == '3':
-                    await self._add_group_permission([])
-                elif choice == '4':
-                    await self._add_command_permission([])
-                else:
-                    print(colored("❌ Invalid choice.", "red"))
+        print(f"\n📄 Config file: {mgr.config_path}")
+        print("=" * 60 + "\n")
 
-            except KeyboardInterrupt:
-                print(colored("\n❌ Wizard cancelled.", "yellow"))
+    def _add_rule(self, mgr, list_name: str, rule: str) -> CommandResponse:
+        """Add a new permission rule."""
+        if list_name not in ["allow", "deny", "ask"]:
+            error_msg = f"Invalid list '{list_name}'. Use: allow, deny, or ask"
+            print(colored(f"❌ {error_msg}", "red"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
-        except Exception as e:
-            print(colored(f"❌ Error in add wizard: {e}", "red"))
+        if mgr.add_permission(list_name, rule):
+            mgr.save_settings()
+            print(colored(f"✅ Added '{rule}' to {list_name} list", "green"))
+            return CommandResponse(result=CommandResult.CONTINUE, message=f"Added to {list_name}")
+        else:
+            error_msg = "Failed to add rule (may already exist or invalid format)"
+            print(colored(f"❌ {error_msg}", "yellow"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
-    async def _add_dev_permission(self, args: List[str]) -> None:
-        """Add development tool permission."""
-        try:
-            from core.permissions.permissions_manager import get_permissions_manager
-            pm = get_permissions_manager()
+    def _remove_rule(self, mgr, rule: str) -> CommandResponse:
+        """Remove a permission rule."""
+        if mgr.remove_permission(rule):
+            mgr.save_settings()
+            print(colored(f"✅ Removed '{rule}' from all lists", "green"))
+            return CommandResponse(result=CommandResult.CONTINUE, message="Rule removed")
+        else:
+            error_msg = f"Rule '{rule}' not found in any list"
+            print(colored(f"❌ {error_msg}", "yellow"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
-            print(colored("\n🛠️  Development Tool Permission", "cyan"))
+    def _reset_settings(self, mgr) -> CommandResponse:
+        """Reset permissions to empty state."""
+        confirm = input(colored("Are you sure you want to clear all permissions? (yes/no): ", "yellow"))
+        if confirm.lower() != 'yes':
+            print(colored("Reset cancelled", "yellow"))
+            return CommandResponse(result=CommandResult.CONTINUE, message="Reset cancelled")
 
-            if args and len(args) >= 1:
-                category = args[0]
-                scope = args[1] if len(args) >= 2 else "*"
-            else:
-                print(colored("Common categories: grepsearch, filesystems, network, development", "yellow"))
-                category = input(colored("Enter category name: ", "cyan")).strip()
-                if not category:
-                    print(colored("❌ Category required.", "red"))
-                    return
+        mgr.clear_all_permissions()
+        mgr.save_settings()
+        print(colored("✅ All permissions cleared", "green"))
+        return CommandResponse(result=CommandResult.CONTINUE, message="Settings reset")
 
-                scope = input(colored("Enter scope (path or '*' for global): ", "cyan")).strip()
-                if not scope:
-                    scope = "*"
+    def _copy_template(self, mgr) -> CommandResponse:
+        """Copy default template to settings.json."""
+        import os
+        import shutil
 
-            pm.add_always_allow(tool_name="bash", dev_tool_category=category, pattern=scope)
-            print(colored(f"✅ Added dev tool permission: {category} -> {scope}", "green"))
+        template_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "templates/default_settings.json"
+        )
 
-        except Exception as e:
-            print(colored(f"❌ Error adding dev permission: {e}", "red"))
+        if not os.path.exists(template_path):
+            error_msg = f"Template not found at {template_path}"
+            print(colored(f"❌ {error_msg}", "red"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
-    async def _add_tool_permission(self, args: List[str]) -> None:
-        """Add tool-specific permission."""
-        try:
-            from core.permissions.permissions_manager import get_permissions_manager
-            pm = get_permissions_manager()
-
-            print(colored("\n🔧 Tool Permission", "cyan"))
-
-            if args and len(args) >= 2:
-                tool_name = args[0]
-                target = args[1]
-            else:
-                tool_name = input(colored("Enter tool name (e.g., 'bash', 'readfile'): ", "cyan")).strip()
-                if not tool_name:
-                    print(colored("❌ Tool name required.", "red"))
-                    return
-
-                target = input(colored("Enter target (file path, directory, or tool name): ", "cyan")).strip()
-                if not target:
-                    target = tool_name
-
-            pm.add_always_allow(
-                tool_name=tool_name,
-                file_path=target if target and target != tool_name else None,
-                pattern=target if target and target != tool_name else None
-            )
-            print(colored(f"✅ Added tool permission: {tool_name} -> {target}", "green"))
-
-        except Exception as e:
-            print(colored(f"❌ Error adding tool permission: {e}", "red"))
-
-    async def _add_group_permission(self, args: List[str]) -> None:
-        """Add group permission."""
-        try:
-            from core.permissions.permissions_manager import get_permissions_manager
-            pm = get_permissions_manager()
-
-            print(colored("\n📁 Group Permission", "cyan"))
-
-            if args and len(args) >= 2:
-                group_name = args[0]
-                target = args[1]
-            else:
-                print(colored("Common groups: file_tools, system_tools, development_tools, search_tools", "yellow"))
-                group_name = input(colored("Enter group name: ", "cyan")).strip()
-                if not group_name:
-                    print(colored("❌ Group name required.", "red"))
-                    return
-
-                target = input(colored("Enter target (path or group name for global): ", "cyan")).strip()
-                if not target:
-                    target = group_name
-
-            pm.add_always_allow(
-                tool_name="",
-                group_name=group_name,
-                pattern=target if target and target != group_name else None
-            )
-            print(colored(f"✅ Added group permission: {group_name} -> {target}", "green"))
-
-        except Exception as e:
-            print(colored(f"❌ Error adding group permission: {e}", "red"))
-
-    async def _add_command_permission(self, args: List[str]) -> None:
-        """Add command pattern permission."""
-        try:
-            from core.permissions.permissions_manager import get_permissions_manager
-            pm = get_permissions_manager()
-
-            print(colored("\n⚡ Command Permission", "cyan"))
-            print(colored("Examples: 'ls*', 'git status', 'npm*'", "yellow"))
-
-            if args and len(args) >= 2:
-                command_pattern = args[0]
-                scope = args[1]
-            else:
-                command_pattern = input(colored("Enter command pattern: ", "cyan")).strip()
-                if not command_pattern:
-                    print(colored("❌ Command pattern required.", "red"))
-                    return
-
-                scope = input(colored("Enter scope path (or '*' for global): ", "cyan")).strip()
-                if not scope:
-                    scope = "*"
-
-            pm.add_always_allow(
-                tool_name="bash",
-                command_pattern=command_pattern,
-                scope_path=scope
-            )
-            print(colored(f"✅ Added command permission: bash:{command_pattern} -> {scope}", "green"))
-
-        except Exception as e:
-            print(colored(f"❌ Error adding command permission: {e}", "red"))
-    def _list_permissions_for_management(self) -> str:
-        """
-        Generates a numbered list of permissions suitable for management (e.g., removal).
-        This logic is ported from the old `tools/permissions.py` tool.
-        """
-        from core.permissions.permissions_manager import get_permissions_manager
+        if os.path.exists(mgr.config_path):
+            confirm = input(colored(f"Overwrite existing {mgr.config_path}? (yes/no): ", "yellow"))
+            if confirm.lower() != 'yes':
+                print(colored("Template copy cancelled", "yellow"))
+                return CommandResponse(result=CommandResult.CONTINUE, message="Cancelled")
 
         try:
-            permissions_manager = get_permissions_manager()
-            perms = permissions_manager.permissions
-
-            if not any(perms.values()):
-                # Use the user-friendly message from viewpermissions
-                from tools.viewpermissions import viewpermissions
-                return viewpermissions.run("")
-
-            output_lines = ["# 🔓 SAVED PERMISSIONS - (Use IDs with `remove`)"]
-
-            permission_count = 0
-
-            # Development Tools
-            dev_tools = perms.get("always_allow_dev_tools", {})
-            if dev_tools:
-                output_lines.append("\n🛠️  DEVELOPMENT TOOLS:")
-                for category, patterns in sorted(dev_tools.items()):
-                    if patterns:
-                        category_display = f'{category.title()} Tools'
-                        for pattern in patterns:
-                            permission_count += 1
-                            output_lines.append(f"   [{permission_count:2d}] {category_display}: {pattern}")
-
-            # Tool Permissions
-            tool_perms = perms.get("always_allow_tools", {})
-            if tool_perms:
-                output_lines.append("\n🔧 TOOL PERMISSIONS:")
-                for tool, paths in sorted(tool_perms.items()):
-                    for path in paths:
-                        permission_count += 1
-                        output_lines.append(f"   [{permission_count:2d}] {tool.title()}: {path}")
-
-            # Group Permissions
-            group_perms = perms.get("always_allow_groups", {})
-            if group_perms:
-                output_lines.append("\n📁 GROUP PERMISSIONS:")
-                for group, paths in sorted(group_perms.items()):
-                    for path in paths:
-                        permission_count += 1
-                        output_lines.append(f"   [{permission_count:2d}] {group.replace('_', ' ').title()}: {path}")
-
-            # Command Permissions
-            cmd_perms = perms.get("always_allow_commands", {})
-            if cmd_perms:
-                total_commands = sum(len(hashes) for hashes in cmd_perms.values())
-                output_lines.append(f"\n⚡ COMMAND PERMISSIONS: {total_commands} saved commands")
-                for tool, hashes in sorted(cmd_perms.items()):
-                    if hashes:
-                        # Don't list individual command hashes for brevity, just show counts
-                        permission_count += len(hashes)
-                        output_lines.append(f"   [{permission_count-len(hashes)+1}-{permission_count}] {tool}: {len(hashes)} command(s)")
-
-            if permission_count > 0:
-                output_lines.append(f"\n📊 Total: {permission_count} active permissions")
-
-                # Add usage examples
-                output_lines.append("\n💡 USAGE EXAMPLES:")
-                output_lines.append("   /perms add dev grepsearch        # Add dev tool permission")
-                output_lines.append("   /perms add tool bash /home/user  # Add tool permission")
-                output_lines.append("   /perms remove 1                  # Remove permission #1")
-                output_lines.append("   /perms view                      # Pretty view")
-                output_lines.append("   /perms clear                     # Clear all")
-
-            return "\n".join(output_lines)
-
+            shutil.copy(template_path, mgr.config_path)
+            print(colored(f"✅ Copied template to {mgr.config_path}", "green"))
+            print(colored("Edit this file to customize your permissions", "cyan"))
+            return CommandResponse(result=CommandResult.CONTINUE, message="Template copied")
         except Exception as e:
-            return f"Error listing permissions for management: {str(e)}"
+            error_msg = f"Failed to copy template: {str(e)}"
+            print(colored(f"❌ {error_msg}", "red"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
-    def _remove_permission(self, perm_id: str) -> str:
-        """Remove a specific permission by ID."""
-        try:
-            from core.permissions.permissions_manager import get_permissions_manager
 
-            try:
-                perm_num = int(perm_id)
-            except ValueError:
-                return f"❌ Invalid permission ID: {perm_id}. Please use a number from the `/perms list`."
-
-            permissions_manager = get_permissions_manager()
-            perms = permissions_manager.permissions
-
-            # Build a list of all permissions with their IDs (same logic as original)
-            all_permissions = []
-
-            # Development Tools
-            dev_tools = perms.get("always_allow_dev_tools", {})
-            for category, patterns in sorted(dev_tools.items()):
-                for pattern in patterns:
-                    all_permissions.append(('dev_tools', category, pattern))
-
-            # Tool Permissions
-            tool_perms = perms.get("always_allow_tools", {})
-            for tool, paths in sorted(tool_perms.items()):
-                for path in paths:
-                    all_permissions.append(('tools', tool, path))
-
-            # Group Permissions
-            group_perms = perms.get("always_allow_groups", {})
-            for group, paths in sorted(group_perms.items()):
-                for path in paths:
-                    all_permissions.append(('groups', group, path))
-
-            # Command Permissions
-            cmd_perms = perms.get("always_allow_commands", {})
-            for tool, hashes in sorted(cmd_perms.items()):
-                for hash_val in hashes:
-                    all_permissions.append(('commands', tool, hash_val))
-
-            if perm_num < 1 or perm_num > len(all_permissions):
-                return f"❌ Permission ID {perm_num} not found. Valid range: 1-{len(all_permissions)}"
-
-            # Remove the permission
-            perm_type, key, value = all_permissions[perm_num - 1]
-
-            if perm_type == 'dev_tools':
-                perms["always_allow_dev_tools"][key].remove(value)
-                if not perms["always_allow_dev_tools"][key]:
-                    del perms["always_allow_dev_tools"][key]
-            elif perm_type == 'tools':
-                perms["always_allow_tools"][key].remove(value)
-                if not perms["always_allow_tools"][key]:
-                    del perms["always_allow_tools"][key]
-            elif perm_type == 'groups':
-                perms["always_allow_groups"][key].remove(value)
-                if not perms["always_allow_groups"][key]:
-                    del perms["always_allow_groups"][key]
-            elif perm_type == 'commands':
-                perms["always_allow_commands"][key].remove(value)
-                if not perms["always_allow_commands"][key]:
-                    del perms["always_allow_commands"][key]
-
-            permissions_manager.save_permissions()
-            return f"✅ Removed permission #{perm_num}: {key} - {value}"
-
-        except Exception as e:
-            return f"❌ Error removing permission: {str(e)}"
-
-    def _clear_all_permissions(self) -> str:
-        """Clear all saved permissions."""
-        try:
-            from core.permissions.permissions_manager import get_permissions_manager
-
-            permissions_manager = get_permissions_manager()
-
-            # Count current permissions
-            perms = permissions_manager.permissions
-            total_count = 0
-            total_count += sum(len(patterns) for patterns in perms.get("always_allow_dev_tools", {}).values())
-            total_count += sum(len(paths) for paths in perms.get("always_allow_tools", {}).values())
-            total_count += sum(len(paths) for paths in perms.get("always_allow_groups", {}).values())
-            total_count += sum(len(hashes) for hashes in perms.get("always_allow_commands", {}).values())
-
-            if total_count == 0:
-                return "ℹ️  No permissions to clear - already empty."
-
-            # Clear all permissions
-            permissions_manager.permissions = {
-                "always_allow_dev_tools": {},
-                "always_allow_tools": {},
-                "always_allow_groups": {},
-                "always_allow_commands": {}
-            }
-            permissions_manager.save_permissions()
-
-            return f"✅ Cleared all {total_count} saved permissions. I will now ask for confirmation before every action."
-
-        except Exception as e:
-            return f"❌ Error clearing permissions: {str(e)}"
+# Old complex permission system methods removed (350+ lines deleted)
+# Now using simplified settings.json approach (~100 lines above)
 
 class SaveCommand(BaseCommand):
     """Save current LLM config command implementation."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/s', '/save']
 
     @property
     def description(self) -> str:
         return 'Save current LLM selection as default'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         """Save the current LLM selection as the new default."""
         try:
             from core.globals import g
@@ -837,7 +584,7 @@ class CompactCommand(BaseCommand):
     """Compact conversation command implementation."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/compact']
 
     @property
@@ -848,7 +595,7 @@ class CompactCommand(BaseCommand):
     def usage(self) -> str:
         return '<prompt> [level] [model]'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         """Compact/summarize the current conversation using Chat.compress()."""
         try:
             context_chat = kwargs.get('context_chat')
@@ -909,14 +656,14 @@ class ResetCommand(BaseCommand):
     """Start a new chat (archives current conversation and resets context)."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/new_chat', '/new', '/clear', '/reset']
 
     @property
     def description(self) -> str:
         return 'Start a new chat (archives current conversation and resets context)'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         context_chat = kwargs.get('context_chat')
 
         # Clear chat history
@@ -969,7 +716,7 @@ class PlannerLlmCommand(BaseCommand):
     """Command to set the planner LLM with optional fallback chain."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/planner_llm']
 
     @property
@@ -980,7 +727,7 @@ class PlannerLlmCommand(BaseCommand):
     def usage(self) -> str:
         return '<model1> [model2] [model3] ... (use "None" to disable)'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -1018,7 +765,7 @@ class RouterLlmCommand(BaseCommand):
     """Command to set the router LLM with optional fallback chain."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/router_llm']
 
     @property
@@ -1029,7 +776,7 @@ class RouterLlmCommand(BaseCommand):
     def usage(self) -> str:
         return '<model1> [model2] [model3] ... (use "None" to disable)'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -1067,7 +814,7 @@ class OverrideLlmCommand(BaseCommand):
     """Command to set the override LLM with optional fallback chain."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/override_llm']
 
     @property
@@ -1078,7 +825,7 @@ class OverrideLlmCommand(BaseCommand):
     def usage(self) -> str:
         return '<model1> [model2] [model3] ... (use "None" to disable)'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -1116,7 +863,7 @@ class FallbacksCommand(BaseCommand):
     """Command to set the fallback LLMs."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/fallbacks']
 
     @property
@@ -1127,7 +874,7 @@ class FallbacksCommand(BaseCommand):
     def usage(self) -> str:
         return '<model1> [model2] [model3]'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -1163,17 +910,17 @@ class ConfigCommand(BaseCommand):
     """Command to display current agent and model configuration."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/config', '/c']
 
     @property
     def description(self) -> str:
         return 'Display current agent and model configuration'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         try:
-            from shared.utils.display_utils import colorize_model_list
             from core.globals import g
+            from shared.utils.display_utils import colorize_model_list
 
             # Display configuration without triggering potential side effects
             print(colored("--- Agent Configuration ---", "yellow"))
@@ -1219,14 +966,14 @@ class ToolsCommand(BaseCommand):
     """Command to display detailed tool health status."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/tools', '/tool', '/t', '/health']
 
     @property
     def description(self) -> str:
         return 'Display detailed tool health status'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         try:
             from core.globals import g
 

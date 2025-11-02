@@ -7,6 +7,7 @@ the current working directory.
 import os
 import re
 
+
 class deletelines:
     @staticmethod
     def get_delim() -> str:
@@ -81,7 +82,7 @@ class deletelines:
             if not os.path.isfile(full_path):
                 return f"Error: File not found at '{full_path}' (resolved from '{filepath}')"
 
-            with open(full_path, 'r', encoding='utf-8') as f:
+            with open(full_path, encoding='utf-8') as f:
                 lines = f.readlines()
 
             total_lines = len(lines)
