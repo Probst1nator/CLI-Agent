@@ -16,9 +16,7 @@
         "deletelines.py",
         "computercontrol.py"
       ],
-      "marker": "PRIVILEGED",
-      "warning": "⚠️ PRIVILEGED TOOL: This tool performs system-level operations that modify state. Use with appropriate sandboxing. Recommended: --isolated mode.",
-      "action": "mark_and_move"
+      "action": "delete"
     },
 
     "excluded": {

@@ -1646,32 +1646,36 @@ async def construct_engineered_prompt(voice_agent: str, gui_mode: bool = False, 
 
     # Add bootstrap messages if requested
     if add_bootstrap:
-        from tools.bash import bash
+        from tools.readdirectory import readdirectory
         from tools.viewpermissions import viewpermissions
 
         context_chat.add_message(
             Role.USER,
-            "Please list the 5 most recently modified files of the cwd",
+            "Please show me the project structure",
             metadata={'is_bootstrap': True}
         )
 
+        # Get current directory listing safely with readdirectory
+        dir_listing = readdirectory.run("<path>.</path><max_depth>1</max_depth>")
+
         if gui_mode:
             bootstrap_message_1 = f"""<think>
-To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
+To show the project structure, I'll use readdirectory to list the current directory contents.
 </think><todos>
-- [ ] List 5 most recently modified files.
-</todos><bash>
-ls -tp | grep -v /$ | head -5
-</bash><context>
-{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
+- [ ] Show project structure.
+</todos><readdirectory>
+<path>.</path>
+<max_depth>1</max_depth>
+</readdirectory><context>
+{dir_listing}
 </context><todos>
-- [x] List 5 most recently modified files.
+- [x] Show project structure.
 </todos><visualresponse>
   <action>create</action>
   <type>markdown</type>
   <content>
-### Most Recently Modified Files:
-{await bash.run_silent("ls -tp | grep -v /$ | head -5 | sed 's/^/- /'")}
+### Project Structure:
+{dir_listing}
   </content>
 </visualresponse>"""
             bootstrap_message_2 = """<visualresponse>
@@ -1683,17 +1687,18 @@ I have successfully viewed my permissions. Is there anything else I can assist y
 </visualresponse>"""
         else:
             bootstrap_message_1 = f"""<think>
-To list the 5 most recently modified files in the current working directory (excluding directories), a combination of ls, grep, and head commands can be used.
+To show the project structure, I'll use readdirectory to list the current directory contents.
 </think><todos>
-- [ ] List 5 most recently modified files.
-</todos><bash>
-ls -tp | grep -v /$ | head -5
-</bash><context>
-{await bash.run_silent("ls -tp | grep -v /$ | head -5")}
+- [ ] Show project structure.
+</todos><readdirectory>
+<path>.</path>
+<max_depth>1</max_depth>
+</readdirectory><context>
+{dir_listing}
 </context><todos>
-- [x] List 5 most recently modified files.
+- [x] Show project structure.
 </todos><response>
-The 5 most recently modified files have been listed. Would you like me to inspect any of them?
+The project structure has been shown. Would you like me to inspect any files?
 </response>"""
             bootstrap_message_2 = """<response>
 I have successfully viewed my permissions. Is there anything else I can assist you with?

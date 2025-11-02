@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository has a public version at https://github.com/Probst1nator/CLI-Agent that filters privileged tools for wider distribution.
+This repository has a public version at https://github.com/Probst1nator/CLI-Agent that contains **safe tools only** (read-only operations).
 
 ## Quick Usage
 
@@ -22,15 +22,26 @@ python user_scripts/sync_public_repo.py --push
 
 ## What Gets Filtered
 
-### Privileged Tools → `tools/privileged/`
-System-level tools moved to privileged directory with warning headers:
+### Privileged Tools (Deleted from Public)
+These tools are **completely removed** from the public repository:
 - `bash.py` - Shell command execution
 - `writefile.py`, `editfile.py`, `insertline.py`, `deletelines.py` - File modifications
 - `computercontrol.py` - System control
 
-### Excluded
+### Safe Tools (Kept in Public)
+- `readfile.py`, `readdirectory.py` - Read files and directories
+- `grepsearch.py`, `searchconversations.py` - Search operations
+- `viewpermissions.py` - View permission settings
+- All other read-only tools
+
+### Also Excluded
 - `.env`, `*.log` - Secrets and logs
 - Various internal development directories
+
+## Result
+
+**Public version**: Clean, safe agent with read-only capabilities
+**Private version**: Full agent with all tools including privileged operations
 
 ## Configuration
 
@@ -39,9 +50,9 @@ Edit `.public-repo-config.json` to customize what gets filtered.
 ## Branch Structure
 
 ```
-main (private dev)
+main (private dev - all tools)
   ↓
-public-release (filtered)
+public-release (safe tools only)
   ↓
-git_public:main
+git_public:main (public repository)
 ```
