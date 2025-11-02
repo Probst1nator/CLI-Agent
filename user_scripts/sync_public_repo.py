@@ -2,16 +2,24 @@
 """
 Sync script for maintaining public repository from private development repo.
 
-This script:
+Three-stage workflow:
+  1. main (private dev) → PR → public-sync (review for public readiness)
+  2. public-sync → sync script → public-release (filtered version)
+  3. public-release → git_public/main (public repository)
+
+This script handles stage 2-3:
 1. Deletes privileged tools (bash, writefile, etc.) from public version
 2. Excludes internal development directories
 3. Filters out secrets and logs
 4. Creates a clean public-ready branch with safe tools only
 
 Usage:
+    # From public-sync branch:
     python user_scripts/sync_public_repo.py --dry-run     # Preview changes
     python user_scripts/sync_public_repo.py --prepare     # Prepare public branch
     python user_scripts/sync_public_repo.py --push        # Push to public remote
+
+See docs/RELEASE_WORKFLOW.md for complete workflow.
 """
 
 import argparse
@@ -93,13 +101,21 @@ class PublicRepoSync:
         print("=" * 80)
 
         if not dry_run:
-            # Create/checkout public branch
+            # Verify public-sync branch exists
+            try:
+                self._run_git('rev-parse', '--verify', 'public-sync')
+            except subprocess.CalledProcessError:
+                print("❌ public-sync branch doesn't exist")
+                print("Create it with: git checkout -b public-sync && git push git_private public-sync")
+                return False
+
+            # Create/checkout public branch from public-sync
             try:
                 self._run_git('checkout', '-b', self.public_branch)
                 print(f"✅ Created branch: {self.public_branch}")
             except subprocess.CalledProcessError:
                 self._run_git('checkout', self.public_branch)
-                self._run_git('merge', 'main')
+                self._run_git('merge', 'public-sync')
                 print(f"✅ Updated branch: {self.public_branch}")
 
         # Delete privileged tools
@@ -207,10 +223,11 @@ docker_files/traefik/
         """Clean up and return to original branch."""
         print("\n🧹 Cleaning up...")
         try:
-            self._run_git('checkout', 'main')
-            print("✅ Returned to main branch")
+            # Return to public-sync (the source branch for public releases)
+            self._run_git('checkout', 'public-sync')
+            print("✅ Returned to public-sync branch")
         except subprocess.CalledProcessError:
-            print("⚠️  Could not return to main branch")
+            print("⚠️  Could not return to public-sync branch")
 
 
 def main():
@@ -264,7 +281,7 @@ def main():
             sync.prepare_public_branch(dry_run=False)
             print("\n" + "=" * 80)
             print("✅ Public branch prepared. Review changes, then run with --push")
-            print(f"\nTo review: git diff main..{sync.public_branch}")
+            print(f"\nTo review: git diff public-sync..{sync.public_branch}")
             return
 
         # Push
@@ -283,10 +300,13 @@ def main():
         # No action specified
         parser.print_help()
         print("\n💡 Suggested workflow:")
-        print("  1. python user_scripts/sync_public_repo.py --dry-run")
-        print("  2. python user_scripts/sync_public_repo.py --prepare")
-        print("  3. Review: git diff main..public-release")
-        print("  4. python user_scripts/sync_public_repo.py --push")
+        print("  1. Create PR: main → public-sync (review on GitHub)")
+        print("  2. Merge PR and checkout public-sync")
+        print("  3. python user_scripts/sync_public_repo.py --dry-run")
+        print("  4. python user_scripts/sync_public_repo.py --prepare")
+        print("  5. Review: git diff public-sync..public-release")
+        print("  6. python user_scripts/sync_public_repo.py --push")
+        print("\nSee docs/RELEASE_WORKFLOW.md for details")
 
     finally:
         if not args.dry_run and (args.prepare or args.push):

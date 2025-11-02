@@ -751,12 +751,51 @@ python main.py --isolated  # Rebuilds automatically
 9. **Isolated mode**: Use `--isolated` flag for Docker containerization with auto-sync of source code
 10. **Multi-user infrastructure**: Experimental status - not production-ready (see `docs/INFRASTRUCTURE_STATUS.md`)
 
+## Public Repository Sync
+
+This repository has a public version at https://github.com/Probst1nator/CLI-Agent containing **safe tools only** (no privileged system-modifying tools).
+
+### Three-Stage Workflow
+
+Changes move through review stages before reaching public:
+
+```
+main → PR review → public-sync → filtering → public-release → git_public/main
+```
+
+1. **Develop on `main`** - Full features, all tools
+2. **PR to `public-sync`** - Review for public appropriateness
+3. **Run sync script** - Automatically filters to safe tools only
+4. **Push to public** - Releases to https://github.com/Probst1nator/CLI-Agent
+
+**Quick commands:**
+```bash
+gh pr create --base public-sync --head main              # Step 1: Create review PR
+git checkout public-sync && git pull                     # Step 2: After PR merged
+python user_scripts/sync_public_repo.py --prepare        # Step 3: Filter
+python user_scripts/sync_public_repo.py --push           # Step 4: Release
+```
+
+**Documentation:**
+- `docs/RELEASE_WORKFLOW.md` - Complete workflow guide with checklists
+- `docs/PUBLIC_SYNC.md` - Quick reference commands
+- `.github/pull_request_template.md` - PR template with security checklist
+- `.public-repo-config.json` - Filtering configuration
+
+**What gets filtered:**
+- Privileged tools deleted: `bash.py`, `writefile.py`, `editfile.py`, etc.
+- Internal directories removed: `saas_scripts/`, `docker_files/traefik/`
+- Secrets filtered: `.env`, `*.log`
+- Public keeps: All safe tools (`readfile.py`, `grepsearch.py`, etc.)
+
 ## Related Documentation
 
 - `docs/LOGGING.md`: Comprehensive logging system documentation
 - `docs/ISOLATED_MODE.md`: Docker isolated mode documentation
 - `docs/VISUALRESPONSE_ARCHITECTURE.md`: Modern web backend/frontend architecture
 - `docs/INFRASTRUCTURE_STATUS.md`: Multi-user deployment status and options
+- `docs/RELEASE_WORKFLOW.md`: Public repository sync workflow
+- `docs/PUBLIC_SYNC.md`: Quick reference for public sync
 - `docs/experimental/`: Experimental features and deployment modes (not production-ready)
 - `INDEX.md`: Complete file index with recent changes
 - `README.md`: Installation and basic usage
