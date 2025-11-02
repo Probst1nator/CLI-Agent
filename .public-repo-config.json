@@ -1,0 +1,43 @@
+{
+  "repository": {
+    "name": "CLI-Agent",
+    "description": "Research project for autonomous AI agent systems with LLM integration",
+    "purpose": "research",
+    "visibility": "public"
+  },
+
+  "tools": {
+    "experimental": {
+      "tools": [
+        "bash.py",
+        "writefile.py",
+        "editfile.py",
+        "insertline.py",
+        "deletelines.py",
+        "computercontrol.py"
+      ],
+      "marker": "EXPERIMENTAL",
+      "warning": "⚠️ EXPERIMENTAL: This tool modifies system state. Use with caution and appropriate sandboxing. Recommended: --isolated mode.",
+      "action": "mark_and_move"
+    },
+
+    "excluded": {
+      "directories": [
+        "tools/disabled/",
+        "saas_scripts/",
+        "docker_files/traefik/"
+      ],
+      "files": [
+        ".env",
+        "*.log",
+        "**/deployment_logs/**"
+      ]
+    }
+  },
+
+  "sync": {
+    "auto_sync": false,
+    "require_manual_review": true,
+    "run_tests_before_push": false
+  }
+}
