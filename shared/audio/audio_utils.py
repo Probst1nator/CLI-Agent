@@ -1,31 +1,35 @@
-from collections import defaultdict
 import os
 import re
+import sqlite3
 import subprocess
 import tempfile
-from typing import List, Optional, Tuple, Union
-import sqlite3
+from collections import defaultdict
+from typing import Optional
+
 try:
     import chromadb
 except (ImportError, RuntimeError):
     pass  # ChromaDB optional due to SQLite version
 # import pyaudio  # Moved to lazy import in functions that need it
 import logging
+
 from termcolor import colored
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from core.providers.cls_groq_interface import GroqAPI
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-from speech_recognition import Microphone, Recognizer, WaitTimeoutError
-# Moved pdfminer imports to lazy loading in functions that need them
 
-from core.providers.cls_ollama_interface import OllamaClient
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+import base64
+import os
+
+from speech_recognition import Microphone, Recognizer, WaitTimeoutError
+
 from core.globals import g
 
-import os
-import base64
+# Moved pdfminer imports to lazy loading in functions that need them
+from core.providers.cls_ollama_interface import OllamaClient
 
 r: Recognizer = None
 def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
@@ -59,7 +63,7 @@ def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
 
 def listen_microphone(
     max_listening_duration: Optional[int] = 60, private_remote_wake_detection: bool = False, remote_voice_enabled: bool = False
-) -> Tuple[str, str, Union[bool, str]]:
+) -> tuple[str, str, bool | str]:
     """
     Listen to the microphone, save to a temporary file, and return transcription.
     Args:
@@ -186,7 +190,7 @@ def listen_microphone(
 # PDF processing functions moved to shared.utils.pdf_utils
 # Import PDF utilities from the centralized module
 
-def get_atuin_history(limit: int = 10) -> List[str]:
+def get_atuin_history(limit: int = 10) -> list[str]:
     """
     Retrieve the last N commands from Atuin's history database.
 
@@ -218,7 +222,7 @@ def get_atuin_history(limit: int = 10) -> List[str]:
         return []
 
 
-def extract_blocks(text: str, language: Optional[Union[str, List[str]]] = None) -> List[str]:
+def extract_blocks(text: str, language: str | Optional[list[str]] = None) -> list[str]:
     """
     Extracts content from markdown code blocks (```) or XML-style tags (<tag>).
 
@@ -291,7 +295,7 @@ def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
         return "The knowledge database seems empty, please report this to the user as this is likely a bug. A system-supervisor should be informed."
     # Group documents by source
     source_groups = defaultdict(list)
-    for document, metadata in zip(*results["documents"], *results["metadatas"]):
+    for document, metadata in zip(*results["documents"], *results["metadatas"], strict=False):
         source_groups[metadata['file_path']].append(document)
     # Create the retrieved context string
     retrieved_context = ""
@@ -308,11 +312,11 @@ def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
     return prompt
 
 
-import time
-from typing import List
 import os
+import time
 
-def take_screenshot(title: str = 'Firefox', verbose: bool = False) -> List[str]:
+
+def take_screenshot(title: str = 'Firefox', verbose: bool = False) -> list[str]:
     """
     Captures screenshots of all windows with the specified title on Linux
     using xwininfo and import, and returns them as a list of base64 encoded strings.
@@ -333,7 +337,7 @@ def take_screenshot(title: str = 'Firefox', verbose: bool = False) -> List[str]:
             print(f"No windows with title containing '{title}' found.")
             return []
 
-        base64_images: List[str] = []
+        base64_images: list[str] = []
         captured_count = 0
         error_count = 0
 

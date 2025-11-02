@@ -6,13 +6,13 @@ Tests all functionality with mocked Home Assistant API responses.
 
 import json
 import os
-import tempfile
-import unittest
-from unittest.mock import Mock, patch, MagicMock
 
 # Mock the dependencies before importing
 import sys
+import tempfile
+import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
 
 # Add the project root to Python path
 project_root = Path(__file__).parent.parent

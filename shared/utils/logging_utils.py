@@ -10,9 +10,10 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+
 from termcolor import colored
 
+from typing import Optional
 # Import the global start_time from main.py context
 # This maintains compatibility with existing elapsed time calculations
 try:

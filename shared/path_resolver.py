@@ -8,9 +8,9 @@ the tool is located in the directory structure.
 
 import sys
 from pathlib import Path
+
+
 from typing import Optional
-
-
 class PathResolver:
     """Resolves import paths for CLI-Agent tools"""
 

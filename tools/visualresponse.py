@@ -6,19 +6,20 @@ Supports Markdown and fully self-contained HTML for maximum flexibility.
 Requires: pip install aiohttp
 """
 
-import multiprocessing
 import asyncio
 import json
+import multiprocessing
 import os
+import re  # Import the regular expression module
+import socket
 import sys
 import time
 import webbrowser
-import socket
-import re # Import the regular expression module
 from pathlib import Path
-from typing import Optional, Set, Any, List, Dict, TYPE_CHECKING
-from termcolor import colored
 from queue import Empty as QueueEmpty
+from typing import TYPE_CHECKING, Any, Optional
+
+from termcolor import colored
 
 if TYPE_CHECKING:
     from aiohttp import web as web_types
@@ -27,11 +28,12 @@ else:
 
 # Set up tool-specific logging
 from shared.utils.tool_logging import get_logger_for_tool_module
+
 logger = get_logger_for_tool_module(__name__)
 
 try:
-    from aiohttp import web
     import aiohttp
+    from aiohttp import web
     AIOHTTP_VERSION = aiohttp.__version__
     AIOHTTP_AVAILABLE = True
 except ImportError as e:
@@ -146,8 +148,8 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         subprocess_logger.error(error_msg)
         print(f"[VisualServer] {error_msg}")
         return
-    clients: Set[Any] = set()
-    message_history: List[Any] = []
+    clients: set[Any] = set()
+    message_history: list[Any] = []
     async def broadcast_updates():
         while True:
             try:
@@ -293,8 +295,8 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                                     subprocess_logger.info("Interrupt command sent via queue to main process")
 
                                     # Also try the signal approach as backup
-                                    import signal
                                     import os
+                                    import signal
                                     main_pid = os.getppid()
                                     os.kill(main_pid, signal.SIGINT)
                                     subprocess_logger.info(f"Also sent SIGINT to main process (PID: {main_pid}) as backup")
@@ -323,7 +325,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                                 # Store tool configuration globally for tool discovery to access
                                 # This will be picked up by the agent's tool discovery system
                                 if hasattr(g, 'disabled_tools'):
-                                    setattr(g, 'disabled_tools', disabled_tools)
+                                    g.disabled_tools = disabled_tools
 
                                 input_queue.put(user_message)
                                 subprocess_logger.info(f"User message queued with tool restrictions: {user_message[:50]}...")
@@ -379,8 +381,8 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             raise RuntimeError("aiohttp not available")
         try:
             # Import here to avoid circular imports and ensure g is initialized
-            from core.llm import Llm
             from core.globals import g
+            from core.llm import Llm
 
             # Get all available LLMs including dynamic discovery
             available_llms = Llm.get_available_llms(include_dynamic=True)
@@ -921,7 +923,7 @@ class VisualServerSession:
         self.input_queue = self.ctx.Queue()
         self.process: Optional[multiprocessing.Process] = None
         self.port: Optional[int] = None
-        setattr(g, 'visual_input_queue', self.input_queue)
+        g.visual_input_queue = self.input_queue
         self.start()
         if register_cleanup:
             g.register_cleanup(self.close)
@@ -1595,7 +1597,7 @@ class LogFileWatcher:
     Monitors log files for changes and streams content to browser console.
     """
 
-    def __init__(self, log_file_paths: Dict[str, str]):
+    def __init__(self, log_file_paths: dict[str, str]):
         self.log_file_paths = log_file_paths  # {'stdout': path, 'stderr': path}
         self.file_positions = {}  # Track last read position for each file
         self.running = False
@@ -1606,7 +1608,7 @@ class LogFileWatcher:
             try:
                 # Start from end of existing file or 0 for new file
                 if os.path.exists(log_path):
-                    with open(log_path, 'r', encoding='utf-8') as f:
+                    with open(log_path, encoding='utf-8') as f:
                         f.seek(0, 2)  # Seek to end
                         self.file_positions[log_path] = f.tell()
                 else:
@@ -1689,7 +1691,7 @@ class LogFileWatcher:
             if current_size > last_position:
                 logger.info(f"New content detected in {log_path}: {current_size - last_position} bytes")
                 # Read new content
-                with open(log_path, 'r', encoding='utf-8') as f:
+                with open(log_path, encoding='utf-8') as f:
                     f.seek(last_position)
                     new_content = f.read()
 
@@ -1788,8 +1790,9 @@ def enable_console_capture():
 
     try:
         from pathlib import Path
-        from shared.console_stream import init_console_streaming
+
         from core.globals import g
+        from shared.console_stream import init_console_streaming
 
         # Use same directory logic as logs API
         legacy_dir = Path(g.CLIAGENT_PERSISTENT_STORAGE_PATH) / "logs"

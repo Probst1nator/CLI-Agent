@@ -15,13 +15,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from shared.utils.project_storage import (
-    sanitize_path,
-    get_project_storage_path,
     ensure_project_directory,
-    load_project_metadata,
-    update_project_metadata,
-    migrate_local_to_global,
+    get_project_storage_path,
     list_all_projects,
+    load_project_metadata,
+    migrate_local_to_global,
+    sanitize_path,
+    update_project_metadata,
 )
 
 
@@ -129,7 +129,7 @@ class TestProjectStorage(unittest.TestCase):
         self.assertTrue(metadata_path.exists())
 
         # Verify metadata content
-        with open(metadata_path, 'r') as f:
+        with open(metadata_path) as f:
             metadata = json.load(f)
 
         self.assertEqual(metadata['absolute_path'], self.temp_cwd)

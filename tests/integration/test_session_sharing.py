@@ -4,8 +4,8 @@ Test that multiple browser connections share the same g.chat instance.
 This verifies the fix for session management where all WebSocket connections
 in the same container should see and update the same shared chat.
 """
-from core.globals import g
 from core.chat import Chat, Role
+from core.globals import g
 
 
 def test_session_creation_shares_chat():

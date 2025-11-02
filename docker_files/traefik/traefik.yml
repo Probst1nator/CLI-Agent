@@ -5,6 +5,10 @@ api:
   dashboard: true
   insecure: true  # Dashboard on :8080 localhost only (safe - not network exposed)
 
+# Enable ping for health checks
+ping:
+  entryPoint: "web"
+
 entryPoints:
   web:
     address: ":80"

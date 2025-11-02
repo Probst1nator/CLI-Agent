@@ -3,8 +3,9 @@
 Tool context manager for handling cross-tool communication, particularly for
 passing base64 images from tools to the chat context.
 """
-from typing import List, Dict, Any
 import threading
+from typing import Any
+
 
 class ToolContext:
     """
@@ -24,9 +25,9 @@ class ToolContext:
 
     def reset(self):
         """Reset all context data."""
-        self.base64_images: List[str] = []
-        self.image_descriptions: List[str] = []
-        self.metadata: Dict[str, Any] = {}
+        self.base64_images: list[str] = []
+        self.image_descriptions: list[str] = []
+        self.metadata: dict[str, Any] = {}
         self.current_viz_id: str = None
 
     def add_base64_image(self, base64_data: str, description: str = ""):
@@ -44,11 +45,11 @@ class ToolContext:
         """Check if there are any registered images."""
         return len(self.base64_images) > 0
 
-    def get_images(self) -> List[str]:
+    def get_images(self) -> list[str]:
         """Get all registered base64 images."""
         return self.base64_images.copy()
 
-    def get_image_descriptions(self) -> List[str]:
+    def get_image_descriptions(self) -> list[str]:
         """Get descriptions of all registered images."""
         return self.image_descriptions.copy()
 

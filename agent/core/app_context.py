@@ -6,19 +6,20 @@ state singleton pattern, enabling dependency injection and better testability.
 """
 
 from __future__ import annotations
+
 import argparse
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from core.chat import Chat
-    from core.llm_router import LlmRouter
     from agent.notebook.computational_notebook import ComputationalNotebook
     from agent.playbook.playbook_manager import PlaybookManager
     from agent.utils_manager.utils_manager import UtilsManager
+    from core.chat import Chat
+    from core.llm_router import LlmRouter
 
 @dataclass
 class LlmConfig:
@@ -41,7 +42,7 @@ class AgentSettings:
     online_mode: bool = False
     full_output_mode: bool = False
     online_voice: bool = False
-    allowed_write_paths: List[str] = field(default_factory=list)
+    allowed_write_paths: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         pass
@@ -79,16 +80,16 @@ class AppContext:
 
         # Runtime state
         self.current_chat: Optional[Chat] = None
-        self.base64_images: List[str] = field(default_factory=list)
-        self.tool_classes: Dict[str, Any] = field(default_factory=dict)
+        self.base64_images: list[str] = field(default_factory=list)
+        self.tool_classes: dict[str, Any] = field(default_factory=dict)
 
         # File and path management
         self.project_root: Path = Path.cwd()
         self.config_dir: Path = Path.home() / ".cli-agent"
-        self.temp_files: List[Path] = field(default_factory=list)
+        self.temp_files: list[Path] = field(default_factory=list)
 
         # Async runtime
-        self._locks: Dict[str, asyncio.Lock] = field(default_factory=dict)
+        self._locks: dict[str, asyncio.Lock] = field(default_factory=dict)
 
         # Logging
         self.logger: logging.Logger = logging.getLogger("cli_agent")

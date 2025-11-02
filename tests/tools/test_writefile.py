@@ -37,7 +37,7 @@ def test_writefile_basic_creation():
         # Verify file was created and has correct content
         assert os.path.exists(test_file), "File should be created"
 
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             file_content = f.read()
 
         assert file_content == content, f"Content mismatch. Expected: {repr(content)}, Got: {repr(file_content)}"
@@ -69,7 +69,7 @@ def test_writefile_overwrite_existing():
         assert "Successfully wrote" in result, f"Expected success, got: {result}"
 
         # Verify file was overwritten
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             file_content = f.read()
 
         assert file_content == new_content, f"File should be overwritten. Expected: {repr(new_content)}, Got: {repr(file_content)}"
@@ -98,7 +98,7 @@ def test_writefile_directory_creation():
         assert os.path.exists(nested_file), "File should be created"
 
         # Verify content
-        with open(nested_file, 'r', encoding='utf-8') as f:
+        with open(nested_file, encoding='utf-8') as f:
             file_content = f.read()
 
         assert file_content == content, f"Content mismatch in nested file. Expected: {repr(content)}, Got: {repr(file_content)}"
@@ -132,7 +132,7 @@ Empty lines above
         assert "Successfully wrote" in result, f"Expected success with special characters, got: {result}"
 
         # Verify content preservation
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             file_content = f.read()
 
         assert file_content == content, f"Special characters not preserved. Expected: {repr(content)}, Got: {repr(file_content)}"
@@ -156,7 +156,7 @@ def test_writefile_empty_content():
         # Verify empty file created
         assert os.path.exists(test_file), "Empty file should be created"
 
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             content = f.read()
 
         assert content == "", f"File should be empty, got: {repr(content)}"
@@ -211,7 +211,7 @@ def test_writefile_relative_paths():
             assert os.path.exists(expected_path), "File should exist at resolved path"
 
             # Verify content
-            with open(expected_path, 'r', encoding='utf-8') as f:
+            with open(expected_path, encoding='utf-8') as f:
                 file_content = f.read()
 
             assert file_content == content, f"Content should match. Expected: {repr(content)}, Got: {repr(file_content)}"
@@ -247,7 +247,7 @@ def test_writefile_large_content():
         assert file_size == len(large_content), f"File size should match content length. Expected: {len(large_content)}, Got: {file_size}"
 
         # Sample verification (don't read entire file to keep test fast)
-        with open(test_file, 'r', encoding='utf-8') as f:
+        with open(test_file, encoding='utf-8') as f:
             first_line = f.readline()
             assert first_line == line, f"First line should match template. Expected: {repr(line)}, Got: {repr(first_line)}"
 

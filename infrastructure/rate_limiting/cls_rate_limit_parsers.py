@@ -1,7 +1,7 @@
-import re
 import logging
-from typing import Dict, Tuple, Optional
+import re
 from abc import ABC, abstractmethod
+
 from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import LimitType
 
 logger = logging.getLogger(__name__)
@@ -10,7 +10,7 @@ class RateLimitParser(ABC):
     """Abstract base class for provider-specific rate limit error parsing."""
 
     @abstractmethod
-    def parse_error(self, error_message: str) -> Tuple[LimitType, float, Dict[str, any]]:
+    def parse_error(self, error_message: str) -> tuple[LimitType, float, dict[str, any]]:
         """
         Parse a rate limit error message.
 
@@ -23,14 +23,14 @@ class RateLimitParser(ABC):
         pass
 
     @abstractmethod
-    def get_default_limits(self) -> Dict[LimitType, int]:
+    def get_default_limits(self) -> dict[LimitType, int]:
         """Get default rate limits for this provider."""
         pass
 
 class GeminiRateLimitParser(RateLimitParser):
     """Parser for Google Gemini API rate limit errors."""
 
-    def parse_error(self, error_message: str) -> Tuple[LimitType, float, Dict[str, any]]:
+    def parse_error(self, error_message: str) -> tuple[LimitType, float, dict[str, any]]:
         """
         Parse Gemini API rate limit error messages.
 
@@ -65,7 +65,7 @@ class GeminiRateLimitParser(RateLimitParser):
             # Unknown type, use general cooldown
             return LimitType.GENERAL, retry_delay, extra_info
 
-    def get_default_limits(self) -> Dict[LimitType, int]:
+    def get_default_limits(self) -> dict[LimitType, int]:
         """
         Get default Gemini API limits.
         These are conservative estimates for free tier.
@@ -76,7 +76,7 @@ class GeminiRateLimitParser(RateLimitParser):
             LimitType.RPD: 25       # Free tier daily requests
         }
 
-    def parse_tier_from_error(self, error_message: str) -> Optional[str]:
+    def parse_tier_from_error(self, error_message: str) -> str | None:
         """Try to determine user's tier from error message."""
         # This would require more sophisticated parsing based on actual error messages
         # For now, assume free tier
@@ -85,7 +85,7 @@ class GeminiRateLimitParser(RateLimitParser):
 class OllamaRateLimitParser(RateLimitParser):
     """Parser for Ollama rate limit errors (usually simpler)."""
 
-    def parse_error(self, error_message: str) -> Tuple[LimitType, float, Dict[str, any]]:
+    def parse_error(self, error_message: str) -> tuple[LimitType, float, dict[str, any]]:
         """
         Parse Ollama rate limit errors.
 
@@ -105,7 +105,7 @@ class OllamaRateLimitParser(RateLimitParser):
             # Generic rate limit
             return LimitType.GENERAL, 60.0, extra_info
 
-    def get_default_limits(self) -> Dict[LimitType, int]:
+    def get_default_limits(self) -> dict[LimitType, int]:
         """
         Ollama limits are typically much higher or unlimited locally.
         These are conservative estimates for hosted instances.
@@ -118,7 +118,7 @@ class OllamaRateLimitParser(RateLimitParser):
 class GenericRateLimitParser(RateLimitParser):
     """Generic fallback parser for unknown providers."""
 
-    def parse_error(self, error_message: str) -> Tuple[LimitType, float, Dict[str, any]]:
+    def parse_error(self, error_message: str) -> tuple[LimitType, float, dict[str, any]]:
         """Generic parsing for unknown providers."""
         error_lower = error_message.lower()
         extra_info = {}
@@ -134,7 +134,7 @@ class GenericRateLimitParser(RateLimitParser):
             # Default to general cooldown
             return LimitType.GENERAL, 60.0, extra_info
 
-    def get_default_limits(self) -> Dict[LimitType, int]:
+    def get_default_limits(self) -> dict[LimitType, int]:
         """Conservative generic limits."""
         return {
             LimitType.RPM: 60,

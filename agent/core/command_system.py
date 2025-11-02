@@ -6,20 +6,20 @@ functionality extracted from main.py to provide reusable command management.
 """
 
 import os
-from typing import Dict, Any, List
-from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.history import FileHistory
+from typing import Any
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.history import FileHistory
 
 # --- LEGACY COMMAND DEFINITIONS ---
 # These definitions are deprecated and maintained only for backwards compatibility.
 # The new single source of truth is in agent.core.command_registry.
-
 from agent.core.command_registry import get_global_command_registry
 
-def _get_legacy_command_definitions() -> List[Dict[str, Any]]:
+
+def _get_legacy_command_definitions() -> list[dict[str, Any]]:
     """Get command definitions in legacy format for backwards compatibility."""
     registry = get_global_command_registry()
     legacy_definitions = []
@@ -40,7 +40,7 @@ def _get_legacy_command_definitions() -> List[Dict[str, Any]]:
 _COMMAND_DEFINITIONS = _get_legacy_command_definitions()
 
 
-def get_command_definitions() -> Dict[str, Any]:
+def get_command_definitions() -> dict[str, Any]:
     """
     Dynamically generates command definitions for the completer.
 
@@ -51,7 +51,7 @@ def get_command_definitions() -> Dict[str, Any]:
     return registry.get_command_definitions_for_completion()
 
 
-def get_command_descriptions() -> Dict[str, str]:
+def get_command_descriptions() -> dict[str, str]:
     """
     Dynamically generates command descriptions for the completer tooltips.
 
@@ -62,7 +62,7 @@ def get_command_descriptions() -> Dict[str, str]:
     return registry.get_command_descriptions_for_completion()
 
 
-def _build_command_map() -> Dict[str, str]:
+def _build_command_map() -> dict[str, str]:
     """
     Builds a map from every alias to its canonical command name for the dispatcher.
 
@@ -90,20 +90,20 @@ class CommandCompleterWithDescriptions(Completer):
         """Get the unified completer, creating it if necessary."""
         if self._unified_completer is None:
             try:
-                from agent.core.unified_completion import UnifiedCommandCompleter
                 from agent.commands.command_handler import CommandHandler
+                from agent.core.unified_completion import UnifiedCommandCompleter
 
                 # Create a minimal context for the command handler
                 # This is a temporary solution for backwards compatibility
                 class MinimalContext:
                     def __init__(self):
                         import logging
-                        from typing import Any, Dict, List
+                        from typing import Any
                         self.logger = logging.getLogger("command_system")
                         # Add minimal AppContext compatibility
                         self.current_chat: Any = None
-                        self.base64_images: List[str] = []
-                        self.tool_classes: Dict[str, Any] = {}
+                        self.base64_images: list[str] = []
+                        self.tool_classes: dict[str, Any] = {}
 
                 context = MinimalContext()
                 command_handler = CommandHandler(context)  # type: ignore[arg-type]

@@ -20,7 +20,7 @@ import re
 import shutil
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +143,7 @@ def ensure_project_directory(cwd: Optional[str] = None, auto_migrate: bool = Tru
     return project_path
 
 
-def load_project_metadata(cwd: Optional[str] = None) -> Dict[str, Any]:
+def load_project_metadata(cwd: Optional[str] = None) -> dict[str, Any]:
     """
     Load project metadata.
 
@@ -171,7 +171,7 @@ def load_project_metadata(cwd: Optional[str] = None) -> Dict[str, Any]:
         }
 
     try:
-        with open(metadata_path, 'r', encoding='utf-8') as f:
+        with open(metadata_path, encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
         logger.error(f"Failed to load project metadata: {e}")
@@ -297,7 +297,7 @@ def migrate_local_to_global(cwd: Optional[str] = None) -> bool:
         return False
 
 
-def list_all_projects() -> List[Dict[str, Any]]:
+def list_all_projects() -> list[dict[str, Any]]:
     """
     List all projects in centralized storage.
 
@@ -317,7 +317,7 @@ def list_all_projects() -> List[Dict[str, Any]]:
         metadata_path = project_dir / 'metadata.json'
         if metadata_path.exists():
             try:
-                with open(metadata_path, 'r', encoding='utf-8') as f:
+                with open(metadata_path, encoding='utf-8') as f:
                     metadata = json.load(f)
                     metadata['storage_path'] = str(project_dir)
                     projects.append(metadata)

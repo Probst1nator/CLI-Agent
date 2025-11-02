@@ -1,3 +1,4 @@
+from typing import Optional
 # tools/insertline.py
 """
 This file implements the 'insertline' tool. It allows the agent to insert
@@ -6,7 +7,7 @@ current working directory.
 """
 import os
 import re
-from typing import Optional
+
 
 class insertline:
     @staticmethod
@@ -54,7 +55,7 @@ class insertline:
             if not os.path.isfile(full_path):
                 return f"Error: File not found at '{full_path}' (resolved from '{filepath}')"
 
-            with open(full_path, 'r', encoding='utf-8') as f:
+            with open(full_path, encoding='utf-8') as f:
                 lines = f.readlines()
 
             total_lines = len(lines)

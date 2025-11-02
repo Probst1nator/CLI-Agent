@@ -4,12 +4,14 @@ Test script for the improved permission system.
 Tests the new bash-specific quick options.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
 
-from core.permissions.permissions_manager import get_permissions_manager
 from core.permissions.path_detector import PathDetector
+from core.permissions.permissions_manager import get_permissions_manager
+
 
 def test_bash_find_permission():
     """Test permission prompt for bash find command"""

@@ -1,8 +1,9 @@
+import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple, Union, Any
+from typing import Any, Optional, Union
+
 import numpy as np
 import speech_recognition as sr
-import logging
 
 from core.chat import Chat
 
@@ -55,10 +56,10 @@ class AudioProviderInterface(BaseProviderInterface):
     """
 
     @abstractmethod
-    def transcribe_audio(self, audio_data: Union[sr.AudioData, np.ndarray],
+    def transcribe_audio(self, audio_data: sr.AudioData | np.ndarray,
                         language: str = "",
                         model: str = "",
-                        sample_rate: int = 44100) -> Tuple[str, str]:
+                        sample_rate: int = 44100) -> tuple[str, str]:
         """
         Transcribes audio data to text.
 
@@ -82,7 +83,7 @@ class AudioProviderInterface(BaseProviderInterface):
                              silence_duration: float = 2.0,
                              min_duration: float = 1.0,
                              max_duration: float = 30.0,
-                             use_wake_word: bool = True) -> Tuple[str, str, np.ndarray]:
+                             use_wake_word: bool = True) -> tuple[str, str, np.ndarray]:
         """
         Records audio from microphone and transcribes it.
 
@@ -107,7 +108,7 @@ class AudioProviderInterface(BaseProviderInterface):
              voice: str = "",
              speed: float = 1.0,
              output_path: Optional[str] = None,
-             play: bool = True) -> Union[List[str], None]:
+             play: bool = True) -> Optional[list[str]]:
         """
         Converts text to speech.
 

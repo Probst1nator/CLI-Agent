@@ -2,6 +2,7 @@
 Test that disabled tools are blocked from execution and return error to agent.
 """
 import pytest
+
 from core.globals import g
 
 

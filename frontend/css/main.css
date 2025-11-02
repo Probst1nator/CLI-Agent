@@ -297,6 +297,69 @@ body {
     color: white;
 }
 
+/* Regenerate Prompts Button */
+.regenerate-prompts-button {
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+}
+
+.regenerate-prompts-button:hover:not(:disabled) {
+    background-color: var(--button-hover-bg);
+    transform: translateY(-1px);
+}
+
+.regenerate-prompts-button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.regenerate-prompts-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.regenerate-prompts-button svg {
+    fill: currentColor;
+}
+
+/* Loading state */
+.regenerate-prompts-button.loading {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.regenerate-prompts-button.loading svg {
+    animation: spin 1s linear infinite;
+}
+
+/* Success state */
+.regenerate-prompts-button.success {
+    background-color: #28a745;
+    color: white;
+    border-color: #28a745;
+}
+
+/* Error state */
+.regenerate-prompts-button.error {
+    background-color: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+/* Spin animation for loading state */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
 .header {
     grid-area: header;
     display: flex;
@@ -588,6 +651,52 @@ body {
     color: #dc3545;
 }
 
+/* Autocomplete LLM Container */
+.autocomplete-llm-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin-right: 16px;
+    padding: 8px 12px;
+    background-color: rgba(87, 231, 248, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(87, 231, 248, 0.3);
+}
+
+.autocomplete-llm-label {
+    font-weight: 600;
+    color: #57e7f8;
+    font-size: 0.9rem;
+}
+
+.autocomplete-llm-selector-wrapper {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+#autocomplete-llm-selector .llm-selectbox {
+    border: 1px solid rgba(87, 231, 248, 0.3);
+}
+
+#autocomplete-llm-selector .llm-selectbox:hover {
+    border-color: rgba(87, 231, 248, 0.5);
+}
+
+#autocomplete-llm-selector .llm-selectbox:focus {
+    border-color: #57e7f8;
+    box-shadow: 0 0 0 2px rgba(87, 231, 248, 0.2);
+}
+
+#autocomplete-llm-selector .llm-selectbox-trigger {
+    color: #57e7f8;
+}
+
+#autocomplete-llm-selector .llm-selectbox-label {
+    color: #57e7f8;
+}
+
 /* Router LLM Container */
 .router-llm-container {
     display: flex;
@@ -684,7 +793,7 @@ body {
     box-shadow: 0 0 0 2px rgba(23, 162, 184, 0.2);
 }
 
-/* Responsive styles for profile slots, override, router and planner LLM */
+/* Responsive styles for profile slots, override, autocomplete, router and planner LLM */
 @media (max-width: 1400px) {
     .profile-slot {
         width: 36px;
@@ -696,6 +805,7 @@ body {
     }
 
     .override-llm-container,
+    .autocomplete-llm-container,
     .router-llm-container,
     .planner-llm-container {
         gap: 6px;
@@ -703,6 +813,7 @@ body {
     }
 
     #override-llm-selector,
+    #autocomplete-llm-selector,
     #router-llm-selector,
     #planner-llm-selector {
         width: auto;
@@ -726,6 +837,7 @@ body {
     }
 
     .override-llm-container,
+    .autocomplete-llm-container,
     .router-llm-container,
     .planner-llm-container {
         flex-direction: column;
@@ -735,6 +847,7 @@ body {
     }
 
     .override-llm-label,
+    .autocomplete-llm-label,
     .router-llm-label,
     .planner-llm-label {
         font-size: 11px;
@@ -742,6 +855,7 @@ body {
     }
 
     #override-llm-selector,
+    #autocomplete-llm-selector,
     #router-llm-selector,
     #planner-llm-selector {
         width: auto;
@@ -876,57 +990,7 @@ body {
     position: relative; /* For absolute positioning of suggested prompts */
 }
 
-/* Suggested prompts for empty chats */
-.suggested-prompts-container {
-    position: absolute;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 20px;
-    max-width: 600px;
-    width: calc(100% - 40px);
-    z-index: 10;
-    pointer-events: none; /* Allow clicking through container */
-}
-
-.suggested-prompt-card {
-    background-color: var(--surface-color);
-    border: 2px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px 20px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    font-size: 14px;
-    color: var(--text-color);
-    text-align: center;
-    user-select: none;
-    pointer-events: auto; /* Re-enable clicks on cards */
-}
-
-.suggested-prompt-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--primary-color);
-    box-shadow: 0 4px 12px rgba(0, 122, 204, 0.2);
-    background-color: var(--button-hover-bg);
-}
-
-.suggested-prompt-card:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 6px rgba(0, 122, 204, 0.15);
-}
-
-/* Light theme adjustments */
-html[data-theme='light'] .suggested-prompt-card {
-    background-color: #ffffff;
-}
-
-html[data-theme='light'] .suggested-prompt-card:hover {
-    box-shadow: 0 4px 12px rgba(0, 122, 204, 0.15);
-    background-color: #f8f9fa;
-}
+/* Suggested prompts now handled by autocomplete dropdown - card UI removed */
 
 /* Message history styles */
 .message-block {
@@ -3154,6 +3218,7 @@ html[data-theme='light'] .llm-context {
     }
 
     .override-llm-container,
+    .autocomplete-llm-container,
     .router-llm-container,
     .planner-llm-container,
     .llm-selection-container {
@@ -3177,6 +3242,7 @@ html[data-theme='light'] .llm-context {
     }
 
     .override-llm-container,
+    .autocomplete-llm-container,
     .router-llm-container,
     .planner-llm-container {
         flex: 0 0 auto;
@@ -3266,6 +3332,7 @@ html[data-theme='light'] .llm-context {
     }
 
     .override-llm-container,
+    .autocomplete-llm-container,
     .router-llm-container,
     .planner-llm-container {
         flex: 0 0 auto;
@@ -3332,6 +3399,7 @@ html[data-theme='light'] .llm-context {
     }
 
     .override-llm-container,
+    .autocomplete-llm-container,
     .router-llm-container,
     .planner-llm-container {
         width: 100%;
@@ -4318,15 +4386,15 @@ html[data-theme='light'] .fullscreen-container {
     border: 1px solid var(--border-color);
     border-radius: 4px;
     box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
-    max-height: 300px;
     overflow-y: auto;
     z-index: 1000;
-    /* Width is set dynamically in JavaScript to match input field */
+    /* Width and max-height are set dynamically in JavaScript */
+    /* Max-height expands up to header element, showing scrollbar only when needed */
 }
 
 .autocomplete-item {
     display: grid;
-    grid-template-columns: 30px 1fr 2fr 50px;
+    grid-template-columns: 30px 1fr auto auto;
     gap: 8px;
     padding: 8px 12px;
     cursor: pointer;

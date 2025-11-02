@@ -13,10 +13,10 @@ Note: main_refactored.py is experimental and not ready for production use.
 """
 
 # CRITICAL: Suppress warnings BEFORE any imports that might trigger them
-import sys
-import os
-import warnings
 import contextlib
+import os
+import sys
+import warnings
 
 # --- COMPREHENSIVE WARNING SUPPRESSION ---
 # Must be set BEFORE importing ANY libraries that might generate warnings
@@ -98,19 +98,21 @@ if '--isolated' in sys.argv:
     # Never reaches here - process is replaced with docker run
 
 # NOW safe to import other modules
-import time
-import logging
-import re
-import asyncio
-import threading
-import json
 import argparse
-import signal
+import asyncio
+import json
+import logging
 import queue
+import re
+import signal
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
-from termcolor import colored
-from typing import Dict, List, Optional, Callable, Any, Tuple
+from typing import Any, Optional
+
 from pyfiglet import figlet_format
+from termcolor import colored
 
 # Import with suppression in non-debug mode
 if '--debug' not in sys.argv:
@@ -144,41 +146,57 @@ try:
     RESOURCE_MANAGER_AVAILABLE = True
 except ImportError:
     RESOURCE_MANAGER_AVAILABLE = False
-from core.globals import g
-from core.constants import NON_INTERRUPTING_TAGS, NON_VALIDATING_TAGS
-from core.llm_router import LlmRouter, StreamInterruptedException, UserInterruptedException, ModelGenerationFailedException
-from core.chat import Chat, Role
-from core.permissions.enhanced_permissions import enhanced_permission_prompt
-from shared.common_utils import extract_blocks
-import traceback
 import linecache
+import traceback
+
+from core.chat import Chat, Role
+from core.constants import NON_INTERRUPTING_TAGS, NON_VALIDATING_TAGS
+from core.globals import g
+from core.llm_router import (
+    LlmRouter,
+    ModelGenerationFailedException,
+    StreamInterruptedException,
+    UserInterruptedException,
+)
+from core.permissions.permission_prompt import permission_prompt
+from core.permissions.settings_manager import (
+    SettingsManager,
+    extract_command_from_xml,
+    extract_path_from_xml,
+)
+from shared.common_utils import extract_blocks
 
 # --- Suppress Noisy Library Warnings ---
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logging.getLogger('tensorflow').setLevel(logging.FATAL)
 import warnings
+
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers.modeling_utils")
 warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
 
 # Import command system from extracted module
 
 # Import display utilities from extracted module
-from shared.utils.display_utils import colorize_model_list, print_startup_summary, show_unified_bindings_display
+# Import input handlers from extracted module
+from agent.core.input_handlers import (
+    get_user_input_with_bindings,
+    handle_multiline_input,
+    handle_screenshot_capture,
+)
+
+# Import tool discovery from extracted module
+from agent.core.tool_discovery import _generate_tool_documentation
+from shared.utils.display_utils import (
+    colorize_model_list,
+    print_startup_summary,
+    show_unified_bindings_display,
+)
 
 # Import logging utilities from extracted module
 from shared.utils.logging_utils import setup_logging, swap_to_simple_logging
 
 # Import project storage utilities from extracted module
 from shared.utils.project_storage import get_project_storage_path
-
-# Import tool discovery from extracted module
-from agent.core.tool_discovery import _generate_tool_documentation
-
-# Import input handlers from extracted module
-from agent.core.input_handlers import (
-    handle_multiline_input, get_user_input_with_bindings, handle_screenshot_capture
-)
-
 
 # Command system functions moved to agent.core.command_system
 
@@ -287,7 +305,7 @@ def offer_intelligent_recovery_options(context_chat):
         print(f"  {i}. {description}")
 
     # Get user choice with timeout
-    print(colored("\nChoose option (1-{}) or press Enter for default [continue]: ".format(len(options)), "cyan"), end="", flush=True)
+    print(colored(f"\nChoose option (1-{len(options)}) or press Enter for default [continue]: ", "cyan"), end="", flush=True)
 
     try:
         import select
@@ -497,7 +515,7 @@ def get_input_collector(args: Optional[argparse.Namespace] = None) -> Optional[I
         _input_collector = InputCollector(args)
     return _input_collector
 
-def _get_next_priority_message(message_list: List[str]) -> Optional[str]:
+def _get_next_priority_message(message_list: list[str]) -> Optional[str]:
     """
     Get the next message to process, prioritizing urgent commands.
 
@@ -762,8 +780,9 @@ args = parse_cli_args()
 # --- Handle Cache Clearing ---
 # Clear cache and exit if --clear-cache was specified
 if args.clear_cache is not None:
-    from core.cache.llm_cache_manager import LLMCacheManager
     import os
+
+    from core.cache.llm_cache_manager import LLMCacheManager
 
     cache_db_path = os.path.join(g.CLIAGENT_CACHE_DIR, "llm_cache.db")
     cache_manager = LLMCacheManager(cache_db_path)
@@ -792,6 +811,7 @@ if args.clear_cache is not None:
 # --- Handle Tool Management Arguments ---
 # Process --enable and --disable arguments before listing/starting
 from core.tool_config import get_tool_config_manager
+
 tool_config_manager = get_tool_config_manager()
 
 if hasattr(args, 'enable') and args.enable:
@@ -889,19 +909,20 @@ if args.list_tools:
 g.CONTINUE_CONVERSATION = args.c
 
 # Import figlet for later use
+import warnings
 from pathlib import Path
-
 
 # --- Main Application Imports (Lazy/Normal) ---
 # Imports are moved below arg parsing and logging setup to allow for faster startup
 # and to ensure logging is configured before any modules start logging.
 from dotenv import load_dotenv
-import warnings
+
+from agent.commands.base_command import CommandResult
 
 # --- FIX: Import new command system components ---
 from agent.commands.command_handler import CommandHandler
-from agent.commands.base_command import CommandResult
 from agent.core.app_context import AppContext
+
 # --- END FIX ---
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -912,10 +933,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="phonemizer")
 warnings.filterwarnings("ignore", message="Unrecognized FinishReason enum value*", module="proto.marshal.rules.enums", category=UserWarning)
 
 # Removed ComputationalNotebook import - using direct tool calls instead
-from core.permissions.path_detector import PathDetector
 from agent.text_painter import TextStreamPainter
-
-
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logging.getLogger('tensorflow').setLevel(logging.FATAL)
@@ -923,7 +941,9 @@ os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 # Lazy load functions from shared audio utils to avoid heavy imports at startup
 def get_listen_microphone():
-    from shared.utils_audio import listen_microphone  # noqa: E402 - Use improved Faster-Whisper with small model
+    from shared.utils_audio import (
+        listen_microphone,  # noqa: E402 - Use improved Faster-Whisper with small model
+    )
     return listen_microphone
 
 try:
@@ -968,7 +988,7 @@ def auto_correct_html_for_xml(text: str) -> str:
 
     return corrected_text
 
-def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
+def detect_malformed_xml(text: str) -> list[dict[str, str]]:
     """
     Detects malformed XML blocks using the standard library XML parser.
 
@@ -983,6 +1003,7 @@ def detect_malformed_xml(text: str) -> List[Dict[str, str]]:
         List[Dict[str, str]]: List of detected malformed XML issues with detailed error info
     """
     import xml.etree.ElementTree as ET
+
     from shared.common_utils import _mask_quoted_xml_tags
 
     errors = []
@@ -1112,7 +1133,7 @@ def _get_xml_fix_suggestion(error_msg: str, xml_block: str) -> str:
         return f"Fix the XML syntax error: {error_msg}"
 
 
-def generate_xml_error_context(errors: List[Dict[str, str]]) -> str:
+def generate_xml_error_context(errors: list[dict[str, str]]) -> str:
     """
     Generate a context block with XML error information for the model.
 
@@ -1221,7 +1242,7 @@ def apply_default_llm_config():
         logging.info(f"📋 Loaded latest LLM configuration. Total: {colored(str(len(unique_models)), 'green')} models ({provider_summary})")
 
 
-async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[List[str]] = None) -> List[str]:
+async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[list[str]] = None) -> list[str]:
     """
     Handles the LLM selection process using the enhanced LlmSelector UI.
     This function initializes the selector, awaits user input, and processes
@@ -1299,7 +1320,7 @@ async def llm_selection(args: argparse.Namespace, preselected_llms: Optional[Lis
 
 
 def create_interruption_callback(
-    response_buffer: List[str],
+    response_buffer: list[str],
     painter: TextStreamPainter,
     lock: Optional[asyncio.Lock] = None,
     token_broadcast_callback = None,
@@ -1482,7 +1503,7 @@ def create_interruption_callback(
 
     return _callback
 
-def get_provider_emoji_and_name(model_key: str) -> Tuple[str, str]:
+def get_provider_emoji_and_name(model_key: str) -> tuple[str, str]:
     """
     Get the emoji and provider name for a model based on its provider class.
     Returns a tuple of (emoji, provider_name)
@@ -1757,7 +1778,7 @@ async def reset_agent_state(args: argparse.Namespace, context_chat: Chat) -> Cha
 
 async def save_current_llm_config_as_default():
     """Saves the current session's LLM selection as the new default."""
-    from core.globals import g # Lazy import
+    from core.globals import g  # Lazy import
     logging.info(colored("💾 Saving current LLM selection as the new default...", "magenta"))
 
     # Get the complete, most recent configuration data for ALL models
@@ -1780,7 +1801,7 @@ async def save_current_llm_config_as_default():
 async def main(  # type: ignore[misc]
     input_event: Optional[asyncio.Event] = None,
     input_lock: Optional[threading.Lock] = None,
-    shared_input: Optional[Dict[str, Any]] = None,
+    shared_input: Optional[dict[str, Any]] = None,
     tui_callback: Optional[Callable] = None
 ) -> None:
     try:
@@ -1978,7 +1999,7 @@ async def main(  # type: ignore[misc]
                     if not tui_callback: logging.warning(colored("No previous chat found. Starting a new chat.", "yellow") )
                     context_chat = None
 
-        images_for_message: List[str] = []
+        images_for_message: list[str] = []
 
         # Add any images from session context (web UI uploads)
         session = g.get_active_session()
@@ -2148,7 +2169,9 @@ async def main(  # type: ignore[misc]
 
         # Install visual input bridge for browser integration
         try:
-            from agent.visual_input_bridge import install_visual_input_bridge  # type: ignore
+            from agent.visual_input_bridge import (
+                install_visual_input_bridge,  # type: ignore
+            )
             install_visual_input_bridge()
         except (ImportError, Exception) as e:
             logging.debug(f"Visual input bridge not available - browser integration disabled: {e}")
@@ -2545,6 +2568,17 @@ async def main(  # type: ignore[misc]
                         context_chat.add_message(Role.ASSISTANT, error_context)
                         assistant_response = ""
                         print(colored("⚠️  XML syntax errors detected and reported to model", "yellow"))
+                        # Print the actual error details to console for debugging
+                        print(colored("\nDetected XML errors:", "yellow"))
+                        for error in xml_errors:
+                            print(colored(f"  • {error.get('error_description', 'Unknown error')}", "yellow"))
+                            if error.get('tag_name'):
+                                print(colored(f"    Tag: <{error['tag_name']}>", "yellow"))
+                            if error.get('line_number'):
+                                print(colored(f"    Location: Line {error['line_number']}, Column {error.get('column_number', '?')}", "yellow"))
+                            if error.get('suggested_fix'):
+                                print(colored(f"    Fix: {error['suggested_fix']}", "cyan"))
+                        print()  # Empty line for readability
                         continue  # Skip tool execution and get corrected response
 
                     # --- NEW: Generic Tool Execution Loop ---
@@ -2594,76 +2628,95 @@ async def main(  # type: ignore[misc]
                                     should_execute = True
                                 # If command doesn't match safe patterns, fall through to general permission system
                         if not should_execute and len(tool_tags_found) > 0:
-                            # Analyze each tool for path-based permissions
-                            permission_needed = False
-                            tool_analyses = []
+                            # Simplified permission system
+                            should_execute = True  # Start optimistic
 
+                            # Initialize settings manager
+                            settings_mgr = SettingsManager()
+
+                            # Extract tool blocks with file paths and commands
+                            tool_executions = []
                             for tool in tool_tags_found:
                                 delim = tool.get_delim()
                                 blocks = get_extract_blocks()(assistant_response, [delim])
 
                                 for block in blocks:
-                                    analysis = PathDetector.analyze_tool_block(delim, block)
-                                    tool_analyses.append(analysis)
+                                    file_path = extract_path_from_xml(block, delim)
+                                    command = extract_command_from_xml(block) if delim == 'bash' else None
 
-                                    if analysis['needs_permission']:
-                                        permission_needed = True
+                                    tool_executions.append({
+                                        'tool_name': delim,
+                                        'file_path': file_path,
+                                        'command': command,
+                                        'xml_content': block
+                                    })
 
-                            if not permission_needed:
-                                # No permission needed for safe tools
-                                should_execute = True
-                            else:
-                                # Check permissions for each tool that needs it
-                                should_execute = True  # Start optimistic
+                            # --- LAYER 1: ALLOWED_WRITE_PATHS Enforcement ---
+                            # Check write path restrictions BEFORE permission checks
+                            allowed_write_paths = getattr(g, 'ALLOWED_WRITE_PATHS', [])
+                            if allowed_write_paths:
+                                write_tools = ['writefile', 'editfile', 'insertline', 'deletelines']
+                                for execution in tool_executions:
+                                    tool_name = execution['tool_name']
+                                    file_path = execution.get('file_path')
 
-                                # --- LAYER 1: ALLOWED_WRITE_PATHS Enforcement ---
-                                # Check write path restrictions BEFORE showing permission prompts
-                                # This provides instant denial for unauthorized write attempts
-                                allowed_write_paths = getattr(g, 'ALLOWED_WRITE_PATHS', [])
-                                if allowed_write_paths:
-                                    write_tools = ['writefile', 'editfile', 'insertline', 'deletelines']
-                                    for analysis in tool_analyses:
-                                        tool_name = analysis['tool_name']
-                                        primary_path = analysis.get('primary_path')
+                                    if tool_name in write_tools and file_path:
+                                        abs_path = os.path.abspath(file_path)
+                                        if abs_path not in allowed_write_paths:
+                                            # INSTANT DENIAL
+                                            should_execute = False
+                                            rejection_reason = [{
+                                                'tool': tool_name,
+                                                'action': f"Write to {file_path}",
+                                                'paths': [abs_path],
+                                                'risk_level': 'restricted',
+                                                'xml_content': f"Write access denied: '{abs_path}' is not in the allowed write paths list.\nAllowed paths: {', '.join(allowed_write_paths)}",
+                                                'restriction_type': 'ALLOWED_WRITE_PATHS'
+                                            }]
+                                            logging.info(colored(f"⛔ Write denied by ALLOWED_WRITE_PATHS: {abs_path}", "red"))
+                                            logging.info(colored(f"   Allowed paths: {allowed_write_paths}", "yellow"))
+                                            break
 
-                                        # If this is a write tool with a target path
-                                        if tool_name in write_tools and primary_path:
-                                            # Resolve to absolute path for consistent checking
-                                            import os
-                                            abs_path = os.path.abspath(primary_path)
+                            # --- LAYER 2: Simplified Permission System ---
+                            if should_execute:
+                                for execution in tool_executions:
+                                    tool_name = execution['tool_name']
+                                    file_path = execution.get('file_path')
+                                    command = execution.get('command')
+                                    xml_content = execution.get('xml_content', '')
 
-                                            # Check if path is in allowed list
-                                            if abs_path not in allowed_write_paths:
-                                                # INSTANT DENIAL - No permission prompt shown
-                                                should_execute = False
-                                                rejection_reason = [{
-                                                    'tool': tool_name,
-                                                    'action': analysis['action_description'],
-                                                    'paths': [abs_path],
-                                                    'risk_level': 'restricted',
-                                                    'xml_content': f"Write access denied: '{abs_path}' is not in the allowed write paths list.\nAllowed paths: {', '.join(allowed_write_paths)}",
-                                                    'restriction_type': 'ALLOWED_WRITE_PATHS'
-                                                }]
-                                                logging.info(colored(f"⛔ Write denied by ALLOWED_WRITE_PATHS enforcement: {abs_path}", "red"))
-                                                logging.info(colored(f"   Allowed paths: {allowed_write_paths}", "yellow"))
-                                                break
+                                    # Check permission
+                                    decision, reason = settings_mgr.check_permission(
+                                        tool_name=tool_name,
+                                        file_path=file_path,
+                                        command=command
+                                    )
 
-                                # Only proceed to permission prompt if not already denied by path restriction
-                                if should_execute:
-                                    for analysis in tool_analyses:
-                                        if not analysis['needs_permission']:
-                                            continue
+                                    if decision == "deny":
+                                        # Explicitly denied
+                                        logging.info(colored(f"⛔ Code execution denied: {reason}", "red"))
+                                        should_execute = False
+                                        if 'rejection_reason' not in locals():
+                                            rejection_reason = []
+                                        rejection_reason.append({
+                                            'tool': tool_name,
+                                            'action': command or file_path or tool_name,
+                                            'paths': [file_path] if file_path else [],
+                                            'risk_level': 'denied',
+                                            'xml_content': xml_content[:100] + '...' if len(xml_content) > 100 else xml_content
+                                        })
+                                        break
 
-                                        # Use enhanced permission system for path-aware tools
-                                        permission_granted = await enhanced_permission_prompt(
-                                            args,
-                                            tool_name=analysis['tool_name'],
-                                            action_description=analysis['action_description'],
-                                            file_path=analysis['primary_path'],
-                                            command_hash=analysis['command_hash'],
-                                            command_pattern=analysis['command_pattern'],
-                                            has_paths=analysis['has_paths'],
-                                            xml_content=analysis.get('xml_content', ''),
+                                    elif decision in ["ask", "default"]:
+                                        # Need confirmation
+                                        permission_granted = await permission_prompt(
+                                            tool_name=tool_name,
+                                            decision=decision,
+                                            reason=reason,
+                                            settings_manager=settings_mgr,
+                                            file_path=file_path,
+                                            command=command,
+                                            xml_content=xml_content,
                                             input_event=input_event,
                                             input_lock=input_lock,
                                             shared_input=shared_input,
@@ -2671,22 +2724,22 @@ async def main(  # type: ignore[misc]
                                         )
 
                                         if not permission_granted:
-                                            logging.info(colored("⛔ Code execution denied", "green"))
-                                            # Store rejection details for informative user message
+                                            logging.info(colored("⛔ Code execution denied by user", "red"))
+                                            should_execute = False
                                             if 'rejection_reason' not in locals():
                                                 rejection_reason = []
-                                            rejection_details = {
-                                                'tool': analysis['tool_name'],
-                                                'action': analysis['action_description'],
-                                                'paths': analysis.get('detected_paths', []),
-                                                'risk_level': analysis.get('risk_level', 'unknown'),
-                                                'xml_content': analysis.get('xml_content', '')[:100] + '...' if len(analysis.get('xml_content', '')) > 100 else analysis.get('xml_content', '')
-                                            }
-                                            rejection_reason.append(rejection_details)
-
-                                            should_execute = False
+                                            rejection_reason.append({
+                                                'tool': tool_name,
+                                                'action': command or file_path or tool_name,
+                                                'paths': [file_path] if file_path else [],
+                                                'risk_level': 'user_denied',
+                                                'xml_content': xml_content[:100] + '...' if len(xml_content) > 100 else xml_content
+                                            })
                                             break
+
                                         logging.info(colored("✅ Code execution permitted", "green"))
+
+                                    # decision == "allow" - proceed without prompting
 
                         if should_execute:
                             try:
@@ -2716,7 +2769,9 @@ async def main(  # type: ignore[misc]
                                         # Send live tool start notification to loading area header (skip visualresponse)
                                         if hasattr(g, 'GUI_MODE') and g.GUI_MODE and tool_name != 'visualresponse':
                                             try:
-                                                from tools.visualresponse import visualresponse
+                                                from tools.visualresponse import (
+                                                    visualresponse,
+                                                )
                                                 session = visualresponse._get_session()
                                                 if session and session.is_healthy():
                                                     live_payload = {
@@ -2729,7 +2784,9 @@ async def main(  # type: ignore[misc]
 
                                                     # Add model key metadata to tool start notifications
                                                     try:
-                                                        from core.llm_router import LlmRouter
+                                                        from core.llm_router import (
+                                                            LlmRouter,
+                                                        )
                                                         used_model = LlmRouter.get_last_used_model()
                                                         if used_model:
                                                             live_payload['model'] = used_model
@@ -2743,7 +2800,9 @@ async def main(  # type: ignore[misc]
                                         # Broadcast tool_update event: running status (frontend live feedback)
                                         if args.gui or args.api:
                                             try:
-                                                from api.server import broadcast_tool_update
+                                                from api.server import (
+                                                    broadcast_tool_update,
+                                                )
                                                 description = f"Execute: {first_block.strip()[:100]}" if first_block else f"Running {tool_name}"
                                                 await broadcast_tool_update(
                                                     tool_name=tool_name,
@@ -2824,7 +2883,9 @@ async def main(  # type: ignore[misc]
                                     # Send live tool completion notification to loading area header (skip visualresponse)
                                     if hasattr(g, 'GUI_MODE') and g.GUI_MODE and tool_name != 'visualresponse':
                                         try:
-                                            from tools.visualresponse import visualresponse
+                                            from tools.visualresponse import (
+                                                visualresponse,
+                                            )
                                             session = visualresponse._get_session()
                                             if session and session.is_healthy():
                                                 live_payload = {
@@ -2840,7 +2901,9 @@ async def main(  # type: ignore[misc]
 
                                                 # Add model key metadata to tool completion notifications
                                                 try:
-                                                    from core.llm_router import LlmRouter
+                                                    from core.llm_router import (
+                                                        LlmRouter,
+                                                    )
                                                     used_model = LlmRouter.get_last_used_model()
                                                     if used_model:
                                                         live_payload['model'] = used_model
@@ -2972,7 +3035,9 @@ Examples:
                                     # Broadcast the updated assistant message (content has grown)
                                     if args.gui or args.api:
                                         try:
-                                            from api.server import broadcast_message_added
+                                            from api.server import (
+                                                broadcast_message_added,
+                                            )
                                             await broadcast_message_added(context_chat.messages[-1])
                                             logging.debug("Broadcasted updated assistant message")
                                         except Exception:
@@ -2994,8 +3059,13 @@ Examples:
                                 # Skip backend TTS in GUI mode - frontend handles it via /api/audio/tts endpoint
                                 if g.voice_mode and not g.GUI_MODE and 'original_assistant_response' in locals() and original_assistant_response.strip():
                                     try:
-                                        from shared.utils_audio import filter_latex_for_tts
-                                        from shared.audio_router import route_tts_audio, generate_tts_audio
+                                        from shared.audio_router import (
+                                            generate_tts_audio,
+                                            route_tts_audio,
+                                        )
+                                        from shared.utils_audio import (
+                                            filter_latex_for_tts,
+                                        )
                                         # Note: re is already imported at module level (line 90)
 
                                         logging.debug(f"TTS: Starting TTS processing (voice_mode={g.voice_mode})")

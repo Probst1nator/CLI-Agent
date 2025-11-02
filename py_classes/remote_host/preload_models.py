@@ -6,13 +6,12 @@ This script preloads Faster Whisper models to avoid timeout issues when they're 
 for the first time through the API. Run this script during container startup.
 """
 
+import gc
 import logging
+import os
+import shutil
 import sys
 import time
-import os
-from typing import Dict, List, Optional
-import gc
-import shutil
 
 # Set up logging
 logging.basicConfig(
@@ -23,7 +22,11 @@ logger = logging.getLogger("preload-models")
 
 try:
     import torch
-    from py_classes.remote_host.services.whisper_service import WhisperService, optimize_torch_for_jetson
+
+    from py_classes.remote_host.services.whisper_service import (
+        WhisperService,
+        optimize_torch_for_jetson,
+    )
 except ImportError:
     logger.error("Failed to import WhisperService. Please ensure you're running this script from the project root.")
     sys.exit(1)
@@ -42,7 +45,7 @@ def check_disk_space(path: str = "/root/.cache/whisper") -> float:
 def check_is_jetson() -> bool:
     """Check if running on a Jetson device."""
     try:
-        with open('/proc/device-tree/model', 'r') as f:
+        with open('/proc/device-tree/model') as f:
             model = f.read()
             is_jetson = 'Jetson' in model
             if is_jetson:
@@ -81,7 +84,7 @@ def optimize_for_gpu():
         logger.error(f"Error setting up GPU optimizations: {e}")
         return False
 
-def preload_whisper_models(model_names: Optional[List[str]] = None) -> Dict[str, bool]:
+def preload_whisper_models(model_names: list[str] | None = None) -> dict[str, bool]:
     """
     Preload specific Whisper models or all models.
 

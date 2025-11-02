@@ -6,9 +6,9 @@ search functionality, sorting, output formatting, and error handling.
 """
 
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
-from datetime import datetime, timedelta
 
 # Setup test imports
 test_root = Path(__file__).parent.parent.parent

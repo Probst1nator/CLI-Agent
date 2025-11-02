@@ -1,6 +1,59 @@
+# ==============================================================================
+# Python Tooling Configuration (Multi-Language Project)
+# ==============================================================================
+# This project uses:
+# - Ruff: Python linting + formatting (replaces Black, Flake8, isort)
+# - Pyright: Python type checking (see pyrightconfig.json)
+# - Prettier: Web language formatting (JS/TS/HTML/CSS - see .prettierrc)
+# - ESLint: JS/TS linting (see .eslintrc.json)
+# ==============================================================================
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+# Enable comprehensive but practical rule sets
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort (import sorting)
+    "UP",     # pyupgrade (modern Python syntax)
+    "B",      # flake8-bugbear (common bugs)
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+]
+
+ignore = [
+    "E402",    # Module level import not at top of file
+    "E501",    # Line too long (handled by formatter)
+    "E701",    # Multiple statements on one line
+    "E722",    # Bare except
+    "N802",    # Function name should be lowercase
+    "N803",    # Argument name should be lowercase
+    "N806",    # Variable in function should be lowercase
+    "SIM108",  # Use ternary operator (clarity over brevity)
+    "UP007",   # Use Optional[X] instead of X | None (allow both styles)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]  # Unused imports in __init__ are often intentional
+"**/test_*.py" = ["B011"]    # Allow assert False in tests
+
+[tool.ruff.format]
+# Ruff's formatter (replaces Black)
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# ==============================================================================
+# Legacy configurations (kept for backwards compatibility, consider removing)
+# ==============================================================================
+
 [tool.black]
-line-length = 88  # Set your preferred line length
-target-version = ['py38']  # Set your target Python version
+line-length = 88
+target-version = ['py38']
 include = '\.pyi?$'
 exclude = '''
     /(
@@ -15,9 +68,6 @@ exclude = '''
         | dist
     )/
 '''
-[tool.ruff]
-# General Ruff settings go here, like target Python version.
-target-version = "py311"
 
 [tool.mypy]
 python_version = "3.11"
@@ -25,8 +75,3 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 disallow_untyped_defs = true
-
-[tool.ruff.lint]
-# Rule selection and ignoring rules goes under the [tool.ruff.lint] section.
-select = ["E", "F"]  # Select all E and F rules by default
-ignore = ["E402", "E501", "E701", "E722"]    # Ignore E402, E501 (line too long), E701 (multiple statements on one line), and E722 (bare except) specifically.

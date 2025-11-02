@@ -4,12 +4,13 @@ CLI-Agent Remote Host Client.
 This module provides client functionality for interacting with the CLI-Agent Remote Host server.
 """
 
+import base64
 import logging
 import os
-import base64
-import requests
-from typing import Dict, Optional, Tuple, List, Any
+from typing import Any, Optional
+
 import numpy as np
+import requests
 from dotenv import load_dotenv
 from termcolor import colored
 
@@ -53,11 +54,11 @@ class RemoteHostClient:
         self.whisper_models_endpoint = f"{self.server_url}/whisper/models"
 
         # Cache of available services
-        self._available_services: Optional[Dict[str, bool]] = None
+        self._available_services: Optional[dict[str, bool]] = None
 
         print(f"Remote: <{colored('Client', 'green')}> initialized with server URL: {colored(self.server_url, 'blue')}")
 
-    def check_server_health(self) -> Dict[str, Any]:
+    def check_server_health(self) -> dict[str, Any]:
         """
         Check if the remote server is healthy and get available services.
 
@@ -104,7 +105,7 @@ class RemoteHostClient:
 
         return services.get(service_name, False)
 
-    def list_services(self) -> Dict[str, Any]:
+    def list_services(self) -> dict[str, Any]:
         """
         Get a list of available services and their documentation.
 
@@ -128,7 +129,7 @@ class RemoteHostClient:
             return {}
 
     # Wake word detection methods
-    def detect_wake_word(self, audio_data: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+    def detect_wake_word(self, audio_data: np.ndarray, sample_rate: int) -> dict[str, Any]:
         """
         Send audio data to the remote server for wake word detection.
 
@@ -181,7 +182,7 @@ class RemoteHostClient:
             return {"detected": False, "error": str(e)}
 
     # Whisper transcription methods
-    def list_whisper_models(self) -> Dict[str, Any]:
+    def list_whisper_models(self) -> dict[str, Any]:
         """
         Get information about available Whisper models.
 
@@ -211,7 +212,7 @@ class RemoteHostClient:
             print(f"Remote: <{colored('API', 'red')}> error getting Whisper models: {e}")
             return {"error": str(e)}
 
-    def transcribe_audio(self, audio_data: np.ndarray, sample_rate: int, model: str = "large-v2") -> Dict[str, Any]:
+    def transcribe_audio(self, audio_data: np.ndarray, sample_rate: int, model: str = "large-v2") -> dict[str, Any]:
         """
         Send audio data to the remote server for transcription using Whisper.
 
@@ -285,9 +286,10 @@ class RemoteHostClient:
 
         try:
             # Import required libraries
+            import time
+
             import sounddevice as sd
             from scipy import signal
-            import time
 
             # Use 16kHz for wake word detection (Vosk requirement)
             target_sample_rate: int = 16000
@@ -295,16 +297,16 @@ class RemoteHostClient:
             print(f"Remote: <{colored('Wake Word Service', 'green')}> is listening for wake word...")
 
             # Common sample rates to try
-            sample_rates_to_try: List[int] = [16000, 44100, 48000]
+            sample_rates_to_try: list[int] = [16000, 44100, 48000]
 
             # Keep track of devices we've already tried and failed with
-            failed_devices: Dict[int, List[int]] = {}  # {device_id: [failed_sample_rates]}
+            failed_devices: dict[int, list[int]] = {}  # {device_id: [failed_sample_rates]}
             last_working_device: Optional[int] = None
             last_working_rate: Optional[int] = None
-            device_failures_count: Dict[int, int] = {}  # Count consecutive failures per device
+            device_failures_count: dict[int, int] = {}  # Count consecutive failures per device
 
             # Function to find a working device
-            def find_working_device() -> Tuple[Optional[int], int]:
+            def find_working_device() -> tuple[Optional[int], int]:
                 nonlocal failed_devices
 
                 # First try the default device

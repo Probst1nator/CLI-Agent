@@ -1,12 +1,15 @@
-from typing import Optional
-from flask import Flask, render_template_string, jsonify, request
-import threading
-import webbrowser
 import queue
-import requests
+import threading
 import time
-from core.chat import Chat, Role
+import webbrowser
 from multiprocessing import Process
+
+import requests
+from flask import Flask, jsonify, render_template_string, request
+
+from core.chat import Chat, Role
+from typing import Optional
+
 
 class WebServer:
     def __init__(self, port: int = 5000):

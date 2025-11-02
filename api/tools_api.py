@@ -97,8 +97,9 @@ async def upload_file(request: Any) -> Any:
         raise RuntimeError("aiohttp not available")
 
     try:
-        from core.globals import g
         import tempfile
+
+        from core.globals import g
 
         reader = await request.multipart()
         uploaded_files = []

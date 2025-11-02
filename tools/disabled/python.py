@@ -7,22 +7,25 @@ NOTE: This is a highly complex tool that relies on precise interaction with a
 pexpect-managed Python session. Its complexity can make it fragile, which might
 be why it is in the 'disabled' directory. This version is simplified for robustness.
 """
-import pexpect
-import os
-import base64
 import ast
+import base64
 import logging
-from typing import Callable, Optional
+import os
+from collections.abc import Callable
+
+import pexpect
 from termcolor import colored
 
+from typing import Optional
 # Assumes g is initialized and available from the project's core
 from core.globals import g
+
 
 class PythonSession:
     """Manages a persistent, interactive Python session for code execution."""
     def __init__(self,
-                 stdout_callback: Optional[Callable[[str], None]] = None,
-                 stderr_callback: Optional[Callable[[str], None]] = None):
+                 stdout_callback: Callable[[str], None] | None = None,
+                 stderr_callback: Callable[[str], None] | None = None):
 
         self.stdout_callback = stdout_callback or (lambda text: print(text, end=''))
         self.stderr_callback = stderr_callback or (lambda text: print(colored(f"STDERR: {text}", "red"), end=''))

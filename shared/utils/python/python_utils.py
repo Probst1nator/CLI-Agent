@@ -1,21 +1,21 @@
 import argparse
 import json
 import os
-from typing import Dict, Tuple
 
 from termcolor import colored
 
 from core.chat import Chat, Role
+from core.globals import g
 from core.llm_router import LlmRouter
 from shared.cmd_execution import select_and_execute_commands
-from core.globals import g
+
 
 def evaluate_existing_script(
     script_path: str,
     context_chat: Chat,
     requirements: str,
     args: argparse.Namespace
-) -> Dict:
+) -> dict:
     """
     Evaluate if an existing script meets current requirements.
 
@@ -31,7 +31,7 @@ def evaluate_existing_script(
         - decision: 'keep', 'modify', or 'replace'
         - modifications_needed: Optional list of needed changes
     """
-    with open(script_path, "r") as f:
+    with open(script_path) as f:
         file_content = f.read()
 
     evaluation_chat = context_chat.deep_copy()
@@ -117,7 +117,7 @@ def handle_execution_error(
     error_details: str,
     context_chat: Chat,
     args: argparse.Namespace
-) -> Dict:
+) -> dict:
     """
     Analyze and handle script execution errors.
 
@@ -168,7 +168,7 @@ def execute_script(
     script_path: str,
     context_chat: Chat,
     args: argparse.Namespace
-) -> Tuple[str, bool]:
+) -> tuple[str, bool]:
     """
     Execute a Python script and handle the results.
 
@@ -235,7 +235,7 @@ Requirements: {script_requirements}"""
 
             if evaluation['decision'] == 'keep':
                 print(colored("Using existing script as-is", "green"))
-                with open(script_path, 'r') as f:
+                with open(script_path) as f:
                     final_script = f.read()
             else:
                 print(colored(

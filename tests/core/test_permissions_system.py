@@ -14,6 +14,7 @@ test_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(test_root))
 
 from shared.path_resolver import setup_cli_agent_imports
+
 setup_cli_agent_imports()
 
 from core.permissions.permissions_manager import PermissionsManager

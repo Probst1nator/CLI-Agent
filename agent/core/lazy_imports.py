@@ -6,14 +6,15 @@ imports inside the functions that use them, rather than at module level.
 """
 
 from __future__ import annotations
-from typing import Any, Optional, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Any
 
 # Only import types for static analysis, not at runtime
 if TYPE_CHECKING:
     from prompt_toolkit import PromptSession
 
 
-def get_prompt_session() -> 'PromptSession':
+def get_prompt_session() -> PromptSession:
     """
     Get prompt session with lazy imports.
 
@@ -21,10 +22,11 @@ def get_prompt_session() -> 'PromptSession':
     input is actually needed.
     """
     # Import only when needed - saves ~100ms startup time
+    import os
+
     from prompt_toolkit import PromptSession
     from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
     from prompt_toolkit.history import FileHistory
-    import os
 
     # Create session with lazy-loaded components
     history = FileHistory(os.path.expanduser('~/.cli_agent_history'))
@@ -34,7 +36,7 @@ def get_prompt_session() -> 'PromptSession':
     )
 
 
-def get_ml_pipeline(task: str) -> Optional[Any]:
+def get_ml_pipeline(task: str) -> Any | None:
     """
     Get ML pipeline with lazy transformers import.
 

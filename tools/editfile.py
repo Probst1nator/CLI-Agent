@@ -6,7 +6,8 @@ working directory.
 """
 import os
 import re
-from typing import Match
+from re import Match
+
 
 class editfile:
     @staticmethod
@@ -71,7 +72,7 @@ class editfile:
         if not os.path.isfile(full_path):
             return f"Error: File not found at '{full_path}' (resolved from '{filepath}')"
 
-        with open(full_path, 'r', encoding='utf-8') as f:
+        with open(full_path, encoding='utf-8') as f:
             original_content = f.read()
 
         if find_str not in original_content:
@@ -115,7 +116,7 @@ class editfile:
         if not os.path.isfile(full_path):
             return f"Error: File not found at '{full_path}' (resolved from '{filepath}')"
 
-        with open(full_path, 'r', encoding='utf-8') as f:
+        with open(full_path, encoding='utf-8') as f:
             lines = f.readlines()
 
         total_lines = len(lines)

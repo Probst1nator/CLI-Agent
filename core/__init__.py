@@ -12,8 +12,8 @@ try:
 except ImportError:
     try:
         # Fall back to legacy location
-        import sys
         import os
+        import sys
         sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'py_classes'))
         from cls_chat import Chat, Role
     except ImportError:

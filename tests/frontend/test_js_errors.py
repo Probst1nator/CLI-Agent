@@ -12,13 +12,13 @@ Requirements:
 import asyncio
 import json
 import subprocess
-import time
 import sys
-from pathlib import Path
+import time
 from datetime import datetime
+from pathlib import Path
 
 try:
-    from playwright.async_api import async_playwright, Page
+    from playwright.async_api import Page, async_playwright
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False

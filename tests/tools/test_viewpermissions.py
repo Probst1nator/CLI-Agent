@@ -5,10 +5,11 @@ Test suite for the viewpermissions tool.
 This module tests the user-friendly tool that displays saved permissions.
 """
 import os
-from unittest.mock import Mock, patch
 
 # Add project root to path for imports
 import sys
+from unittest.mock import Mock, patch
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 # Updated import to use the new viewpermissions tool

@@ -10,8 +10,8 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from core.llm_router import LlmRouter
 from core.chat import Chat, Role
+from core.llm_router import LlmRouter
 
 
 def test_local_mode_model_filtering():

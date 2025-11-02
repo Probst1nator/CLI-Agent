@@ -1,14 +1,16 @@
-import tempfile
-import os
-import threading
 import logging
-from typing import Any, Optional, Tuple
+import os
+import tempfile
+import threading
+from typing import Any, Optional
+
+import speech_recognition as sr
 from openai import OpenAI
 from termcolor import colored
+
 from core.chat import Chat
-from py_classes.unified_interfaces import AIProviderInterface
-import speech_recognition as sr
 from core.globals import g
+from py_classes.unified_interfaces import AIProviderInterface
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +88,7 @@ class OpenAIAPI(AIProviderInterface):
         return OpenAIAPI._create_cancellable_stream(raw_stream, model_key)
 
     @staticmethod
-    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional[Chat] = None) -> Tuple[str,str]:
+    def transcribe_audio(audio_data: sr.AudioData, language: str = "", model: str = "whisper-1", chat: Optional[Chat] = None) -> tuple[str,str]:
         """
         Transcribes an audio file using the OpenAI Whisper API.
 

@@ -12,12 +12,12 @@ Key Features:
 - Metadata tracking (line counts, character counts, source info)
 - Thread-safe operations for concurrent access
 """
+import hashlib
+import re
 import threading
 import time
-import re
-import hashlib
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+from typing import Any, Optional
 
 # TextResourceManager is fully decoupled from logging system
 
@@ -34,7 +34,7 @@ class ResourceMetadata:
     last_accessed: float  # timestamp for cleanup
     encoding: str = 'utf-8'
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
@@ -45,11 +45,11 @@ class TextResource:
     def __init__(self, content: str, metadata: ResourceMetadata):
         self.content = content
         self.metadata = metadata
-        self._lines_cache: Optional[List[str]] = None
+        self._lines_cache: Optional[list[str]] = None
         self._lock = threading.RLock()
 
     @property
-    def lines(self) -> List[str]:
+    def lines(self) -> list[str]:
         """Get content as list of lines (cached)."""
         if self._lines_cache is None:
             with self._lock:
@@ -57,7 +57,7 @@ class TextResource:
                     self._lines_cache = self.content.splitlines()
         return self._lines_cache
 
-    def search_regex(self, pattern: str, context_lines: int = 0, max_results: int = 50) -> List[Dict[str, Any]]:
+    def search_regex(self, pattern: str, context_lines: int = 0, max_results: int = 50) -> list[dict[str, Any]]:
         """
         Search for regex pattern in content.
 
@@ -106,7 +106,7 @@ class TextResource:
 
         return matches
 
-    def get_line_range(self, start_line: int, end_line: Optional[int] = None) -> Dict[str, Any]:
+    def get_line_range(self, start_line: int, end_line: Optional[int] = None) -> dict[str, Any]:
         """
         Get specific line range from content.
 
@@ -184,7 +184,7 @@ class TextResourceManager:
 
     def _initialize(self):
         """Initialize the manager (called once)."""
-        self._resources: Dict[str, TextResource] = {}
+        self._resources: dict[str, TextResource] = {}
         self._resource_lock = threading.RLock()
         self._cleanup_interval = 3600  # 1 hour
         self._max_age = 86400  # 24 hours
@@ -255,7 +255,7 @@ class TextResourceManager:
                 resource.update_access_time()
             return resource
 
-    def get_metadata(self, resource_id: str) -> Optional[Dict[str, Any]]:
+    def get_metadata(self, resource_id: str) -> Optional[dict[str, Any]]:
         """Get metadata for a resource without loading content."""
         resource = self.get_resource(resource_id)
         return resource.metadata.to_dict() if resource else None
@@ -266,7 +266,7 @@ class TextResourceManager:
         pattern: str,
         context_lines: int = 0,
         max_results: int = 50
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Search for pattern in a specific resource.
 
@@ -302,7 +302,7 @@ class TextResourceManager:
         resource_id: str,
         start_line: int,
         end_line: Optional[int] = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get specific line range from a resource."""
         resource = self.get_resource(resource_id)
         if not resource:
@@ -316,7 +316,7 @@ class TextResourceManager:
         except Exception as e:
             return {"error": f"Failed to get line range: {str(e)}"}
 
-    def list_resources(self) -> List[Dict[str, Any]]:
+    def list_resources(self) -> list[dict[str, Any]]:
         """List all available resources."""
         with self._resource_lock:
             resources = []
@@ -374,7 +374,7 @@ class TextResourceManager:
 
         # Cleanup is silent - no logging dependencies
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get manager statistics."""
         with self._resource_lock:
             total_lines = sum(r.metadata.total_lines for r in self._resources.values())

@@ -63,6 +63,7 @@ async def upload_audio(request: Any) -> Any:
         try:
             # Load audio file and transcribe
             import soundfile as sf
+
             from shared.utils_audio import transcribe_audio
 
             # Load audio from temporary file
@@ -142,8 +143,8 @@ async def generate_tts(request: Any) -> Any:
 
         # Generate TTS audio
         try:
-            from shared.audio_router import generate_tts_audio
             from core.globals import g
+            from shared.audio_router import generate_tts_audio
 
             # Use online or local TTS based on mode
             online_mode = getattr(g, 'online_mode', False)

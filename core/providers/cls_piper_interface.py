@@ -5,15 +5,16 @@ High-quality, multi-lingual text-to-speech using Piper TTS.
 Supports German, English, and many other languages with offline processing.
 """
 
+import logging
 import os
 import tempfile
-import logging
-from typing import Optional, List, Union, Tuple, Dict, Any
-from pathlib import Path
 import urllib.request
+from pathlib import Path
+from typing import Any, Optional
+
 import numpy as np
-from piper import PiperVoice, SynthesisConfig
 import speech_recognition as sr
+from piper import PiperVoice, SynthesisConfig
 
 from py_classes.unified_interfaces import AudioProviderInterface
 
@@ -170,7 +171,7 @@ class PiperInterface(AudioProviderInterface):
             logger.error(f"Failed to load voice {voice_name}: {e}")
             return None
 
-    def _select_voice(self, language: str = "en", gender: str = "female", quality: str = "medium", speaker_id: Union[None, str] = "") -> str:
+    def _select_voice(self, language: str = "en", gender: str = "female", quality: str = "medium", speaker_id: Optional[str] = "") -> str:
         """Select appropriate voice based on parameters."""
         # Default voice mappings
         defaults = {
@@ -387,8 +388,8 @@ class PiperInterface(AudioProviderInterface):
                 pass
 
             # Fallback to system commands
-            import subprocess
             import platform
+            import subprocess
 
             system = platform.system().lower()
 
@@ -407,11 +408,11 @@ class PiperInterface(AudioProviderInterface):
         except Exception as e:
             logger.error(f"Failed to play audio: {e}")
 
-    def get_available_voices(self) -> List[str]:
+    def get_available_voices(self) -> list[str]:
         """Get list of available voices."""
         return list(self.VOICES.keys())
 
-    def get_voice_info(self, voice_name: str) -> Dict[str, Any]:
+    def get_voice_info(self, voice_name: str) -> dict[str, Any]:
         """Get information about a specific voice."""
         if voice_name in self.VOICES:
             return self.VOICES[voice_name].copy()
@@ -433,10 +434,10 @@ class PiperInterface(AudioProviderInterface):
 
     # Abstract method implementations for AudioProviderInterface
 
-    def transcribe_audio(self, audio_data: Union[sr.AudioData, np.ndarray],
+    def transcribe_audio(self, audio_data: sr.AudioData | np.ndarray,
                         language: str = "",
                         model: str = "",
-                        sample_rate: int = 44100) -> Tuple[str, str]:
+                        sample_rate: int = 44100) -> tuple[str, str]:
         """
         Piper is a TTS model, not STT.
         This method is not implemented - use WhisperInterface instead.
@@ -452,7 +453,7 @@ class PiperInterface(AudioProviderInterface):
                              silence_duration: float = 2.0,
                              min_duration: float = 1.0,
                              max_duration: float = 30.0,
-                             use_wake_word: bool = True) -> Tuple[str, str, np.ndarray]:
+                             use_wake_word: bool = True) -> tuple[str, str, np.ndarray]:
         """
         Piper is a TTS model, not STT.
         This method is not implemented - use WhisperInterface instead.

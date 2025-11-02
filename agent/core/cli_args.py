@@ -8,6 +8,7 @@ into a reusable component that can be shared across different entry points.
 import argparse
 import logging
 import sys
+
 from termcolor import colored
 
 

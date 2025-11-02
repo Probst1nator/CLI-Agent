@@ -5,10 +5,9 @@ Background caching of filesystem paths for intelligent autocomplete suggestions.
 Scans recursively without limits, runs async, refreshes on user messages.
 """
 
-import os
 import asyncio
 import logging
-from typing import List, Set
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +106,7 @@ class PathCacheManager:
         finally:
             self.is_scanning = False
 
-    async def _walk_directory(self, root_path: str) -> Set[str]:
+    async def _walk_directory(self, root_path: str) -> set[str]:
         """
         Recursively walk directory and collect all file/folder paths.
         Runs in executor to avoid blocking event loop.
@@ -151,7 +150,7 @@ class PathCacheManager:
 
         return paths
 
-    def get_cached_paths(self) -> List[str]:
+    def get_cached_paths(self) -> list[str]:
         """Get current cached paths (thread-safe read)"""
         if not self.g:
             return []

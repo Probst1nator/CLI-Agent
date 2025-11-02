@@ -16,6 +16,7 @@
 /**
  * @typedef {Object} LLMConfig
  * @property {Array<string>} override_llms - Override LLM model IDs
+ * @property {Array<string>} autocomplete_llms - Autocomplete LLM model IDs
  * @property {Array<string>} router_llms - Router LLM model IDs
  * @property {Array<string>} planner_llms - Planner LLM model IDs
  * @property {Array<string>} selected_llms - Fallback LLM model IDs (in priority order)
@@ -31,6 +32,7 @@
 /**
  * @typedef {Object} RoleContainers
  * @property {HTMLElement|null} override - Container for override LLM selectors
+ * @property {HTMLElement|null} autocomplete - Container for autocomplete LLM selectors
  * @property {HTMLElement|null} router - Container for router LLM selectors
  * @property {HTMLElement|null} planner - Container for planner LLM selectors
  * @property {HTMLElement|null} fallbacks - Container for fallback LLM selectors
@@ -39,6 +41,7 @@
 /**
  * @typedef {Object} RoleSelectors
  * @property {Array<SelectorInstance>} override - Override selector instances
+ * @property {Array<SelectorInstance>} autocomplete - Autocomplete selector instances
  * @property {Array<SelectorInstance>} router - Router selector instances
  * @property {Array<SelectorInstance>} planner - Planner selector instances
  * @property {Array<SelectorInstance>} fallbacks - Fallback selector instances
@@ -61,6 +64,7 @@ class DynamicLLMManager {
          */
         this.roleContainers = {
             override: document.getElementById('override-llm-selectors-container'),
+            autocomplete: document.getElementById('autocomplete-llm-selectors-container'),
             router: document.getElementById('router-llm-selectors-container'),
             planner: document.getElementById('planner-llm-selectors-container'),
             fallbacks: document.getElementById('fallbacks-llm-selectors-container')
@@ -72,6 +76,7 @@ class DynamicLLMManager {
          */
         this.selectors = {
             override: [],
+            autocomplete: [],
             router: [],
             planner: [],
             fallbacks: []
@@ -162,12 +167,14 @@ class DynamicLLMManager {
                     window.logDebug('[DynamicLLMManager] Available models:', this.availableModels.length);
                     window.logDebug('[DynamicLLMManager] Config received:', config);
                     window.logDebug('[DynamicLLMManager] override_llms:', config.override_llms);
+                    window.logDebug('[DynamicLLMManager] autocomplete_llms:', config.autocomplete_llms);
                     window.logDebug('[DynamicLLMManager] router_llms:', config.router_llms);
                     window.logDebug('[DynamicLLMManager] planner_llms:', config.planner_llms);
                     window.logDebug('[DynamicLLMManager] selected_llms:', config.selected_llms);
 
                     // Load multi-model arrays (new format)
                     this.renderSelectors('override', config.override_llms || []);
+                    this.renderSelectors('autocomplete', config.autocomplete_llms || []);
                     this.renderSelectors('router', config.router_llms || []);
                     this.renderSelectors('planner', config.planner_llms || []);
                     this.renderSelectors('fallbacks', config.selected_llms || []);
@@ -192,6 +199,7 @@ class DynamicLLMManager {
             this.renderSelectors('fallbacks', []);
             this.renderSelectors('router', []);
             this.renderSelectors('planner', []);
+            this.renderSelectors('autocomplete', []);
             this.renderSelectors('override', []);
             // Initialization complete even if failed - allow saves from now on
             this.isInitializing = false;
@@ -326,7 +334,7 @@ class DynamicLLMManager {
 
     /**
      * Add a new selector to a role (with empty selection - user must choose model)
-     * @param {string} role - Role name (override, router, planner, fallbacks)
+     * @param {string} role - Role name (override, autocomplete, router, planner, fallbacks)
      * @returns {void}
      */
     addSelector(role) {
@@ -530,7 +538,7 @@ class DynamicLLMManager {
 
     /**
      * Get current configuration for all roles
-     * @returns {Object} Current config with override, router, planner, fallbacks arrays
+     * @returns {Object} Current config with override, autocomplete, router, planner, fallbacks arrays
      */
     getCurrentConfig() {
         const getModelsForRole = (role) => {
@@ -544,6 +552,7 @@ class DynamicLLMManager {
 
         return {
             override: getModelsForRole('override'),
+            autocomplete: getModelsForRole('autocomplete'),
             router: getModelsForRole('router'),
             planner: getModelsForRole('planner'),
             fallbacks: getModelsForRole('fallbacks')
@@ -558,6 +567,7 @@ class DynamicLLMManager {
     hasAnyLLMSelected() {
         const config = this.getCurrentConfig();
         return config.override.length > 0 ||
+               config.autocomplete.length > 0 ||
                config.router.length > 0 ||
                config.planner.length > 0 ||
                config.fallbacks.length > 0;

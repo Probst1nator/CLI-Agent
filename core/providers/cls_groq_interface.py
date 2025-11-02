@@ -1,15 +1,16 @@
+import logging
 import os
-from typing import Optional, Tuple, Any, TYPE_CHECKING, List, Dict
+import threading
+from typing import TYPE_CHECKING, Any, Optional
+
+import requests
 from groq import Groq
 from termcolor import colored
+
 from core.chat import Chat
-from py_classes.unified_interfaces import AIProviderInterface
-from infrastructure.rate_limiting.cls_rate_limit_tracker import rate_limit_tracker
-import socket
-import logging
-import threading
-import requests
 from core.globals import g
+from infrastructure.rate_limiting.cls_rate_limit_tracker import rate_limit_tracker
+from py_classes.unified_interfaces import AIProviderInterface
 
 # Only used for type annotations
 if TYPE_CHECKING:
@@ -110,7 +111,7 @@ class GroqAPI(AIProviderInterface):
         return GroqAPI._create_cancellable_stream(raw_stream, model_key)
 
     @staticmethod
-    def get_available_models(chat: Optional[Chat] = None) -> List[Dict[str, Any]]:
+    def get_available_models(chat: Optional[Chat] = None) -> list[dict[str, Any]]:
         """
         Discovers and returns available Groq models.
 
@@ -213,7 +214,7 @@ class GroqAPI(AIProviderInterface):
             return []
 
     @staticmethod
-    def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional['Chat'] = None) -> Optional[Tuple[str, str]]:
+    def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional['Chat'] = None) -> Optional[tuple[str, str]]:
         """
         Transcribes an audio file using Groq's Whisper implementation.
 
@@ -265,7 +266,7 @@ class GroqAPI(AIProviderInterface):
 
             return transcription.text, transcription.language
 
-        except (socket.timeout, socket.error, TimeoutError) as e:
+        except (OSError, TimeoutError) as e:
             # Handle timeout-related errors silently without printing
             raise TimeoutException(f"❌ Request timed out: {e}")
         except Exception as e:

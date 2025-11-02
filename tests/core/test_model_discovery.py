@@ -15,6 +15,7 @@ test_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(test_root))
 
 from shared.path_resolver import setup_cli_agent_imports
+
 setup_cli_agent_imports()
 
 
@@ -91,8 +92,8 @@ def test_groq_api_model_fetching():
 def test_ollama_model_fetching():
     """Test Ollama local model discovery"""
     try:
-        from core.providers.cls_ollama_interface import OllamaClient
         from core.globals import g
+        from core.providers.cls_ollama_interface import OllamaClient
 
         # Test host reachability check with short timeout
         hosts = [h.split(':')[0] for h in g.DEFAULT_OLLAMA_HOSTS]

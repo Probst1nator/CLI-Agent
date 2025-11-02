@@ -1,7 +1,9 @@
 """Help command implementation."""
 
 from __future__ import annotations
-from typing import List, Any, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Any
+
 from termcolor import colored
 
 from agent.commands.base_command import BaseCommand, CommandResponse, CommandResult
@@ -13,7 +15,7 @@ class HelpCommand(BaseCommand):
     """Command to display help information."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/h', '/help']
 
     @property
@@ -22,7 +24,7 @@ class HelpCommand(BaseCommand):
 
     async def execute(
         self,
-        parts: List[str],
+        parts: list[str],
         **kwargs: Any
     ) -> CommandResponse:
         """Execute help display."""

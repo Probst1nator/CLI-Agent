@@ -2,16 +2,18 @@
 Commands for LLM profile management.
 """
 
-from typing import List, Any
+from typing import Any
+
 from termcolor import colored
-from agent.commands.base_command import BaseCommand, CommandResult, CommandResponse
+
+from agent.commands.base_command import BaseCommand, CommandResponse, CommandResult
 
 
 class ProfileSaveCommand(BaseCommand):
     """Save current LLM configuration as a profile."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/profile_save', '/psave']
 
     @property
@@ -22,7 +24,7 @@ class ProfileSaveCommand(BaseCommand):
     def usage(self) -> str:
         return '<profile_id>'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -32,7 +34,7 @@ class ProfileSaveCommand(BaseCommand):
         profile_id = parts[1]
 
         try:
-            from core.llm_profiles import get_profile_manager, LLMProfile
+            from core.llm_profiles import LLMProfile, get_profile_manager
 
             manager = get_profile_manager()
 
@@ -88,7 +90,7 @@ class ProfileLoadCommand(BaseCommand):
     """Load a saved LLM configuration profile."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/profile_load', '/pload']
 
     @property
@@ -99,7 +101,7 @@ class ProfileLoadCommand(BaseCommand):
     def usage(self) -> str:
         return '<profile_id>'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,
@@ -147,7 +149,7 @@ class ProfileListCommand(BaseCommand):
     """List all saved LLM configuration profiles."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/profile_list', '/plist', '/profiles']
 
     @property
@@ -158,7 +160,7 @@ class ProfileListCommand(BaseCommand):
     def usage(self) -> str:
         return ''
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         try:
             from core.llm_profiles import get_profile_manager
 
@@ -221,7 +223,7 @@ class ProfileDeleteCommand(BaseCommand):
     """Delete a saved LLM configuration profile."""
 
     @property
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         return ['/profile_delete', '/pdelete']
 
     @property
@@ -232,7 +234,7 @@ class ProfileDeleteCommand(BaseCommand):
     def usage(self) -> str:
         return '<profile_id>'
 
-    async def execute(self, parts: List[str], **kwargs: Any) -> CommandResponse:
+    async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
         if len(parts) < 2:
             return CommandResponse(
                 result=CommandResult.ERROR,

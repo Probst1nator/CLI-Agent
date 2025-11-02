@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Centralized Temporary File Lifecycle Management System
 
@@ -6,16 +5,16 @@ Provides coordinated temporary file creation, tracking, and cleanup
 across all CLI-Agent components to prevent file accumulation.
 """
 
-import os
-import time
-import threading
-import tempfile
-import shutil
-import logging
 import glob
-from typing import Dict, Optional, Any
-from dataclasses import dataclass
+import logging
+import os
+import shutil
+import tempfile
+import threading
+import time
 from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any, Optional
 
 try:
     from core.globals import g
@@ -63,7 +62,7 @@ class FileManager:
 
     def __init__(self):
         """Initialize the file manager."""
-        self.tracked_files: Dict[str, TempFileInfo] = {}
+        self.tracked_files: dict[str, TempFileInfo] = {}
         self.cleanup_thread: Optional[threading.Thread] = None
         self.cleanup_stop_event = threading.Event()
         self.lock = threading.Lock()
@@ -316,7 +315,7 @@ class FileManager:
         self,
         category: str,
         force_all: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Clean up all files in a specific category.
 
@@ -364,7 +363,7 @@ class FileManager:
 
         return stats
 
-    def cleanup_expired_files(self) -> Dict[str, Any]:
+    def cleanup_expired_files(self) -> dict[str, Any]:
         """
         Clean up all expired files across all categories.
 
@@ -422,7 +421,7 @@ class FileManager:
 
         return stats
 
-    def cleanup_legacy_files(self) -> Dict[str, Any]:
+    def cleanup_legacy_files(self) -> dict[str, Any]:
         """
         Clean up legacy files that weren't tracked by the file manager.
         This extends the existing cleanup_temp_py_files functionality.
@@ -490,7 +489,7 @@ class FileManager:
 
         return stats
 
-    def get_file_statistics(self) -> Dict[str, Any]:
+    def get_file_statistics(self) -> dict[str, Any]:
         """Get comprehensive statistics about tracked files."""
         stats = {
             'total_tracked': 0,
@@ -587,7 +586,7 @@ class FileManager:
                 if self.cleanup_stop_event.wait(600):  # 10 minutes
                     break
 
-    def shutdown(self) -> Dict[str, Any]:
+    def shutdown(self) -> dict[str, Any]:
         """Gracefully shutdown the file manager and perform final cleanup."""
         # Stop periodic cleanup
         self.stop_periodic_cleanup()

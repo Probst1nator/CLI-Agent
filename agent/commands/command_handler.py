@@ -6,11 +6,15 @@ get_user_input_with_bindings into a clean, modular system.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Any
 
 from agent.commands.base_command import (
-    BaseCommand, CommandResponse, CommandResult, CommandRegistry,
-    register_command_aliases
+    BaseCommand,
+    CommandRegistry,
+    CommandResponse,
+    CommandResult,
+    register_command_aliases,
 )
 
 if TYPE_CHECKING:
@@ -33,23 +37,38 @@ class CommandHandler:
     def _register_built_in_commands(self) -> None:
         """Register all built-in commands."""
         # Import and register commands here to avoid circular imports
-        from agent.commands.screenshot_command import ScreenshotCommand
-        from agent.commands.regenerate_command import RegenerateCommand
         from agent.commands.help_command import HelpCommand
-        from agent.commands.simple_commands import (
-            MultilineCommand, ExitCommand, ResetCommand, UnsayCommand,
-            PrintCommand, YoloCommand, VoiceCommand, LocalCommand,
-            OnlineCommand, FullOutputCommand, LlmCommand,
-            PermissionCommand, SaveCommand, CompactCommand,
-            PlannerLlmCommand, RouterLlmCommand, OverrideLlmCommand, FallbacksCommand, ConfigCommand,
-            ToolsCommand
-        )
         from agent.commands.profile_commands import (
-            ProfileSaveCommand, ProfileLoadCommand, ProfileListCommand, ProfileDeleteCommand
+            ProfileDeleteCommand,
+            ProfileListCommand,
+            ProfileLoadCommand,
+            ProfileSaveCommand,
         )
-        from agent.commands.tool_commands import (
-            EnableToolCommand, DisableToolCommand
+        from agent.commands.regenerate_command import RegenerateCommand
+        from agent.commands.screenshot_command import ScreenshotCommand
+        from agent.commands.simple_commands import (
+            CompactCommand,
+            ConfigCommand,
+            ExitCommand,
+            FallbacksCommand,
+            FullOutputCommand,
+            LlmCommand,
+            LocalCommand,
+            MultilineCommand,
+            OnlineCommand,
+            OverrideLlmCommand,
+            PermissionCommand,
+            PlannerLlmCommand,
+            PrintCommand,
+            ResetCommand,
+            RouterLlmCommand,
+            SaveCommand,
+            ToolsCommand,
+            UnsayCommand,
+            VoiceCommand,
+            YoloCommand,
         )
+        from agent.commands.tool_commands import DisableToolCommand, EnableToolCommand
 
         # Register all commands
         commands = [
@@ -99,7 +118,7 @@ class CommandHandler:
         from agent.core.command_registry import register_command_implementation
         register_command_implementation(command)
 
-    def get_command_definitions(self) -> Dict[str, Any]:
+    def get_command_definitions(self) -> dict[str, Any]:
         """Get command definitions for auto-completion."""
         defs = {}
         processed_commands = set()
@@ -114,7 +133,7 @@ class CommandHandler:
 
         return defs
 
-    def get_command_descriptions(self) -> Dict[str, str]:
+    def get_command_descriptions(self) -> dict[str, str]:
         """Get command descriptions for auto-completion tooltips."""
         descs = {}
         processed_commands = set()
@@ -235,7 +254,7 @@ class CommandHandler:
                 uncategorized_commands[alias] = command
 
         # Display categorized commands
-        for category in categories.keys():
+        for category in categories:
             if category in categorized_commands:
                 help_lines.append("")
                 help_lines.append(colored(f"  {category}:", "cyan", attrs=["bold"]))
@@ -251,6 +270,6 @@ class CommandHandler:
 
         return "\n".join(help_lines)
 
-    def list_commands(self) -> List[str]:
+    def list_commands(self) -> list[str]:
         """Get list of all command aliases."""
         return list(self.registry.keys())

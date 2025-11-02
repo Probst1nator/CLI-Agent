@@ -174,7 +174,7 @@ class Logger {
      * Ship log entry to backend for persistence
      * @param {Object} logEntry - Log entry to ship
      */
-    shipLogToBackend(logEntry) {
+    async shipLogToBackend(logEntry) {
         // Don't block on network errors - fire and forget
         const payload = {
             level: logEntry.level,
@@ -186,22 +186,33 @@ class Logger {
             timestamp: new Date(logEntry.timestamp).toISOString()
         };
 
-        // Use fetch with no-cors to avoid blocking
-        fetch('/api/logs/client', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Session-ID': window.sessionId || 'unknown',
-                'X-Request-ID': logEntry.data?.requestId || 'unknown'
-            },
-            body: JSON.stringify(payload)
-        }).catch(err => {
-            // Silently fail to avoid error loops
-            // Only log to console if in debug mode
+        try {
+            // Use BackendConnector if available for multi-user support
+            const url = window.backendConnector
+                ? await window.backendConnector.buildURL('/api/logs/client')
+                : '/api/logs/client';
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || 'unknown',
+                    'X-Request-ID': logEntry.data?.requestId || 'unknown'
+                },
+                body: JSON.stringify(payload)
+            }).catch(err => {
+                // Silently fail to avoid error loops
+                // Only log to console if in debug mode
+                if (this.config.level === 'DEBUG') {
+                    console.error('Failed to ship log to backend:', err);
+                }
+            });
+        } catch (err) {
+            // Silently fail if URL building fails
             if (this.config.level === 'DEBUG') {
-                console.error('Failed to ship log to backend:', err);
+                console.error('Failed to build backend URL:', err);
             }
-        });
+        }
     }
 
     /**

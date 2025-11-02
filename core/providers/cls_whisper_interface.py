@@ -1,19 +1,21 @@
 import os
 import tempfile
-import soundfile as sf
-from typing import Tuple, Optional, List, Union
+
 import numpy as np
+import soundfile as sf
 import speech_recognition as sr
 
-from py_classes.unified_interfaces import AudioProviderInterface
 from core.globals import g
+from py_classes.unified_interfaces import AudioProviderInterface
 from shared.utils_audio import (
-    transcribe_audio as utils_transcribe_audio,
-    play_notification,
+from typing import Optional
     play_audio,
+    play_notification,
     record_audio,
-    text_to_speech
+    text_to_speech,
 )
+from shared.utils_audio import transcribe_audio as utils_transcribe_audio
+
 
 class WhisperInterface(AudioProviderInterface):
     """
@@ -21,10 +23,10 @@ class WhisperInterface(AudioProviderInterface):
     and Kokoro for text-to-speech.
     """
 
-    def transcribe_audio(self, audio_data: Union[sr.AudioData, np.ndarray],
+    def transcribe_audio(self, audio_data: sr.AudioData | np.ndarray,
                          language: str = "",
                          model: str = "medium",
-                         sample_rate: int = 44100) -> Tuple[str, str]:
+                         sample_rate: int = 44100) -> tuple[str, str]:
         """
         Transcribes audio data using the local Whisper model.
 
@@ -83,7 +85,7 @@ class WhisperInterface(AudioProviderInterface):
         min_duration: float = 1.0,
         max_duration: float = 30.0,
         use_wake_word: bool = True
-    ) -> Tuple[str, str, np.ndarray]:
+    ) -> tuple[str, str, np.ndarray]:
         """
         Record audio from the microphone and transcribe it.
 
@@ -142,7 +144,7 @@ class WhisperInterface(AudioProviderInterface):
              voice: str = "af_heart",
              speed: float = 1.0,
              output_path: Optional[str] = None,
-             play: bool = True) -> Union[List[str], None]:
+             play: bool = True) -> Optional[list[str]]:
         """
         Converts text to speech using Kokoro TTS.
 

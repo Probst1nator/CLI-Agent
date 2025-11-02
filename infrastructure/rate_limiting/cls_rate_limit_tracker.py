@@ -1,8 +1,9 @@
-import os
 import json
-import time
 import logging
-from typing import Dict, Any, Optional
+import os
+import time
+from typing import Any, Optional
+
 from core.globals import g
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ class RateLimitTracker:
     """
 
     _instance: Optional["RateLimitTracker"] = None
-    _rate_limits: Dict[str, Dict[str, Any]] = {}
+    _rate_limits: dict[str, dict[str, Any]] = {}
 
     def __new__(cls) -> "RateLimitTracker":
         """
@@ -35,7 +36,7 @@ class RateLimitTracker:
         """Initialize the RateLimitTracker instance by loading existing rate limits."""
         self._rate_limits = self._load_rate_limits()
 
-    def _load_rate_limits(self) -> Dict[str, Dict[str, Any]]:
+    def _load_rate_limits(self) -> dict[str, dict[str, Any]]:
         """
         Load rate limits from the persistent storage file.
 
@@ -44,7 +45,7 @@ class RateLimitTracker:
         """
         try:
             if os.path.exists(g.MODEL_RATE_LIMITS_PATH):
-                with open(g.MODEL_RATE_LIMITS_PATH, 'r') as f:
+                with open(g.MODEL_RATE_LIMITS_PATH) as f:
                     return json.load(f)
             return {}
         except Exception as e:

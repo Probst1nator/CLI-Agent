@@ -9,25 +9,23 @@ MIGRATION NOTICE: This module is being migrated to use the new unified input
 management system. Legacy functions are maintained for backwards compatibility.
 """
 
-import asyncio
 import argparse
+import asyncio
 import threading
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Optional
 
 from termcolor import colored
-
-# Functions will be imported dynamically to avoid circular imports
-
-# Import command system from refactored module
-
-from core.chat import Chat
 
 # Import new unified input system
 from agent.core.input_compatibility import (
     get_user_input_with_bindings_unified,
     handle_multiline_input_unified,
-    handle_screenshot_capture_unified
+    handle_screenshot_capture_unified,
 )
+
+# Functions will be imported dynamically to avoid circular imports
+# Import command system from refactored module
+from core.chat import Chat
 
 
 def handle_multiline_input() -> str:
@@ -47,8 +45,8 @@ async def get_user_input_with_bindings(
     force_input: bool = False,
     input_event: Optional[asyncio.Event] = None,
     input_lock: Optional[threading.Lock] = None,
-    shared_input: Optional[Dict[str, Any]] = None
-) -> Tuple[str, List[str]]:
+    shared_input: Optional[dict[str, Any]] = None
+) -> tuple[str, list[str]]:
     """
     Interactively captures user input, including voice for confirmation prompts.
 
@@ -78,7 +76,7 @@ async def get_user_input_with_bindings(
 # get_user_input_with_bindings.is_first_call = True  # Cannot assign to function
 
 
-async def handle_screenshot_capture() -> List[str]:
+async def handle_screenshot_capture() -> list[str]:
     """
     Handles the screenshot capture process.
 
@@ -92,8 +90,9 @@ async def handle_screenshot_capture() -> List[str]:
 
 async def handle_permission_flags(user_input: str, get_user_input_func, args, input_event, input_lock, shared_input):
     """Handle permission management flags like /permissions, -p, --p."""
-    from core.permissions.permissions_manager import get_permissions_manager
     from termcolor import colored
+
+    from core.permissions.permissions_manager import get_permissions_manager
 
     # Parse the command
     parts = user_input.split()
@@ -173,8 +172,9 @@ async def handle_permission_flags(user_input: str, get_user_input_func, args, in
 
 async def interactive_permission_manager(get_user_input_func, args, input_event, input_lock, shared_input):
     """Interactive permission management interface."""
-    from core.permissions.permissions_manager import get_permissions_manager
     from termcolor import colored
+
+    from core.permissions.permissions_manager import get_permissions_manager
 
     print()
     print(colored("🔧 INTERACTIVE PERMISSION MANAGER", "yellow", attrs=['bold']))

@@ -8,11 +8,13 @@ SECURITY NOTE: This tool is restricted to managing only processes that were
 started by the bash tool using <bash><background>true</background>. It cannot
 access or control system processes or processes started outside of the agent.
 """
-import time
 import asyncio
+import time
 import xml.etree.ElementTree as ET
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+
 from termcolor import colored
+
 from core.globals import g
 from tools.bash import bash  # Import to access the shared process list
 
@@ -66,7 +68,7 @@ class taskmanager:
                 'command' in proc_info)
 
     @staticmethod
-    def _update_process_status(proc_info: Dict[str, Any]) -> None:
+    def _update_process_status(proc_info: dict[str, Any]) -> None:
         """
         Helper to check if a running process has finished and update its status.
         pexpect's isalive() is the source of truth.

@@ -6,7 +6,8 @@ in main.py and main_refactored.py.
 """
 
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
 from termcolor import colored
 
 if TYPE_CHECKING:

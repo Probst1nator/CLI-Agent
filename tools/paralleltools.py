@@ -6,10 +6,12 @@ context block with markdown-style section headers.
 """
 
 import asyncio
-from typing import Any, List, Tuple
+from typing import Any
+
+from termcolor import colored
 
 from core.globals import g
-from termcolor import colored
+
 
 class paralleltools:
     """
@@ -45,7 +47,7 @@ class paralleltools:
         }
 
     @staticmethod
-    def _extract_tool_calls(content: str) -> List[Tuple[str, str]]:
+    def _extract_tool_calls(content: str) -> list[tuple[str, str]]:
         """
         Extract all tool invocations from the paralleltools content.
         Returns a list of (tool_name, tool_content) tuples.
@@ -195,7 +197,7 @@ class paralleltools:
             # Format results with markdown headers
             output_parts = []
 
-            for (tool_name, tool_class), result in zip(task_metadata, results):
+            for (tool_name, tool_class), result in zip(task_metadata, results, strict=False):
                 # Add section header
                 output_parts.append(f"## {tool_name}")
 

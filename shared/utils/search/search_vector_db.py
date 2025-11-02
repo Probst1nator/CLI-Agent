@@ -4,14 +4,14 @@ Manages storage and retrieval of search results and summaries for semantic searc
 NOW INCLUDES HYBRID SEARCH CAPABILITIES WITH BM25.
 """
 
-import os
-import logging
 import hashlib
-import uuid
+import logging
+import os
 import pickle
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any
 
 try:
     import chromadb
@@ -117,7 +117,7 @@ class SearchResultsVectorDB:
         try:
             all_docs = self.results_collection.get(include=["documents"])
             if all_docs and all_docs['ids']:
-                self.corpus = {doc_id: doc for doc_id, doc in zip(all_docs['ids'], all_docs['documents'])}
+                self.corpus = {doc_id: doc for doc_id, doc in zip(all_docs['ids'], all_docs['documents'], strict=False)}
 
                 if self.corpus:
                     tokenized_corpus = [doc.split(" ") for doc in self.corpus.values()]
@@ -139,7 +139,7 @@ class SearchResultsVectorDB:
             logger.warning(f"Failed to save BM25 index: {e}")
     # --- END: BM25 Methods ---
 
-    def _generate_embedding(self, text: str) -> Optional[List[float]]:
+    def _generate_embedding(self, text: str) -> list[float] | None:
         # (This method remains unchanged)
         if not OLLAMA_AVAILABLE:
             logger.debug("Ollama not available for embeddings")
@@ -155,7 +155,7 @@ class SearchResultsVectorDB:
         # (This method remains unchanged)
         return hashlib.md5(content.encode('utf-8')).hexdigest()
 
-    def hybrid_search(self, query: str, search_type: str = "any", max_results: int = 10, k: int = 60) -> List[Tuple[Dict[str, Any], float]]:
+    def hybrid_search(self, query: str, search_type: str = "any", max_results: int = 10, k: int = 60) -> list[tuple[dict[str, Any], float]]:
         """
         Performs a hybrid search using Vector Search (ChromaDB) and Keyword Search (BM25)
         with Reciprocal Rank Fusion (RRF) to combine results.
@@ -227,7 +227,7 @@ class SearchResultsVectorDB:
 
         # 6. Repackage results into the expected format (metadata, distance)
         final_results = []
-        for doc_id, meta, dist in zip(final_results_data['ids'], final_results_data['metadatas'], final_results_data['distances']):
+        for doc_id, meta, dist in zip(final_results_data['ids'], final_results_data['metadatas'], final_results_data['distances'], strict=False):
             # Reconstruct the metadata object similar to the old method
             result_metadata = {
                 'title': meta.get('title', ''), 'url': meta.get('url', ''), 'description': meta.get('description', ''),
@@ -245,14 +245,14 @@ class SearchResultsVectorDB:
         logger.debug(f"Hybrid search returned {len(final_results)} results.")
         return final_results
 
-    def search_similar_results(self, query: str, search_type: str = "any", max_results: int = 10, distance_threshold: float = 0.5) -> List[Tuple[Dict[str, Any], float]]:
+    def search_similar_results(self, query: str, search_type: str = "any", max_results: int = 10, distance_threshold: float = 0.5) -> list[tuple[dict[str, Any], float]]:
         # (This method remains unchanged, but now serves as a fallback)
         if not self.is_ready or not self.results_collection:
             logger.debug("Vector DB not ready or collection missing")
             return []
         # ... (rest of the method is the same as your original) ...
 
-    def store_search_results(self, query: str, search_type: str, results: List[Dict[str, Any]], api_endpoint: str = "web") -> bool:
+    def store_search_results(self, query: str, search_type: str, results: list[dict[str, Any]], api_endpoint: str = "web") -> bool:
         """
         Store search results in ChromaDB and update the BM25 index.
         """
@@ -264,7 +264,7 @@ class SearchResultsVectorDB:
             new_docs_for_bm25 = {}
 
             search_id = str(uuid.uuid4())
-            retrieved_at_iso = datetime.now(timezone.utc).isoformat()
+            retrieved_at_iso = datetime.now(UTC).isoformat()
 
             for i, result in enumerate(results):
                 title = result.get('title', '')
@@ -290,13 +290,13 @@ class SearchResultsVectorDB:
             # Batch embedding generation
             logger.debug(f"📦 Generating embeddings for {len(documents)} new results in a batch...")
             embeddings = [self._generate_embedding(doc) for doc in documents]
-            valid_embeddings_data = [(doc, emb, meta, doc_id) for doc, emb, meta, doc_id in zip(documents, embeddings, metadatas, ids) if emb is not None]
+            valid_embeddings_data = [(doc, emb, meta, doc_id) for doc, emb, meta, doc_id in zip(documents, embeddings, metadatas, ids, strict=False) if emb is not None]
 
             if not valid_embeddings_data:
                 return False
 
             # Upsert into ChromaDB
-            final_docs, final_embeddings, final_metadatas, final_ids = zip(*valid_embeddings_data)
+            final_docs, final_embeddings, final_metadatas, final_ids = zip(*valid_embeddings_data, strict=False)
             self.results_collection.upsert(
                 documents=list(final_docs),
                 embeddings=list(final_embeddings),
@@ -305,7 +305,7 @@ class SearchResultsVectorDB:
             )
 
             # --- NEW: Update BM25 Index ---
-            for doc_id, doc_text in zip(final_ids, final_docs):
+            for doc_id, doc_text in zip(final_ids, final_docs, strict=False):
                 self.corpus[doc_id] = doc_text
 
             if self.corpus and BM25_AVAILABLE:
@@ -322,7 +322,7 @@ class SearchResultsVectorDB:
             logger.warning(f"Error storing search results in batch: {e}")
             return False
 
-    def store_summary(self, query: str, search_type: str, summary: str, source_result_ids: List[str], generation_info: Dict[str, Any]) -> bool:
+    def store_summary(self, query: str, search_type: str, summary: str, source_result_ids: list[str], generation_info: dict[str, Any]) -> bool:
         """
         Store a generated summary in the summaries collection
 
@@ -352,7 +352,7 @@ class SearchResultsVectorDB:
             # Prepare metadata with enhanced provenance tracking
             metadata = {
                 # Accurate Time and Date
-                'created_at': datetime.now(timezone.utc).isoformat(),
+                'created_at': datetime.now(UTC).isoformat(),
 
                 # Accurate Source Information (What generated this?)
                 'summary_method': generation_info.get('method', 'unknown'),
@@ -394,7 +394,7 @@ class SearchResultsVectorDB:
             logger.warning(f"Error storing summary: {e}")
             return False
 
-    def get_summary_by_query(self, query: str, search_type: str) -> Optional[str]:
+    def get_summary_by_query(self, query: str, search_type: str) -> str | None:
         """
         Retrieves a stored summary by an exact query and search type match.
 
@@ -426,7 +426,7 @@ class SearchResultsVectorDB:
             logger.warning(f"Error checking for existing summary: {e}")
             return None
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Get statistics about the vector database"""
         stats = {
             'results_count': 0,

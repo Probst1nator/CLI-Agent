@@ -1,16 +1,19 @@
-from typing import Callable, Optional
+from collections.abc import Callable
+
 from core.globals import g
+
 
 class ComputationalNotebook:
     def __init__(self,
-                 stdout_callback: Optional[Callable[[str], None]] = None,
-                 stderr_callback: Optional[Callable[[str], None]] = None):
+                 stdout_callback: Callable[[str], None] | None = None,
+                 stderr_callback: Callable[[str], None] | None = None):
 
         self.stdout_callback = stdout_callback or (lambda text: print(text, end=''))
         self.stderr_callback = stderr_callback or (lambda text: print(f"STDERR: {text}", end=''))
 
         # Clean up old temporary files from previous runs
         import logging
+
         from termcolor import colored
 
         g.cleanup_temp_py_files()

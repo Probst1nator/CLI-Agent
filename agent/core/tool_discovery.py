@@ -9,7 +9,6 @@ import asyncio
 import importlib
 import logging
 from pathlib import Path
-from typing import List
 
 from core.globals import g
 
@@ -56,7 +55,7 @@ def _check_homeassistant_available() -> bool:
         return False
 
 
-def _generate_tool_documentation(disabled_tools: List[str] = []) -> str:
+def _generate_tool_documentation(disabled_tools: list[str] = []) -> str:
     """
     Dynamically discovers all tools from the tools directory and formats
     their documentation for the system prompt.

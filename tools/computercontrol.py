@@ -4,13 +4,13 @@ Provides window management, screenshot functionality, and basic computer automat
 Works with any application window, not just browsers.
 """
 
-import time
 import os
 import re
 import subprocess
-from typing import List, Dict, Optional, Tuple
+import time
 
 
+from typing import Optional
 class computercontrol:
     """
     A tool to control computer windows and take screenshots.
@@ -63,7 +63,7 @@ class computercontrol:
             return f"Error: {str(e)}"
 
     @staticmethod
-    def _get_window_list() -> List[Dict[str, str]]:
+    def _get_window_list() -> list[dict[str, str]]:
         """Get list of all open windows using multiple methods."""
         windows = []
 
@@ -129,7 +129,7 @@ class computercontrol:
         return windows
 
     @staticmethod
-    def _find_window_by_name(window_name: str) -> Optional[Dict[str, str]]:
+    def _find_window_by_name(window_name: str) -> Optional[dict[str, str]]:
         """Find a window by partial title match (case-insensitive)."""
         windows = computercontrol._get_window_list()
         window_name_lower = window_name.lower()
@@ -147,7 +147,7 @@ class computercontrol:
         return None
 
     @staticmethod
-    def _get_window_geometry(window_info: Dict[str, str]) -> Optional[Tuple[int, int, int, int]]:
+    def _get_window_geometry(window_info: dict[str, str]) -> Optional[tuple[int, int, int, int]]:
         """Get window geometry (x, y, width, height) using multiple methods."""
         window_id = window_info['id']
         method = window_info['method']

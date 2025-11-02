@@ -1,6 +1,7 @@
-import requests
 import os
 import time
+
+import requests
 from dotenv import load_dotenv
 
 # --- The Correction is in this section ---

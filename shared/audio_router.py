@@ -8,11 +8,11 @@ Routes TTS audio playback between:
 This allows seamless audio playback in both local and web-based interfaces.
 """
 
-import logging
-import base64
 import asyncio
-from typing import Optional, Any
+import base64
+import logging
 from pathlib import Path
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -215,8 +215,9 @@ async def generate_tts_audio(
     """
     try:
         import tempfile
-        from shared.utils_audio import text_to_speech
         from pathlib import Path
+
+        from shared.utils_audio import text_to_speech
 
         # Generate audio to temporary file
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:

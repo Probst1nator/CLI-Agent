@@ -12,13 +12,44 @@ class StatusDisplay {
         this.currentToolId = null;
         this.activeGenerations = new Map(); // Track multiple concurrent generations: generation_id -> metrics data
 
+        // Auto-hide timeout configuration
+        this.AUTO_HIDE_TIMEOUT_MS = 5000; // 5 seconds of no updates before hiding
+        this.statusLineHideTimer = null;
+
         // Listen to real-time status events from backend
         this.wsManager.on('token_stream', (data) => this.handleTokenStream(data));  // Legacy support
         this.wsManager.on('generation_metrics', (data) => this.handleGenerationMetrics(data));
         this.wsManager.on('generation_complete', (data) => this.handleGenerationComplete(data));
         this.wsManager.on('tool_update', (data) => this.handleToolUpdate(data));
 
-        console.log('✅ StatusDisplay initialized (generation metrics in dedicated line)');
+        console.log('✅ StatusDisplay initialized (generation metrics in dedicated line, auto-hide after 5s)');
+    }
+
+    /**
+     * Schedule auto-hide timeout (clears existing timer and starts a new one)
+     */
+    scheduleStatusLineHide() {
+        // Clear existing timer
+        this.clearStatusLineHideTimer();
+
+        // Schedule hide after timeout period
+        this.statusLineHideTimer = setTimeout(() => {
+            const statusLine = document.getElementById('generation-status-line');
+            if (statusLine) {
+                statusLine.classList.add('hidden');
+            }
+            this.statusLineHideTimer = null;
+        }, this.AUTO_HIDE_TIMEOUT_MS);
+    }
+
+    /**
+     * Clear the auto-hide timer
+     */
+    clearStatusLineHideTimer() {
+        if (this.statusLineHideTimer !== null) {
+            clearTimeout(this.statusLineHideTimer);
+            this.statusLineHideTimer = null;
+        }
     }
 
     /**
@@ -34,11 +65,15 @@ class StatusDisplay {
         // If no active generations, hide the line
         if (this.activeGenerations.size === 0) {
             statusLine.classList.add('hidden');
+            this.clearStatusLineHideTimer();
             return;
         }
 
         // Show the line and build content
         statusLine.classList.remove('hidden');
+
+        // Reset the auto-hide timer when we receive updates
+        this.scheduleStatusLineHide();
 
         // Build display for each active generation
         const generationDisplays = [];
@@ -50,7 +85,7 @@ class StatusDisplay {
             generationDisplays.push(
                 `<span class="generation-item">` +
                 `<strong>${this.escapeHtml(modelName)}</strong>: ` +
-                `${data.tokens_generated} tokens, ${tokensPerSecond} t/s, ${elapsed}s` +
+                `${data.tokens_generated} characters, ${tokensPerSecond} chars/s, ${elapsed}s` +
                 `</span>`
             );
         });
@@ -181,6 +216,9 @@ class StatusDisplay {
 
             // Update the status line (will hide if no active generations remain)
             this.updateGenerationStatusLine();
+
+            // Clear hide timer since generation is complete
+            this.clearStatusLineHideTimer();
         } catch (e) {
             console.error('Error handling generation_complete:', e);
         }
@@ -318,5 +356,12 @@ class StatusDisplay {
         this.currentToolItem = null;
         this.currentToolId = null;
         this.activeGenerations.clear(); // Clear generation tracking
+
+        // Clear the auto-hide timer and hide the status line
+        this.clearStatusLineHideTimer();
+        const statusLine = document.getElementById('generation-status-line');
+        if (statusLine) {
+            statusLine.classList.add('hidden');
+        }
     }
 }

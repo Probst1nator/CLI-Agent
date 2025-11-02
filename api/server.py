@@ -16,11 +16,11 @@ import time
 import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 try:
-    from aiohttp import web
     import aiohttp
+    from aiohttp import web
     AIOHTTP_AVAILABLE = True
 except ImportError:
     web = None
@@ -46,7 +46,7 @@ class SessionAuditLogger:
         self.base_path = base_path / "audit_logs" / "sessions"
         self.base_path.mkdir(parents=True, exist_ok=True)
         self.index_path = self.base_path / "index.json"
-        self.active_sessions: Dict[str, 'SessionLog'] = {}
+        self.active_sessions: dict[str, SessionLog] = {}
 
     def start_session(self, client_ip: str, user_agent: str,
                       forwarded_for: Optional[str] = None) -> str:
@@ -160,8 +160,8 @@ class SessionLog:
             "user_agent": user_agent,
             "forwarded_for": forwarded_for
         }
-        self.events: List[Dict[str, Any]] = []
-        self.chat_snapshot: Dict[str, Any] = {}
+        self.events: list[dict[str, Any]] = []
+        self.chat_snapshot: dict[str, Any] = {}
         self.metrics = {
             "api_calls": 0,
             "messages_sent": 0,
@@ -218,9 +218,9 @@ class VisualServer:
 
         self.app = web.Application()
         self.persist_mode = persist_mode  # True when started with --gui
-        self.websocket_clients: Set[web.WebSocketResponse] = set()
-        self.message_history: List[dict] = []
-        self.session_map: Dict[web.WebSocketResponse, str] = {}  # WebSocket -> session_id
+        self.websocket_clients: set[web.WebSocketResponse] = set()
+        self.message_history: list[dict] = []
+        self.session_map: dict[web.WebSocketResponse, str] = {}  # WebSocket -> session_id
         self.port: Optional[int] = None
         self.runner: Optional[web.AppRunner] = None
         self.site: Optional[web.TCPSite] = None
@@ -264,7 +264,15 @@ class VisualServer:
         self.app.router.add_get('/api/health', self.health_handler)
 
         # Register API routes
-        from api import chat_api, audio_api, tools_api, profile_api, agent_state_api, logs_api, autocomplete_api
+        from api import (
+            agent_state_api,
+            audio_api,
+            autocomplete_api,
+            chat_api,
+            logs_api,
+            profile_api,
+            tools_api,
+        )
         chat_api.setup_routes(self.app)
         audio_api.setup_routes(self.app)
         tools_api.setup_routes(self.app)
@@ -323,8 +331,8 @@ class VisualServer:
         @web.middleware
         async def request_id_middleware(request, handler):
             """Inject request ID into logging context for correlation"""
-            import uuid
             import time
+            import uuid
 
             # Get request ID from header or generate new one
             request_id = request.headers.get('X-Request-ID')

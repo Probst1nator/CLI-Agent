@@ -8,16 +8,20 @@ Tests the specific issue: German scientific vocabulary transcription accuracy.
 
 import os
 import sys
-from pathlib import Path
-from typing import Dict
 import time
+from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from shared.utils_audio import initialize_faster_whisper_model, _transcribe_with_faster_whisper, reset_audio_models
 import soundfile as sf
+
+from shared.utils_audio import (
+    _transcribe_with_faster_whisper,
+    initialize_faster_whisper_model,
+    reset_audio_models,
+)
 
 # Test configuration
 GERMAN_TEST_CASES = {
@@ -37,7 +41,7 @@ class GermanTranscriptionTest:
         self.project_root = project_root
         self.results = {}
 
-    def run_model_comparison(self) -> Dict:
+    def run_model_comparison(self) -> dict:
         """Test all Whisper models on German audio."""
         print("🇩🇪 German Transcription Model Comparison")
         print("=" * 50)
@@ -163,7 +167,7 @@ class GermanTranscriptionTest:
         overlap = len(expected_words.intersection(actual_words))
         return overlap / len(expected_words)
 
-    def generate_report(self, results: Dict) -> None:
+    def generate_report(self, results: dict) -> None:
         """Generate focused report on German transcription performance."""
         print("\n" + "=" * 60)
         print("📋 GERMAN TRANSCRIPTION TEST REPORT")

@@ -6,21 +6,26 @@ CLI, GUI, Web, and Voice interfaces.
 """
 
 from __future__ import annotations
+
 import asyncio
-import time
-import re
 import math
+import re
 import threading
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+import time
+from typing import TYPE_CHECKING, Any, Optional
 
 from agent.core.input_manager import (
-    InputSource_ABC, InputEvent, InputEventType, InputSource
+    InputEvent,
+    InputEventType,
+    InputSource,
+    InputSource_ABC,
 )
 
 if TYPE_CHECKING:
+    import argparse
+
     from agent.core.app_context import AppContext
     from core.chat import Chat
-    import argparse
 
 # Exit countdown configuration
 EXIT_COUNTDOWN_SECONDS = 5.0
@@ -47,8 +52,9 @@ class CLIInputSource(InputSource_ABC):
         """Get input from CLI using prompt_toolkit."""
         try:
             # Import here to avoid circular imports
-            from agent.core.command_system import get_prompt_session
             from prompt_toolkit import HTML
+
+            from agent.core.command_system import get_prompt_session
 
             session = get_prompt_session()
 
@@ -140,11 +146,11 @@ class CLIInputSource(InputSource_ABC):
             'timeout' if countdown elapsed without ESC
             'ignored' if countdown was already active (ignore this Ctrl+C)
         """
-        import sys
         import select
+        import sys
         import termios
         import tty
-        from termios import tcgetattr, tcsetattr, TCSADRAIN
+        from termios import TCSADRAIN, tcgetattr, tcsetattr
 
         # Use lock to prevent race conditions with terminal settings
         async with self._terminal_lock:
@@ -252,13 +258,13 @@ class GUIInputSource(InputSource_ABC):
         super().__init__(InputSource.GUI, context)
         self._input_event: Optional[asyncio.Event] = None
         self._input_lock: Optional[threading.Lock] = None
-        self._shared_input: Optional[Dict[str, Any]] = None
+        self._shared_input: Optional[dict[str, Any]] = None
 
     def set_gui_handlers(
         self,
         input_event: asyncio.Event,
         input_lock: threading.Lock,
-        shared_input: Dict[str, Any]
+        shared_input: dict[str, Any]
     ) -> None:
         """Set GUI event handlers for coordinated input."""
         self._input_event = input_event
@@ -328,8 +334,9 @@ class WebInputSource(InputSource_ABC):
             # This bridges the gap between the background InputCollector and the new unified system.
             args = kwargs.get('args')
             if args and args.message:
-                from main import _get_next_priority_message
                 from termcolor import colored
+
+                from main import _get_next_priority_message
 
                 user_input = _get_next_priority_message(args.message)
                 if user_input:
@@ -607,11 +614,11 @@ class WebInputSource(InputSource_ABC):
                             self.logger.warning(f"Received non-string input: {type(raw_input)} - {raw_input}")
                         continue
 
-                except (asyncio.TimeoutError, asyncio.exceptions.TimeoutError):
+                except (TimeoutError, asyncio.exceptions.TimeoutError):
                     # Timeout occurred, loop again. This allows us to re-check for legacy messages
                     # if they arrive while waiting.
                     if timeout and (time.time() - start_time) >= timeout:
-                        raise asyncio.TimeoutError("Web input timeout")
+                        raise TimeoutError("Web input timeout")
                     # Before continuing, check the legacy queue again in case a message arrived.
                     if args and args.message:
                         return await self.get_input(prompt, timeout, **kwargs)
@@ -773,9 +780,9 @@ class QueueInputSource(InputSource_ABC):
 
     def __init__(self, context: AppContext):
         super().__init__(InputSource.QUEUE, context)
-        self._message_queue: List[str] = []
+        self._message_queue: list[str] = []
 
-    def add_messages(self, messages: List[str]) -> None:
+    def add_messages(self, messages: list[str]) -> None:
         """Add messages to the queue."""
         self._message_queue.extend(messages)
         self.logger.debug(f"Added {len(messages)} messages to queue")

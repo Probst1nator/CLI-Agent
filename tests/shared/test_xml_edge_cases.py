@@ -4,12 +4,14 @@ Comprehensive edge case tests for XML parsing infrastructure.
 Tests all corner cases, special characters, and real-world scenarios.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from shared.common_utils import extract_blocks
 import pytest
+
+from shared.common_utils import extract_blocks
 
 
 class TestSpecialCharactersAndEscaping:

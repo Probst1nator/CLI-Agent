@@ -8,7 +8,6 @@ and a centralized interface for modifying tool availability.
 import json
 import logging
 from pathlib import Path
-from typing import List, Set
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class ToolConfigManager:
 
         self.config_dir = config_dir
         self.config_file = config_dir / "disabled_tools.json"
-        self._disabled_tools: Set[str] = set()
+        self._disabled_tools: set[str] = set()
 
         # Ensure config directory exists
         self.config_dir.mkdir(parents=True, exist_ok=True)
@@ -49,7 +48,7 @@ class ToolConfigManager:
             return
 
         try:
-            with open(self.config_file, 'r') as f:
+            with open(self.config_file) as f:
                 data = json.load(f)
                 self._disabled_tools = set(data.get('disabled_tools', []))
                 logger.debug(f"Loaded {len(self._disabled_tools)} disabled tools from config")
@@ -69,7 +68,7 @@ class ToolConfigManager:
         except Exception as e:
             logger.error(f"Failed to save disabled tools config: {e}")
 
-    def get_disabled_tools(self) -> List[str]:
+    def get_disabled_tools(self) -> list[str]:
         """
         Get the current list of disabled tools.
 
@@ -78,7 +77,7 @@ class ToolConfigManager:
         """
         return sorted(list(self._disabled_tools))
 
-    def disable_tools(self, tool_names: List[str]) -> None:
+    def disable_tools(self, tool_names: list[str]) -> None:
         """
         Add tools to the disabled list.
 
@@ -89,7 +88,7 @@ class ToolConfigManager:
         self.save()
         logger.info(f"Disabled tools: {tool_names}")
 
-    def enable_tools(self, tool_names: List[str]) -> None:
+    def enable_tools(self, tool_names: list[str]) -> None:
         """
         Remove tools from the disabled list.
 
@@ -118,7 +117,7 @@ class ToolConfigManager:
         self.save()
         logger.info("Cleared all disabled tools (all tools enabled)")
 
-    def set_disabled_tools(self, tool_names: List[str]) -> None:
+    def set_disabled_tools(self, tool_names: list[str]) -> None:
         """
         Replace the entire disabled tools list.
 

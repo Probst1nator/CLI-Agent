@@ -6,10 +6,11 @@ CLI-Agent commands, ensuring consistent interfaces and proper typing.
 """
 
 from __future__ import annotations
+
 import abc
-from typing import List, Optional, Any, Dict, TYPE_CHECKING
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from agent.core.app_context import AppContext
@@ -27,7 +28,7 @@ class CommandResponse:
     """Standardized command response with proper typing."""
     result: CommandResult
     message: str = ""
-    base64_images: Optional[List[str]] = None
+    base64_images: list[str] | None = None
     user_input: str = ""
     should_regenerate: bool = False
 
@@ -49,7 +50,7 @@ class BaseCommand(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def aliases(self) -> List[str]:
+    def aliases(self) -> list[str]:
         """List of command aliases (e.g., ['/r', '/regenerate'])."""
         pass
 
@@ -60,19 +61,19 @@ class BaseCommand(abc.ABC):
         pass
 
     @property
-    def sub_commands(self) -> Optional[Dict[str, str]]:
+    def sub_commands(self) -> dict[str, str] | None:
         """Optional sub-commands with descriptions."""
         return None
 
     @property
-    def usage(self) -> Optional[str]:
+    def usage(self) -> str | None:
         """Optional usage information for help text."""
         return None
 
     @abc.abstractmethod
     async def execute(
         self,
-        parts: List[str],
+        parts: list[str],
         **kwargs: Any
     ) -> CommandResponse:
         """
@@ -87,7 +88,7 @@ class BaseCommand(abc.ABC):
         """
         pass
 
-    def validate_args(self, parts: List[str]) -> bool:
+    def validate_args(self, parts: list[str]) -> bool:
         """Validate command arguments. Override for custom validation."""
         return True
 
@@ -117,7 +118,7 @@ class BaseCommand(abc.ABC):
 
 
 # Utility functions for command registration
-CommandRegistry = Dict[str, BaseCommand]
+CommandRegistry = dict[str, BaseCommand]
 
 def register_command_aliases(
     registry: CommandRegistry,

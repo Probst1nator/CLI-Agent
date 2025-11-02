@@ -6,18 +6,24 @@ with the unified input management framework.
 """
 
 from __future__ import annotations
-from typing import Any, Optional, TYPE_CHECKING
 
-from agent.core.input_manager import (
-    InputProcessor, InputEvent, InputResponse, InputEventType, InputSource
-)
+from typing import TYPE_CHECKING, Any, Optional
+
 from agent.commands.base_command import CommandResult
+from agent.core.input_manager import (
+    InputEvent,
+    InputEventType,
+    InputProcessor,
+    InputResponse,
+    InputSource,
+)
 from agent.core.input_sources import QueueInputSource
 
 if TYPE_CHECKING:
-    from agent.core.app_context import AppContext
-    from agent.commands.command_handler import CommandHandler
     import argparse
+
+    from agent.commands.command_handler import CommandHandler
+    from agent.core.app_context import AppContext
 
 
 class CommandInputProcessor(InputProcessor):
@@ -250,10 +256,9 @@ class UnifiedInputManager:
     def _auto_setup_sources(self) -> None:
         """Auto-setup basic input sources during initialization."""
         try:
-            from core.globals import g
-
             # Always enable CLI as the default
             from agent.core.input_sources import CLIInputSource
+            from core.globals import g
             cli_source = CLIInputSource(self.context)
             self.input_manager.register_source(cli_source)
             self.input_manager.set_default_source(cli_source.source_type)
@@ -292,12 +297,14 @@ class UnifiedInputManager:
         enable_queue: bool = True
     ) -> None:
         """Set up input sources based on configuration."""
-        from agent.core.input_sources import (
-            CLIInputSource, GUIInputSource, WebInputSource,
-            VoiceInputSource, QueueInputSource
-        )
-
         from agent.core.input_manager import InputSource
+        from agent.core.input_sources import (
+            CLIInputSource,
+            GUIInputSource,
+            QueueInputSource,
+            VoiceInputSource,
+            WebInputSource,
+        )
 
         if enable_cli and InputSource.CLI not in self.input_manager._sources:
             cli_source = CLIInputSource(self.context)

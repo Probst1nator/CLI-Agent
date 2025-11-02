@@ -1,29 +1,35 @@
+import asyncio
 import hashlib
 import json
+import logging
+import math  # <-- Added for token calculation
 import os
 import shutil
-import time
 import threading
-import asyncio
+import time
 import uuid
-from typing import Dict, List, Optional, Set, Any, Union, Iterator, Tuple, Callable
-from termcolor import colored
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-import math # <-- Added for token calculation
+from typing import Any, Optional
 
-from core.providers.cls_nvidia_interface import NvidiaAPI
+from termcolor import colored
+
 from agent.text_painter.stream_painter import TextStreamPainter
-from core.chat import Chat, Role
-from core.providers.cls_anthropic_interface import AnthropicAPI
 from core.ai_strengths import AIStrengths
-from py_classes.unified_interfaces import AIProviderInterface
-from core.providers.cls_groq_interface import GroqAPI, TimeoutException, RateLimitException
-from core.providers.cls_openai_interface import OpenAIAPI
-from core.providers.cls_google_interface import GoogleAPI
-from core.llm import Llm
-from core.globals import g
 from core.cache.llm_cache_manager import LLMCacheManager
-import logging
+from core.chat import Chat, Role
+from core.globals import g
+from core.llm import Llm
+from core.providers.cls_anthropic_interface import AnthropicAPI
+from core.providers.cls_google_interface import GoogleAPI
+from core.providers.cls_groq_interface import (
+    GroqAPI,
+    RateLimitException,
+    TimeoutException,
+)
+from core.providers.cls_nvidia_interface import NvidiaAPI
+from core.providers.cls_openai_interface import OpenAIAPI
+from py_classes.unified_interfaces import AIProviderInterface
 
 # Get a logger for this module. It will inherit its configuration from the root logger set up in main.py.
 logger = logging.getLogger(__name__)
@@ -70,7 +76,7 @@ class GenerationTracker:
 
     def _initialize(self):
         """Initialize tracker state."""
-        self.active_generations: Dict[str, GenerationMetrics] = {}
+        self.active_generations: dict[str, GenerationMetrics] = {}
         self.broadcast_interval = 0.1  # Broadcast every 100ms max
 
     def start_generation(self, model_key: str) -> str:
@@ -156,11 +162,11 @@ class LlmRouter:
     _instance: Optional["LlmRouter"] = None
     call_counter: int = 0
     last_used_model: str = ""
-    _model_limits: Dict[str, int] = {}
+    _model_limits: dict[str, int] = {}
     _model_limits_loaded: bool = False
 
     @property
-    def discovered_models(self) -> List[Llm]:
+    def discovered_models(self) -> list[Llm]:
         """Get list of discovered models."""
         return self.retry_models
 
@@ -187,9 +193,9 @@ class LlmRouter:
         self.retry_models = Llm.get_available_llms(include_dynamic=False)
         self._dynamic_discovery_done = False  # Track if we've done dynamic discovery
         self._load_dynamic_model_limits()
-        self.failed_models: Set[str] = set()
+        self.failed_models: set[str] = set()
         # Track cache keys used in current runtime to avoid duplicate fetches for non-zero temperature
-        self.runtime_used_cache_keys: Set[str] = set()
+        self.runtime_used_cache_keys: set[str] = set()
         # Lock for thread-safe cache access in MCT mode
         self._cache_lock = threading.Lock()
         # Store detailed failure reason for better error messages
@@ -210,7 +216,7 @@ class LlmRouter:
         if not self._model_limits_loaded:
             try:
                 if os.path.exists(g.MODEL_TOKEN_LIMITS_PATH):
-                    with open(g.MODEL_TOKEN_LIMITS_PATH, 'r') as f:
+                    with open(g.MODEL_TOKEN_LIMITS_PATH) as f:
                         self._model_limits = json.load(f)
                 self._model_limits_loaded = True
             except Exception as e:
@@ -218,7 +224,7 @@ class LlmRouter:
                 self._model_limits = {}
                 self._model_limits_loaded = True
 
-    def _generate_hash(self, model_key: str, prompt: str, images: List[str]) -> str:
+    def _generate_hash(self, model_key: str, prompt: str, images: list[str]) -> str:
         """
         Generate a hash for caching based on model, prompt, and images.
 
@@ -234,7 +240,7 @@ class LlmRouter:
         hash_input = f"{model_key}:{prompt}{':'.join(images)}".encode()
         return hashlib.sha256(hash_input).hexdigest()
 
-    def _get_cached_completion(self, model_key: str, key: str, images: List[str], temperature: float = 0) -> Optional[str]:
+    def _get_cached_completion(self, model_key: str, key: str, images: list[str], temperature: float = 0) -> Optional[str]:
         """
         Retrieve a cached completion if available.
 
@@ -268,7 +274,7 @@ class LlmRouter:
 
             return cached_result
 
-    def _update_cache(self, model_key: str, key: str, images: List[str], completion: str, temperature: float = 0) -> None:
+    def _update_cache(self, model_key: str, key: str, images: list[str], completion: str, temperature: float = 0) -> None:
         """
         Update the cache with a new completion.
         """
@@ -281,7 +287,7 @@ class LlmRouter:
             temperature=temperature
         )
 
-    def model_capable_check(self, model: Llm, chat: Chat, strengths: List[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, debug_model_key: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+    def model_capable_check(self, model: Llm, chat: Chat, strengths: list[AIStrengths], local: bool, force_free: bool = False, has_vision: bool = False, debug_model_key: Optional[str] = None) -> tuple[bool, Optional[str]]:
         """
         Check if a model is capable of handling the given constraints.
 
@@ -295,7 +301,7 @@ class LlmRouter:
             debug_model_key (str): Optional model key for debugging output.
 
         Returns:
-            Tuple[bool, str | None]: (True, None) if capable, (False, reason) if not capable.
+            Tuple[bool, Optional[str]]: (True, None) if capable, (False, reason) if not capable.
         """
         def debug_log(reason: str):
             if debug_model_key:
@@ -335,7 +341,7 @@ class LlmRouter:
         return True, None
 
     @classmethod
-    def get_models(cls, preferred_models: List[str] = [], strengths: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> List[Llm]:
+    def get_models(cls, preferred_models: list[str] = [], strengths: list[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> list[Llm]:
         """
         Get a list of available models based on the given constraints.
 
@@ -359,7 +365,7 @@ class LlmRouter:
             # When no specific models requested OR when forcing preferred models, load all available (including dynamic discovery)
             instance._ensure_dynamic_models_loaded()
 
-        available_models: List[Llm] = []
+        available_models: list[Llm] = []
 
         # First try to find models with exact capability matches
         for model_key in preferred_models:
@@ -424,7 +430,7 @@ class LlmRouter:
         return available_models
 
     @classmethod
-    def get_provider_info(cls, model_key: str, colored_output: bool = False) -> Tuple[str, str]:
+    def get_provider_info(cls, model_key: str, colored_output: bool = False) -> tuple[str, str]:
         """
         Get provider info and emoji for a model_key.
 
@@ -476,7 +482,7 @@ class LlmRouter:
             return "", ""
 
     @classmethod
-    def get_model(cls, preferred_models: List[str] = [], strengths: List[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
+    def get_model(cls, preferred_models: list[str] = [], strengths: list[AIStrengths] = [], chat: Chat = Chat(), force_local: bool = False, force_free: bool = False, has_vision: bool = False, force_preferred_model: bool = False) -> Optional[Llm]:
         """
         Route to the next available model based on the given constraints.
 
@@ -602,10 +608,11 @@ class LlmRouter:
     @classmethod
     async def _process_stream(
         cls,
-        stream: Union[Iterator[Dict[str, Any]], Iterator[str], Any],
+        stream: Iterator[dict[str, Any]] | Iterator[str] | Any,
         provider: AIProviderInterface,
         hidden_reason: str,
-        callback: Optional[Callable] = None
+        callback: Optional[Callable] = None,
+        model_key: Optional[str] = None
     ) -> str:
         """
         Process a stream of tokens from any provider.
@@ -615,6 +622,7 @@ class LlmRouter:
             provider (AIProviderInterface): The provider interface
             hidden_reason (str): Reason for hidden mode
             callback (Optional[Callable]): Callback function for each token
+            model_key (Optional[str]): The model key being used (for error messages)
 
         Returns:
             str: The full response string
@@ -792,8 +800,23 @@ class LlmRouter:
 
         # Check for empty response before returning
         if not full_response or not full_response.strip():
-            logger.warning("Model returned empty response (generation failure or content blocking)")
-            raise Exception("Model returned empty response (generation failure or content blocking)")
+            provider_name = provider.__class__.__name__.replace('API', '').replace('Client', '')
+            error_msg = f"Empty response from {provider_name}"
+            if model_key:
+                error_msg += f" ({model_key})"
+
+            # Add diagnostic hints based on provider
+            if isinstance(provider, GoogleAPI):
+                error_msg += ": Check if response was blocked by safety filters or if the prompt was rejected"
+            elif isinstance(provider, AnthropicAPI):
+                error_msg += ": Model may have overload issues or content was filtered"
+            elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
+                error_msg += ": Check API quota, rate limits, or if content triggered moderation"
+            elif isinstance(provider, GroqAPI) or provider.__class__.__name__ == 'OllamaClient':
+                error_msg += ": Check if the model is running or if there's a connection issue"
+
+            logger.warning(error_msg)
+            raise Exception(error_msg)
 
         return full_response
 
@@ -825,7 +848,6 @@ class LlmRouter:
             g.debug_log(cache_msg, "blue", force_print=True, prefix=f"[{debug_title}]")
             for char in cached_completion:
                 if callback:
-                    import asyncio
                     if asyncio.iscoroutinefunction(callback):
                         finished_response = await callback(char)
                     else:
@@ -881,7 +903,7 @@ class LlmRouter:
             chat (Chat): The chat being processed
         """
         # Check if the exception has already been logged by a provider
-        if hasattr(e, 'already_logged') and getattr(e, 'already_logged'):
+        if hasattr(e, 'already_logged') and e.already_logged:
             # This error was already logged, don't log it again
             # We still need to update the failed models list though
             if model is not None and model.model_key not in instance.failed_models:
@@ -1004,7 +1026,7 @@ class LlmRouter:
             g.debug_log(f"❌ Groq-Api: {descriptive_error}", "red", is_error=True, prefix=prefix)
         elif "GoogleAPI" in provider_name:
             # Check if this error has already been handled by the Google API provider
-            if hasattr(e, 'already_logged') and getattr(e, 'already_logged'):
+            if hasattr(e, 'already_logged') and e.already_logged:
                 # Error was already logged by the provider, don't log it again
                 return
 
@@ -1050,18 +1072,19 @@ class LlmRouter:
     @classmethod
     async def generate_completion(
         cls,
-        chat: Union[Chat, str],
-        preferred_models: Union[List[str], List[Llm]] = [],
-        strengths: List[AIStrengths] = [],
+        chat: Chat | str,
+        preferred_models: list[str] | list[Llm] = [],
+        role: Optional[str] = None,
+        strengths: list[AIStrengths] = [],
         temperature: float = 0,
-        base64_images: List[str] = [],
+        base64_images: list[str] = [],
         force_local: bool = g.FORCE_LOCAL,
         force_free: bool = False,
         force_preferred_model: bool = not g.FORCE_LOCAL, # If force local is on we may as well be greedy
         hidden_reason: str = "",
         exclude_reasoning_tokens: bool = True,
         thinking_budget: Optional[int] = 4096,
-        generation_stream_callback: Optional[Callable[[str], None]] = lambda char: print(colored(char, 'green'), end='')
+        generation_stream_callback: Callable[[str], None] | None = lambda char: print(colored(char, 'green'), end='')
     ) -> str:
         """
         Generate a completion response using the appropriate LLM.
@@ -1069,6 +1092,7 @@ class LlmRouter:
         Args:
             chat (Chat|str): The conversation context as a Chat object or plain text string prompt.
             preferred_models (List[str] | List[Llm]): Model preference list - can be model keys (strings) or Llm objects. Router tries these first before fallbacks.
+            role (Optional[str]): LLM role to use for model selection ('planner', 'router', 'override', 'autocomplete', 'fallbacks'). When specified, uses role-specific configured models.
             strengths (List[AIStrengths]): Required model capabilities (e.g., vision, reasoning, coding). Empty list means no specific requirements.
             temperature (float): Controls randomness in responses (0.0-1.0). Default 0 for deterministic output. Higher values increase creativity.
             base64_images (List[str]): Base64-encoded images for vision-capable models. Automatically enables vision model selection when provided.
@@ -1086,7 +1110,19 @@ class LlmRouter:
         instance = cls()
         cls.call_counter += 1
 
-        # Check for override model first - if set, use it exclusively
+        # Check for role-specific model selection first
+        if role and role in g.llm_roles:
+            role_models = g.llm_roles.get(role)
+            if role_models:
+                # Convert to list if it's a single model string
+                if isinstance(role_models, str):
+                    preferred_models = [role_models]
+                elif isinstance(role_models, list):
+                    preferred_models = role_models
+                # Don't set force_preferred_model for role-based selection
+                # to allow fallback if the role-specific model fails
+
+        # Check for override model - if set, use it exclusively (takes precedence over role)
         if g.override_llm:
             preferred_models = [g.override_llm]
             force_preferred_model = True  # Force using only the override model
@@ -1202,7 +1238,9 @@ class LlmRouter:
 
                                             # Check if model is rate limited (enhanced rate limiting)
                                             try:
-                                                from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
+                                                from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import (
+                                                    enhanced_rate_limit_tracker,
+                                                )
                                                 token_cost = len(str(chat)) // 4  # Rough estimate
                                                 can_request, rate_reason = enhanced_rate_limit_tracker.can_make_request(
                                                     matching_model.model_key, token_cost=token_cost, image_count=len(base64_images) if base64_images else 0
@@ -1486,7 +1524,6 @@ class LlmRouter:
 
                         # Call original callback if provided
                         if generation_stream_callback:
-                            import asyncio
                             if asyncio.iscoroutinefunction(generation_stream_callback):
                                 return await generation_stream_callback(chunk)
                             else:
@@ -1499,7 +1536,7 @@ class LlmRouter:
 
                     try:
                         # Detect existing assistant message prefix before processing stream
-                        full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback)
+                        full_response = await cls._process_stream(stream, model.provider, hidden_reason, activity_aware_callback, model.model_key)
 
                     finally:
                         signal.alarm(0)  # Clear the alarm
@@ -1612,7 +1649,7 @@ class LlmRouter:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
 
                     # Check if error was already logged by provider
-                    if hasattr(e, 'already_logged') and getattr(e, 'already_logged'):
+                    if hasattr(e, 'already_logged') and e.already_logged:
                         # Error details already logged by provider - just show fallback message
                         g.debug_log(f"➡️ Trying next fallback model ({len(untried_models)} remaining)", "cyan", force_print=True, prefix=prefix)
                     else:
@@ -1634,7 +1671,9 @@ class LlmRouter:
                 # Check if there's a suggested delay from the API (e.g., rate limiting)
                 suggested_delay = 0
                 try:
-                    from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import enhanced_rate_limit_tracker
+                    from infrastructure.rate_limiting.cls_enhanced_rate_limit_tracker import (
+                        enhanced_rate_limit_tracker,
+                    )
                     suggested_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(model.model_key if model else "unknown")
                 except Exception:
                     pass
@@ -1661,7 +1700,6 @@ class LlmRouter:
                     g.debug_log(f"🔄 All {len(models_tried_in_round)} models failed, retrying in {wait_time:.0f}s (round #{retry_count}/3)", "cyan", force_print=True, prefix=prefix)
 
                 # Wait with API-suggested delay or linear backoff
-                import asyncio
                 await asyncio.sleep(wait_time)
 
                 # Start a new round - reset failed models and models_tried_in_round

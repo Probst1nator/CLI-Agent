@@ -4,14 +4,16 @@ Test script for the auto-background feature integration.
 Tests the enhanced bash tool with automatic background process conversion.
 """
 
-import sys
-import os
 import asyncio
+import os
+import sys
 import time
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tools.bash import bash
 from tools.taskmanager import taskmanager
+
 
 async def test_auto_background_integration():
     """Test the complete auto-background system integration"""

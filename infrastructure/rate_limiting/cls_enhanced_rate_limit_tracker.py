@@ -1,11 +1,12 @@
-import os
 import json
-import time
-import random
 import logging
-from typing import Dict, Any, Optional, Tuple
-from dataclasses import dataclass, asdict
+import os
+import random
+import time
+from dataclasses import asdict, dataclass
 from enum import Enum
+from typing import Any, Optional
+
 from core.globals import g
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ class ExponentialBackoffManager:
         self.base_delay = base_delay
         self.max_delay = max_delay
         self.max_retries = max_retries
-        self.retry_counts: Dict[str, int] = {}
+        self.retry_counts: dict[str, int] = {}
 
     def get_delay(self, model_key: str) -> float:
         """Get the delay for the next retry."""
@@ -115,7 +116,7 @@ class EnhancedRateLimitTracker:
 
     def _initialize(self):
         """Initialize the enhanced rate limit tracker."""
-        self.model_limits: Dict[str, Dict[LimitType, RateLimit]] = {}
+        self.model_limits: dict[str, dict[LimitType, RateLimit]] = {}
         self.backoff_manager = ExponentialBackoffManager()
         self._last_file_mtime = 0  # Track file modification time for auto-reload
         self._load_limits()
@@ -137,7 +138,7 @@ class EnhancedRateLimitTracker:
                 # Update file modification time
                 self._last_file_mtime = os.path.getmtime(storage_path)
 
-                with open(storage_path, 'r') as f:
+                with open(storage_path) as f:
                     data = json.load(f)
 
                 # Convert loaded data back to RateLimit objects
@@ -213,7 +214,7 @@ class EnhancedRateLimitTracker:
         except Exception as e:
             logger.error(f"Failed to save enhanced rate limits: {e}")
 
-    def set_model_limits(self, model_key: str, limits_config: Dict[LimitType, int]):
+    def set_model_limits(self, model_key: str, limits_config: dict[LimitType, int]):
         """
         Set rate limits for a model.
 
@@ -243,7 +244,7 @@ class EnhancedRateLimitTracker:
 
         self._save_limits()
 
-    def can_make_request(self, model_key: str, token_cost: int = 0, image_count: int = 0) -> Tuple[bool, str]:
+    def can_make_request(self, model_key: str, token_cost: int = 0, image_count: int = 0) -> tuple[bool, str]:
         """
         Check if a request can be made given the costs.
 
@@ -374,7 +375,7 @@ class EnhancedRateLimitTracker:
         # Fall back to exponential backoff
         return self.backoff_manager.get_delay(model_key)
 
-    def get_status_summary(self, model_key: str) -> Dict[str, Any]:
+    def get_status_summary(self, model_key: str) -> dict[str, Any]:
         """Get a summary of current rate limit status for a model."""
         # Ensure we have the latest rate limit data
         self._reload_if_file_changed()

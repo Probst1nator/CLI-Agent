@@ -8,7 +8,6 @@ NOTE: PDF processing requires the 'pymupdf' package to be installed (`pip instal
 """
 import os
 import re
-from typing import Tuple
 
 # Attempt to import pathspec for .gitignore handling
 try:
@@ -61,7 +60,7 @@ class readdirectory:
         return info
 
     @staticmethod
-    def _find_project_root_and_spec(start_path: str) -> Tuple[pathspec.PathSpec | None, str | None]:
+    def _find_project_root_and_spec(start_path: str) -> tuple[pathspec.PathSpec | None, str | None]:
         """
         Finds the project root (.git) and parses .gitignore files.
         Logic is adapted from the grepsearch tool for consistency.
@@ -79,7 +78,7 @@ class readdirectory:
 
             gitignore_path = os.path.join(current_path, '.gitignore')
             if os.path.isfile(gitignore_path):
-                with open(gitignore_path, 'r', encoding='utf-8') as f:
+                with open(gitignore_path, encoding='utf-8') as f:
                     gitignore_patterns = f.readlines() + gitignore_patterns
 
             parent_path = os.path.dirname(current_path)
@@ -173,9 +172,9 @@ class readdirectory:
                         file_content = readdirectory._process_pdf_file(file_path)
                     elif ext not in BINARY_EXTENSIONS:
                         try:
-                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            with open(file_path, encoding='utf-8', errors='ignore') as f:
                                 file_content = f.read()
-                        except (IOError, OSError):
+                        except OSError:
                             continue # Skip unreadable files
 
                     # --- Ingestion Logic ---

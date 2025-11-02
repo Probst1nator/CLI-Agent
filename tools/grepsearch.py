@@ -59,7 +59,7 @@ class grepsearch:
 
             gitignore_path = os.path.join(current_path, '.gitignore')
             if os.path.isfile(gitignore_path):
-                with open(gitignore_path, 'r', encoding='utf-8') as f:
+                with open(gitignore_path, encoding='utf-8') as f:
                     # Prepend patterns from higher-level .gitignores
                     gitignore_patterns = f.readlines() + gitignore_patterns
 
@@ -186,7 +186,7 @@ class grepsearch:
         try:
             if os.path.getsize(file_path) > 2 * 1024 * 1024:
                 return
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(file_path, encoding='utf-8', errors='ignore') as f:
                 for i, line in enumerate(f, 1):
                     if len(matches) >= grepsearch.MAX_RESULTS: return
                     if regex.search(line):

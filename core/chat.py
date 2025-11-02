@@ -1,22 +1,28 @@
 import copy
 import json
+import logging
 import math
 import os
-import logging
+import queue
+import threading
 import time
 import tkinter as tk
-from enum import Enum
-from typing import Dict, List, Optional, Sequence, Tuple, Union, Any, TypedDict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-import threading
-import queue
+from enum import Enum
+from typing import Any, TypedDict, Optional
+
+from ollama._types import Image as OllamaImage
+from ollama._types import Message as OllamaMessage
 from termcolor import colored
 
 # This import is no longer strictly necessary for the modified save/load functions,
 # but might be used elsewhere in the project. We'll leave it for now.
 from core.globals import g
-from ollama._types import Message as OllamaMessage, Image as OllamaImage
-from shared.utils.project_storage import get_project_storage_path, ensure_project_directory
+from shared.utils.project_storage import (
+    ensure_project_directory,
+    get_project_storage_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +54,58 @@ class MessageMetadata(TypedDict, total=False):
     is_bootstrap: bool  # Whether this is a bootstrap training message
     timestamp: str  # ISO 8601 timestamp
     model: str  # LLM model used to generate this message
-    tool_info: List[ToolInfo]  # Information about tools executed in this message
+    tool_info: list[ToolInfo]  # Information about tools executed in this message
     message_id: int  # Unique message identifier
 
 
-class ChatMetadata(TypedDict, total=False):
+@dataclass
+class ChatMetadata:
     """
-    Chat-level metadata structure.
+    Chat-level metadata structure with hybrid dict/attribute access.
 
-    All fields are optional (total=False) to allow partial metadata.
+    Standard fields:
+    - created_at: ISO 8601 creation timestamp
+    - updated_at: ISO 8601 last update timestamp
+
+    Additional arbitrary metadata can be stored and accessed like a dict.
     """
-    created_at: str  # ISO 8601 creation timestamp
-    updated_at: str  # ISO 8601 last update timestamp
+    created_at: Optional[str] = None  # ISO 8601 creation timestamp
+    updated_at: Optional[str] = None  # ISO 8601 last update timestamp
+    _extra: dict[str, Any] = field(default_factory=dict)  # Arbitrary metadata
+
+    def __getitem__(self, key: str) -> Any:
+        """Support dict-like access: metadata['key']"""
+        if key in ('created_at', 'updated_at'):
+            return getattr(self, key)
+        return self._extra.get(key)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Support dict-like assignment: metadata['key'] = value"""
+        if key in ('created_at', 'updated_at'):
+            setattr(self, key, value)
+        else:
+            self._extra[key] = value
+
+    def __contains__(self, key: str) -> bool:
+        """Support 'in' operator: 'key' in metadata"""
+        return key in ('created_at', 'updated_at') or key in self._extra
+
+    def items(self) -> Any:
+        """Support .items() for dict-like iteration"""
+        result = {}
+        if self.created_at is not None:
+            result['created_at'] = self.created_at
+        if self.updated_at is not None:
+            result['updated_at'] = self.updated_at
+        result.update(self._extra)
+        return result.items()
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Support .get() method for safe access"""
+        try:
+            return self[key]
+        except (KeyError, AttributeError):
+            return default
 
 @dataclass
 class Message:
@@ -77,7 +123,7 @@ class Message:
     """
     role: Role
     content: str
-    images: List[str] = field(default_factory=list)
+    images: list[str] = field(default_factory=list)
     metadata: MessageMetadata = field(default_factory=dict)  # Runtime: dict, Type hint: MessageMetadata
 
 class Chat:
@@ -96,9 +142,9 @@ class Chat:
         :param instruction_message: The initial system instruction message.
         :param debug_title: Optional title for the debug window.
         """
-        self.messages: List[Message] = []
-        self.metadata: ChatMetadata = {}  # Chat-level metadata - conforms to ChatMetadata type
-        self.base64_images: List[str] = []  # DEPRECATED: Use Message.images instead
+        self.messages: list[Message] = []
+        self.metadata: ChatMetadata = ChatMetadata()
+        self.base64_images: list[str] = []  # DEPRECATED: Use Message.images instead
         self._window: Optional[tk.Tk] = None
         self._text_widget: Optional[tk.Text] = None
         self.debug_title: str = debug_title or instruction_message[:50].split("\n")[0] or "Unnamed Context"
@@ -218,7 +264,7 @@ class Chat:
         self._update_window_display()
         return self
 
-    def add_message(self, role: Role, content: str, images: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None) -> "Chat":
+    def add_message(self, role: Role, content: str, images: Optional[list[str]] = None, metadata: Optional[dict[str, Any]] = None) -> "Chat":
         """
         Adds a message to the chat.
 
@@ -318,7 +364,7 @@ class Chat:
                 message_strings.append(str(message))
         return "\n".join(message_strings)
 
-    def __getitem__(self, key: Union[int, slice, Tuple[int, ...]]) -> "Chat":
+    def __getitem__(self, key: int | slice | tuple[int, ...]) -> "Chat":
         """
         Retrieves a subset of the chat messages.
 
@@ -449,16 +495,24 @@ class Chat:
         storage_path = str(ensure_project_directory())
         file_path = os.path.join(storage_path, file_name)
 
-        with open(file_path, "r") as file:
+        with open(file_path) as file:
             data_dict = json.load(file)
         return cls.from_dict(data_dict)
 
-    def _to_dict(self) -> Dict[str, Any]:
+    def _to_dict(self) -> dict[str, Any]:
         """
         Converts the chat instance to a dictionary.
 
         :return: A dictionary representing the chat instance including messages, metadata, and images.
         """
+        # Convert ChatMetadata to dict for JSON serialization
+        metadata_dict = {}
+        if self.metadata.created_at is not None:
+            metadata_dict['created_at'] = self.metadata.created_at
+        if self.metadata.updated_at is not None:
+            metadata_dict['updated_at'] = self.metadata.updated_at
+        metadata_dict.update(self.metadata._extra)
+
         return {
             "messages": [
                 {
@@ -468,12 +522,12 @@ class Chat:
                 }
                 for message in self.messages
             ],
-            "metadata": self.metadata,
+            "metadata": metadata_dict,
             "base64_images": self.base64_images
         }
 
     @classmethod
-    def from_dict(cls, data_dict: Dict[str, Any]) -> "Chat":
+    def from_dict(cls, data_dict: dict[str, Any]) -> "Chat":
         """
         Creates a Chat instance from a dictionary.
 
@@ -491,9 +545,19 @@ class Chat:
                 msg_metadata = message.get("metadata", {})
                 chat_instance.add_message(role, content, metadata=msg_metadata)
 
-        # Add metadata if present
+        # Reconstruct ChatMetadata from dict if present
         if "metadata" in data_dict:
-            chat_instance.metadata = data_dict["metadata"]
+            metadata_dict = data_dict["metadata"]
+            created_at = metadata_dict.get("created_at")
+            updated_at = metadata_dict.get("updated_at")
+
+            # Create ChatMetadata with standard fields
+            chat_instance.metadata = ChatMetadata(created_at=created_at, updated_at=updated_at)
+
+            # Add any additional metadata fields to _extra
+            for key, value in metadata_dict.items():
+                if key not in ("created_at", "updated_at"):
+                    chat_instance.metadata._extra[key] = value
 
         # Add base64 images if present
         if "base64_images" in data_dict:
@@ -521,7 +585,7 @@ class Chat:
         return cls.from_dict(data_dict)
 
     @staticmethod
-    def save_to_jsonl(chats: List["Chat"], file_path: str = "saved_chat.jsonl") -> None:
+    def save_to_jsonl(chats: list["Chat"], file_path: str = "saved_chat.jsonl") -> None:
         """
         Saves a list of Chat instances to a JSONL file.
 
@@ -535,7 +599,7 @@ class Chat:
                     file.write(chat_json + '\n')
 
     @staticmethod
-    def load_from_jsonl(file_path: str) -> List["Chat"]:
+    def load_from_jsonl(file_path: str) -> list["Chat"]:
         """
         Loads a list of Chat instances from a JSONL file.
 
@@ -543,7 +607,7 @@ class Chat:
         :return: A list of loaded Chat instances.
         """
         chats = []
-        with open(file_path, 'r') as file:
+        with open(file_path) as file:
             for line in file:
                 chat_data = json.loads(line)
                 chat = Chat.from_dict(chat_data)
@@ -597,7 +661,7 @@ class Chat:
         # Load existing index
         if os.path.exists(index_path):
             try:
-                with open(index_path, "r") as f:
+                with open(index_path) as f:
                     index = json.load(f)
             except json.JSONDecodeError as e:
                 logger.warning(f"Corrupted index.json detected (line {e.lineno}), rebuilding from scratch: {e}")
@@ -613,7 +677,7 @@ class Chat:
 
         # Load the chat file to get metadata
         chat_path = os.path.join(storage_path, filename)
-        with open(chat_path, "r") as f:
+        with open(chat_path) as f:
             chat_data = json.load(f)
 
         # Extract preview from the last message in the chat
@@ -658,7 +722,7 @@ class Chat:
             raise
 
     @staticmethod
-    def list_archived_chats() -> List[Dict[str, Any]]:
+    def list_archived_chats() -> list[dict[str, Any]]:
         """
         Lists all archived chats from the index.
 
@@ -670,7 +734,7 @@ class Chat:
         if not os.path.exists(index_path):
             return []
 
-        with open(index_path, "r") as f:
+        with open(index_path) as f:
             index = json.load(f)
 
         return index.get("chats", [])
@@ -687,7 +751,7 @@ class Chat:
         index_path = os.path.join(storage_path, "index.json")
 
         # Find the filename from index
-        with open(index_path, "r") as f:
+        with open(index_path) as f:
             index = json.load(f)
 
         filename = None
@@ -701,7 +765,7 @@ class Chat:
 
         # Load the chat file
         file_path = os.path.join(storage_path, filename)
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             data_dict = json.load(f)
 
         return cls.from_dict(data_dict)
@@ -718,7 +782,7 @@ class Chat:
         index_path = os.path.join(storage_path, "index.json")
 
         # Load index
-        with open(index_path, "r") as f:
+        with open(index_path) as f:
             index = json.load(f)
 
         # Find and remove from index
@@ -747,7 +811,7 @@ class Chat:
         return False
 
     @staticmethod
-    def search_chats(query: str, top_k: int = 20) -> List[Dict[str, Any]]:
+    def search_chats(query: str, top_k: int = 20) -> list[dict[str, Any]]:
         """
         Searches through all archived chats using BM25 ranking algorithm.
 
@@ -765,7 +829,7 @@ class Chat:
             return []
 
         # Load index
-        with open(index_path, "r") as f:
+        with open(index_path) as f:
             index = json.load(f)
 
         chats = index.get("chats", [])
@@ -773,10 +837,10 @@ class Chat:
             return []
 
         # Tokenize query
-        def tokenize(text: str) -> List[str]:
+        def tokenize(text: str) -> list[str]:
             return re.findall(r'\w+', text.lower())
 
-        def generate_ngrams(token: str, n: int = 3) -> List[str]:
+        def generate_ngrams(token: str, n: int = 3) -> list[str]:
             """Generate character n-grams for fuzzy matching"""
             if len(token) < n:
                 return [token]
@@ -813,7 +877,7 @@ class Chat:
         for chat in chats:
             chat_path = os.path.join(storage_path, chat['filename'])
             try:
-                with open(chat_path, 'r') as f:
+                with open(chat_path) as f:
                     chat_data = json.load(f)
 
                 # Extract all message content
@@ -850,7 +914,7 @@ class Chat:
 
         # Calculate BM25 scores with fuzzy matching and stemming
         scores = []
-        for i, (chat, doc_tokens) in enumerate(zip(chats, doc_contents)):
+        for i, (chat, doc_tokens) in enumerate(zip(chats, doc_contents, strict=False)):
             if doc_lengths[i] == 0:
                 scores.append(0.0)
                 continue
@@ -904,7 +968,7 @@ class Chat:
 
         # Create results with scores and matching snippets
         results = []
-        for i, (chat, score) in enumerate(zip(chats, scores)):
+        for i, (chat, score) in enumerate(zip(chats, scores, strict=False)):
             if score > 0:
                 result = chat.copy()
                 result['score'] = score
@@ -969,7 +1033,7 @@ class Chat:
 
         return message_sequence
 
-    def to_openai(self) -> List[Dict[str, str]]:
+    def to_openai(self) -> list[dict[str, str]]:
         """
         Converts chat messages to OpenAI chat format.
 
@@ -983,7 +1047,7 @@ class Chat:
                 result.append({"role": message.role.value, "content": message.content})
         return result
 
-    def to_groq(self) -> List[Dict[str, str]]:
+    def to_groq(self) -> list[dict[str, str]]:
         """
         Converts the chat to a list of dictionaries for use with the Groq API.
 
@@ -1004,7 +1068,7 @@ class Chat:
 
         return groq_messages
 
-    def to_gemini(self, base64_images: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def to_gemini(self, base64_images: Optional[list[str]] = None) -> list[dict[str, Any]]:
         """
         Converts the chat to a list of dictionaries for use with the Google Gemini API.
 
@@ -1014,7 +1078,7 @@ class Chat:
         Returns:
             List[Dict[str, Any]]: The chat messages formatted for Gemini's API.
         """
-        gemini_messages: List[Dict[str, Any]] = []
+        gemini_messages: list[dict[str, Any]] = []
 
         system_prompt = None
         for message in self.messages:
@@ -1024,7 +1088,7 @@ class Chat:
 
         for message in self.messages:
             if message.role == Role.USER:
-                parts: List[Any] = [str(message.content)]
+                parts: list[Any] = [str(message.content)]
 
                 if message.images:
                     for image in message.images:
@@ -1222,7 +1286,7 @@ class Chat:
 
         return compressed_chat
 
-def _find_best_snippet(doc_tokens: List[str], query_tokens: List[str], query_stems: List[str], query_ngrams: Dict[str, set], filename: str, storage_path: str, context_words: int = 10) -> str:
+def _find_best_snippet(doc_tokens: list[str], query_tokens: list[str], query_stems: list[str], query_ngrams: dict[str, set], filename: str, storage_path: str, context_words: int = 10) -> str:
     """
     Finds the best matching snippet from the document that contains query terms.
     Now supports fuzzy matching and stemming.

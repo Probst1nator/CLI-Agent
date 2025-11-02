@@ -65,8 +65,8 @@ async def get_llms(request: Any) -> Any:
         raise RuntimeError("aiohttp not available")
 
     try:
-        from core.llm import Llm
         from core.globals import g
+        from core.llm import Llm
 
         available_llms = Llm.get_available_llms(include_dynamic=True)
 
@@ -94,15 +94,18 @@ async def get_llms(request: Any) -> Any:
         planner_llm = g.planner_llm
         router_llm = g.router_llm
         override_llm = g.override_llm
+        autocomplete_llm = g.autocomplete_llm
 
         planner_llms = g.planner_llms_list
         router_llms = g.router_llms_list
         override_llms = g.override_llms_list
+        autocomplete_llms = g.autocomplete_llms_list
 
         # Debug logging to trace profile load issue
         logger.info(f"🔍 API /llms - planner_llm: {planner_llm}, planner_llms: {planner_llms}")
         logger.info(f"🔍 API /llms - router_llm: {router_llm}, router_llms: {router_llms}")
         logger.info(f"🔍 API /llms - override_llm: {override_llm}, override_llms: {override_llms}")
+        logger.info(f"🔍 API /llms - autocomplete_llm: {autocomplete_llm}, autocomplete_llms: {autocomplete_llms}")
         logger.info(f"🔍 API /llms - selected_llms/fallbacks: {selected_llms}")
 
         logger.info(f"Served LLM data: {len(llm_data)} models from {len(set(m['provider'] for m in llm_data))} providers")
@@ -117,10 +120,12 @@ async def get_llms(request: Any) -> Any:
                 'planner_llm': planner_llm,
                 'router_llm': router_llm,
                 'override_llm': override_llm,
+                'autocomplete_llm': autocomplete_llm,
                 # New: multi-model arrays for dynamic fallback support
                 'planner_llms': planner_llms,
                 'router_llms': router_llms,
-                'override_llms': override_llms
+                'override_llms': override_llms,
+                'autocomplete_llms': autocomplete_llms
             }
         })
 
@@ -140,7 +145,7 @@ async def update_llm_config(request: Any) -> Any:
 
     Request body:
     {
-        "role": "planner" | "router" | "override" | "fallbacks",
+        "role": "planner" | "router" | "override" | "autocomplete" | "fallbacks",
         "models": ["model1", "model2", ...]  // Array for multi-model fallback chain
     }
     """

@@ -1,13 +1,14 @@
-import numpy as np
-import logging
 import json
+import logging
 from pathlib import Path
-from typing import List, Dict, Optional, Any
-from termcolor import colored
 
 # This is a forward declaration to avoid a circular import.
 # The actual ToolVectorDB object will be passed during initialization.
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+from termcolor import colored
+
 if TYPE_CHECKING:
     from infrastructure.vector_db.vector_database import ToolVectorDB
 
@@ -84,7 +85,7 @@ class PlaybookManager:
             return
 
         self.vector_db = vector_db
-        self.playbooks: List[Dict[str, Any]] = []
+        self.playbooks: list[dict[str, Any]] = []
 
         if self.vector_db is None or not self.vector_db.is_ready:
             logging.warning("PlaybookManager could not initialize; VectorDB not ready.")
@@ -145,7 +146,7 @@ class PlaybookManager:
             return False
 
         try:
-            with open(self.db_path, 'r') as f:
+            with open(self.db_path) as f:
                 data = json.load(f).get("playbooks", [])
 
             for s_playbook in data:
@@ -160,7 +161,7 @@ class PlaybookManager:
             logging.error(f"Failed to load playbook database: {e}. Re-initializing.")
             return False
 
-    def get_relevant_playbook(self, query: str, threshold: float = 0.75) -> Optional[Dict[str, Any]]:
+    def get_relevant_playbook(self, query: str, threshold: float = 0.75) -> dict[str, Any] | None:
         """Finds a relevant playbook for a given query if it meets the similarity threshold."""
         if not self.playbooks or not self.vector_db.is_ready:
             return None

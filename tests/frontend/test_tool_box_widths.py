@@ -7,10 +7,11 @@ and only expand to fit their content.
 """
 
 import subprocess
-import time
 import sys
-from pathlib import Path
+import time
 from datetime import datetime
+from pathlib import Path
+
 from playwright.sync_api import sync_playwright
 
 # Test configuration
