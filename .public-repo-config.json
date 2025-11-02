@@ -7,7 +7,7 @@
   },
 
   "tools": {
-    "experimental": {
+    "privileged": {
       "tools": [
         "bash.py",
         "writefile.py",
@@ -16,8 +16,8 @@
         "deletelines.py",
         "computercontrol.py"
       ],
-      "marker": "EXPERIMENTAL",
-      "warning": "⚠️ EXPERIMENTAL: This tool modifies system state. Use with caution and appropriate sandboxing. Recommended: --isolated mode.",
+      "marker": "PRIVILEGED",
+      "warning": "⚠️ PRIVILEGED TOOL: This tool performs system-level operations that modify state. Use with appropriate sandboxing. Recommended: --isolated mode.",
       "action": "mark_and_move"
     },
 
