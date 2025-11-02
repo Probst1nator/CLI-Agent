@@ -3,10 +3,10 @@
 Sync script for maintaining public repository from private development repo.
 
 This script:
-1. Moves privileged tools to tools/privileged/ with warning headers
+1. Deletes privileged tools (bash, writefile, etc.) from public version
 2. Excludes internal development directories
 3. Filters out secrets and logs
-4. Creates a clean public-ready branch
+4. Creates a clean public-ready branch with safe tools only
 
 Usage:
     python user_scripts/sync_public_repo.py --dry-run     # Preview changes
@@ -79,98 +79,13 @@ class PublicRepoSync:
         print("✅ Prerequisites OK")
         return True
 
-    def create_privileged_warning_header(self) -> str:
-        """Generate warning header for privileged tools."""
-        warning_text = self.config['tools']['privileged']['warning']
-
-        return f'''"""
-{'=' * 80}
-{warning_text}
-{'=' * 80}
-"""
-
-'''
-
-    def mark_privileged_tool(self, tool_path: Path, privileged_dir: Path) -> None:
-        """Move tool to privileged directory and add warning header."""
-        # Read original tool
-        with open(tool_path, 'r') as f:
-            original_content = f.read()
-
-        # Check if already marked
-        if 'PRIVILEGED TOOL' in original_content[:500]:
-            print(f"  ⏭️  Already marked: {tool_path.name}")
-            return
-
-        # Create privileged directory if needed
-        privileged_dir.mkdir(exist_ok=True)
-
-        # Add warning header
-        warning_header = self.create_privileged_warning_header()
-        marked_content = warning_header + original_content
-
-        # Write to privileged directory
-        new_path = privileged_dir / tool_path.name
-        with open(new_path, 'w') as f:
-            f.write(marked_content)
-
-        print(f"  ✅ Marked: {tool_path.name} → tools/privileged/")
-
-    def create_privileged_readme(self, privileged_dir: Path) -> None:
-        """Create simple README for privileged tools."""
-        content = """# Privileged Tools
-
-⚠️ **WARNING: These tools perform system-level operations.**
-
-## Usage Guidelines
-
-These tools can alter your filesystem and execute commands. Use with appropriate safeguards:
-
-### Recommended Approach
-
-**Docker Isolated Mode** (safest):
-```bash
-python main.py --isolated
-```
-
-This runs the agent in a containerized environment with filesystem isolation.
-
-### Alternative: Permission Prompts
-
-Enable permission prompts before dangerous operations:
-```bash
-python main.py  # Prompts before modifications
-/perms view     # Check current permissions
-/perms add ask bash(*)  # Require confirmation for bash commands
-```
-
-## Tools in This Directory
-
-- `bash.py` - Execute shell commands
-- `writefile.py` - Create/modify files
-- `editfile.py` - Edit existing files
-- `insertline.py` - Insert lines into files
-- `deletelines.py` - Delete lines from files
-- `computercontrol.py` - Computer control operations
-
-## Safe Alternatives
-
-For read-only operations, use:
-- `readfile.py` - Read file contents
-- `readdirectory.py` - List directory contents
-- `grepsearch.py` - Search code
-
-## Documentation
-
-- Main README: `../README.md`
-- Architecture: `../CLAUDE.md`
-- Permission system: `../core/permissions/`
-"""
-
-        readme_path = privileged_dir / "README.md"
-        with open(readme_path, 'w') as f:
-            f.write(content)
-        print(f"  ✅ Created: tools/privileged/README.md")
+    def delete_privileged_tool(self, tool_path: Path) -> None:
+        """Delete privileged tool from public repository."""
+        if tool_path.exists():
+            tool_path.unlink()
+            print(f"  ✅ Deleted: {tool_path.name}")
+        else:
+            print(f"  ⏭️  Not found: {tool_path.name}")
 
     def prepare_public_branch(self, dry_run: bool = False) -> bool:
         """Prepare public branch with filtered content."""
@@ -187,34 +102,17 @@ For read-only operations, use:
                 self._run_git('merge', 'main')
                 print(f"✅ Updated branch: {self.public_branch}")
 
-        # Process privileged tools
-        print("\n📦 Processing privileged tools...")
+        # Delete privileged tools
+        print("\n🗑️  Deleting privileged tools...")
         tools_dir = self.repo_root / "tools"
-        privileged_dir = tools_dir / "privileged"
 
         for tool_name in self.config['tools']['privileged']['tools']:
             tool_path = tools_dir / tool_name
-            if tool_path.exists():
-                if dry_run:
-                    print(f"  [DRY RUN] Would mark: {tool_name}")
-                else:
-                    self.mark_privileged_tool(tool_path, privileged_dir)
-
-        # Remove original privileged tools from main tools directory
-        if not dry_run:
-            print("\n🗑️  Removing originals from tools/...")
-            for tool_name in self.config['tools']['privileged']['tools']:
-                tool_path = tools_dir / tool_name
-                if tool_path.exists() and (privileged_dir / tool_name).exists():
-                    tool_path.unlink()
-                    print(f"  ✅ Removed: {tool_name}")
-
-        # Create privileged README
-        if dry_run:
-            print("\n📝 Would create: tools/privileged/README.md")
-        else:
-            print("\n📝 Creating privileged tools documentation...")
-            self.create_privileged_readme(privileged_dir)
+            if dry_run:
+                if tool_path.exists():
+                    print(f"  [DRY RUN] Would delete: {tool_name}")
+            else:
+                self.delete_privileged_tool(tool_path)
 
         # Remove excluded directories
         self._remove_excluded_content(dry_run)
@@ -229,7 +127,7 @@ For read-only operations, use:
                 self._run_git(
                     'commit',
                     '-m',
-                    'Prepare public release: mark privileged tools, filter internal dirs'
+                    'Prepare public release: remove privileged tools, filter internal dirs'
                 )
                 print("\n✅ Changes committed to public branch")
             except subprocess.CalledProcessError:
@@ -317,7 +215,7 @@ docker_files/traefik/
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sync public repository with privileged tool filtering"
+        description="Sync public repository (removes privileged tools, keeps safe tools only)"
     )
     parser.add_argument(
         '--dry-run',
@@ -327,7 +225,7 @@ def main():
     parser.add_argument(
         '--prepare',
         action='store_true',
-        help="Prepare public branch (mark privileged tools, filter internal dirs)"
+        help="Prepare public branch (delete privileged tools, filter internal dirs)"
     )
     parser.add_argument(
         '--push',
