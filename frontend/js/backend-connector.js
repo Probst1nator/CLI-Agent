@@ -5,12 +5,15 @@
  */
 class BackendConnector {
     /**
-     * Initialize backend connector with identity manager
+     * Initialize backend connector with identity manager and auth manager
      * @param {IdentityManager} identityManager - Identity manager instance
+     * @param {AuthManager} authManager - Auth manager instance (optional for local mode)
      */
-    constructor(identityManager) {
+    constructor(identityManager, authManager = null) {
         /** @type {IdentityManager} */
         this.identityManager = identityManager;
+        /** @type {AuthManager|null} */
+        this.authManager = authManager;
         /** @type {string|null} Backend URL once discovered */
         this.backendURL = null;
         /** @type {string|null} Container name (containerized mode only) */
@@ -68,10 +71,21 @@ class BackendConnector {
         const uuid = this.identityManager.getUUID();
 
         try {
+            // Ensure we have JWT token for containerized mode
+            if (this.authManager) {
+                await this.authManager.ensureAuthenticated();
+            }
+
+            // Build headers
+            const headers = {};
+            if (this.authManager) {
+                Object.assign(headers, this.authManager.getAuthHeaders());
+            } else {
+                headers['X-User-UUID'] = uuid;
+            }
+
             const response = await fetch('/api/manager/discover', {
-                headers: {
-                    'X-User-UUID': uuid
-                }
+                headers: headers
             });
 
             if (!response.ok) {
@@ -135,7 +149,7 @@ class BackendConnector {
     }
 
     /**
-     * Fetch from backend with automatic discovery and UUID headers
+     * Fetch from backend with automatic discovery, JWT auth, and UUID headers
      * @param {string} path - API path to fetch
      * @param {RequestInit} [options={}] - Fetch options
      * @returns {Promise<Response>} Fetch response
@@ -149,7 +163,13 @@ class BackendConnector {
 
         options.headers = options.headers || {};
         if (!this.isLocal) {
-            options.headers['X-User-UUID'] = this.identityManager.getUUID();
+            // Add authentication headers for containerized mode
+            if (this.authManager) {
+                await this.authManager.ensureAuthenticated();
+                Object.assign(options.headers, this.authManager.getAuthHeaders());
+            } else {
+                options.headers['X-User-UUID'] = this.identityManager.getUUID();
+            }
         }
 
         return fetch(url, options);
@@ -165,11 +185,18 @@ class BackendConnector {
         }
 
         try {
+            // Build headers with JWT if available
+            const headers = {};
+            if (this.authManager) {
+                await this.authManager.ensureAuthenticated();
+                Object.assign(headers, this.authManager.getAuthHeaders());
+            } else {
+                headers['X-User-UUID'] = this.identityManager.getUUID();
+            }
+
             await fetch('/api/manager/activity', {
                 method: 'POST',
-                headers: {
-                    'X-User-UUID': this.identityManager.getUUID()
-                }
+                headers: headers
             });
         } catch (error) {
             console.warn('Failed to update activity:', error);

@@ -731,20 +731,153 @@ class ContainerManager:
 manager = ContainerManager()
 
 
+# === JWT Authentication ===
+
+import jwt
+from datetime import timedelta
+
+JWT_SECRET = os.getenv('JWT_SECRET', 'CHANGE-THIS-SECRET-KEY-IN-PRODUCTION-MINIMUM-32-CHARS')
+JWT_ALGORITHM = 'HS256'
+JWT_EXPIRY_HOURS = 24
+
+
+def create_jwt_token(uuid: str, email: str = None) -> str:
+    """Create JWT token for user"""
+    payload = {
+        'uuid': uuid,  # User's UUID (from localStorage)
+        'email': email,  # Optional user email (for future user accounts)
+        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
+        'iat': datetime.utcnow()
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def verify_jwt_token(token: str) -> Optional[dict]:
+    """Verify JWT token and return payload"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        logger.warning("JWT token expired")
+        return None
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid JWT token: {e}")
+        return None
+
+
+# Authentication middleware
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """
+    JWT authentication middleware for SaaS mode.
+
+    Exempted endpoints:
+    - /health (health checks)
+    - /auth/login (authentication)
+    - OPTIONS requests (CORS preflight)
+    """
+    # Skip auth for public endpoints
+    public_paths = ['/health', '/auth/login']
+    if any(request.url.path.startswith(p) for p in public_paths):
+        return await call_next(request)
+
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    # Check for JWT token in Authorization header
+    auth_header = request.headers.get('Authorization', '')
+
+    if not auth_header.startswith('Bearer '):
+        return JSONResponse(
+            status_code=401,
+            content={
+                'status': 'error',
+                'error': 'Missing or invalid Authorization header',
+                'code': 'UNAUTHORIZED'
+            }
+        )
+
+    token = auth_header[7:]  # Remove 'Bearer ' prefix
+    payload = verify_jwt_token(token)
+
+    if not payload:
+        return JSONResponse(
+            status_code=401,
+            content={
+                'status': 'error',
+                'error': 'Invalid or expired token',
+                'code': 'UNAUTHORIZED'
+            }
+        )
+
+    # Attach user info to request state
+    request.state.user = payload
+    request.state.user_uuid = payload['uuid']
+
+    return await call_next(request)
+
+
 # === API Endpoints ===
+
+@app.post("/auth/login")
+async def login(request: Request):
+    """
+    Login endpoint - exchanges UUID for JWT token
+
+    Request body:
+    {
+        "uuid": "user-uuid-from-localStorage",
+        "email": "optional@email.com"  # For future user accounts
+    }
+
+    Response:
+    {
+        "status": "success",
+        "token": "jwt-token-here",
+        "expires_in": 86400
+    }
+    """
+    try:
+        data = await request.json()
+        uuid = data.get('uuid')
+        email = data.get('email')  # Optional
+
+        # Validate UUID
+        uuid = validate_uuid(uuid)
+
+        # For MVP: Just issue JWT for any valid UUID
+        # For Phase 2: Check against user database
+
+        token = create_jwt_token(uuid, email)
+
+        logger.info(f"JWT issued for UUID {uuid[:8]}...")
+
+        return JSONResponse({
+            'status': 'success',
+            'token': token,
+            'expires_in': JWT_EXPIRY_HOURS * 3600
+        })
+
+    except HTTPException as e:
+        return JSONResponse(
+            status_code=e.status_code,
+            content={'status': 'error', 'error': e.detail, 'code': 'INVALID_UUID'}
+        )
+    except Exception as e:
+        logger.error(f"Login failed: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={'status': 'error', 'error': str(e), 'code': 'INTERNAL_ERROR'}
+        )
 
 @app.get("/discover")
 async def discover_container(request: Request):
     """
-    Discover or create container for requesting UUID
-    UUID passed in X-User-UUID header
+    Discover or create container for authenticated user
+    UUID extracted from JWT token in request.state.user_uuid
     """
-    uuid = request.headers.get("X-User-UUID")
-    if not uuid:
-        raise HTTPException(status_code=400, detail="Missing X-User-UUID header")
-
-    # Validate UUID format
-    uuid = validate_uuid(uuid)
+    # Get UUID from authenticated request state (set by middleware)
+    uuid = request.state.user_uuid
 
     logger.info(f"Container discovery request for UUID: {uuid[:8]}...")
 

@@ -91,6 +91,7 @@ async def load_chat(request: Any) -> Any:
     try:
         from core.chat import Chat
         from core.globals import g
+        import re
 
         chat_id = request.match_info.get('id')
         if not chat_id:
@@ -98,6 +99,25 @@ async def load_chat(request: Any) -> Any:
                 'status': 'error',
                 'error': 'Chat ID is required',
                 'code': 'INVALID_REQUEST'
+            }, status=400)
+
+        # Validate chat ID format to prevent path traversal
+        # Expected format: chat_TIMESTAMP_HASH (e.g., chat_1730123456_abc1)
+        if not re.match(r'^chat_\d{10,}_[a-f0-9]{4}$', chat_id):
+            logger.warning(f"Invalid chat ID format attempt: {chat_id}")
+            return web.json_response({
+                'status': 'error',
+                'error': 'Invalid chat ID format',
+                'code': 'INVALID_CHAT_ID'
+            }, status=400)
+
+        # Additional check for path traversal attempts
+        if '..' in chat_id or '/' in chat_id or '\\' in chat_id:
+            logger.warning(f"Path traversal attempt detected: {chat_id}")
+            return web.json_response({
+                'status': 'error',
+                'error': 'Invalid chat ID',
+                'code': 'INVALID_CHAT_ID'
             }, status=400)
 
         # Load from archive
@@ -292,6 +312,7 @@ async def delete_archived_chat(request: Any) -> Any:
 
     try:
         from core.chat import Chat
+        import re
 
         chat_id = request.match_info.get('id')
         if not chat_id:
@@ -299,6 +320,24 @@ async def delete_archived_chat(request: Any) -> Any:
                 'status': 'error',
                 'error': 'Chat ID is required',
                 'code': 'INVALID_REQUEST'
+            }, status=400)
+
+        # Validate chat ID format to prevent path traversal
+        if not re.match(r'^chat_\d{10,}_[a-f0-9]{4}$', chat_id):
+            logger.warning(f"Invalid chat ID format attempt: {chat_id}")
+            return web.json_response({
+                'status': 'error',
+                'error': 'Invalid chat ID format',
+                'code': 'INVALID_CHAT_ID'
+            }, status=400)
+
+        # Additional check for path traversal attempts
+        if '..' in chat_id or '/' in chat_id or '\\' in chat_id:
+            logger.warning(f"Path traversal attempt detected: {chat_id}")
+            return web.json_response({
+                'status': 'error',
+                'error': 'Invalid chat ID',
+                'code': 'INVALID_CHAT_ID'
             }, status=400)
 
         success = Chat.delete_from_archive(chat_id)
