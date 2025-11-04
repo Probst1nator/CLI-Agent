@@ -6,6 +6,7 @@
 
 | File | Description |
 |------|-------------|
+| `INDEX.md` | Directory index with functional descriptions of all files |
 | `README.md` | Overview and documentation for this directory |
 | `__init__.py` | Python package initialization |
 | `audio_router.py` | Python module: audio router |
@@ -20,9 +21,12 @@
 ## Subdirectories
 
 - `audio/`
-- `cli_agent_shared.egg-info/`
-- `utils/`
+- `utils/` 📋
+
+📋 = Has INDEX.md
 
 ---
 
 *This INDEX.md file provides functional descriptions of all files in this directory.*
+
+*Descriptions generated using LLM analysis of file contents.*

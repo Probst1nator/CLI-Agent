@@ -18,23 +18,7 @@ from termcolor import colored
 from core.globals import g
 from tools.bash import bash  # Import to access the shared process list
 
-# Import TextResourceManager for large output handling
-try:
-    from shared.utils.text_resource_manager import TextResourceManager
-    RESOURCE_MANAGER_AVAILABLE = True
-
-    def get_resource_manager() -> Any:
-        return TextResourceManager._get_manager()
-
-except ImportError:
-    RESOURCE_MANAGER_AVAILABLE = False
-
-    def get_resource_manager() -> None:
-        return None
-
 class taskmanager:
-    # Threshold for using resource manager for large outputs
-    OUTPUT_THRESHOLD = 4096
 
     @staticmethod
     def get_delim() -> str:
@@ -46,8 +30,7 @@ class taskmanager:
             "name": "taskmanager",
             "description": (
                 "Manages background processes started with <bash>. Allows listing, killing, and inspecting processes. "
-                "Large process outputs are automatically handled by the system - if content exceeds limits, "
-                "a resource_id is provided and you can use the `searchresource` tool to inspect the output."
+                "Large process outputs are automatically saved to memory files that you can read with <readfile>."
             ),
             "example": (
                 "<taskmanager><list/></taskmanager>\n"

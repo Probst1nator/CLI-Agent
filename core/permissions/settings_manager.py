@@ -143,24 +143,33 @@ class SettingsManager:
         if ':' in rule_spec and command:
             # Format: "command:*" or "command:args"
             cmd_pattern = rule_spec.split(':', 1)[0]
-            # Check if command starts with pattern
-            return command.strip().lower().startswith(cmd_pattern.lower())
+            # Use word boundaries to prevent bypass attacks
+            # e.g., "git push:*" should NOT match "git pushx malicious.sh"
+            import re
+            # Create regex with word boundary after command
+            pattern = re.compile(rf'^{re.escape(cmd_pattern)}\b', re.IGNORECASE)
+            return pattern.match(command.strip()) is not None
 
         # File path pattern matching
         if file_path and rule_spec:
             # Expand ~ and resolve relative paths for comparison
+            # SECURITY: Normalize paths to prevent ../ bypass attacks
             try:
                 expanded_pattern = os.path.expanduser(rule_spec)
                 expanded_path = os.path.expanduser(file_path)
 
-                # Convert glob patterns (** → *)
-                glob_pattern = expanded_pattern.replace('**/', '**/').replace('**', '*')
+                # Normalize paths to prevent ../ traversal bypass
+                normalized_path = os.path.normpath(expanded_path)
+                normalized_pattern = os.path.normpath(expanded_pattern)
 
-                # Use fnmatch for pattern matching
-                if fnmatch.fnmatch(expanded_path, glob_pattern):
+                # Convert glob patterns (** → *)
+                glob_pattern = normalized_pattern.replace('**/', '**/').replace('**', '*')
+
+                # Use fnmatch for pattern matching with normalized paths
+                if fnmatch.fnmatch(normalized_path, glob_pattern):
                     return True
 
-                # Also try relative matching
+                # Also try relative matching with original paths
                 if fnmatch.fnmatch(file_path, rule_spec):
                     return True
 

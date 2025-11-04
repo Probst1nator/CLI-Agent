@@ -347,19 +347,50 @@ class WebSocketManager {
         contentHTML += `
             <div class="permission-actions">
                 <button class="permission-btn allow" onclick="window.sendPermissionResponse('${data.id}', 'allow')">
-                    ✅ Allow
+                    ✅ Allow Once
                 </button>
                 <button class="permission-btn deny" onclick="window.sendPermissionResponse('${data.id}', 'deny')">
-                    ❌ Deny
+                    ❌ Deny Once
                 </button>
-                <button class="permission-btn always-allow" onclick="window.sendPermissionResponse('${data.id}', 'always_allow')">
-                    ✅ Always Allow
+                <button class="permission-btn always-allow" onclick="window.showPermissionRuleSelector('${data.id}')">
+                    ✅ Allow and Remember...
                 </button>
                 <button class="permission-btn always-deny" onclick="window.sendPermissionResponse('${data.id}', 'always_deny')">
                     ❌ Always Deny
                 </button>
             </div>
         `;
+
+        // Add rule selector (hidden by default)
+        if (permissionData.rule_options && permissionData.rule_options.length > 0) {
+            contentHTML += `
+                <div id="rule-selector-${data.id}" class="permission-rule-selector" style="display: none;">
+                    <div class="rule-selector-header">
+                        <h4>Choose permission scope:</h4>
+                        <p class="rule-selector-hint">Select how specific you want this permission to be</p>
+                    </div>
+                    <div class="rule-selector-options">
+            `;
+
+            permissionData.rule_options.forEach((option, index) => {
+                const escapedRule = option.rule.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                const escapedDescription = option.description.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                contentHTML += `
+                    <div class="rule-option" data-rule="${escapedRule}" data-permission-id="${data.id}">
+                        <div class="rule-option-description">${escapedDescription}</div>
+                        <div class="rule-option-rule"><code>${option.rule}</code></div>
+                    </div>
+                `;
+            });
+
+            contentHTML += `
+                    </div>
+                    <button class="permission-btn cancel-rule-selector" onclick="window.hidePermissionRuleSelector('${data.id}')">
+                        ↩️ Cancel
+                    </button>
+                </div>
+            `;
+        }
 
         contentDiv.innerHTML = contentHTML;
 
@@ -368,6 +399,18 @@ class WebSocketManager {
 
         this.contentWrapper.appendChild(messageBlock);
         this.scrollToBottom();
+
+        // Add event listeners for rule options
+        const ruleOptions = messageBlock.querySelectorAll('.rule-option');
+        ruleOptions.forEach(option => {
+            option.addEventListener('click', () => {
+                const rule = option.getAttribute('data-rule');
+                const permissionId = option.getAttribute('data-permission-id');
+                if (rule && permissionId) {
+                    window.sendPermissionResponseWithRule(permissionId, rule);
+                }
+            });
+        });
 
         // Store the permission ID for response handling
         window.pendingPermissionId = data.id;
