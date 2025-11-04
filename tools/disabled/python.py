@@ -12,11 +12,11 @@ import base64
 import logging
 import os
 from collections.abc import Callable
+from typing import Optional
 
 import pexpect
 from termcolor import colored
 
-from typing import Optional
 # Assumes g is initialized and available from the project's core
 from core.globals import g
 

@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from core.ai_strengths import AIStrengths
+from core.lm_capabilities import LMCapabilities
 from py_classes.unified_interfaces import AIProviderInterface
 
 
@@ -17,7 +17,7 @@ class Llm:
         model_key: str,
         pricing_in_dollar_per_1M_tokens: Optional[float],
         context_window: Optional[int],
-        strengths: list[AIStrengths] = [],
+        capabilities: list[LMCapabilities] = [],
     ):
         """
         Initialize an LLM instance.
@@ -33,7 +33,7 @@ class Llm:
         self.model_key = model_key
         self.pricing_in_dollar_per_1M_tokens = pricing_in_dollar_per_1M_tokens
         self.context_window: Optional[int] = context_window
-        self.strengths = strengths
+        self.capabilities = capabilities
 
     def __str__(self) -> str:
         """
@@ -43,26 +43,36 @@ class Llm:
             str: A formatted string with the LLM's attributes
         """
         provider_name = self.provider.__class__.__name__
-        pricing = f"${self.pricing_in_dollar_per_1M_tokens}/1M tokens" if self.pricing_in_dollar_per_1M_tokens else "Free"
-        strengths = ", ".join(s.name for s in self.strengths) if self.strengths else "None"
+        pricing = (
+            f"${self.pricing_in_dollar_per_1M_tokens}/1M tokens"
+            if self.pricing_in_dollar_per_1M_tokens
+            else "Free"
+        )
+        capabilities = (
+            ", ".join(s.name for s in self.capabilities)
+            if self.capabilities
+            else "None"
+        )
 
-        return f"LLM(provider={provider_name}, model={self.model_key}, pricing={pricing}, " \
-               f"context_window={self.context_window}, strengths=[{strengths}])"
+        return (
+            f"LLM(provider={provider_name}, model={self.model_key}, pricing={pricing}, "
+            f"context_window={self.context_window}, capabilities=[{capabilities}])"
+        )
 
     @property
     def has_vision(self) -> bool:
         """Returns whether the model has vision capabilities."""
-        return any(s == AIStrengths.VISION for s in self.strengths)
+        return any(s == LMCapabilities.VISION for s in self.capabilities)
 
     @property
     def is_uncensored(self) -> bool:
         """Returns whether this is an uncensored model."""
-        return any(s == AIStrengths.UNCENSORED for s in self.strengths)
+        return any(s == LMCapabilities.UNCENSORED for s in self.capabilities)
 
     @property
     def local(self) -> bool:
         """Returns whether this is a local model."""
-        return any(s == AIStrengths.LOCAL for s in self.strengths)
+        return any(s == LMCapabilities.LOCAL for s in self.capabilities)
 
     def get_context_window(self) -> int:
         """
@@ -75,15 +85,18 @@ class Llm:
             return self.context_window
 
         # For Ollama models, fetch context length dynamically
-        if self.provider.__class__.__name__ == 'OllamaClient':
+        if self.provider.__class__.__name__ == "OllamaClient":
             try:
                 # Try different Ollama hosts
                 from core.globals import g
                 from core.providers.cls_ollama_interface import OllamaClient
+
                 ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
                 for host in ollama_hosts:
                     try:
-                        context_length = OllamaClient.get_model_context_length(self.model_key, host)
+                        context_length = OllamaClient.get_model_context_length(
+                            self.model_key, host
+                        )
                         if context_length is not None:
                             # Cache the result to avoid repeated calls
                             self.context_window = context_length
@@ -106,7 +119,9 @@ class Llm:
         return default_context
 
     @classmethod
-    def get_available_llms(cls, exclude_guards: bool = False, include_dynamic: bool = True) -> list["Llm"]:
+    def get_available_llms(
+        cls, exclude_guards: bool = False, include_dynamic: bool = True
+    ) -> list["Llm"]:
         """
         Get the list of available LLMs, optionally including dynamically discovered Ollama models.
 
@@ -140,31 +155,68 @@ class Llm:
 
         # Add static Google models if GoogleAPI is available
         if GoogleAPI:
-            llms.extend([
-                Llm(GoogleAPI(), "gemini-flash-latest", None, 1000000, [AIStrengths.VISION]),
-                Llm(GoogleAPI(), "gemini-2.5-pro", None, 1000000, [AIStrengths.VISION]),
-                Llm(GoogleAPI(), "gemini-flash-lite-latest", None, 1000000, [AIStrengths.VISION]),
-                Llm(GoogleAPI(), "gemini-2.0-flash", None, 1000000, [AIStrengths.VISION]),
-            ])
+            llms.extend(
+                [
+                    Llm(
+                        GoogleAPI(),
+                        "gemini-flash-latest",
+                        None,
+                        1000000,
+                        [LMCapabilities.VISION],
+                    ),
+                    Llm(
+                        GoogleAPI(),
+                        "gemini-2.5-pro",
+                        None,
+                        1000000,
+                        [LMCapabilities.VISION],
+                    ),
+                    Llm(
+                        GoogleAPI(),
+                        "gemini-flash-lite-latest",
+                        None,
+                        1000000,
+                        [LMCapabilities.VISION],
+                    ),
+                    Llm(
+                        GoogleAPI(),
+                        "gemini-2.0-flash",
+                        None,
+                        1000000,
+                        [LMCapabilities.VISION],
+                    ),
+                ]
+            )
 
         # Add static Groq models if GroqAPI is available
         if GroqAPI:
-            llms.extend([
-                Llm(GroqAPI(), "moonshotai/kimi-k2-instruct", None, 128000, []),
-                Llm(GroqAPI(), "openai/gpt-oss-120b", None, 128000, []),
-                Llm(GroqAPI(), "qwen/qwen3-32b", None, 128000, []),
-                Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, []),
-                Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, []),
-                Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, []),
-            ])
+            llms.extend(
+                [
+                    Llm(GroqAPI(), "moonshotai/kimi-k2-instruct", None, 128000, []),
+                    Llm(GroqAPI(), "openai/gpt-oss-120b", None, 128000, []),
+                    Llm(GroqAPI(), "qwen/qwen3-32b", None, 128000, []),
+                    Llm(GroqAPI(), "llama-3.3-70b-versatile", None, 128000, []),
+                    Llm(GroqAPI(), "deepseek-r1-distill-llama-70b", None, 128000, []),
+                    Llm(GroqAPI(), "llama-3.1-8b-instant", None, 128000, []),
+                ]
+            )
 
         # Note: Claude models require Anthropic API credits (separate from Claude Code subscription)
         # Uncomment below and add ANTHROPIC_API_KEY to use:
         from core.providers.cls_anthropic_interface import AnthropicAPI
-        llms.extend([
-            # Llm(AnthropicAPI(), "claude-sonnet-4-5", 3, 200000, [AIStrengths.VISION]),
-            Llm(AnthropicAPI(), "claude-haiku-4-5", 1, 200000, [AIStrengths.VISION]),
-        ])
+
+        llms.extend(
+            [
+                # Llm(AnthropicAPI(), "claude-sonnet-4-5", 3, 200000, [AIStrengths.VISION]),
+                Llm(
+                    AnthropicAPI(),
+                    "claude-haiku-4-5",
+                    1,
+                    200000,
+                    [LMCapabilities.VISION],
+                ),
+            ]
+        )
 
         # Static configured Ollama models (these will be supplemented by dynamic discovery)
         # Context lengths will be dynamically fetched from Ollama
@@ -172,37 +224,128 @@ class Llm:
         # Import OllamaClient here to avoid circular import
         try:
             from core.providers.cls_ollama_interface import OllamaClient
-            llms.extend([
-                Llm(OllamaClient(), "gemma3n:e4b", None, 128000, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "mistral-small3.2:latest", None, 128000, [AIStrengths.VISION, AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "magistral:latest", None, 130000, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen3:30b", None, 131072, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen3-coder:latest", None, 128000, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "devstral:latest", None, 128000, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "gemma3n:e2b", None, 128000, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "gemma3:27b", None, 128000, [AIStrengths.LOCAL]),
 
-
-                Llm(OllamaClient(), "qwen2.5vl:3b", None, 128000, [AIStrengths.VISION, AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "cogito:32b", None, 128000, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen3:1.7b", None, 131072, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen2.5-coder:1.5b", None, 128000, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "qwen2.5-coder:7b", None, 128000, [AIStrengths.LOCAL]),
-
-
-                # Guard models
-                Llm(OllamaClient(), "llama-guard3:8b", None, None, [AIStrengths.LOCAL]),
-                Llm(OllamaClient(), "shieldgemma:2b", None, None, [AIStrengths.LOCAL]),
-            ])
+            llms.extend(
+                [
+                    Llm(
+                        OllamaClient(),
+                        "gemma3n:e4b",
+                        None,
+                        128000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "mistral-small3.2:latest",
+                        None,
+                        128000,
+                        [LMCapabilities.VISION, LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "magistral:latest",
+                        None,
+                        130000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "qwen3:30b",
+                        None,
+                        131072,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "qwen3-coder:latest",
+                        None,
+                        128000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "devstral:latest",
+                        None,
+                        128000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "gemma3n:e2b",
+                        None,
+                        128000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "gemma3:27b",
+                        None,
+                        128000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "qwen2.5vl:3b",
+                        None,
+                        128000,
+                        [LMCapabilities.VISION, LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "cogito:32b",
+                        None,
+                        128000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "qwen3:1.7b",
+                        None,
+                        131072,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "qwen2.5-coder:1.5b",
+                        None,
+                        128000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "qwen2.5-coder:7b",
+                        None,
+                        128000,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    # Guard models
+                    Llm(
+                        OllamaClient(),
+                        "llama-guard3:8b",
+                        None,
+                        None,
+                        [LMCapabilities.LOCAL],
+                    ),
+                    Llm(
+                        OllamaClient(),
+                        "shieldgemma:2b",
+                        None,
+                        None,
+                        [LMCapabilities.LOCAL],
+                    ),
+                ]
+            )
         except ImportError:
             # OllamaClient not available, skip Ollama models
             pass
 
         # Non-Ollama guard models
         if GroqAPI:
-            llms.extend([
-                Llm(GroqAPI(), "llama-guard-4-12b", None, 128000, []),
-            ])
+            llms.extend(
+                [
+                    Llm(GroqAPI(), "llama-guard-4-12b", None, 128000, []),
+                ]
+            )
 
         # Get existing model keys to avoid duplicates
         existing_models = {llm.model_key for llm in llms}
@@ -213,39 +356,53 @@ class Llm:
             try:
                 # Try different Ollama hosts
                 from core.globals import g
+
                 ollama_hosts = g.DEFAULT_OLLAMA_HOSTS
                 for host in ollama_hosts:
                     try:
                         from core.providers.cls_ollama_interface import OllamaClient
+
                         # IMPORTANT: Only get actually downloaded/installed models
                         # Never include downloadable-but-not-installed models in auto-selection
                         downloaded_models = OllamaClient.get_downloaded_models(host)
                         for model_info in downloaded_models:
-                            model_name = model_info.get('name', '')
+                            model_name = model_info.get("name", "")
                             if model_name and model_name not in existing_models:
                                 # Verify this model is actually downloaded by checking if it has size/modified info
                                 # This ensures we don't accidentally include downloadable models
-                                if not (model_info.get('size', 0) > 0 or model_info.get('modified_at')):
+                                if not (
+                                    model_info.get("size", 0) > 0
+                                    or model_info.get("modified_at")
+                                ):
                                     continue  # Skip if no size/modified info (not actually downloaded)
 
-                                # Determine strengths based on model name patterns
-                                strengths = [AIStrengths.LOCAL]  # All Ollama models are local
+                                # Determine capabilities based on model name patterns
+                                capabilities = [
+                                    LMCapabilities.LOCAL
+                                ]  # All Ollama models are local
 
-                                # Add specific strengths based on model name
+                                # Add specific capabilities based on model name
                                 model_lower = model_name.lower()
-                                if any(x in model_lower for x in ['vision', 'vl', 'visual']):
-                                    strengths.append(AIStrengths.VISION)
-                                if any(x in model_lower for x in ['uncensored', 'dolphin', 'wizard']):
-                                    strengths.append(AIStrengths.UNCENSORED)
+                                if any(
+                                    x in model_lower for x in ["vision", "vl", "visual"]
+                                ):
+                                    capabilities.append(LMCapabilities.VISION)
+                                if any(
+                                    x in model_lower
+                                    for x in ["uncensored", "dolphin", "wizard"]
+                                ):
+                                    capabilities.append(LMCapabilities.UNCENSORED)
 
                                 # Create dynamic Llm instance (only for actually downloaded models)
-                                llms.append(Llm(
-                                    OllamaClient(),
-                                    model_name,
-                                    None,
-                                    None,  # Context window will be fetched dynamically
-                                    strengths
-                                ))
+                                llms.append(
+                                    Llm(
+                                        OllamaClient(),
+                                        model_name,
+                                        None,
+                                        None,  # Context window will be fetched dynamically
+                                        capabilities,
+                                    )
+                                )
                                 existing_models.add(model_name)
                     except ImportError:
                         pass  # OllamaClient not available
@@ -282,11 +439,7 @@ class Llm:
         except ImportError:
             GroqAPI = None
 
-        results = {
-            'providers': {},
-            'total_discovered': 0,
-            'errors': []
-        }
+        results = {"providers": {}, "total_discovered": 0, "errors": []}
 
         # Get current static models and previously discovered models for comparison
         static_llms = cls.get_available_llms(include_dynamic=False)
@@ -303,43 +456,44 @@ class Llm:
             """Discover Google models in a separate thread."""
             if not GoogleAPI:
                 with results_lock:
-                    results['providers']['Google'] = {
-                        'status': 'skipped',
-                        'reason': 'GoogleAPI not available or API key missing',
-                        'models_found': 0,
-                        'new_models': 0,
-                        'models': []
+                    results["providers"]["Google"] = {
+                        "status": "skipped",
+                        "reason": "GoogleAPI not available or API key missing",
+                        "models_found": 0,
+                        "new_models": 0,
+                        "models": [],
                     }
                 if progress_callback:
-                    progress_callback('Google', 'skipped', 0)
+                    progress_callback("Google", "skipped", 0)
                 return
 
             if progress_callback:
-                progress_callback('Google', 'starting', 0)
+                progress_callback("Google", "starting", 0)
 
             try:
                 # Check if API key is available
                 import os
-                if not os.getenv('GEMINI_API_KEY'):
+
+                if not os.getenv("GEMINI_API_KEY"):
                     with results_lock:
-                        results['providers']['Google'] = {
-                            'status': 'skipped',
-                            'reason': 'No GEMINI_API_KEY found',
-                            'models_found': 0,
-                            'new_models': 0,
-                            'models': []
+                        results["providers"]["Google"] = {
+                            "status": "skipped",
+                            "reason": "No GEMINI_API_KEY found",
+                            "models_found": 0,
+                            "new_models": 0,
+                            "models": [],
                         }
                     if progress_callback:
-                        progress_callback('Google', 'skipped', 0)
+                        progress_callback("Google", "skipped", 0)
                     return
 
                 discovered_google_models = GoogleAPI.get_available_models()
                 new_models = []
 
                 for model_info in discovered_google_models:
-                    model_name = model_info.get('name', '')
+                    model_name = model_info.get("name", "")
                     # Clean up model name - remove "models/" prefix if present
-                    if model_name.startswith('models/'):
+                    if model_name.startswith("models/"):
                         model_name = model_name[7:]
 
                     # Skip models that might conflict with statically defined Ollama models
@@ -349,97 +503,110 @@ class Llm:
                         skip_model = True
                     else:
                         # Check for model family conflicts (e.g., don't let Google override Ollama mistral models)
-                        model_base_name = model_name.split(':')[0].split('-')[0].lower()
+                        model_base_name = model_name.split(":")[0].split("-")[0].lower()
                         for existing_model in existing_models:
-                            existing_base_name = existing_model.split(':')[0].split('-')[0].lower()
-                            if model_base_name == existing_base_name and len(model_base_name) > 3:  # Avoid false positives like "gpt"
+                            existing_base_name = (
+                                existing_model.split(":")[0].split("-")[0].lower()
+                            )
+                            if (
+                                model_base_name == existing_base_name
+                                and len(model_base_name) > 3
+                            ):  # Avoid false positives like "gpt"
                                 skip_model = True
                                 break
 
                     if model_name and not skip_model:
                         # Determine context window from model info
-                        context_window = model_info.get('input_token_limit') or 1000000
+                        context_window = model_info.get("input_token_limit") or 1000000
 
-                        # Determine strengths based on model capabilities
-                        strengths = []
-                        methods = model_info.get('supported_generation_methods', [])
-                        if 'generateContent' in methods:
-                            strengths.append('VISION')
+                        # Determine capabilities based on model capabilities
+                        capabilities = []
+                        methods = model_info.get("supported_generation_methods", [])
+                        if "generateContent" in methods:
+                            capabilities.append("VISION")
 
-                        new_models.append({
-                            'name': model_name,
-                            'context_window': context_window,
-                            'strengths': strengths,
-                            'provider': 'GoogleAPI',
-                            'raw_info': model_info
-                        })
+                        new_models.append(
+                            {
+                                "name": model_name,
+                                "context_window": context_window,
+                                "capabilities": capabilities,
+                                "provider": "GoogleAPI",
+                                "raw_info": model_info,
+                            }
+                        )
 
                 with results_lock:
-                    results['providers']['Google'] = {
-                        'status': 'success',
-                        'models_found': len(discovered_google_models),
-                        'new_models': len(new_models),
-                        'models': new_models
+                    results["providers"]["Google"] = {
+                        "status": "success",
+                        "models_found": len(discovered_google_models),
+                        "new_models": len(new_models),
+                        "models": new_models,
                     }
-                    results['total_discovered'] += len(new_models)
+                    results["total_discovered"] += len(new_models)
 
                 if progress_callback:
-                    progress_callback('Google', 'success', len(new_models), len(discovered_google_models))
+                    progress_callback(
+                        "Google",
+                        "success",
+                        len(new_models),
+                        len(discovered_google_models),
+                    )
 
             except Exception as e:
                 error_msg = f"Google discovery failed: {str(e)}"
                 with results_lock:
-                    results['providers']['Google'] = {
-                        'status': 'error',
-                        'error': error_msg,
-                        'models_found': 0,
-                        'new_models': 0,
-                        'models': []
+                    results["providers"]["Google"] = {
+                        "status": "error",
+                        "error": error_msg,
+                        "models_found": 0,
+                        "new_models": 0,
+                        "models": [],
                     }
-                    results['errors'].append(error_msg)
+                    results["errors"].append(error_msg)
 
                 if progress_callback:
-                    progress_callback('Google', 'error', 0)
+                    progress_callback("Google", "error", 0)
 
         def discover_groq_models():
             """Discover Groq models in a separate thread."""
             if not GroqAPI:
                 with results_lock:
-                    results['providers']['Groq'] = {
-                        'status': 'skipped',
-                        'reason': 'GroqAPI not available or API key missing',
-                        'models_found': 0,
-                        'new_models': 0,
-                        'models': []
+                    results["providers"]["Groq"] = {
+                        "status": "skipped",
+                        "reason": "GroqAPI not available or API key missing",
+                        "models_found": 0,
+                        "new_models": 0,
+                        "models": [],
                     }
                 if progress_callback:
-                    progress_callback('Groq', 'skipped', 0)
+                    progress_callback("Groq", "skipped", 0)
                 return
 
             if progress_callback:
-                progress_callback('Groq', 'starting', 0)
+                progress_callback("Groq", "starting", 0)
 
             try:
                 # Check if API key is available
                 import os
-                if not os.getenv('GROQ_API_KEY'):
+
+                if not os.getenv("GROQ_API_KEY"):
                     with results_lock:
-                        results['providers']['Groq'] = {
-                            'status': 'skipped',
-                            'reason': 'No GROQ_API_KEY found',
-                            'models_found': 0,
-                            'new_models': 0,
-                            'models': []
+                        results["providers"]["Groq"] = {
+                            "status": "skipped",
+                            "reason": "No GROQ_API_KEY found",
+                            "models_found": 0,
+                            "new_models": 0,
+                            "models": [],
                         }
                     if progress_callback:
-                        progress_callback('Groq', 'skipped', 0)
+                        progress_callback("Groq", "skipped", 0)
                     return
 
                 discovered_groq_models = GroqAPI.get_available_models()
                 new_models = []
 
                 for model_info in discovered_groq_models:
-                    model_name = model_info.get('id', '')
+                    model_name = model_info.get("id", "")
 
                     # Skip models that might conflict with statically defined models
                     skip_model = False
@@ -447,62 +614,75 @@ class Llm:
                         skip_model = True
                     else:
                         # Check for model family conflicts
-                        model_base_name = model_name.split(':')[0].split('-')[0].lower()
+                        model_base_name = model_name.split(":")[0].split("-")[0].lower()
                         for existing_model in existing_models:
-                            existing_base_name = existing_model.split(':')[0].split('-')[0].lower()
-                            if model_base_name == existing_base_name and len(model_base_name) > 3:
+                            existing_base_name = (
+                                existing_model.split(":")[0].split("-")[0].lower()
+                            )
+                            if (
+                                model_base_name == existing_base_name
+                                and len(model_base_name) > 3
+                            ):
                                 skip_model = True
                                 break
 
                     if model_name and not skip_model:
                         # Get context window from model info
-                        context_window = model_info.get('context_window') or model_info.get('max_model_len') or 128000
+                        context_window = (
+                            model_info.get("context_window")
+                            or model_info.get("max_model_len")
+                            or 128000
+                        )
 
-                        # Determine strengths based on model capabilities
-                        strengths = []
-                        modalities = model_info.get('supported_modalities', [])
-                        if 'vision' in modalities or 'image' in modalities:
-                            strengths.append('VISION')
+                        # Determine capabilities based on model capabilities
+                        capabilities = []
+                        modalities = model_info.get("supported_modalities", [])
+                        if "vision" in modalities or "image" in modalities:
+                            capabilities.append("VISION")
 
-                        new_models.append({
-                            'name': model_name,
-                            'context_window': context_window,
-                            'strengths': strengths,
-                            'provider': 'GroqAPI',
-                            'raw_info': model_info
-                        })
+                        new_models.append(
+                            {
+                                "name": model_name,
+                                "context_window": context_window,
+                                "capabilities": capabilities,
+                                "provider": "GroqAPI",
+                                "raw_info": model_info,
+                            }
+                        )
 
                 with results_lock:
-                    results['providers']['Groq'] = {
-                        'status': 'success',
-                        'models_found': len(discovered_groq_models),
-                        'new_models': len(new_models),
-                        'models': new_models
+                    results["providers"]["Groq"] = {
+                        "status": "success",
+                        "models_found": len(discovered_groq_models),
+                        "new_models": len(new_models),
+                        "models": new_models,
                     }
-                    results['total_discovered'] += len(new_models)
+                    results["total_discovered"] += len(new_models)
 
                 if progress_callback:
-                    progress_callback('Groq', 'success', len(new_models), len(discovered_groq_models))
+                    progress_callback(
+                        "Groq", "success", len(new_models), len(discovered_groq_models)
+                    )
 
             except Exception as e:
                 error_msg = f"Groq discovery failed: {str(e)}"
                 with results_lock:
-                    results['providers']['Groq'] = {
-                        'status': 'error',
-                        'error': error_msg,
-                        'models_found': 0,
-                        'new_models': 0,
-                        'models': []
+                    results["providers"]["Groq"] = {
+                        "status": "error",
+                        "error": error_msg,
+                        "models_found": 0,
+                        "new_models": 0,
+                        "models": [],
                     }
-                    results['errors'].append(error_msg)
+                    results["errors"].append(error_msg)
 
                 if progress_callback:
-                    progress_callback('Groq', 'error', 0)
+                    progress_callback("Groq", "error", 0)
 
         def discover_ollama_models():
             """Discover Ollama models in a separate thread."""
             if progress_callback:
-                progress_callback('Ollama', 'starting', 0)
+                progress_callback("Ollama", "starting", 0)
 
             try:
                 from core.globals import g
@@ -511,7 +691,7 @@ class Llm:
                 # For model discovery progress, only get downloaded models (fast)
                 # Skip the slow comprehensive web scraping for better UX
                 comprehensive_status = {}
-                ollama_hosts_list = [h.split(':')[0] for h in g.DEFAULT_OLLAMA_HOSTS]
+                ollama_hosts_list = [h.split(":")[0] for h in g.DEFAULT_OLLAMA_HOSTS]
 
                 for host in ollama_hosts_list:
                     try:
@@ -520,19 +700,19 @@ class Llm:
 
                         downloaded_models = OllamaClient.get_downloaded_models(host)
                         for model_info in downloaded_models:
-                            model_name = model_info['name']
-                            base_name = model_name.split(':')[0]
+                            model_name = model_info["name"]
+                            base_name = model_name.split(":")[0]
 
                             if base_name not in comprehensive_status:
                                 comprehensive_status[base_name] = {
-                                    'downloaded': True,
-                                    'variants': {}
+                                    "downloaded": True,
+                                    "variants": {},
                                 }
 
-                            comprehensive_status[base_name]['variants'][model_name] = {
-                                'downloaded': True,
-                                'size': model_info.get('size', 0),
-                                'modified_at': model_info.get('modified_at')
+                            comprehensive_status[base_name]["variants"][model_name] = {
+                                "downloaded": True,
+                                "size": model_info.get("size", 0),
+                                "modified_at": model_info.get("modified_at"),
                             }
                     except Exception:
                         continue
@@ -542,81 +722,95 @@ class Llm:
 
                 # Count all available models (downloaded + downloadable)
                 for model_base, status_info in comprehensive_status.items():
-                    variants_dict = status_info.get('variants', {})
+                    variants_dict = status_info.get("variants", {})
                     total_found += len(variants_dict)
 
                     for variant_name, variant_info in variants_dict.items():
                         if variant_name not in existing_models:
-                            # Determine strengths based on model name patterns
-                            strengths = ['LOCAL']  # All Ollama models are local
+                            # Determine capabilities based on model name patterns
+                            capabilities = ["LOCAL"]  # All Ollama models are local
                             model_lower = variant_name.lower()
-                            if any(x in model_lower for x in ['vision', 'vl', 'visual']):
-                                strengths.append('VISION')
-                            if any(x in model_lower for x in ['uncensored', 'dolphin', 'wizard']):
-                                strengths.append('UNCENSORED')
+                            if any(
+                                x in model_lower for x in ["vision", "vl", "visual"]
+                            ):
+                                capabilities.append("VISION")
+                            if any(
+                                x in model_lower
+                                for x in ["uncensored", "dolphin", "wizard"]
+                            ):
+                                capabilities.append("UNCENSORED")
 
                             # Get context window from variant info or estimate
-                            context_window = variant_info.get('context_window')
+                            context_window = variant_info.get("context_window")
                             if not context_window:
                                 # Estimation logic similar to LlmSelector
-                                if any(x in model_lower for x in ['llama3.3', 'llama3.2', 'llama3.1']):
+                                if any(
+                                    x in model_lower
+                                    for x in ["llama3.3", "llama3.2", "llama3.1"]
+                                ):
                                     context_window = 128000
-                                elif 'llama3' in model_lower:
+                                elif "llama3" in model_lower:
                                     context_window = 8192
-                                elif any(x in model_lower for x in ['qwen2.5', 'qwen3']):
+                                elif any(
+                                    x in model_lower for x in ["qwen2.5", "qwen3"]
+                                ):
                                     context_window = 128000
-                                elif any(x in model_lower for x in ['mistral', 'mixtral']):
+                                elif any(
+                                    x in model_lower for x in ["mistral", "mixtral"]
+                                ):
                                     context_window = 32768
                                 else:
                                     context_window = 8192
 
-                            new_models.append({
-                                'name': variant_name,
-                                'context_window': context_window,
-                                'strengths': strengths,
-                                'provider': 'OllamaClient',
-                                'downloaded': variant_info.get('downloaded', False),
-                                'size_str': variant_info.get('size_str', ''),
-                                'raw_info': variant_info
-                            })
+                            new_models.append(
+                                {
+                                    "name": variant_name,
+                                    "context_window": context_window,
+                                    "capabilities": capabilities,
+                                    "provider": "OllamaClient",
+                                    "downloaded": variant_info.get("downloaded", False),
+                                    "size_str": variant_info.get("size_str", ""),
+                                    "raw_info": variant_info,
+                                }
+                            )
 
                 with results_lock:
-                    results['providers']['Ollama'] = {
-                        'status': 'success',
-                        'models_found': total_found,
-                        'new_models': len(new_models),
-                        'models': new_models
+                    results["providers"]["Ollama"] = {
+                        "status": "success",
+                        "models_found": total_found,
+                        "new_models": len(new_models),
+                        "models": new_models,
                     }
-                    results['total_discovered'] += len(new_models)
+                    results["total_discovered"] += len(new_models)
 
                 if progress_callback:
-                    progress_callback('Ollama', 'success', len(new_models), total_found)
+                    progress_callback("Ollama", "success", len(new_models), total_found)
 
             except ImportError:
                 with results_lock:
-                    results['providers']['Ollama'] = {
-                        'status': 'skipped',
-                        'reason': 'OllamaClient not available',
-                        'models_found': 0,
-                        'new_models': 0,
-                        'models': []
+                    results["providers"]["Ollama"] = {
+                        "status": "skipped",
+                        "reason": "OllamaClient not available",
+                        "models_found": 0,
+                        "new_models": 0,
+                        "models": [],
                     }
                 if progress_callback:
-                    progress_callback('Ollama', 'skipped', 0)
+                    progress_callback("Ollama", "skipped", 0)
             except Exception as e:
                 error_msg = f"Ollama discovery failed: {str(e)}"
                 with results_lock:
-                    results['providers']['Ollama'] = {
-                        'status': 'error',
-                        'error': error_msg,
-                        'models_found': 0,
-                        'new_models': 0,
-                        'models': []
+                    results["providers"]["Ollama"] = {
+                        "status": "error",
+                        "error": error_msg,
+                        "models_found": 0,
+                        "new_models": 0,
+                        "models": [],
                     }
-                    results['errors'].append(error_msg)
+                    results["errors"].append(error_msg)
 
                 if progress_callback:
-                    progress_callback('Ollama', 'error', 0)
+                    progress_callback("Ollama", "error", 0)
 
         # Run all discovery tasks in parallel using threads
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
@@ -624,7 +818,7 @@ class Llm:
             futures = [
                 executor.submit(discover_google_models),
                 executor.submit(discover_groq_models),
-                executor.submit(discover_ollama_models)
+                executor.submit(discover_ollama_models),
             ]
 
             # Wait for all to complete
@@ -641,25 +835,28 @@ class Llm:
             from core.globals import g
 
             # Use the same path as LlmSelector for consistency
-            discovered_models_file = Path(g.LLM_CONFIG_PATH).parent / "discovered_models.json"
+            discovered_models_file = (
+                Path(g.LLM_CONFIG_PATH).parent / "discovered_models.json"
+            )
             if not discovered_models_file.exists():
                 return set()
 
             import json
+
             with open(discovered_models_file) as f:
                 data = json.load(f)
 
-            if 'models' not in data:
+            if "models" not in data:
                 return set()
 
             previously_discovered = set()
-            providers_data = data['models'].get('providers', {})
+            providers_data = data["models"].get("providers", {})
 
             # Collect all previously discovered model names
             for provider_name, provider_info in providers_data.items():
-                if provider_info.get('status') == 'success':
-                    for model_info in provider_info.get('models', []):
-                        model_name = model_info.get('name', '')
+                if provider_info.get("status") == "success":
+                    for model_info in provider_info.get("models", []):
+                        model_name = model_info.get("name", "")
                         if model_name:
                             previously_discovered.add(model_name)
 
@@ -684,7 +881,9 @@ class Llm:
             from core.globals import g
 
             # Get current static models
-            existing_models = {model.model_key for model in cls._discovered_models_cache}
+            existing_models = {
+                model.model_key for model in cls._discovered_models_cache
+            }
             new_models = []
 
             try:
@@ -692,8 +891,10 @@ class Llm:
                 tasks = []
                 for host in g.DEFAULT_OLLAMA_HOSTS:
                     # Remove protocol prefix for host checking
-                    clean_host = host.replace('http://', '').replace('https://', '')
-                    tasks.append(cls._discover_from_host_async(clean_host, existing_models))
+                    clean_host = host.replace("http://", "").replace("https://", "")
+                    tasks.append(
+                        cls._discover_from_host_async(clean_host, existing_models)
+                    )
 
                 # Wait for all host discoveries with timeout
                 if tasks:
@@ -706,7 +907,9 @@ class Llm:
                 if new_models:
                     cls._discovered_models_cache.extend(new_models)
                     cls._cache_timestamp = time.time()
-                    logging.info(f"🔍 Discovered {len(new_models)} additional Ollama models")
+                    logging.info(
+                        f"🔍 Discovered {len(new_models)} additional Ollama models"
+                    )
 
             except ImportError:
                 # OllamaClient not available
@@ -718,7 +921,9 @@ class Llm:
             cls._discovery_in_progress = False
 
     @classmethod
-    async def _discover_from_host_async(cls, host: str, existing_models: set) -> list["Llm"]:
+    async def _discover_from_host_async(
+        cls, host: str, existing_models: set
+    ) -> list["Llm"]:
         """Discover models from a single Ollama host asynchronously."""
         import asyncio
 
@@ -730,40 +935,38 @@ class Llm:
                 # Run the sync discovery in a thread pool
                 loop = asyncio.get_event_loop()
                 return await loop.run_in_executor(
-                    None,
-                    lambda: OllamaClient.get_downloaded_models(host)
+                    None, lambda: OllamaClient.get_downloaded_models(host)
                 )
 
             # Timeout after 3 seconds per host
             downloaded_models = await asyncio.wait_for(
-                discover_with_timeout(),
-                timeout=3.0
+                discover_with_timeout(), timeout=3.0
             )
 
             new_models = []
             for model_info in downloaded_models:
-                model_name = model_info.get('name', '')
+                model_name = model_info.get("name", "")
                 if model_name and model_name not in existing_models:
                     # Verify this model is actually downloaded
-                    if not (model_info.get('size', 0) > 0 or model_info.get('modified_at')):
+                    if not (
+                        model_info.get("size", 0) > 0 or model_info.get("modified_at")
+                    ):
                         continue
 
-                    # Determine strengths based on model name patterns
-                    strengths = [AIStrengths.LOCAL]  # All Ollama models are local
+                    # Determine capabilities based on model name patterns
+                    capabilities = [LMCapabilities.LOCAL]  # All Ollama models are local
 
                     model_lower = model_name.lower()
-                    if any(x in model_lower for x in ['vision', 'vl', 'visual']):
-                        strengths.append(AIStrengths.VISION)
-                    if any(x in model_lower for x in ['uncensored', 'dolphin', 'wizard']):
-                        strengths.append(AIStrengths.UNCENSORED)
+                    if any(x in model_lower for x in ["vision", "vl", "visual"]):
+                        capabilities.append(LMCapabilities.VISION)
+                    if any(
+                        x in model_lower for x in ["uncensored", "dolphin", "wizard"]
+                    ):
+                        capabilities.append(LMCapabilities.UNCENSORED)
 
-                    new_models.append(Llm(
-                        OllamaClient(),
-                        model_name,
-                        None,
-                        None,
-                        strengths
-                    ))
+                    new_models.append(
+                        Llm(OllamaClient(), model_name, None, None, capabilities)
+                    )
                     existing_models.add(model_name)
 
             return new_models

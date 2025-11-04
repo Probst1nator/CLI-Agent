@@ -3,7 +3,7 @@ import importlib
 import inspect
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from termcolor import colored
 
@@ -272,7 +272,7 @@ from {util_cls.__module__} import {util_cls.__name__}
             top_k (int): The number of top relevant items to suggest.
 
         Returns:
-            Tuple[str, str]: (formatted prompt string, score info string) or empty strings if no relevant items found.
+            tuple[str, str]: (formatted prompt string, score info string) or empty strings if no relevant items found.
         """
         # Fetch relevant tools and guidance from the vector DB
         top_k_tools = top_k

@@ -34,6 +34,7 @@ logger = get_logger_for_tool_module(__name__)
 try:
     import aiohttp
     from aiohttp import web
+
     AIOHTTP_VERSION = aiohttp.__version__
     AIOHTTP_AVAILABLE = True
 except ImportError as e:
@@ -50,6 +51,7 @@ SERVER_HOST = "0.0.0.0"  # Changed from 127.0.0.1 for Docker compatibility
 PORT_RANGE_START = 7860
 PORT_RANGE_END = 7870
 ASSETS_DIR = Path(__file__).parent.parent / "frontend"
+
 
 # --- All code from find_open_port to the VisualServerSession class remains unchanged ---
 def find_open_port(start_port, end_port, host="127.0.0.1"):
@@ -69,6 +71,7 @@ def find_open_port(start_port, end_port, host="127.0.0.1"):
         logger.debug(f"Port {port}: {error}")
     return None
 
+
 def test_port_connectivity(host, port, timeout=5):
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -79,7 +82,10 @@ def test_port_connectivity(host, port, timeout=5):
         logger.debug(f"Port connectivity test failed for {host}:{port}: {e}")
         return False
 
-def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: multiprocessing.Queue, port: int):
+
+def _server_process_main_loop(
+    output_queue: multiprocessing.Queue, input_queue: multiprocessing.Queue, port: int
+):
     # Signal handling for graceful subprocess interruption
     import os
     import signal
@@ -113,10 +119,12 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
     except Exception as e:
         print(f"[DEBUG] Failed during log setup: {e}")
         import traceback
+
         traceback.print_exc()
         return
     # Use centralized tool logging
     from shared.utils.tool_logging import setup_tool_logger
+
     subprocess_logger = setup_tool_logger("visualserver", debug_mode=True)
     subprocess_logger.info(f"Visual server subprocess starting on port {port}")
     subprocess_logger.info(f"Log file: {log_file}")
@@ -125,7 +133,9 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
     if not AIOHTTP_AVAILABLE:
         error_msg = f"FATAL ERROR: aiohttp is not available. Import error: {AIOHTTP_IMPORT_ERROR}"
         subprocess_logger.error(error_msg)
-        subprocess_logger.error("Please run 'pip install aiohttp' to install the required dependency")
+        subprocess_logger.error(
+            "Please run 'pip install aiohttp' to install the required dependency"
+        )
         print(f"[VisualServer] {error_msg}")
         return
     else:
@@ -135,7 +145,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         subprocess_logger.error(error_msg)
         print(f"[VisualServer] {error_msg}")
         return
-    required_files = ['index.html', 'favicon.ico']
+    required_files = ["index.html", "favicon.ico"]
     missing_files = []
     for file_name in required_files:
         file_path = ASSETS_DIR / file_name
@@ -150,6 +160,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         return
     clients: set[Any] = set()
     message_history: list[Any] = []
+
     async def broadcast_updates():
         while True:
             try:
@@ -158,22 +169,30 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     break
 
                 message_history.append(message)
-                msg_type = message.get('type', 'unknown')
-                subprocess_logger.debug(f"📨 Added message to history: type={msg_type}, clients={len(clients)}, total_history={len(message_history)}")
+                msg_type = message.get("type", "unknown")
+                subprocess_logger.debug(
+                    f"📨 Added message to history: type={msg_type}, clients={len(clients)}, total_history={len(message_history)}"
+                )
 
                 if clients:
                     payload = json.dumps(message)
-                    tasks = [asyncio.create_task(ws.send_str(payload)) for ws in clients]
+                    tasks = [
+                        asyncio.create_task(ws.send_str(payload)) for ws in clients
+                    ]
                     await asyncio.gather(*tasks, return_exceptions=True)
-                    subprocess_logger.debug(f"✅ Broadcasted {msg_type} to {len(clients)} client(s)")
+                    subprocess_logger.debug(
+                        f"✅ Broadcasted {msg_type} to {len(clients)} client(s)"
+                    )
                 else:
-                    subprocess_logger.debug(f"⏸️  No clients connected, message queued (type={msg_type})")
+                    subprocess_logger.debug(
+                        f"⏸️  No clients connected, message queued (type={msg_type})"
+                    )
             except QueueEmpty:
                 await asyncio.sleep(0.01)  # 10ms polling for near-instant updates
         for ws in clients:
-            await ws.close(code=1000, message=b'Server shutdown')
+            await ws.close(code=1000, message=b"Server shutdown")
 
-    async def broadcast_console_log(line: str, level: str = 'info'):
+    async def broadcast_console_log(line: str, level: str = "info"):
         """Broadcast console log message to all connected WebSocket clients."""
         if not clients:
             return
@@ -182,11 +201,13 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             "type": "console_log",
             "line": line,
             "level": level,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
 
         payload = json.dumps(console_message)
-        tasks = [asyncio.create_task(ws.send_str(payload)) for ws in clients if not ws.closed]
+        tasks = [
+            asyncio.create_task(ws.send_str(payload)) for ws in clients if not ws.closed
+        ]
 
         try:
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -199,24 +220,28 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         clients.add(ws)
-        
+
         # Register with connection monitor
         try:
             from tools._connection_monitor import connection_monitor
+
             connection_monitor.register_client(ws)
         except Exception as e:
-            subprocess_logger.warning(f"Failed to register client with connection monitor: {e}")
-            
+            subprocess_logger.warning(
+                f"Failed to register client with connection monitor: {e}"
+            )
+
         subprocess_logger.info(f"Browser client connected: {request.remote}")
 
         # Send continue mode configuration to new client
         try:
             from core.globals import g
-            continue_mode = getattr(g, 'CONTINUE_CONVERSATION', False)
+
+            continue_mode = getattr(g, "CONTINUE_CONVERSATION", False)
 
             # Check if this is a fresh chat (empty or only has system message)
             is_fresh_chat = True
-            if hasattr(g, 'chat') and g.chat and hasattr(g.chat, 'messages'):
+            if hasattr(g, "chat") and g.chat and hasattr(g.chat, "messages"):
                 # Consider it fresh only if it has 0-1 messages (just system prompt)
                 is_fresh_chat = len(g.chat.messages) <= 1
 
@@ -225,37 +250,56 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             if is_fresh_chat and not continue_mode and len(message_history) > 0:
                 # Check if messages are from a previous session (have old timestamps)
                 # Only clear if first message is older than 30 seconds
-                first_msg_time = message_history[0].get('timestamp', time.time()) if message_history else time.time()
+                first_msg_time = (
+                    message_history[0].get("timestamp", time.time())
+                    if message_history
+                    else time.time()
+                )
                 age_seconds = time.time() - first_msg_time
                 if age_seconds > 30:
                     msg_count = len(message_history)
                     message_history.clear()
-                    subprocess_logger.info(f"🗑️  Cleared {msg_count} old messages (age: {age_seconds:.1f}s)")
+                    subprocess_logger.info(
+                        f"🗑️  Cleared {msg_count} old messages (age: {age_seconds:.1f}s)"
+                    )
                 else:
-                    subprocess_logger.info(f"💾 Preserving {len(message_history)} recent messages (age: {age_seconds:.1f}s)")
+                    subprocess_logger.info(
+                        f"💾 Preserving {len(message_history)} recent messages (age: {age_seconds:.1f}s)"
+                    )
 
             config_message = {
                 "type": "config",
                 "action": "connection_init",
-                "continue_mode": continue_mode and not is_fresh_chat,  # Don't continue if fresh
+                "continue_mode": continue_mode
+                and not is_fresh_chat,  # Don't continue if fresh
                 "clear_history": is_fresh_chat,  # Tell frontend to clear localStorage
-                "id": f"config-{int(time.time() * 1000)}"
+                "id": f"config-{int(time.time() * 1000)}",
             }
             await ws.send_str(json.dumps(config_message))
-            subprocess_logger.info(f"Sent continue_mode={continue_mode and not is_fresh_chat}, clear_history={is_fresh_chat} to new client")
+            subprocess_logger.info(
+                f"Sent continue_mode={continue_mode and not is_fresh_chat}, clear_history={is_fresh_chat} to new client"
+            )
         except Exception as e:
             subprocess_logger.warning(f"Failed to send continue mode config: {e}")
 
         if message_history:
             try:
-                subprocess_logger.info(f"📤 Sending {len(message_history)} historical messages to new client")
+                subprocess_logger.info(
+                    f"📤 Sending {len(message_history)} historical messages to new client"
+                )
                 for i, message in enumerate(message_history):
-                    msg_type = message.get('type', 'unknown')
-                    subprocess_logger.debug(f"  [{i+1}/{len(message_history)}] Sending {msg_type}")
+                    msg_type = message.get("type", "unknown")
+                    subprocess_logger.debug(
+                        f"  [{i+1}/{len(message_history)}] Sending {msg_type}"
+                    )
                     await ws.send_str(json.dumps(message))
-                subprocess_logger.info(f"✅ Successfully sent all {len(message_history)} messages to new client")
+                subprocess_logger.info(
+                    f"✅ Successfully sent all {len(message_history)} messages to new client"
+                )
             except ConnectionResetError:
-                subprocess_logger.warning("Connection reset while sending history to new client")
+                subprocess_logger.warning(
+                    "Connection reset while sending history to new client"
+                )
                 pass
         else:
             subprocess_logger.info("📭 No message history to send to new client")
@@ -268,113 +312,151 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
                         # Check message type
                         if isinstance(message_data, dict):
-                            message_type = message_data.get('type')
+                            message_type = message_data.get("type")
 
-                            if message_type == 'permission_response':
+                            if message_type == "permission_response":
                                 # For permission responses, put the structured data directly
                                 input_queue.put(message_data)
 
-
-
-                            elif message_type == 'interrupt_signal':
+                            elif message_type == "interrupt_signal":
                                 # Handle interrupt signal - trigger the main interrupt system
-                                subprocess_logger.info(f"Interrupt signal received from web UI: {message_data.get('source', 'unknown')}")
+                                subprocess_logger.info(
+                                    f"Interrupt signal received from web UI: {message_data.get('source', 'unknown')}"
+                                )
 
                                 # Use the established IPC mechanism instead of signals
                                 # Send a special interrupt command through the input queue
                                 interrupt_command = {
-                                    'type': 'interrupt_command',
-                                    'source': 'web_ui',
-                                    'timestamp': message_data.get('timestamp', time.time()),
-                                    'reason': 'user_interrupt_button'
+                                    "type": "interrupt_command",
+                                    "source": "web_ui",
+                                    "timestamp": message_data.get(
+                                        "timestamp", time.time()
+                                    ),
+                                    "reason": "user_interrupt_button",
                                 }
 
                                 try:
                                     # Send to the visual input queue that the main process monitors
                                     input_queue.put(interrupt_command)
-                                    subprocess_logger.info("Interrupt command sent via queue to main process")
+                                    subprocess_logger.info(
+                                        "Interrupt command sent via queue to main process"
+                                    )
 
                                     # Also try the signal approach as backup
                                     import os
                                     import signal
+
                                     main_pid = os.getppid()
                                     os.kill(main_pid, signal.SIGINT)
-                                    subprocess_logger.info(f"Also sent SIGINT to main process (PID: {main_pid}) as backup")
+                                    subprocess_logger.info(
+                                        f"Also sent SIGINT to main process (PID: {main_pid}) as backup"
+                                    )
                                 except Exception as e:
-                                    subprocess_logger.error(f"Failed to send interrupt via queue or signal: {e}")
+                                    subprocess_logger.error(
+                                        f"Failed to send interrupt via queue or signal: {e}"
+                                    )
 
                                 # Also try setting the interrupt flag directly if we can access it
                                 try:
                                     # This is a fallback - we'll rely on the SIGINT signal primarily
                                     pass
                                 except Exception as e:
-                                    subprocess_logger.debug(f"Could not access main interrupt flag: {e}")
+                                    subprocess_logger.debug(
+                                        f"Could not access main interrupt flag: {e}"
+                                    )
 
-                            elif 'message' in message_data and 'toolConfig' in message_data:
+                            elif (
+                                "message" in message_data
+                                and "toolConfig" in message_data
+                            ):
                                 # Handle user message with tool configuration
-                                user_message = message_data['message']
-                                tool_config = message_data.get('toolConfig', {})
+                                user_message = message_data["message"]
+                                tool_config = message_data.get("toolConfig", {})
 
                                 # Log tool configuration
-                                disabled_tools = tool_config.get('disabledTools', [])
+                                disabled_tools = tool_config.get("disabledTools", [])
                                 if disabled_tools:
-                                    subprocess_logger.info(f"User message with disabled tools: {disabled_tools}")
+                                    subprocess_logger.info(
+                                        f"User message with disabled tools: {disabled_tools}"
+                                    )
                                 else:
-                                    subprocess_logger.debug("User message with all tools enabled")
+                                    subprocess_logger.debug(
+                                        "User message with all tools enabled"
+                                    )
 
                                 # Store tool configuration globally for tool discovery to access
                                 # This will be picked up by the agent's tool discovery system
-                                if hasattr(g, 'disabled_tools'):
+                                if hasattr(g, "disabled_tools"):
                                     g.disabled_tools = disabled_tools
 
                                 input_queue.put(user_message)
-                                subprocess_logger.info(f"User message queued with tool restrictions: {user_message[:50]}...")
+                                subprocess_logger.info(
+                                    f"User message queued with tool restrictions: {user_message[:50]}..."
+                                )
 
                             else:
                                 # For other JSON messages, put the raw string
                                 input_queue.put(msg.data)
-                                subprocess_logger.info(f"JSON message queued: {message_type}")
+                                subprocess_logger.info(
+                                    f"JSON message queued: {message_type}"
+                                )
                         else:
                             # For regular user input, put the raw string
                             input_queue.put(msg.data)
-                            subprocess_logger.info(f"User input queued: {msg.data[:50]}...")
+                            subprocess_logger.info(
+                                f"User input queued: {msg.data[:50]}..."
+                            )
                     except json.JSONDecodeError:
                         # If it's not valid JSON, treat it as regular user input
                         input_queue.put(msg.data)
-                        subprocess_logger.info(f"Non-JSON user input queued: {msg.data[:50]}...")
+                        subprocess_logger.info(
+                            f"Non-JSON user input queued: {msg.data[:50]}..."
+                        )
                     except Exception as e:
-                        subprocess_logger.error(f"Error processing WebSocket message: {e}")
+                        subprocess_logger.error(
+                            f"Error processing WebSocket message: {e}"
+                        )
                         # Default to treating as user input
                         input_queue.put(msg.data)
                 elif web and msg.type == web.WSMsgType.ERROR:
-                    subprocess_logger.error(f'WebSocket connection closed with exception {ws.exception()}')
+                    subprocess_logger.error(
+                        f"WebSocket connection closed with exception {ws.exception()}"
+                    )
         finally:
             subprocess_logger.info(f"Browser client disconnected: {request.remote}")
             clients.remove(ws)
-            
+
             # Unregister from connection monitor
             try:
                 from tools._connection_monitor import connection_monitor
+
                 connection_monitor.unregister_client(ws)
             except Exception as e:
-                subprocess_logger.warning(f"Failed to unregister client from connection monitor: {e}")
+                subprocess_logger.warning(
+                    f"Failed to unregister client from connection monitor: {e}"
+                )
         return ws
+
     async def index_handler(request: Any) -> Any:
         if web is None:
             raise RuntimeError("aiohttp not available")
-        response = web.FileResponse(ASSETS_DIR / 'index.html')
-        response.headers['Content-Security-Policy'] = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.plot.ly https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src 'self' data: blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'")
-        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response = web.FileResponse(ASSETS_DIR / "index.html")
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.plot.ly https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://* http://localhost:* http://127.0.0.1:*; frame-src 'self' data: blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; form-action 'self'"
+        )
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
+
     async def favicon_handler(request: Any) -> Any:
         if web is None:
             raise RuntimeError("aiohttp not available")
-        response = web.FileResponse(ASSETS_DIR / 'favicon.ico')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response = web.FileResponse(ASSETS_DIR / "favicon.ico")
+        response.headers["Cache-Control"] = "public, max-age=86400"
         return response
+
     async def llm_data_handler(request: Any) -> Any:
         """Serve available LLM models data for the frontend selectboxes."""
         if web is None:
@@ -391,21 +473,23 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             llm_data = []
             for llm in available_llms:
                 # Get provider name and emoji from the provider class
-                provider_name = llm.provider.__class__.__name__.replace('API', '')
+                provider_name = llm.provider.__class__.__name__.replace("API", "")
 
                 # Create a clean model entry
                 model_entry = {
-                    'id': llm.model_key,
-                    'name': llm.model_key,
-                    'provider': provider_name,
-                    'context_window': llm.context_window,
-                    'capabilities': [str(capability) for capability in llm.strengths] if llm.strengths else [],
-                    'status': 'available'  # Could be enhanced to check actual availability
+                    "id": llm.model_key,
+                    "name": llm.model_key,
+                    "provider": provider_name,
+                    "context_window": llm.context_window,
+                    "capabilities": [str(capability) for capability in llm.capabilities]
+                    if llm.capabilities
+                    else [],
+                    "status": "available",  # Could be enhanced to check actual availability
                 }
                 llm_data.append(model_entry)
 
             # Sort by provider and then by name for consistent ordering
-            llm_data.sort(key=lambda x: (x['provider'], x['name']))
+            llm_data.sort(key=lambda x: (x["provider"], x["name"]))
 
             # Get current system configuration from the most recent saved state
             # The web server subprocess should always read fresh config to get latest changes
@@ -420,7 +504,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             selected_configs = []
             for model_key in selected_llms:
                 config = llm_config.get(model_key, {})
-                config['model_key'] = model_key
+                config["model_key"] = model_key
                 selected_configs.append(config)
 
             # All selected models are treated equally (no specialized roles)
@@ -431,41 +515,50 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     unique_models.append(model)
                     seen.add(model)
 
-            logger.info(f"Served LLM data: {len(llm_data)} models from {len(set(m['provider'] for m in llm_data))} providers")
+            logger.info(
+                f"Served LLM data: {len(llm_data)} models from {len(set(m['provider'] for m in llm_data))} providers"
+            )
             logger.info(f"Current system state: {len(selected_llms)} selected models")
 
             # DEBUG: Log the final response being sent to UI
             response_config = {
-                'selected_llms': selected_llms,
-                'planner_llm': planner_llm,
-                'router_llm': router_llm,
-                'override_llm': override_llm
+                "selected_llms": selected_llms,
+                "planner_llm": planner_llm,
+                "router_llm": router_llm,
+                "override_llm": override_llm,
             }
-            subprocess_logger.info(f"🔍 FINAL API RESPONSE current_configuration: {response_config}")
+            subprocess_logger.info(
+                f"🔍 FINAL API RESPONSE current_configuration: {response_config}"
+            )
 
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'success',
-                'models': llm_data,
-                'total_count': len(llm_data),
-                'current_configuration': {
-                    'selected_llms': selected_llms,
-                    'planner_llm': planner_llm,
-                    'router_llm': router_llm,
-                    'override_llm': override_llm
+            return web.json_response(
+                {
+                    "status": "success",
+                    "models": llm_data,
+                    "total_count": len(llm_data),
+                    "current_configuration": {
+                        "selected_llms": selected_llms,
+                        "planner_llm": planner_llm,
+                        "router_llm": router_llm,
+                        "override_llm": override_llm,
+                    },
                 }
-            })
+            )
 
         except Exception as e:
             logger.error(f"Failed to get LLM data: {e}", exc_info=True)
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': f'Failed to retrieve LLM data: {str(e)}',
-                'models': []
-            }, status=500)
+            return web.json_response(
+                {
+                    "status": "error",
+                    "message": f"Failed to retrieve LLM data: {str(e)}",
+                    "models": [],
+                },
+                status=500,
+            )
 
     async def tools_handler(request: Any) -> Any:
         """Serve available tools data for the frontend tool manager."""
@@ -483,7 +576,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
             # Scan both main tools directory and optional subdirectory
             tool_directories = [
                 (tools_dir, "tools"),
-                (tools_dir / "optional", "tools.optional")
+                (tools_dir / "optional", "tools.optional"),
             ]
 
             for directory, module_prefix in tool_directories:
@@ -503,46 +596,65 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                         tool_class_name = file.stem
                         if hasattr(module, tool_class_name):
                             tool_class = getattr(module, tool_class_name)
-                            if hasattr(tool_class, 'get_delim') and hasattr(tool_class, 'get_tool_info'):
+                            if hasattr(tool_class, "get_delim") and hasattr(
+                                tool_class, "get_tool_info"
+                            ):
                                 try:
                                     tool_info = tool_class.get_tool_info()
                                     tool_delim = tool_class.get_delim()
 
-                                    tools_data.append({
-                                        'name': tool_class_name,
-                                        'delim': tool_delim,
-                                        'info': tool_info,
-                                        'displayName': tool_info.get('name', tool_class_name),
-                                        'description': tool_info.get('description', ''),
-                                        'example': tool_info.get('example', '')
-                                    })
+                                    tools_data.append(
+                                        {
+                                            "name": tool_class_name,
+                                            "delim": tool_delim,
+                                            "info": tool_info,
+                                            "displayName": tool_info.get(
+                                                "name", tool_class_name
+                                            ),
+                                            "description": tool_info.get(
+                                                "description", ""
+                                            ),
+                                            "example": tool_info.get("example", ""),
+                                        }
+                                    )
                                 except Exception as tool_error:
-                                    subprocess_logger.debug(f"Could not get info for tool {tool_class_name}: {tool_error}")
+                                    subprocess_logger.debug(
+                                        f"Could not get info for tool {tool_class_name}: {tool_error}"
+                                    )
                     except Exception as import_error:
-                        subprocess_logger.debug(f"Could not import tool from {file}: {import_error}")
+                        subprocess_logger.debug(
+                            f"Could not import tool from {file}: {import_error}"
+                        )
 
             # Sort tools alphabetically by name
-            tools_data.sort(key=lambda x: x['name'])
+            tools_data.sort(key=lambda x: x["name"])
 
-            subprocess_logger.info(f"Served tools data: {len(tools_data)} tools discovered")
+            subprocess_logger.info(
+                f"Served tools data: {len(tools_data)} tools discovered"
+            )
 
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'success',
-                'tools': tools_data,
-                'total_count': len(tools_data)
-            })
+            return web.json_response(
+                {
+                    "status": "success",
+                    "tools": tools_data,
+                    "total_count": len(tools_data),
+                }
+            )
 
         except Exception as e:
             subprocess_logger.error(f"Failed to get tools data: {e}", exc_info=True)
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': f'Failed to retrieve tools data: {str(e)}',
-                'tools': []
-            }, status=500)
+            return web.json_response(
+                {
+                    "status": "error",
+                    "message": f"Failed to retrieve tools data: {str(e)}",
+                    "tools": [],
+                },
+                status=500,
+            )
 
     async def upload_handler(request: Any) -> Any:
         if web is None:
@@ -556,21 +668,28 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 if field is None:
                     break
 
-                if field.name == 'file':
+                if field.name == "file":
                     # Get the filename, sanitize it
-                    filename = field.filename or 'uploaded_file'
-                    safe_filename = "".join(c for c in filename if c.isalnum() or c in (' ', '.', '_', '-')).rstrip()
+                    filename = field.filename or "uploaded_file"
+                    safe_filename = "".join(
+                        c for c in filename if c.isalnum() or c in (" ", ".", "_", "-")
+                    ).rstrip()
                     if not safe_filename:
                         safe_filename = f"uploaded_file_{int(time.time())}"
 
                     # Import g to get temp storage path
                     from core.globals import g
+
                     temp_dir = Path(g.CLIAGENT_TEMP_STORAGE_PATH)
                     temp_dir.mkdir(parents=True, exist_ok=True)
 
                     # Create unique filename if it already exists
                     counter = 1
-                    base_name, ext = safe_filename.rsplit('.', 1) if '.' in safe_filename else (safe_filename, '')
+                    base_name, ext = (
+                        safe_filename.rsplit(".", 1)
+                        if "." in safe_filename
+                        else (safe_filename, "")
+                    )
                     final_filename = safe_filename
                     while (temp_dir / final_filename).exists():
                         if ext:
@@ -582,7 +701,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                     file_path = temp_dir / final_filename
 
                     # Save the file
-                    with open(file_path, 'wb') as f:
+                    with open(file_path, "wb") as f:
                         while True:
                             chunk = await field.read_chunk()
                             if not chunk:
@@ -590,24 +709,25 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                             f.write(chunk)
 
                     uploaded_files.append(str(file_path.absolute()))
-                    subprocess_logger.info(f"File uploaded: {final_filename} -> {file_path}")
+                    subprocess_logger.info(
+                        f"File uploaded: {final_filename} -> {file_path}"
+                    )
 
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'success',
-                'files': uploaded_files,
-                'message': f'Successfully uploaded {len(uploaded_files)} file(s)'
-            })
+            return web.json_response(
+                {
+                    "status": "success",
+                    "files": uploaded_files,
+                    "message": f"Successfully uploaded {len(uploaded_files)} file(s)",
+                }
+            )
 
         except Exception as e:
             subprocess_logger.error(f"File upload error: {e}")
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': str(e)
-            }, status=500)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def profiles_handler(request: Any) -> Any:
         if web is None:
@@ -621,31 +741,31 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
             profiles_data = [
                 {
-                    'id': profile.id,
-                    'override': profile.override,
-                    'router': profile.router,
-                    'planner': profile.planner,
-                    'fallbacks': profile.fallbacks
+                    "id": profile.id,
+                    "override": profile.override,
+                    "router": profile.router,
+                    "planner": profile.planner,
+                    "fallbacks": profile.fallbacks,
                 }
                 for profile in profiles
             ]
 
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'success',
-                'profiles': profiles_data
-            })
+            return web.json_response({"status": "success", "profiles": profiles_data})
 
         except Exception as e:
             subprocess_logger.error(f"Failed to get profiles data: {e}", exc_info=True)
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': f'Failed to retrieve profiles data: {str(e)}',
-                'profiles': []
-            }, status=500)
+            return web.json_response(
+                {
+                    "status": "error",
+                    "message": f"Failed to retrieve profiles data: {str(e)}",
+                    "profiles": [],
+                },
+                status=500,
+            )
 
     async def chat_history_list_handler(request: Any) -> Any:
         if web is None:
@@ -658,20 +778,20 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
 
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'success',
-                'chats': chats
-            })
+            return web.json_response({"status": "success", "chats": chats})
 
         except Exception as e:
             subprocess_logger.error(f"Failed to list chat history: {e}", exc_info=True)
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': f'Failed to retrieve chat history: {str(e)}',
-                'chats': []
-            }, status=500)
+            return web.json_response(
+                {
+                    "status": "error",
+                    "message": f"Failed to retrieve chat history: {str(e)}",
+                    "chats": [],
+                },
+                status=500,
+            )
 
     async def chat_history_load_handler(request: Any) -> Any:
         if web is None:
@@ -680,40 +800,33 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         try:
             from core.chat import Chat
 
-            chat_id = request.match_info.get('id')
+            chat_id = request.match_info.get("id")
             if not chat_id:
                 if web is None:
                     raise RuntimeError("aiohttp not available")
-                return web.json_response({
-                    'status': 'error',
-                    'message': 'Chat ID is required'
-                }, status=400)
+                return web.json_response(
+                    {"status": "error", "message": "Chat ID is required"}, status=400
+                )
 
             chat = Chat.load_from_archive(chat_id)
             chat_dict = chat._to_dict()
 
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'success',
-                'chat': chat_dict
-            })
+            return web.json_response({"status": "success", "chat": chat_dict})
 
         except FileNotFoundError as e:
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': str(e)
-            }, status=404)
+            return web.json_response({"status": "error", "message": str(e)}, status=404)
         except Exception as e:
             subprocess_logger.error(f"Failed to load chat: {e}", exc_info=True)
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': f'Failed to load chat: {str(e)}'
-            }, status=500)
+            return web.json_response(
+                {"status": "error", "message": f"Failed to load chat: {str(e)}"},
+                status=500,
+            )
 
     async def chat_history_delete_handler(request: Any) -> Any:
         if web is None:
@@ -722,40 +835,41 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         try:
             from core.chat import Chat
 
-            chat_id = request.match_info.get('id')
+            chat_id = request.match_info.get("id")
             if not chat_id:
                 if web is None:
                     raise RuntimeError("aiohttp not available")
-                return web.json_response({
-                    'status': 'error',
-                    'message': 'Chat ID is required'
-                }, status=400)
+                return web.json_response(
+                    {"status": "error", "message": "Chat ID is required"}, status=400
+                )
 
             success = Chat.delete_from_archive(chat_id)
 
             if success:
                 if web is None:
                     raise RuntimeError("aiohttp not available")
-                return web.json_response({
-                    'status': 'success',
-                    'message': f'Chat {chat_id} deleted successfully'
-                })
+                return web.json_response(
+                    {
+                        "status": "success",
+                        "message": f"Chat {chat_id} deleted successfully",
+                    }
+                )
             else:
                 if web is None:
                     raise RuntimeError("aiohttp not available")
-                return web.json_response({
-                    'status': 'error',
-                    'message': f'Chat {chat_id} not found'
-                }, status=404)
+                return web.json_response(
+                    {"status": "error", "message": f"Chat {chat_id} not found"},
+                    status=404,
+                )
 
         except Exception as e:
             subprocess_logger.error(f"Failed to delete chat: {e}", exc_info=True)
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': f'Failed to delete chat: {str(e)}'
-            }, status=500)
+            return web.json_response(
+                {"status": "error", "message": f"Failed to delete chat: {str(e)}"},
+                status=500,
+            )
 
     async def chat_history_search_handler(request: Any) -> Any:
         if web is None:
@@ -764,77 +878,79 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         try:
             from core.chat import Chat
 
-            query = request.query.get('q', '').lower()
+            query = request.query.get("q", "").lower()
             if not query:
                 if web is None:
                     raise RuntimeError("aiohttp not available")
-                return web.json_response({
-                    'status': 'error',
-                    'message': 'Search query is required'
-                }, status=400)
+                return web.json_response(
+                    {"status": "error", "message": "Search query is required"},
+                    status=400,
+                )
 
             chats = Chat.list_archived_chats()
 
             # Filter chats by query in preview
             filtered_chats = [
-                chat for chat in chats
-                if query in chat.get('preview', '').lower()
+                chat for chat in chats if query in chat.get("preview", "").lower()
             ]
 
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'success',
-                'chats': filtered_chats,
-                'query': query
-            })
+            return web.json_response(
+                {"status": "success", "chats": filtered_chats, "query": query}
+            )
 
         except Exception as e:
             subprocess_logger.error(f"Failed to search chats: {e}", exc_info=True)
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            return web.json_response({
-                'status': 'error',
-                'message': f'Failed to search chats: {str(e)}',
-                'chats': []
-            }, status=500)
+            return web.json_response(
+                {
+                    "status": "error",
+                    "message": f"Failed to search chats: {str(e)}",
+                    "chats": [],
+                },
+                status=500,
+            )
 
     async def main():
         if web is None:
             raise RuntimeError("aiohttp not available")
         app = web.Application()
-        app.router.add_get('/', index_handler)
-        app.router.add_get('/ws', websocket_handler)
-        app.router.add_get('/favicon.ico', favicon_handler)
-        app.router.add_get('/api/llms', llm_data_handler)
-        app.router.add_get('/api/tools', tools_handler)
-        app.router.add_get('/api/profiles', profiles_handler)
-        app.router.add_get('/api/chat_history', chat_history_list_handler)
-        app.router.add_get('/api/chat_history/{id}', chat_history_load_handler)
-        app.router.add_delete('/api/chat_history/{id}', chat_history_delete_handler)
-        app.router.add_get('/api/chat_history/search', chat_history_search_handler)
-        app.router.add_post('/upload', upload_handler)
-        app.router.add_static('/libs/', path=ASSETS_DIR / 'libs', name='libs')
-        app.router.add_static('/css/', path=ASSETS_DIR / 'css', name='css')
-        app.router.add_static('/js/', path=ASSETS_DIR / 'js', name='js')
+        app.router.add_get("/", index_handler)
+        app.router.add_get("/ws", websocket_handler)
+        app.router.add_get("/favicon.ico", favicon_handler)
+        app.router.add_get("/api/llms", llm_data_handler)
+        app.router.add_get("/api/tools", tools_handler)
+        app.router.add_get("/api/profiles", profiles_handler)
+        app.router.add_get("/api/chat_history", chat_history_list_handler)
+        app.router.add_get("/api/chat_history/{id}", chat_history_load_handler)
+        app.router.add_delete("/api/chat_history/{id}", chat_history_delete_handler)
+        app.router.add_get("/api/chat_history/search", chat_history_search_handler)
+        app.router.add_post("/upload", upload_handler)
+        app.router.add_static("/libs/", path=ASSETS_DIR / "libs", name="libs")
+        app.router.add_static("/css/", path=ASSETS_DIR / "css", name="css")
+        app.router.add_static("/js/", path=ASSETS_DIR / "js", name="js")
 
         # Serve files from the working directory (where main.py was started)
         working_dir = Path.cwd()
-        app.router.add_static('/files/', path=working_dir, name='working_dir', show_index=False)
+        app.router.add_static(
+            "/files/", path=working_dir, name="working_dir", show_index=False
+        )
 
         # Also serve .xyz files from root for convenience
         async def xyz_handler(request: Any) -> Any:
             if web is None:
                 raise RuntimeError("aiohttp not available")
-            filename = request.match_info['filename']
-            if not filename.endswith('.xyz'):
-                return web.Response(status=404, text='Not found')
+            filename = request.match_info["filename"]
+            if not filename.endswith(".xyz"):
+                return web.Response(status=404, text="Not found")
             filepath = working_dir / filename
             if not filepath.exists() or not filepath.is_file():
-                return web.Response(status=404, text='Not found')
+                return web.Response(status=404, text="Not found")
             return web.FileResponse(filepath)
 
-        app.router.add_get('/{filename}.xyz', xyz_handler)
+        app.router.add_get("/{filename}.xyz", xyz_handler)
         if web is None:
             raise RuntimeError("aiohttp not available")
         runner = web.AppRunner(app)
@@ -842,40 +958,57 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         site = web.TCPSite(runner, SERVER_HOST, port)
         try:
             await site.start()
-            subprocess_logger.info(f"Server started successfully at http://{SERVER_HOST}:{port}")
-            
+            subprocess_logger.info(
+                f"Server started successfully at http://{SERVER_HOST}:{port}"
+            )
+
             # Start connection monitoring
             try:
                 from tools._connection_monitor import connection_monitor
-                monitoring_task = asyncio.create_task(connection_monitor.start_monitoring())
+
+                monitoring_task = asyncio.create_task(
+                    connection_monitor.start_monitoring()
+                )
                 subprocess_logger.info("Connection monitoring started")
             except Exception as e:
                 subprocess_logger.warning(f"Failed to start connection monitoring: {e}")
                 monitoring_task = None
-                
+
             await asyncio.sleep(0.1)
             try:
                 import urllib.request
+
                 test_url = f"http://{SERVER_HOST}:{port}/"
-                req = urllib.request.Request(test_url, headers={'User-Agent': 'CLI-Agent-Test'})
+                req = urllib.request.Request(
+                    test_url, headers={"User-Agent": "CLI-Agent-Test"}
+                )
                 with urllib.request.urlopen(req, timeout=2) as response:
                     if response.status != 200:
-                        subprocess_logger.warning(f"Server responded with unexpected status: {response.status}")
+                        subprocess_logger.warning(
+                            f"Server responded with unexpected status: {response.status}"
+                        )
             except Exception as connectivity_error:
-                subprocess_logger.warning(f"Server connectivity verification failed: {connectivity_error}")
+                subprocess_logger.warning(
+                    f"Server connectivity verification failed: {connectivity_error}"
+                )
             subprocess_logger.info("Server is now accepting connections")
 
             # Start file watcher for console logging
             # Create file watcher for the standard log file paths
             log_paths = {
-                'stdout': '/tmp/cli-agent-stdout.log',
-                'stderr': '/tmp/cli-agent-stderr.log'
+                "stdout": "/tmp/cli-agent-stdout.log",
+                "stderr": "/tmp/cli-agent-stderr.log",
             }
 
             # Check if log files exist (indicates console capture is enabled)
             import os
-            subprocess_logger.info(f"Checking for log files: stdout={os.path.exists(log_paths['stdout'])}, stderr={os.path.exists(log_paths['stderr'])}")
-            if os.path.exists(log_paths['stdout']) or os.path.exists(log_paths['stderr']):
+
+            subprocess_logger.info(
+                f"Checking for log files: stdout={os.path.exists(log_paths['stdout'])}, stderr={os.path.exists(log_paths['stderr'])}"
+            )
+            if os.path.exists(log_paths["stdout"]) or os.path.exists(
+                log_paths["stderr"]
+            ):
                 subprocess_logger.info("Log files found - creating file watcher")
                 global _file_watcher
                 _file_watcher = LogFileWatcher(log_paths)
@@ -885,13 +1018,21 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
                 # Start file watching directly
                 try:
                     _file_watcher.running = True
-                    _file_watcher.watch_task = loop.create_task(_file_watcher._watch_files())
-                    subprocess_logger.info(f"File watching task created: {_file_watcher.watch_task}")
+                    _file_watcher.watch_task = loop.create_task(
+                        _file_watcher._watch_files()
+                    )
+                    subprocess_logger.info(
+                        f"File watching task created: {_file_watcher.watch_task}"
+                    )
                     subprocess_logger.info("File-based console watching started")
                 except Exception as e:
-                    subprocess_logger.error(f"Failed to start file watching task: {e}", exc_info=True)
+                    subprocess_logger.error(
+                        f"Failed to start file watching task: {e}", exc_info=True
+                    )
             else:
-                subprocess_logger.warning("No log files found - file watcher not started")
+                subprocess_logger.warning(
+                    "No log files found - file watcher not started"
+                )
 
             await broadcast_updates()
         except Exception as e:
@@ -900,6 +1041,7 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         finally:
             await runner.cleanup()
             subprocess_logger.info("Server exited cleanly")
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
@@ -911,9 +1053,12 @@ def _server_process_main_loop(output_queue: multiprocessing.Queue, input_queue: 
         subprocess_logger.error(error_msg, exc_info=True)
         print(f"[DEBUG] {error_msg}")
         import traceback
+
         traceback.print_exc()
         import sys
+
         sys.exit(1)
+
 
 class VisualServerSession:
     # This entire class remains the same.
@@ -927,21 +1072,37 @@ class VisualServerSession:
         self.start()
         if register_cleanup:
             g.register_cleanup(self.close)
+
     def start(self):
-        if self.process and self.process.is_alive(): return
+        if self.process and self.process.is_alive():
+            return
         logger.info("Starting visual server process...")
         self.port = find_open_port(PORT_RANGE_START, PORT_RANGE_END, SERVER_HOST)
         if self.port is None:
-            logger.error(colored(f"Could not find an open port in range {PORT_RANGE_START}-{PORT_RANGE_END}.", "red"))
+            logger.error(
+                colored(
+                    f"Could not find an open port in range {PORT_RANGE_START}-{PORT_RANGE_END}.",
+                    "red",
+                )
+            )
             return
-        logger.info(colored(f"Spawning visual response server on port {self.port}...", "cyan"))
+        logger.info(
+            colored(f"Spawning visual response server on port {self.port}...", "cyan")
+        )
         try:
-            self.process = self.ctx.Process(target=_server_process_main_loop, args=(self.output_queue, self.input_queue, self.port))
+            self.process = self.ctx.Process(
+                target=_server_process_main_loop,
+                args=(self.output_queue, self.input_queue, self.port),
+            )
             self.process.start()
-            logger.info(f"Visual server subprocess started with PID: {self.process.pid}")
+            logger.info(
+                f"Visual server subprocess started with PID: {self.process.pid}"
+            )
             time.sleep(1.0)
             if not self.process.is_alive():
-                logger.error(f"Visual server process died immediately. Exit code: {self.process.exitcode}")
+                logger.error(
+                    f"Visual server process died immediately. Exit code: {self.process.exitcode}"
+                )
                 return
             else:
                 logger.info("Visual server process is running successfully")
@@ -953,17 +1114,25 @@ class VisualServerSession:
         try:
             time.sleep(0.5)
             import urllib.request
-            req = urllib.request.Request(server_url, headers={'User-Agent': 'CLI-Agent'})
+
+            req = urllib.request.Request(
+                server_url, headers={"User-Agent": "CLI-Agent"}
+            )
             with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status == 200: logger.info("Server connectivity test passed")
-                else: logger.warning(f"Server responded with status {response.status}")
+                if response.status == 200:
+                    logger.info("Server connectivity test passed")
+                else:
+                    logger.warning(f"Server responded with status {response.status}")
         except Exception as e:
             logger.warning(f"Server connectivity test failed: {e}")
         try:
             webbrowser.open(server_url)
             logger.info("Browser opened successfully")
         except Exception as e:
-            logger.warning(colored(f"Could not automatically open browser: {e}", "yellow"))
+            logger.warning(
+                colored(f"Could not automatically open browser: {e}", "yellow")
+            )
+
     def send_update(self, data: dict):
         if not self.process or not self.process.is_alive():
             logger.warning("Visual server process not running, attempting to restart")
@@ -975,29 +1144,55 @@ class VisualServerSession:
                 logger.error(f"Failed to send update to visual server: {e}")
         else:
             logger.error("Cannot send update: visual server process failed to start")
+
     def is_healthy(self):
-        if not self.process or not self.process.is_alive(): return False
-        if not self.port: return False
+        if not self.process or not self.process.is_alive():
+            return False
+        if not self.port:
+            return False
         return test_port_connectivity(SERVER_HOST, self.port, timeout=2)
+
     def get_status(self):
-        status = {'process_alive': self.process and self.process.is_alive(),'process_pid': self.process.pid if self.process else None,'port': self.port,'server_responsive': False,'queue_size': None}
-        if self.process: status['process_exitcode'] = self.process.exitcode
-        if self.port: status['server_responsive'] = test_port_connectivity(SERVER_HOST, self.port, timeout=1)
-        try: status['queue_size'] = self.output_queue.qsize()
-        except: pass
+        status = {
+            "process_alive": self.process and self.process.is_alive(),
+            "process_pid": self.process.pid if self.process else None,
+            "port": self.port,
+            "server_responsive": False,
+            "queue_size": None,
+        }
+        if self.process:
+            status["process_exitcode"] = self.process.exitcode
+        if self.port:
+            status["server_responsive"] = test_port_connectivity(
+                SERVER_HOST, self.port, timeout=1
+            )
+        try:
+            status["queue_size"] = self.output_queue.qsize()
+        except:
+            pass
         return status
+
     def close(self):
         if self.process and self.process.is_alive():
-            logger.info(colored(f"Closing visual response server (PID: {self.process.pid})...", "cyan"))
+            logger.info(
+                colored(
+                    f"Closing visual response server (PID: {self.process.pid})...",
+                    "cyan",
+                )
+            )
             self.output_queue.put("__EXIT__")
             self.process.join(timeout=3)
             if self.process.is_alive():
-                logger.warning(colored("Server process did not exit gracefully, terminating.", "yellow"))
+                logger.warning(
+                    colored(
+                        "Server process did not exit gracefully, terminating.", "yellow"
+                    )
+                )
                 self.process.terminate()
             logger.info(colored("Visual response server closed.", "cyan"))
         self.process = None
-        if hasattr(g, 'visual_input_queue'):
-            delattr(g, 'visual_input_queue')
+        if hasattr(g, "visual_input_queue"):
+            delattr(g, "visual_input_queue")
 
 
 class visualresponse:
@@ -1011,7 +1206,7 @@ class visualresponse:
 
     @staticmethod
     def get_delim() -> str:
-        return 'visualresponse'
+        return "visualresponse"
 
     @staticmethod
     def get_tool_info() -> dict:
@@ -1038,19 +1233,27 @@ class visualresponse:
                 "]]></content></visualresponse>\n\n"
                 "// Create a simple markdown panel\n"
                 "<visualresponse><type>markdown</type><content># hello world</content></visualresponse>"
-            )
+            ),
         }
 
     @staticmethod
     async def _get_or_create_server(open_browser: bool = True):
         """Get or create the new API server"""
-        print(f"[DEBUG _get_or_create_server] Called with open_browser={open_browser}", flush=True)
+        print(
+            f"[DEBUG _get_or_create_server] Called with open_browser={open_browser}",
+            flush=True,
+        )
         from api.server import get_or_create_server
         from core.globals import g
 
-        persist_mode = hasattr(g, 'GUI_MODE') and g.GUI_MODE
-        print(f"[DEBUG _get_or_create_server] persist_mode={persist_mode}, about to call get_or_create_server", flush=True)
-        server = await get_or_create_server(persist_mode=persist_mode, open_browser=open_browser)
+        persist_mode = hasattr(g, "GUI_MODE") and g.GUI_MODE
+        print(
+            f"[DEBUG _get_or_create_server] persist_mode={persist_mode}, about to call get_or_create_server",
+            flush=True,
+        )
+        server = await get_or_create_server(
+            persist_mode=persist_mode, open_browser=open_browser
+        )
         print(f"[DEBUG _get_or_create_server] Server created: {server}", flush=True)
         return server
 
@@ -1061,6 +1264,7 @@ class visualresponse:
 
         class ServerAdapter:
             """Adapter to make new server look like old session"""
+
             def __init__(self, srv):
                 self.server = srv
                 self.port = srv.port
@@ -1074,6 +1278,7 @@ class visualresponse:
             def send_update(self, payload):
                 """Synchronous wrapper for send_update"""
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     asyncio.ensure_future(self.send_update_async(payload), loop=loop)
@@ -1081,7 +1286,9 @@ class visualresponse:
                     try:
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
-                            asyncio.run_coroutine_threadsafe(self.send_update_async(payload), loop)
+                            asyncio.run_coroutine_threadsafe(
+                                self.send_update_async(payload), loop
+                            )
                         else:
                             loop.create_task(self.send_update_async(payload))
                     except Exception as e:
@@ -1092,12 +1299,12 @@ class visualresponse:
 
             def get_status(self):
                 return {
-                    'port': self.port,
-                    'clients': len(self.server.websocket_clients),
-                    'persist_mode': self.server.persist_mode
+                    "port": self.port,
+                    "clients": len(self.server.websocket_clients),
+                    "persist_mode": self.server.persist_mode,
                 }
 
-        if not hasattr(visualresponse, '_adapter') or visualresponse._adapter is None:
+        if not hasattr(visualresponse, "_adapter") or visualresponse._adapter is None:
             visualresponse._adapter = ServerAdapter(server)
 
         return visualresponse._adapter
@@ -1109,35 +1316,40 @@ class visualresponse:
         import threading
 
         # Check if we already have an adapter
-        if hasattr(visualresponse, '_adapter') and visualresponse._adapter is not None:
+        if hasattr(visualresponse, "_adapter") and visualresponse._adapter is not None:
             return visualresponse._adapter
 
         # If there's a running loop in this thread, offload to a new thread with its own loop
         try:
             running_loop = asyncio.get_running_loop()
             # We are in an async context; create a helper thread to obtain the session
-            result_holder = {'adapter': None, 'error': None}
+            result_holder = {"adapter": None, "error": None}
 
             def _runner():
                 try:
                     # Use a fresh event loop in this dedicated thread
                     adapter = asyncio.run(visualresponse._get_session_async())
-                    result_holder['adapter'] = adapter
+                    result_holder["adapter"] = adapter
                 except Exception as e:
-                    result_holder['error'] = e
+                    result_holder["error"] = e
 
             t = threading.Thread(target=_runner, daemon=True)
             t.start()
             # Wait briefly for the adapter to be created
             t.join(timeout=5.0)
-            if result_holder['adapter'] is not None:
-                return result_holder['adapter']
-            if result_holder['error'] is not None:
-                raise result_holder['error']
+            if result_holder["adapter"] is not None:
+                return result_holder["adapter"]
+            if result_holder["error"] is not None:
+                raise result_holder["error"]
             # If still not ready, return existing adapter if any, otherwise raise a clear error
-            if hasattr(visualresponse, '_adapter') and visualresponse._adapter is not None:
+            if (
+                hasattr(visualresponse, "_adapter")
+                and visualresponse._adapter is not None
+            ):
                 return visualresponse._adapter
-            raise RuntimeError("visualresponse server initialization is in progress; try again shortly")
+            raise RuntimeError(
+                "visualresponse server initialization is in progress; try again shortly"
+            )
         except RuntimeError:
             # No running loop; safe to run the coroutine synchronously in this thread
             pass
@@ -1148,7 +1360,7 @@ class visualresponse:
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        if getattr(loop, 'is_running', lambda: False)():
+        if getattr(loop, "is_running", lambda: False)():
             # Safety guard: if loop is somehow running, fall back to thread offload path
             return visualresponse._get_session()
         return loop.run_until_complete(visualresponse._get_session_async())
@@ -1167,24 +1379,28 @@ class visualresponse:
         """
         try:
             # Extract type from visualresponse content
-            type_match = re.search(r'<type>(.*?)</type>', content, re.IGNORECASE | re.DOTALL)
+            type_match = re.search(
+                r"<type>(.*?)</type>", content, re.IGNORECASE | re.DOTALL
+            )
             if type_match:
                 viz_type = type_match.group(1).strip().lower()
 
                 # Skip TTS for visual-only content
-                if viz_type in ['html', 'code', 'javascript', 'css']:
+                if viz_type in ["html", "code", "javascript", "css"]:
                     return None
 
                 # For markdown, extract and clean the text content
-                elif viz_type == 'markdown':
-                    content_match = re.search(r'<content>(.*?)</content>', content, re.IGNORECASE | re.DOTALL)
+                elif viz_type == "markdown":
+                    content_match = re.search(
+                        r"<content>(.*?)</content>", content, re.IGNORECASE | re.DOTALL
+                    )
                     if content_match:
                         markdown_text = content_match.group(1).strip()
                         # Remove CDATA wrapper if present
-                        if markdown_text.startswith('<![CDATA['):
+                        if markdown_text.startswith("<![CDATA["):
                             markdown_text = markdown_text[9:-3].strip()
                         # Remove markdown formatting
-                        markdown_text = re.sub(r'[#*_`]', '', markdown_text)
+                        markdown_text = re.sub(r"[#*_`]", "", markdown_text)
                         return markdown_text
 
             # Default: use standard XML filtering
@@ -1196,26 +1412,30 @@ class visualresponse:
     @staticmethod
     def run(content: str) -> str:
         try:
-            if content.strip().lower() in ['status', 'test', 'diagnostic', 'debug']:
+            if content.strip().lower() in ["status", "test", "diagnostic", "debug"]:
                 return visualresponse._run_diagnostics()
 
             # --- Simplified parsing: always create, auto-generate ID ---
             args = {}
             # Use re.DOTALL to make '.' match newlines, crucial for multi-line content
-            type_match = re.search(r'<type>(.*?)</type>', content, re.IGNORECASE | re.DOTALL)
+            type_match = re.search(
+                r"<type>(.*?)</type>", content, re.IGNORECASE | re.DOTALL
+            )
             if type_match:
-                args['type'] = type_match.group(1).strip()
+                args["type"] = type_match.group(1).strip()
 
-            content_match = re.search(r'<content>(.*?)</content>', content, re.IGNORECASE | re.DOTALL)
+            content_match = re.search(
+                r"<content>(.*?)</content>", content, re.IGNORECASE | re.DOTALL
+            )
             if content_match:
                 # Strip CDATA wrapper if present, then strip whitespace
                 c = content_match.group(1)
-                if c.strip().startswith('<![CDATA['):
-                    c = c.strip()[9:-3] # Remove <![CDATA[ and ]]>
-                args['content'] = c.strip()
+                if c.strip().startswith("<![CDATA["):
+                    c = c.strip()[9:-3]  # Remove <![CDATA[ and ]]>
+                args["content"] = c.strip()
 
             # Always default to 'create' action
-            action = 'create'
+            action = "create"
             # Auto-generate unique ID using precise timestamp
             unique_timestamp = int(time.time() * 1000000)  # Microsecond precision
             viz_id = f"viz-{unique_timestamp}"
@@ -1225,32 +1445,33 @@ class visualresponse:
             # Add model key metadata
             try:
                 from core.llm_router import LlmRouter
+
                 used_model = LlmRouter.get_last_used_model()
                 if used_model:
-                    payload['model'] = used_model
+                    payload["model"] = used_model
             except Exception as e:
                 logger.debug(f"Could not get model key for response: {e}")
 
             # Add tool execution info if available
-            if hasattr(g, 'last_executed_tools_info') and g.last_executed_tools_info:
-                payload['tool_info'] = g.last_executed_tools_info
+            if hasattr(g, "last_executed_tools_info") and g.last_executed_tools_info:
+                payload["tool_info"] = g.last_executed_tools_info
                 # Clear the info after using it to avoid reusing stale data
                 g.last_executed_tools_info = None
 
             # Always create content
-            viz_type = args.get('type')
-            viz_content_str = args.get('content')
+            viz_type = args.get("type")
+            viz_content_str = args.get("content")
 
             if not viz_type or viz_content_str is None:
                 return "Error: visualresponse requires <type> and <content> tags."
 
             viz_type = viz_type.lower()
-            supported_types = ['markdown', 'html']
+            supported_types = ["markdown", "html"]
             if viz_type not in supported_types:
                 return f"Error: Unsupported type '{viz_type}'. Supported types are: {', '.join(supported_types)}"
 
-            payload['type'] = viz_type
-            payload['content'] = viz_content_str
+            payload["type"] = viz_type
+            payload["content"] = viz_content_str
 
             session = visualresponse._get_session()
             if not session.is_healthy():
@@ -1273,23 +1494,36 @@ class visualresponse:
     def _run_diagnostics() -> str:
         # This function remains the same
         diagnostics = ["🔍 Visual Server Diagnostics", "=" * 40]
-        if AIOHTTP_AVAILABLE: diagnostics.append(f"✅ aiohttp {AIOHTTP_VERSION} is available")
-        else: diagnostics.append(f"❌ aiohttp not available: {AIOHTTP_IMPORT_ERROR}")
+        if AIOHTTP_AVAILABLE:
+            diagnostics.append(f"✅ aiohttp {AIOHTTP_VERSION} is available")
+        else:
+            diagnostics.append(f"❌ aiohttp not available: {AIOHTTP_IMPORT_ERROR}")
         if ASSETS_DIR.exists():
             diagnostics.append(f"✅ Assets directory exists: {ASSETS_DIR}")
-            for file_name in ['index.html', 'favicon.ico']:
+            for file_name in ["index.html", "favicon.ico"]:
                 file_path = ASSETS_DIR / file_name
-                if file_path.exists(): diagnostics.append(f"  ✅ {file_name} ({file_path.stat().st_size} bytes)")
-                else: diagnostics.append(f"  ❌ {file_name} missing")
-        else: diagnostics.append(f"❌ Assets directory missing: {ASSETS_DIR}")
-        if hasattr(visualresponse, '_adapter') and visualresponse._adapter:
+                if file_path.exists():
+                    diagnostics.append(
+                        f"  ✅ {file_name} ({file_path.stat().st_size} bytes)"
+                    )
+                else:
+                    diagnostics.append(f"  ❌ {file_name} missing")
+        else:
+            diagnostics.append(f"❌ Assets directory missing: {ASSETS_DIR}")
+        if hasattr(visualresponse, "_adapter") and visualresponse._adapter:
             status = visualresponse._adapter.get_status()
             diagnostics.append("\n📊 Current Session Status:")
-            for key, value in status.items(): diagnostics.append(f"  {key.replace('_', ' ').title()}: {value}")
-        else: diagnostics.append("\n📊 No active session")
+            for key, value in status.items():
+                diagnostics.append(f"  {key.replace('_', ' ').title()}: {value}")
+        else:
+            diagnostics.append("\n📊 No active session")
         available_port = find_open_port(PORT_RANGE_START, PORT_RANGE_END)
-        if available_port: diagnostics.append(f"\n🔌 Available port found: {available_port}")
-        else: diagnostics.append(f"\n❌ No available ports in range {PORT_RANGE_START}-{PORT_RANGE_END}")
+        if available_port:
+            diagnostics.append(f"\n🔌 Available port found: {available_port}")
+        else:
+            diagnostics.append(
+                f"\n❌ No available ports in range {PORT_RANGE_START}-{PORT_RANGE_END}"
+            )
         return "\n".join(diagnostics)
 
     @staticmethod
@@ -1315,31 +1549,35 @@ class visualresponse:
                 "action": "display",
                 "message": message,
                 "timestamp": time.time(),
-                "id": f"user-msg-{int(time.time() * 1000000)}"
+                "id": f"user-msg-{int(time.time() * 1000000)}",
             }
 
             # Add model key metadata for user messages too (to track context)
             try:
                 from core.llm_router import LlmRouter
+
                 used_model = LlmRouter.get_last_used_model()
                 if used_model:
-                    payload['model'] = used_model
+                    payload["model"] = used_model
             except Exception as e:
                 logger.debug(f"Could not get model key for user message: {e}")
 
             print(f"[DEBUG] About to send user message payload: {payload}")
             session.send_update(payload)
-            print(f"[DEBUG] ✅ Sent user message to visual interface: {message[:50]}...")
+            print(
+                f"[DEBUG] ✅ Sent user message to visual interface: {message[:50]}..."
+            )
             return True
 
         except Exception as e:
             print(f"[DEBUG] ❌ Failed to send user message to visual interface: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
     @staticmethod
-    def send_console_log(line: str, level: str = 'info') -> bool:
+    def send_console_log(line: str, level: str = "info") -> bool:
         """
         Send a console log message to the visual interface.
 
@@ -1362,15 +1600,16 @@ class visualresponse:
                 "line": line.strip(),
                 "level": level,
                 "timestamp": time.time(),
-                "id": f"console-log-{int(time.time() * 1000000)}"
+                "id": f"console-log-{int(time.time() * 1000000)}",
             }
 
             # Add model key metadata for console logs too
             try:
                 from core.llm_router import LlmRouter
+
                 used_model = LlmRouter.get_last_used_model()
                 if used_model:
-                    payload['model'] = used_model
+                    payload["model"] = used_model
             except Exception as e:
                 logger.debug(f"Could not get model key for console log: {e}")
 
@@ -1396,14 +1635,16 @@ class FileBasedConsoleCapture:
         # Set up log file paths using XDG cache directory specification
         if log_dir is None:
             # Follow XDG Base Directory specification for cache files
-            xdg_cache_home = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
-            log_dir = os.path.join(xdg_cache_home, 'cli-agent', 'logs')
+            xdg_cache_home = os.environ.get(
+                "XDG_CACHE_HOME", os.path.expanduser("~/.cache")
+            )
+            log_dir = os.path.join(xdg_cache_home, "cli-agent", "logs")
 
         # Ensure the log directory exists
         os.makedirs(log_dir, exist_ok=True)
 
-        self.stdout_log_path = os.path.join(log_dir, 'console-stdout.log')
-        self.stderr_log_path = os.path.join(log_dir, 'console-stderr.log')
+        self.stdout_log_path = os.path.join(log_dir, "console-stdout.log")
+        self.stderr_log_path = os.path.join(log_dir, "console-stderr.log")
 
         self.stdout_stream = None
         self.stderr_stream = None
@@ -1421,7 +1662,9 @@ class FileBasedConsoleCapture:
         sys.stdout = self.stdout_stream
         sys.stderr = self.stderr_stream
         self.enabled = True
-        logger.debug(f"File-based console capture enabled: stdout={self.stdout_log_path}, stderr={self.stderr_log_path}")
+        logger.debug(
+            f"File-based console capture enabled: stdout={self.stdout_log_path}, stderr={self.stderr_log_path}"
+        )
 
     def disable(self):
         """Disable console capture and restore original streams."""
@@ -1442,10 +1685,7 @@ class FileBasedConsoleCapture:
 
     def get_log_paths(self):
         """Get the paths to the log files."""
-        return {
-            'stdout': self.stdout_log_path,
-            'stderr': self.stderr_log_path
-        }
+        return {"stdout": self.stdout_log_path, "stderr": self.stderr_log_path}
 
     def __enter__(self):
         self.enable()
@@ -1472,8 +1712,8 @@ class ConsoleCapture:
             return
 
         # Create wrapper streams that forward to visual interface
-        sys.stdout = ConsoleWrapper(self.original_stdout, 'info')
-        sys.stderr = ConsoleWrapper(self.original_stderr, 'error')
+        sys.stdout = ConsoleWrapper(self.original_stdout, "info")
+        sys.stderr = ConsoleWrapper(self.original_stderr, "error")
         self.enabled = True
         logger.debug("Console capture enabled for visual interface")
 
@@ -1506,10 +1746,11 @@ class LogFileStream:
 
         # Create directory if it doesn't exist
         import os
+
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
         # Open log file in append mode with line buffering for real-time updates
-        self.log_file = open(log_file_path, 'a', buffering=1, encoding='utf-8')
+        self.log_file = open(log_file_path, "a", buffering=1, encoding="utf-8")
 
     def write(self, text):
         # Write to original stream first (for terminal display)
@@ -1520,22 +1761,24 @@ class LogFileStream:
 
         # Directly send to WebSocket clients if we have non-empty content
         if text.strip():
-            self._broadcast_to_console(text.rstrip('\n\r'))
+            self._broadcast_to_console(text.rstrip("\n\r"))
 
     def _broadcast_to_console(self, content: str):
         """Send content directly to browser console via WebSocket."""
         try:
             # Strip ANSI escape sequences for clean console display
             import re
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            clean_content = ansi_escape.sub('', content)
+
+            ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+            clean_content = ansi_escape.sub("", content)
 
             # Use the existing visualresponse.send_console_log function
             # which properly handles the WebSocket communication
-            level = 'error' if 'stderr' in self.log_file_path.lower() else 'info'
+            level = "error" if "stderr" in self.log_file_path.lower() else "info"
 
             # Import and use the visualresponse class's console log method
             from tools.visualresponse import visualresponse
+
             visualresponse.send_console_log(clean_content, level)
         except Exception:
             # Don't let broadcast errors break stdout/stderr
@@ -1546,7 +1789,7 @@ class LogFileStream:
         self.log_file.flush()
 
     def close(self):
-        if hasattr(self, 'log_file') and self.log_file:
+        if hasattr(self, "log_file") and self.log_file:
             self.log_file.close()
 
     def __getattr__(self, name):
@@ -1571,12 +1814,15 @@ class ConsoleWrapper:
         if text.strip() and not text.isspace():
             # Clean text of ANSI escape sequences (comprehensive pattern)
             import re
+
             # Remove all ANSI escape sequences: colors, cursor movements, etc.
-            ansi_escape = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[@-~]')
-            clean_text = ansi_escape.sub('', text.strip())
+            ansi_escape = re.compile(
+                r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[@-~]"
+            )
+            clean_text = ansi_escape.sub("", text.strip())
 
             # Also remove any remaining escape sequences
-            clean_text = re.sub(r'\x1b.*?[a-zA-Z]', '', clean_text)
+            clean_text = re.sub(r"\x1b.*?[a-zA-Z]", "", clean_text)
 
             # Only skip completely empty lines after ANSI cleaning
             if not clean_text:
@@ -1608,7 +1854,7 @@ class LogFileWatcher:
             try:
                 # Start from end of existing file or 0 for new file
                 if os.path.exists(log_path):
-                    with open(log_path, encoding='utf-8') as f:
+                    with open(log_path, encoding="utf-8") as f:
                         f.seek(0, 2)  # Seek to end
                         self.file_positions[log_path] = f.tell()
                 else:
@@ -1630,7 +1876,9 @@ class LogFileWatcher:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 # No running loop, we'll start the task later when server starts
-                logger.debug("No running event loop - file watching will start with server")
+                logger.debug(
+                    "No running event loop - file watching will start with server"
+                )
                 return
 
         self.watch_task = loop.create_task(self._watch_files())
@@ -1648,12 +1896,16 @@ class LogFileWatcher:
 
     def ensure_watching_started(self, loop):
         """Ensure file watching is started with the given event loop."""
-        logger.info(f"ensure_watching_started: running={self.running}, watch_task={self.watch_task}")
+        logger.info(
+            f"ensure_watching_started: running={self.running}, watch_task={self.watch_task}"
+        )
         if self.running and not self.watch_task:
             self.watch_task = loop.create_task(self._watch_files())
             logger.info("Log file watching started with server event loop")
         else:
-            logger.warning(f"File watching not started: running={self.running}, watch_task={self.watch_task}")
+            logger.warning(
+                f"File watching not started: running={self.running}, watch_task={self.watch_task}"
+            )
 
     async def _watch_files(self):
         """Main file watching loop."""
@@ -1689,14 +1941,18 @@ class LogFileWatcher:
 
             # Check if file has new content
             if current_size > last_position:
-                logger.info(f"New content detected in {log_path}: {current_size - last_position} bytes")
+                logger.info(
+                    f"New content detected in {log_path}: {current_size - last_position} bytes"
+                )
                 # Read new content
-                with open(log_path, encoding='utf-8') as f:
+                with open(log_path, encoding="utf-8") as f:
                     f.seek(last_position)
                     new_content = f.read()
 
                     if new_content:
-                        logger.info(f"Sending {len(new_content)} characters to browser console")
+                        logger.info(
+                            f"Sending {len(new_content)} characters to browser console"
+                        )
                         # Send new content to browser via WebSocket
                         await self._send_log_content(new_content, stream_type)
 
@@ -1719,7 +1975,7 @@ class LogFileWatcher:
             for line in lines:
                 if line.strip():  # Only send non-empty lines
                     # Determine log level based on stream type
-                    level = 'error' if stream_type == 'stderr' else 'info'
+                    level = "error" if stream_type == "stderr" else "info"
 
                     # Use existing broadcast system
                     # TODO: Fix scope issue - broadcast_console_log not accessible here
@@ -1778,7 +2034,8 @@ def _console_broadcast_callback(line: str):
     """Callback for broadcasting console lines to WebSocket clients."""
     try:
         from tools.visualresponse import send_console_log
-        level = 'error' if 'ERROR' in line or 'Error' in line else 'info'
+
+        level = "error" if "ERROR" in line or "Error" in line else "info"
         send_console_log(line, level)
     except Exception:
         pass
@@ -1807,7 +2064,7 @@ def enable_console_capture():
         _unified_stream_manager = init_console_streaming(
             console_log_path,
             broadcast_callback=_console_broadcast_callback,
-            strip_ansi=True
+            strip_ansi=True,
         )
 
         logger.info(f"📺 Unified console streaming enabled -> {console_log_path}")
@@ -1824,6 +2081,7 @@ def disable_console_capture():
     if _unified_stream_manager:
         try:
             from shared.console_stream import stop_console_streaming
+
             stop_console_streaming()
             _unified_stream_manager = None
             logger.info("Unified console streaming stopped")

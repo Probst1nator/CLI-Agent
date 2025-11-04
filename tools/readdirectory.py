@@ -52,8 +52,8 @@ class readdirectory:
         """Provides standardized documentation for this tool."""
         info = {
             "name": "readdirectory",
-            "description": "Recursively lists directory contents and loads readable files into the resource manager. Supports text files and automatically converts PDFs to text. Respects .gitignore rules.",
-            "example": "<readdirectory><path>./documents</path></readdirectory>"
+            "description": "Recursively lists directory contents and loads readable files into the resource manager. Supports text files and automatically converts PDFs to text. Respects .gitignore rules. Optional max_depth parameter to limit recursion depth.",
+            "example": "<readdirectory><path>./documents</path><max_depth>2</max_depth></readdirectory>"
         }
         if not PYMUPDF_AVAILABLE:
             info["description"] += " (NOTE: PDF processing is disabled because 'pymupdf' is not installed.)"
@@ -125,6 +125,12 @@ class readdirectory:
             path_match = re.search(r'<path>(.*?)</path>', content, re.DOTALL)
             search_path = path_match.group(1).strip() if path_match else '.'
 
+            # Parse optional max_depth parameter
+            max_depth = None
+            max_depth_match = re.search(r'<max_depth>(\d+)</max_depth>', content)
+            if max_depth_match:
+                max_depth = int(max_depth_match.group(1))
+
             full_path = os.path.abspath(search_path)
             if not os.path.isdir(full_path):
                 return f"Error: Path does not exist or is not a directory: '{full_path}'"
@@ -136,6 +142,13 @@ class readdirectory:
             ingested_files = []
 
             for root, dirs, files in os.walk(full_path, topdown=True):
+                # Calculate current depth relative to the starting path
+                current_depth = root[len(full_path):].count(os.sep)
+
+                # If max_depth is set and we've reached it, don't descend further
+                if max_depth is not None and current_depth >= max_depth:
+                    dirs[:] = []  # Clear dirs list to prevent further recursion
+                    continue
                 # Prune ignored directories
                 if spec and project_root:
                     rel_root = os.path.relpath(root, project_root) if project_root else root

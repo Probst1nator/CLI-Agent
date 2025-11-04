@@ -3,12 +3,12 @@ import threading
 import time
 import webbrowser
 from multiprocessing import Process
+from typing import Optional
 
 import requests
 from flask import Flask, jsonify, render_template_string, request
 
 from core.chat import Chat, Role
-from typing import Optional
 
 
 class WebServer:

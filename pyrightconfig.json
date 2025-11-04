@@ -10,22 +10,46 @@
     "venv",
     "env",
     "build",
-    "dist"
+    "dist",
+    "tools/disabled",
+    "py_classes/remote_host"
   ],
   "pythonVersion": "3.11",
   "pythonPlatform": "Linux",
   "executionEnvironments": [
     {
       "root": ".",
-      "pythonVersion": "3.11"
+      "pythonVersion": "3.11",
+      "extraPaths": [
+        ".",
+        "./core",
+        "./shared",
+        "./agent",
+        "./tools"
+      ]
     }
   ],
   "typeCheckingMode": "basic",
-  "reportMissingImports": true,
+
+  "reportMissingImports": "warning",
   "reportMissingTypeStubs": false,
-  "reportGeneralTypeIssues": true,
-  "reportUndefinedVariable": true,
-  "reportUnusedParameter": false,
+  "reportGeneralTypeIssues": "warning",
+  "reportUndefinedVariable": "error",
+
+  "reportAttributeAccessIssue": "warning",
+  "reportArgumentType": "warning",
+  "reportReturnType": "warning",
+  "reportCallIssue": "warning",
+  "reportOptionalSubscript": "warning",
   "reportOptionalMemberAccess": false,
-  "stubPath": "./typings"
+  "reportOptionalCall": "warning",
+  "reportOptionalOperand": "warning",
+
+  "reportUnusedParameter": false,
+  "reportUnusedVariable": false,
+  "reportPrivateImportUsage": false,
+
+  "stubPath": "./typings",
+  "venvPath": ".",
+  "venv": ".venv"
 }

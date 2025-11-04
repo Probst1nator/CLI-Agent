@@ -4491,3 +4491,388 @@ html[data-theme='light'] .autocomplete-item.selected {
 .autocomplete-container::-webkit-scrollbar-thumb:hover {
     background-color: var(--primary-color);
 }
+
+/* ============================================
+   Settings Panel Styles
+   ============================================ */
+
+/* Settings Button (gear icon) */
+.settings-button {
+    padding: 0.4em 0.6em;
+    margin-right: 0.5em;
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 0.3em;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settings-button:hover {
+    background-color: var(--button-hover-bg);
+    transform: scale(1.05);
+}
+
+.settings-button:active {
+    transform: scale(0.98);
+}
+
+.settings-button svg {
+    display: block;
+}
+
+/* Settings Panel Container */
+.settings-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-color);
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.settings-panel.hidden {
+    display: none;
+}
+
+/* Settings Header */
+.settings-header {
+    background-color: var(--surface-color);
+    padding: 1em 2em;
+    border-bottom: 2px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.settings-header h2 {
+    margin: 0;
+    font-size: 1.5em;
+    color: var(--text-color);
+}
+
+.settings-header-actions {
+    display: flex;
+    gap: 0.75em;
+    align-items: center;
+}
+
+.settings-action-btn {
+    padding: 0.5em 1em;
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 0.3em;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.2s;
+}
+
+.settings-action-btn:hover {
+    background-color: var(--button-hover-bg);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.settings-action-btn.primary {
+    background-color: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.settings-action-btn.primary:hover {
+    background-color: #0056b3;
+}
+
+.settings-action-btn.success-flash {
+    background-color: #28a745;
+    color: white;
+    border-color: #28a745;
+}
+
+.settings-close-btn {
+    padding: 0.3em 0.7em;
+    background-color: transparent;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 0.3em;
+    cursor: pointer;
+    font-size: 1.2em;
+    line-height: 1;
+    transition: all 0.2s;
+}
+
+.settings-close-btn:hover {
+    background-color: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+/* Settings Content */
+.settings-content {
+    padding: 2em;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.settings-section {
+    margin-bottom: 2em;
+    background: var(--surface-color);
+    padding: 1.5em;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5em;
+}
+
+.settings-section h3 {
+    margin-top: 0;
+    margin-bottom: 0;
+    color: var(--text-color);
+    font-size: 1.2em;
+}
+
+.settings-section h4 {
+    margin-top: 0;
+    margin-bottom: 0.75em;
+    color: var(--text-color);
+    font-size: 1em;
+}
+
+.settings-help-text {
+    margin-top: 0.5em;
+    margin-bottom: 1em;
+    color: var(--text-color);
+    opacity: 0.7;
+    font-size: 0.9em;
+}
+
+/* Tools Grid */
+.tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1em;
+}
+
+.tools-grid-loading,
+.tools-grid-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 2em;
+    color: var(--text-color);
+    opacity: 0.6;
+}
+
+.tool-permission-item {
+    display: flex;
+    flex-direction: column;
+    padding: 1em;
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.tool-permission-item:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(0, 122, 204, 0.2);
+}
+
+.tool-name {
+    font-weight: bold;
+    color: var(--text-color);
+    margin-bottom: 0.5em;
+    font-size: 1em;
+}
+
+.tool-description {
+    font-size: 0.85em;
+    color: var(--text-color);
+    opacity: 0.7;
+    margin-bottom: 0.75em;
+    line-height: 1.4;
+}
+
+.tool-permission-controls {
+    display: flex;
+    gap: 0.5em;
+    flex-wrap: wrap;
+}
+
+.permission-radio {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.permission-radio input[type="radio"] {
+    margin: 0;
+    margin-right: 0.3em;
+    cursor: pointer;
+}
+
+.permission-label {
+    padding: 0.2em 0.5em;
+    border-radius: 0.2em;
+    font-size: 0.85em;
+    transition: all 0.2s;
+}
+
+.permission-label.allow {
+    background-color: rgba(40, 167, 69, 0.1);
+    color: #28a745;
+}
+
+.permission-radio input[type="radio"]:checked + .permission-label.allow {
+    background-color: #28a745;
+    color: white;
+    font-weight: bold;
+}
+
+.permission-label.ask {
+    background-color: rgba(255, 193, 7, 0.1);
+    color: #ffc107;
+}
+
+.permission-radio input[type="radio"]:checked + .permission-label.ask {
+    background-color: #ffc107;
+    color: #000;
+    font-weight: bold;
+}
+
+.permission-label.deny {
+    background-color: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+}
+
+.permission-radio input[type="radio"]:checked + .permission-label.deny {
+    background-color: #dc3545;
+    color: white;
+    font-weight: bold;
+}
+
+/* Pattern Editor */
+.pattern-editor {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5em;
+}
+
+@media (max-width: 1200px) {
+    .pattern-editor {
+        grid-template-columns: 1fr;
+    }
+}
+
+.pattern-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.pattern-list textarea {
+    width: 100%;
+    background: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.75em;
+    font-family: 'Courier New', Consolas, monospace;
+    font-size: 0.9em;
+    resize: vertical;
+    line-height: 1.5;
+    min-height: 200px;
+}
+
+.pattern-list textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.pattern-count {
+    margin-top: 0.5em;
+    font-size: 0.85em;
+    color: var(--text-color);
+    opacity: 0.6;
+    text-align: right;
+}
+
+/* Help Section */
+.help-section {
+    background: var(--bg-color);
+}
+
+.help-list {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+    color: var(--text-color);
+    line-height: 1.8;
+}
+
+.help-list li {
+    margin-bottom: 0.5em;
+}
+
+.help-list code {
+    background-color: var(--surface-color);
+    padding: 0.2em 0.5em;
+    border-radius: 0.2em;
+    font-family: 'Courier New', Consolas, monospace;
+    color: var(--primary-color);
+    border: 1px solid var(--border-color);
+}
+
+.precedence-note {
+    margin-top: 1em;
+    padding: 0.75em;
+    background-color: rgba(255, 193, 7, 0.1);
+    border-left: 3px solid #ffc107;
+    border-radius: 0.3em;
+    color: var(--text-color);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .settings-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1em;
+    }
+
+    .settings-header-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .settings-content {
+        padding: 1em;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5em;
+    }
+
+    .section-header button {
+        align-self: flex-end;
+    }
+
+    .tools-grid {
+        grid-template-columns: 1fr;
+    }
+}

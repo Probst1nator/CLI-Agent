@@ -226,7 +226,7 @@ class GroqAPI(AIProviderInterface):
             chat (Optional[Chat]): Chat object for debug printing with title.
 
         Returns:
-            Optional[Tuple[str, str]]: A tuple containing the transcribed text and detected language.
+            Optional[tuple[str, str]]: A tuple containing the transcribed text and detected language.
 
         Raises:
             RateLimitException: If the model is rate limited.

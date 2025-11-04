@@ -6,6 +6,7 @@ Provides structured layouts for chat, input, and status areas.
 """
 
 from collections.abc import Callable
+from typing import Optional
 
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.layout.containers import HSplit, VSplit, Window
@@ -16,7 +17,6 @@ from prompt_toolkit.widgets import Frame
 from .widgets import ChatDisplay, ConsoleLogWidget, InputArea, StatusPanel
 
 
-from typing import Optional
 class CLIAgentGUILayout:
     """Main layout manager for CLI-Agent GUI."""
 

@@ -10,11 +10,16 @@ SessionContext instance. This replaces the global state pattern and
 enables true multi-user/multi-tab support.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from core.chat import Chat
 
 
-from typing import Optional
 @dataclass
 class SessionContext:
     """
@@ -33,7 +38,7 @@ class SessionContext:
         retention_days: Container retention period (future: per-user override)
     """
     session_id: str
-    chat: 'Chat'  # Forward reference to avoid circular import
+    chat: Chat  # Forward reference handled by __future__ annotations
     current_images: list[str] = field(default_factory=list)
     voice_mode: bool = False
     tts_only_mode: bool = False

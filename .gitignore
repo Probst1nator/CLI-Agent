@@ -107,3 +107,9 @@ sandbox/
 .claude
 chroma
 IDEAS
+
+# Frontend build artifacts
+/node_modules/
+/dist/
+/.vite/
+package-lock.json

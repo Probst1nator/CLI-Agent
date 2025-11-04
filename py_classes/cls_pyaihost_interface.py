@@ -7,7 +7,6 @@ from termcolor import colored
 
 from core.providers.cls_whisper_interface import WhisperInterface
 from shared import utils_audio
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

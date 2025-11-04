@@ -8,6 +8,7 @@ using prompt_toolkit infrastructure with standardized event handling.
 import asyncio
 from collections.abc import Callable
 from datetime import datetime
+from typing import Optional
 
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.layout.containers import Window
@@ -15,7 +16,6 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.widgets import TextArea
 
-from typing import Optional
 # Import standardized event system
 from agent.gui.event_manager import GUIEvent, GUIEventType, GUISession
 

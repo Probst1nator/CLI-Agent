@@ -336,7 +336,10 @@ async def _get_async_input(
 
     else:
         # Fallback to synchronous input
-        return get_user_input_func(prompt) if get_user_input_func else input(prompt)
+        # Note: We always use plain input() here because get_user_input_func
+        # (typically get_user_input_with_bindings) requires args and context_chat
+        # which are not available in this fallback path
+        return input(prompt)
 
 
 def _show_help():

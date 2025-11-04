@@ -10,7 +10,7 @@ Provides intelligent autocomplete suggestions using hybrid fuzzy matching (rapid
 import logging
 import os
 import re
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from aiohttp import web
@@ -44,10 +44,206 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Cache for dynamic path suggestions (path_prefix -> (suggestions, timestamp))
+_path_suggestion_cache: dict[str, tuple[list[dict], float]] = {}
+_CACHE_TTL_SECONDS = 1.0  # Cache results for 1 second during typing
+
 
 def tokenize(text: str) -> list[str]:
     """Simple tokenization for BM25"""
     return text.lower().replace("/", " ").replace("_", " ").replace("-", " ").split()
+
+
+def extract_path_from_input(input_text: str) -> Optional[str]:
+    """
+    Extract a filesystem path from user input.
+
+    Looks for path patterns like:
+    - /absolute/path/to/something
+    - ~/home/relative/path
+    - ./relative/path
+
+    Args:
+        input_text: The full user input string
+
+    Returns:
+        The extracted path string, or None if no path pattern found
+
+    Examples:
+        "yes /home/prob/OneD" -> "/home/prob/OneD"
+        "read ~/Documents/file" -> "~/Documents/file"
+        "hello world" -> None
+    """
+    # Pattern matches:
+    # - Paths starting with / (absolute)
+    # - Paths starting with ~ (home directory)
+    # - Paths starting with ./ or ../ (relative)
+    # Captures until whitespace or end of string
+    path_pattern = r'([~/](?:[^\s]+)?|\.\.?/(?:[^\s]+)?)'
+
+    matches = re.findall(path_pattern, input_text)
+    if matches:
+        # Return the rightmost (last) path found
+        return matches[-1]
+
+    return None
+
+
+def get_dynamic_path_suggestions(
+    path_prefix: str, max_depth: int = 4, max_results: int = 50
+) -> list[dict[str, Any]]:
+    """
+    Dynamically scan filesystem for path suggestions based on user input.
+
+    Scans directories up to max_depth levels deep from the given path prefix.
+    Results are cached for 1 second to avoid redundant filesystem scans during typing.
+
+    Args:
+        path_prefix: Partial or complete path to scan (e.g., "/home/prob/OneD")
+        max_depth: Maximum directory depth to scan (default: 4)
+        max_results: Maximum number of suggestions to return (default: 50)
+
+    Returns:
+        List of suggestion dicts with 'text' and 'score' keys, sorted by relevance
+
+    Examples:
+        "/home/prob/OneD" -> [
+            {"text": "/home/user/OneDrive", "score": 95},
+            {"text": "/home/user/OneDrive/Documents", "score": 90},
+            ...
+        ]
+    """
+    import os
+    import time
+    from pathlib import Path
+
+    # Check cache first
+    cache_key = f"{path_prefix}:{max_depth}"
+    if cache_key in _path_suggestion_cache:
+        cached_suggestions, timestamp = _path_suggestion_cache[cache_key]
+        if time.time() - timestamp < _CACHE_TTL_SECONDS:
+            logger.debug(
+                f"[PathAutocomplete] Cache hit for '{path_prefix}' ({len(cached_suggestions)} results)"
+            )
+            return cached_suggestions
+
+    suggestions = []
+    start_time = time.time()
+
+    try:
+        # Expand ~ and resolve relative paths
+        expanded_path = os.path.expanduser(path_prefix)
+        expanded_path = os.path.abspath(expanded_path)
+
+        # Determine base directory and partial match
+        if os.path.isdir(expanded_path):
+            base_dir = expanded_path
+            partial_name = ""
+        else:
+            base_dir = os.path.dirname(expanded_path)
+            partial_name = os.path.basename(expanded_path)
+
+        # Check if base directory exists
+        if not os.path.isdir(base_dir):
+            logger.debug(
+                f"[PathAutocomplete] Base directory does not exist: {base_dir}"
+            )
+            return []
+
+        # Optimization: If we have a partial_name, first check immediate children
+        # This avoids deep scanning when matches are likely in the current directory
+        if partial_name:
+            try:
+                immediate_entries = os.listdir(base_dir)
+                for entry in immediate_entries:
+                    if entry.startswith("."):
+                        continue  # Skip hidden
+                    if not entry.startswith(partial_name):
+                        continue  # Only matches
+
+                    full_path = os.path.join(base_dir, entry)
+                    if os.path.isdir(full_path):
+                        suggestions.append({"text": full_path, "score": 100})
+                    elif os.path.isfile(full_path):
+                        suggestions.append({"text": full_path, "score": 95})
+
+                    if len(suggestions) >= max_results:
+                        break
+            except PermissionError:
+                pass  # Will try os.walk below
+
+        # If we found matches at depth 0, return them (optimization)
+        if suggestions and partial_name:
+            logger.info(
+                f"[PathAutocomplete] Found {len(suggestions)} immediate matches for '{path_prefix}'"
+            )
+            _path_suggestion_cache[cache_key] = (suggestions, time.time())
+            return suggestions
+
+        # Otherwise, walk directory tree with depth limit
+        for root, dirs, files in os.walk(base_dir):
+            # Check timeout (100ms max)
+            if time.time() - start_time > 0.1:
+                logger.warning(
+                    f"[PathAutocomplete] Timeout after {len(suggestions)} results"
+                )
+                break
+
+            # Calculate current depth relative to base_dir
+            depth = root[len(base_dir) :].count(os.sep)
+            if depth >= max_depth:
+                # Don't descend deeper
+                dirs[:] = []
+                continue
+
+            # Filter out hidden directories from traversal
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+
+            # If we have a partial_name and we're at depth > 0, skip non-matching directories
+            # This prunes the search tree early
+            if partial_name and depth == 0:
+                dirs[:] = [d for d in dirs if d.startswith(partial_name)]
+
+            # Add matching directories
+            for dir_name in dirs:
+                full_path = os.path.join(root, dir_name)
+                # Calculate score based on depth (shallower = higher score)
+                score = 100 - (depth * 5)
+                suggestions.append({"text": full_path, "score": max(score, 80)})
+
+                if len(suggestions) >= max_results:
+                    break
+
+            # Add matching files (only at depth 0 when no partial_name)
+            if depth == 0 and not partial_name:
+                for file_name in files:
+                    if file_name.startswith("."):
+                        continue
+                    full_path = os.path.join(root, file_name)
+                    suggestions.append({"text": full_path, "score": 95})
+
+                    if len(suggestions) >= max_results:
+                        break
+
+            if len(suggestions) >= max_results:
+                break
+
+        # Sort by score descending
+        suggestions.sort(key=lambda x: x["score"], reverse=True)
+
+        # Cache the results
+        _path_suggestion_cache[cache_key] = (suggestions, time.time())
+
+        logger.info(
+            f"[PathAutocomplete] Found {len(suggestions)} paths for '{path_prefix}' in {(time.time() - start_time)*1000:.1f}ms"
+        )
+
+    except PermissionError as e:
+        logger.warning(f"[PathAutocomplete] Permission denied: {e}")
+    except Exception as e:
+        logger.error(f"[PathAutocomplete] Error scanning paths: {e}", exc_info=True)
+
+    return suggestions
 
 
 def extract_relevant_content(content: str) -> str:
@@ -502,6 +698,17 @@ async def get_autocomplete_suggestions(request: Request) -> Response:  # type: i
             all_suggestions.extend(get_tool_suggestions(input_text))
             all_suggestions.extend(get_file_path_suggestions(input_text))
 
+            # Dynamic path suggestions (depth-4 scanning for partial paths)
+            extracted_path = extract_path_from_input(input_text)
+            if extracted_path:
+                logger.debug(
+                    f"[PathAutocomplete] Detected path in input: '{extracted_path}'"
+                )
+                dynamic_path_suggestions = get_dynamic_path_suggestions(
+                    extracted_path, max_depth=4, max_results=50
+                )
+                all_suggestions.extend(dynamic_path_suggestions)
+
         # Sort by score (descending) and filter by minimum threshold
         all_suggestions.sort(key=lambda s: s["score"], reverse=True)
 
@@ -572,16 +779,16 @@ async def get_custom_autocomplete_suggestions(request: Request) -> Response:  # 
 
         if input_text.endswith((".", "!", "?", ";", '"', "'", "*")):
             logger.info(
-                f"Custom autocomplete skipped because of detected stop characte: '{input.text[-1]}'"
+                f"Custom autocomplete skipped because of detected stop character: '{input_text[-1]}'"
             )
-            return []
+            return web.json_response({"status": "success", "suggestions": []})
         logger.info(f"Custom autocomplete triggered for input: '{input_text}'")
 
         # Example structure (you'll implement this):
 
         from core.chat import Chat, Role
         from core.globals import g
-        from core.llm_router import LlmRouter
+        from core.llm_router import LlmRouter, LLMRole
 
         # Get context from main.py
         # Note: main.py sets g.chat (not g.context_chat)
@@ -594,6 +801,14 @@ async def get_custom_autocomplete_suggestions(request: Request) -> Response:  # 
         if not context_chat:
             logger.warning(
                 "[Autocomplete] No context_chat available, returning empty suggestions"
+            )
+            return web.json_response({"status": "success", "suggestions": []})
+
+        # Check if autocomplete model is configured
+        autocomplete_models = g.autocomplete_llms_list
+        if not autocomplete_models or len(autocomplete_models) == 0:
+            logger.info(
+                "[Autocomplete] No autocomplete model configured, returning empty suggestions"
             )
             return web.json_response({"status": "success", "suggestions": []})
 
@@ -624,11 +839,11 @@ async def get_custom_autocomplete_suggestions(request: Request) -> Response:  # 
         # Get LLM response using autocomplete role
         llm_router = LlmRouter()
         logger.info(
-            f"[Autocomplete] Calling LLM with role='autocomplete' for input: '{input_text}'"
+            f"[Autocomplete] Calling LLM with role=LLMRole.AUTOCOMPLETE for input: '{input_text}'"
         )
 
         response = await llm_router.generate_completion(
-            chat=custom_chat, role="autocomplete"
+            chat=custom_chat, role=LLMRole.AUTOCOMPLETE, thinking_budget=0
         )
 
         suggestions = [

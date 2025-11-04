@@ -70,7 +70,7 @@ class AudioProviderInterface(BaseProviderInterface):
             sample_rate: Sample rate of the audio data if provided as numpy array
 
         Returns:
-            Tuple[str, str]: (transcribed text, detected language)
+            tuple[str, str]: (transcribed text, detected language)
         """
         pass
 
@@ -98,7 +98,7 @@ class AudioProviderInterface(BaseProviderInterface):
             use_wake_word: Whether to wait for wake word before recording
 
         Returns:
-            Tuple[str, str, np.ndarray]: (transcribed text, detected language, audio data)
+            tuple[str, str, np.ndarray]: (transcribed text, detected language, audio data)
         """
         pass
 

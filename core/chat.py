@@ -10,7 +10,7 @@ import tkinter as tk
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, TypedDict, Optional
+from typing import Any, Optional, TypedDict
 
 from ollama._types import Image as OllamaImage
 from ollama._types import Message as OllamaMessage

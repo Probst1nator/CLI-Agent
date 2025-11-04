@@ -5,6 +5,7 @@
 **NEW**: Clean separation of backend API and frontend assets for better maintainability and testability.
 
 - `api/` - **Backend API layer** (separate from tool system):
+
   - `api/server.py` (~520 lines) - Web server with WebSocket, session management, audit logging, and state broadcasting
   - `api/chat_api.py` (~330 lines) - Chat endpoints (load, new, archives, messages, BM25 search)
   - `api/audio_api.py` (~180 lines) - Voice/audio endpoints (transcription, TTS)
@@ -26,13 +27,14 @@
     - `main.js`, `renderers.js`, `logger.js` - Core UI logic
   - `frontend/libs/` - Third-party JavaScript libraries
 
-See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
+See `docs/BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
 
 ## 🏗️ Modern Architecture (Post-Migration & Refactoring)
 
 ### 🎯 **RECENT MAJOR ARCHITECTURAL ACHIEVEMENT**: AppContext as Single Source of Truth
 
 **Completed**: Full transition from argparse-dependent command system to AppContext-based architecture:
+
 - ✅ **AgentSettings dataclass**: Centralized configuration with `load_from_args()` method
 - ✅ **Command decoupling**: All commands now use `self.context.settings` instead of args parameter
 - ✅ **BaseCommand refactor**: Execute signature simplified, removing argparse dependency
@@ -41,6 +43,7 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
 - ✅ **Main.py integration**: AppContext populated from args at startup, single initialization point
 
 **Benefits Achieved**:
+
 - Commands are now completely testable in isolation (no argparse mocking needed)
 - Clear separation of concerns: CLI parsing vs runtime configuration
 - Eliminated dual command processing pipelines that caused duplicate execution bugs
@@ -48,8 +51,9 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
 - Removed "dummy args" hack and transitional code patterns
 
 - `agent/` - Modern agent architecture with organized components:
-  
+
   **Refactored Core Architecture**
+
   - `core/app_context.py` - Application context replacing global state singleton with dependency injection pattern, providing centralized configuration, lazy-loaded components, and proper typing. **MAJOR REFACTOR**: Now includes `AgentSettings` dataclass as single source of truth for all runtime configuration, eliminating command dependency on argparse and enabling clean command isolation
   - `core/initialization.py` - Clean application initialization logic extracted from monolithic main.py with environment setup, logging configuration, and context creation
   - `core/agent_loop.py` - Main conversation loop extracted from main.py with proper error handling, command processing, and AI interaction management
@@ -65,8 +69,9 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
   - `core/unified_completion.py` - : Unified command completion system working across all interfaces (CLI, GUI, Web) with consistent behavior, real-time command discovery, and JSON serialization for web clients
   - `core/command_registry.py` - : Single source of truth for command definitions, centralizing command metadata and bridging static definitions with dynamic implementations through categorized command registry. : Added unified LLM selection commands (`/planner_llm`, `/router_llm`, `/fallbacks`) and configuration display command (`/config`) replacing WebSocket-based selection with command-based approach
   - `core/migration_helper.py` - : Migration utilities for transitioning main.py from legacy input handling to unified system, providing drop-in replacements, monkey-patching capabilities, and gradual migration support
-  
+
   **Command System Architecture**
+
   - `commands/base_command.py` - Abstract base class and protocols for all CLI commands with proper typing, consistent interfaces, and command registration system. **MAJOR REFACTOR**: Execute method signature simplified to remove argparse dependency, commands now access configuration via `self.context.settings`
   - `commands/command_handler.py` - Central command dispatcher replacing massive switch-case logic from get_user_input_with_bindings with clean, modular command routing. **MAJOR REFACTOR**: Eliminated args parameter from handle_command, now uses context-based configuration exclusively
   - `commands/screenshot_command.py` - Screenshot command implementation demonstrating the new command pattern with proper error handling and response types
@@ -74,21 +79,24 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
   - `commands/regenerate_command.py` - Regenerate command with chat history management and proper state handling
   - `commands/simple_commands.py` - Collection of simple command implementations (multiline, exit, reset, toggle commands) with consistent interfaces. : Added unified LLM selection commands (`PlannerLlmCommand`, `RouterLlmCommand`, `FallbacksCommand`), configuration display command (`ConfigCommand`), and replaced `ClearCommand` with command-based approach integrating with web UI selectboxes. **NEW**: Enhanced `PermissionCommand` with simple command-based permission management supporting direct actions like `/perms add dev grepsearch` and guided wizards
   - `commands/profile_commands.py` - LLM profile management commands providing `/profile_save <id>`, `/profile_load <id>`, `/profile_list`, and `/profile_delete <id>` for saving/loading different LLM configurations with simplified ID-based approach (no names, descriptions, or timestamps)
-  
+
   **GUI Components**
+
   - `gui/layouts.py` - Layout definitions and management for prompt_toolkit-based GUI including main layout, debug layout, minimal layout, and compact layout options
   - `gui/widgets.py` - : Custom GUI widgets with standardized event handling including ChatDisplay for conversation history, StatusPanel for system information, InputArea for user input, and ChatMessage for message formatting
   - `gui/event_manager.py` - : Standardized GUI event handling and session management system providing unified event types, session lifecycle management, input coordination, and event processing for all GUI interfaces
   - `gui/__init__.py` - GUI package initialization providing clean imports for layout and widget components
-  
+
   **Web Backend API (Modern Architecture)**
+
   - `api/server.py` - aiohttp web server with WebSocket support, session management, and audit logging. Auto-starts when visualresponse tool is called, auto-stops when last client disconnects (unless --gui flag persists it). Provides SessionAuditLogger for GDPR-compliant session tracking with IP, user-agent, and chat snapshots. Handles image_upload WebSocket messages for screen capture base64 transmission
   - `api/chat_api.py` - Chat operations API providing endpoints for loading archived chats (`POST /api/chat/load/{id}`), starting new chats (`POST /api/chat/new`), fetching current chat state, listing archives, deleting chats, and **editing messages** (`POST /api/chat/message/edit`). Broadcasts WebSocket sync events (`chat_replaced`, `chat_cleared`, `message_edited`) for real-time frontend updates without page reloads
   - `api/audio_api.py` - Voice and audio API providing browser microphone recording upload (`POST /api/audio/upload`), transcription using shared audio utilities, TTS generation with streaming (`POST /api/audio/tts`), and voice status endpoint. Enables full voice interaction from web browser
   - `api/tools_api.py` - Tool configuration API for listing available tools (`GET /api/tools`), toggling tool enable/disable state (`POST /api/tools/toggle`), and handling file uploads from frontend tool manager
   - `api/profile_api.py` - LLM profile management API providing endpoints to list saved profiles (`GET /api/profiles`), save current configuration to profile (`POST /api/profiles/save/{id}`), and load profile configuration (`POST /api/profiles/load/{id}`)
-  
+
   **Web Frontend (Modern Architecture)**
+
   - `frontend/index.html` - Main web UI entry point for browser-based agent interaction, includes chat interface, tool manager, voice controls, and LLM selector
   - `frontend/css/main.css` - Core stylesheet for web UI with layout, themes, and base styles (~3,344 lines - refactored to modular architecture)
   - `frontend/css/components/loading-tools.css` - Modular component styles for tool execution indicators with expand/collapse animations (~220 lines)
@@ -104,26 +112,28 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
   - `frontend/js/logger.js` - Frontend logging utility for debugging and error tracking
   - `frontend/js/js-utils.js` - Shared JavaScript utilities and helper functions
   - `frontend/libs/` - Third-party JavaScript libraries: jQuery, Marked (Markdown), Mermaid (diagrams), Plotly (charts), 3Dmol (molecular visualization), svg-pan-zoom
-  
-  
+
   **Legacy Components (Pre-Refactor)**
+
   - `notebook/computational_notebook.py` - Jupyter-style code execution and cell management (migrated from py_classes)
-  - `playbook/playbook_manager.py` - Strategic multi-step workflow templates and procedural guidance (migrated from py_classes)  
+  - `playbook/playbook_manager.py` - Strategic multi-step workflow templates and procedural guidance (migrated from py_classes)
   - `utils_manager/utils_manager.py` - Orchestration and management of utility tools (migrated from py_classes)
   - `text_painter/stream_painter.py` - Colorized streaming text output with syntax highlighting (migrated from py_classes)
   - `llm_selection/llm_selector.py` - Interactive LLM selection and capability filtering (migrated from py_classes)
   - `utils_manager/util_base.py` - Base utility class providing common functionality (migrated from py_classes)
 
 - `infrastructure/` - Supporting infrastructure organized by purpose:
+
   - `rate_limiting/` - Rate limiting tracker and enforcement across AI services (migrated from py_classes)
   - `vector_db/vector_database.py` - Semantic search and embeddings storage using ChromaDB (migrated from py_classes)
   - `remote_host/` - Remote AI model hosting and distributed computing capabilities (migrated from py_classes)
 
 - `shared/utils/` - Structured shared utilities organized by domain:
+
   - `web/web_server.py` - HTTP endpoints and web-based interfaces (migrated from py_classes/utils)
   - `search/brave_search.py` - Web search API integration (migrated from py_classes/utils)
   - `search/search_vector_db.py` - : SearchResultsVectorDB class for semantic search caching using ChromaDB and embeddinggemma:latest embeddings. Manages two collections (web_search_results + search_summaries) with similarity-based retrieval, automatic result storage, and progressive knowledge building for the SearchWeb tool
-  
+
   - `python/python_utils.py` - Code execution and Python environment manipulation (migrated from py_classes/utils)
   - `log_manager.py` - Centralized log retention and cleanup management system with automatic rotation, retention policies, background cleanup scheduling, and comprehensive statistics for all CLI-Agent logging operations
   - `pdf_utils.py` - : Consolidated PDF processing utilities extracted from duplicated functions in shared/common_utils.py and shared/audio/audio_utils.py. Provides clean_pdf_text(), extract_pdf_content(), get_cache_file_path(), and related functions with caching support
@@ -157,7 +167,7 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
 
 - `README.md` - The main project documentation, serving as the official entry point for new contributors (currently a placeholder).
 
-- `ARCHITECTURE.md` - Comprehensive analysis of the monorepo structure and detailed strategy for decomposing it into 3 separate projects corresponding to tools/* directories, including dependency mapping, migration complexity assessment, and recommended decomposition approaches.
+- `ARCHITECTURE.md` - Comprehensive analysis of the monorepo structure and detailed strategy for decomposing it into 3 separate projects corresponding to tools/\* directories, including dependency mapping, migration complexity assessment, and recommended decomposition approaches.
 
 - `main.py` - **CURRENT/ACTIVE**: The main entrypoint and orchestration script for the CLI-Agent. Contains the main execution loop, user input handling, and all recent bug fixes including the ComputationalNotebook architecture fix. : Input system consolidated - removed unused `get_gui_input()` function and added consistent `get_cli_input()` function. All input now flows through the unified input management system. **FIXED**: Added router LLM initialization during startup (lines 1561-1574) to ensure `g.router_llm` is properly loaded from configuration, matching planner LLM initialization pattern. **XML Error Handling**: Enhanced `detect_malformed_xml()` (lines 697-820) with pre-check for tag mismatches (e.g., `<type>...</content>`) providing specific error messages. Added frontend error notification (lines 2326-2345) when LLM fails to generate expected tool calls in GUI mode, broadcasting warning messages to web interface. This is the **stable, production entry point** that should be used for all current development and deployment.
 
@@ -185,7 +195,7 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
 
 - `cliagent_instructions.md` - Step-by-step guide for creating a VS Code extension that exposes currently open files via HTTP server, along with corresponding Python script to retrieve this information for external tool integration.
 
-- `core/ai_strengths.py` - Enum definition for AI model capabilities, categorizing different strengths like UNCENSORED, VISION, and LOCAL processing with numeric values.
+- `core/lm_capabilities.py` - Enum definition for AI model capabilities, categorizing different capabilities like UNCENSORED, VISION, and LOCAL processing with numeric values.
 
 - `core/chat.py` - Core Chat class for managing conversational AI interactions, supporting multiple message roles, colorized terminal output, debug windows, **message editing with `update_message(index, content)`**, serialization with base64_images persistence for archived chats, conversion to various AI API formats (Ollama, OpenAI, Groq, Gemini, Gemma), and LLM-based conversation compression with configurable density levels ('dense', 'detailed') and custom prompts.
 
@@ -348,6 +358,7 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
 - `tests/test_german_transcription_pipeline.py` - Focused German scientific vocabulary transcription test comparing Faster-Whisper model sizes (tiny/base/small/medium) on real German audio to identify optimal models for scientific terms.
 
 - `tests/audio/` - Test audio files directory containing real-world transcription test cases:
+
   - `german_transcription_failure.wav` - Audio file demonstrating Faster-Whisper failure on German scientific vocabulary ("kannst du mir erklären was Wasserstoffbrückenbindungen sind" incorrectly transcribed as "Das ist das, das ist das, das ist das.")
   - `pipeline/` - Generated test audio files for systematic testing (12 files: 3 German + 3 English sentences × 2 voice types)
 
@@ -383,9 +394,7 @@ See `BACKEND_FRONTEND_ARCHITECTURE.md` for detailed architecture documentation.
 
 - `utils/generateimage.py` - Image generation utility integrating with AI image generation services for creating visual content within agent workflows.
 
-
 - `utils/homeassistant.py` - Home Assistant integration utility for smart home automation, device control, and IoT interaction through the CLI agent.
-
 
 - `utils/removefile.py` - File removal utility with safety checks, backup options, and intelligent deletion policies for secure file management.
 

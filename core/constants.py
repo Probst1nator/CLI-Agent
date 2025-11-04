@@ -20,3 +20,7 @@ PRIORITY_TAGS = {'python', 'bash', 'think', 'todos', 'editfile', 'writefile', 'r
 # Tags that are non-executable cognitive tools (return None)
 # These help the model reason but don't produce external outputs
 COGNITIVE_TOOLS = {'think', 'todos'}
+
+# Tools that should NEVER require permission checks
+# These are primitive/structural tools that are always safe to execute
+PERMISSION_EXEMPT_TOOLS = {'response', 'visualresponse', 'think', 'todos', 'searchweb', 'grepsearch'}

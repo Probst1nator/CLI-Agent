@@ -18,11 +18,11 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import Optional
 
 import websockets
 from termcolor import colored
 
-from typing import Optional
 # Discovery configuration
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 8765

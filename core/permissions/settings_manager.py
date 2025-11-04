@@ -1,4 +1,5 @@
 from typing import Optional
+
 """
 Simplified permission settings manager for CLI-Agent.
 Claude Code-style config-based permission system with pattern matching.

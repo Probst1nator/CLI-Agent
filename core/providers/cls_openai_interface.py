@@ -99,7 +99,7 @@ class OpenAIAPI(AIProviderInterface):
             chat (Optional[Chat]): The chat object for debug printing.
 
         Returns:
-            Tuple[str,str]: (transcribed text from the audio file, language)
+            tuple[str,str]: (transcribed text from the audio file, language)
 
         Raises:
             Exception: If an error occurs during transcription.

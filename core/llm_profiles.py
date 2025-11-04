@@ -21,7 +21,8 @@ class LLMProfile:
         autocomplete: Optional[list[str]] = None,
         router: Optional[list[str]] = None,
         planner: Optional[list[str]] = None,
-        fallbacks: Optional[list[str]] = None
+        fallbacks: Optional[list[str]] = None,
+        permissions: Optional[dict[str, list[str]]] = None
     ):
         self.id = id
         self.override = override or []
@@ -29,6 +30,11 @@ class LLMProfile:
         self.router = router or []
         self.planner = planner or []
         self.fallbacks = fallbacks or []
+        self.permissions = permissions or {
+            "allow": [],
+            "deny": [],
+            "ask": []
+        }
 
     def to_dict(self) -> dict[str, Any]:
         """Convert profile to dictionary for JSON serialization."""
@@ -38,7 +44,8 @@ class LLMProfile:
             "autocomplete": self.autocomplete,
             "router": self.router,
             "planner": self.planner,
-            "fallbacks": self.fallbacks
+            "fallbacks": self.fallbacks,
+            "permissions": self.permissions
         }
 
     @classmethod
@@ -52,13 +59,29 @@ class LLMProfile:
                 return value
             return [value] if value else []
 
+        # Load permissions with default structure if missing
+        permissions = data.get("permissions", {
+            "allow": [],
+            "deny": [],
+            "ask": []
+        })
+
+        # Ensure permissions has all required keys
+        if not isinstance(permissions, dict):
+            permissions = {"allow": [], "deny": [], "ask": []}
+        else:
+            permissions.setdefault("allow", [])
+            permissions.setdefault("deny", [])
+            permissions.setdefault("ask", [])
+
         return cls(
             id=data.get("id", ""),
             override=normalize_to_list(data.get("override")),
             autocomplete=normalize_to_list(data.get("autocomplete")),
             router=normalize_to_list(data.get("router")),
             planner=normalize_to_list(data.get("planner")),
-            fallbacks=normalize_to_list(data.get("fallbacks"))
+            fallbacks=normalize_to_list(data.get("fallbacks")),
+            permissions=permissions
         )
 
     def is_empty(self) -> bool:
@@ -71,25 +94,64 @@ class LLMProfile:
             len(self.fallbacks) == 0
         )
 
+    def apply_permissions(self) -> None:
+        """Apply this profile's permissions to the SettingsManager."""
+        from core.permissions.settings_manager import SettingsManager
+
+        mgr = SettingsManager()
+
+        # Update permissions in settings manager
+        mgr.settings["permissions"] = {
+            "allow": self.permissions.get("allow", []).copy(),
+            "deny": self.permissions.get("deny", []).copy(),
+            "ask": self.permissions.get("ask", []).copy()
+        }
+
+        # Save to disk
+        mgr.save_settings()
+        logging.debug(f"Applied permissions from profile '{self.id}'")
+
+    def update_permissions(self, allow: list[str], deny: list[str], ask: list[str]) -> None:
+        """Update this profile's permissions."""
+        self.permissions = {
+            "allow": allow.copy() if allow else [],
+            "deny": deny.copy() if deny else [],
+            "ask": ask.copy() if ask else []
+        }
+        logging.debug(f"Updated permissions for profile '{self.id}'")
+
     def apply(self) -> None:
-        """Apply this profile to the current LLM configuration."""
+        """Apply this profile to the current LLM configuration and permissions."""
         from core.globals import g
 
         if self.is_empty():
             raise ValueError(f"Cannot apply empty profile '{self.id}' - all configuration values are None/empty")
 
-        g.update_llm_role('override', model_keys=self.override if self.override else None)
-        g.update_llm_role('autocomplete', model_keys=self.autocomplete if self.autocomplete else None)
-        g.update_llm_role('router', model_keys=self.router if self.router else None)
-        g.update_llm_role('planner', model_keys=self.planner if self.planner else None)
-        g.update_llm_role('fallbacks', model_keys=self.fallbacks if self.fallbacks else None)
+        # Pass values directly - update_llm_role() handles None and empty lists correctly
+        # Don't use ternary operators because empty lists [] are falsy but valid!
+        g.update_llm_role('override', model_keys=self.override)
+        g.update_llm_role('autocomplete', model_keys=self.autocomplete)
+        g.update_llm_role('router', model_keys=self.router)
+        g.update_llm_role('planner', model_keys=self.planner)
+        g.update_llm_role('fallbacks', model_keys=self.fallbacks)
+
+        # Apply permissions
+        self.apply_permissions()
+
+        # Set this profile as active so changes persist
+        g.set_active_profile_id(self.id)
 
         logging.info(f"Applied LLM profile: {self.id}")
 
     @classmethod
     def from_current_config(cls, id: str) -> 'LLMProfile':
-        """Create a profile from the current LLM configuration."""
+        """Create a profile from the current LLM configuration and permissions."""
         from core.globals import g
+        from core.permissions.settings_manager import SettingsManager
+
+        # Capture current permissions
+        mgr = SettingsManager()
+        current_permissions = mgr.get_all_permissions()
 
         return cls(
             id=id,
@@ -97,7 +159,12 @@ class LLMProfile:
             autocomplete=g.autocomplete_llms_list.copy() if g.autocomplete_llms_list else [],
             router=g.router_llms_list.copy() if g.router_llms_list else [],
             planner=g.planner_llms_list.copy() if g.planner_llms_list else [],
-            fallbacks=g.FALLBACK_MODELS.copy() if g.FALLBACK_MODELS else []
+            fallbacks=g.FALLBACK_MODELS.copy() if g.FALLBACK_MODELS else [],
+            permissions={
+                "allow": current_permissions.get("allow", []).copy(),
+                "deny": current_permissions.get("deny", []).copy(),
+                "ask": current_permissions.get("ask", []).copy()
+            }
         )
 
 
@@ -260,6 +327,50 @@ class LLMProfileManager:
                 logging.info(f"Deleted {len(corrupted)} corrupted profile(s)")
 
         return corrupted
+
+    def update_active_profile_role(self, role_name: str, model_keys: Optional[list[str]]) -> None:
+        """
+        Update a specific role in the currently active profile.
+
+        This is called automatically when users change LLM roles via commands like
+        /override_llm, /router_llm, etc. to ensure changes persist across restarts.
+
+        Args:
+            role_name: The role to update ('override', 'router', 'planner', 'autocomplete', 'fallbacks')
+            model_keys: List of model keys (or None to clear the role)
+        """
+        from core.globals import g
+
+        profile_id = g.get_active_profile_id()
+        if not profile_id:
+            # No active profile, nothing to update
+            logging.debug(f"No active profile to update for role '{role_name}'")
+            return
+
+        if profile_id not in self._profiles:
+            logging.warning(f"Active profile '{profile_id}' not found in profile manager")
+            return
+
+        profile = self._profiles[profile_id]
+
+        # Update the appropriate field
+        if role_name == 'override':
+            profile.override = model_keys or []
+        elif role_name == 'autocomplete':
+            profile.autocomplete = model_keys or []
+        elif role_name == 'router':
+            profile.router = model_keys or []
+        elif role_name == 'planner':
+            profile.planner = model_keys or []
+        elif role_name == 'fallbacks':
+            profile.fallbacks = model_keys or []
+        else:
+            logging.error(f"Unknown role name: {role_name}")
+            return
+
+        # Save the updated profile
+        self.save_profiles()
+        logging.debug(f"Updated profile '{profile_id}' role '{role_name}' to: {model_keys}")
 
     def delete_corrupted_profiles_on_startup(self) -> list[str]:
         """

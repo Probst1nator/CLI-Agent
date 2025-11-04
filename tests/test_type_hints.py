@@ -124,7 +124,7 @@ def test_proper_imports_in_typing():
             total_checked += 1
 
             # Check for proper typing imports
-            if "from typing import" in content and ("Dict" in content or "List" in content):, Optional
+            if "from typing import" in content and ("Dict" in content or "List" in content or "Optional" in content):
                 proper_imports += 1
 
         except UnicodeDecodeError:

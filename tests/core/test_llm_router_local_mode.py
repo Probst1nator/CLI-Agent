@@ -28,13 +28,17 @@ def test_local_mode_model_filtering():
         print(f"  🏠 Local models found: {len(local_models)}")
 
         if not local_models:
-            print("  ❌ No local models found - this might be expected if Ollama isn't running")
+            print(
+                "  ❌ No local models found - this might be expected if Ollama isn't running"
+            )
             return True  # Don't fail the test if no local models available
 
         # Verify all returned models are local
         for model in local_models:
             if not model.local:
-                print(f"  ❌ Non-local model returned in local-only mode: {model.model_key}")
+                print(
+                    f"  ❌ Non-local model returned in local-only mode: {model.model_key}"
+                )
                 return False
             print(f"  ✅ Local model: {model.model_key}")
 
@@ -46,7 +50,9 @@ def test_local_mode_model_filtering():
         # Verify cloud models are excluded from local mode
         for cloud_model in cloud_only:
             if cloud_model in local_models:
-                print(f"  ❌ Cloud model found in local-only results: {cloud_model.model_key}")
+                print(
+                    f"  ❌ Cloud model found in local-only results: {cloud_model.model_key}"
+                )
                 return False
 
         print("  ✅ Local mode filtering working correctly")
@@ -55,6 +61,7 @@ def test_local_mode_model_filtering():
     except Exception as e:
         print(f"  ❌ Local mode filtering test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -72,19 +79,31 @@ def test_get_model_respects_local_flag():
             return True
 
         if not local_model.local:
-            print(f"  ❌ get_model(force_local=True) returned non-local model: {local_model.model_key}")
+            print(
+                f"  ❌ get_model(force_local=True) returned non-local model: {local_model.model_key}"
+            )
             return False
 
-        print(f"  ✅ get_model() correctly returned local model: {local_model.model_key}")
+        print(
+            f"  ✅ get_model() correctly returned local model: {local_model.model_key}"
+        )
 
         # Try to get a cloud model specifically
         cloud_model = LlmRouter.get_model(force_local=False)
 
-        if cloud_model and cloud_model.local and len(LlmRouter.get_models(force_local=False)) > 1:
+        if (
+            cloud_model
+            and cloud_model.local
+            and len(LlmRouter.get_models(force_local=False)) > 1
+        ):
             # Only fail if there are cloud models available but we got a local one
-            cloud_only_models = [m for m in LlmRouter.get_models(force_local=False) if not m.local]
+            cloud_only_models = [
+                m for m in LlmRouter.get_models(force_local=False) if not m.local
+            ]
             if len(cloud_only_models) > 0:
-                print("  ❌ get_model(force_local=False) returned local model when cloud models available")
+                print(
+                    "  ❌ get_model(force_local=False) returned local model when cloud models available"
+                )
                 return False
 
         print("  ✅ get_model() respects local flag correctly")
@@ -93,6 +112,7 @@ def test_get_model_respects_local_flag():
     except Exception as e:
         print(f"  ❌ get_model() local flag test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -118,14 +138,16 @@ def test_model_capability_check_local_filtering():
             capable, reason = router.model_capable_check(
                 model=model,
                 chat=Chat(),
-                strengths=[],
+                capabilities=[],
                 local=True,  # Require local
                 force_free=False,
-                has_vision=False
+                has_vision=False,
             )
 
             if not capable:
-                print(f"  ❌ Local model {model.model_key} should pass local=True check: {reason}")
+                print(
+                    f"  ❌ Local model {model.model_key} should pass local=True check: {reason}"
+                )
                 return False
 
             print(f"  ✅ Local model {model.model_key} passes local=True check")
@@ -135,21 +157,25 @@ def test_model_capability_check_local_filtering():
             capable, reason = router.model_capable_check(
                 model=model,
                 chat=Chat(),
-                strengths=[],
+                capabilities=[],
                 local=True,  # Require local
                 force_free=False,
-                has_vision=False
+                has_vision=False,
             )
 
             if capable:
-                print(f"  ❌ Cloud model {model.model_key} should fail local=True check")
+                print(
+                    f"  ❌ Cloud model {model.model_key} should fail local=True check"
+                )
                 return False
 
             if "local mismatch" not in reason:
                 print(f"  ❌ Expected 'local mismatch' in reason, got: {reason}")
                 return False
 
-            print(f"  ✅ Cloud model {model.model_key} correctly fails local=True check: {reason}")
+            print(
+                f"  ✅ Cloud model {model.model_key} correctly fails local=True check: {reason}"
+            )
 
         print("  ✅ model_capable_check local filtering working correctly")
         return True
@@ -157,6 +183,7 @@ def test_model_capability_check_local_filtering():
     except Exception as e:
         print(f"  ❌ model_capable_check local filtering test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -173,9 +200,7 @@ async def test_generate_completion_local_mode():
         # Try local-only completion (this might fail if no local models, which is expected)
         try:
             response = await LlmRouter.generate_completion(
-                chat=chat,
-                force_local=True,
-                temperature=0.1
+                chat=chat, force_local=True, temperature=0.1
             )
 
             if response:
@@ -188,7 +213,9 @@ async def test_generate_completion_local_mode():
         except Exception as local_error:
             error_str = str(local_error)
             if "local mismatch" in error_str or "no local models" in error_str.lower():
-                print(f"  ✅ Local-only mode correctly rejected cloud models: {error_str[:100]}...")
+                print(
+                    f"  ✅ Local-only mode correctly rejected cloud models: {error_str[:100]}..."
+                )
                 return True
             else:
                 print(f"  ❌ Unexpected error in local mode: {error_str}")
@@ -197,6 +224,7 @@ async def test_generate_completion_local_mode():
     except Exception as e:
         print(f"  ❌ generate_completion local mode test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -214,7 +242,11 @@ def test_fallback_model_list_filtering():
         local_model_keys = [model.model_key for model in local_models]
 
         # Filter fallback models for local-only
-        local_fallback_models = [key for key in all_fallback_models if any(key in local_key for local_key in local_model_keys)]
+        local_fallback_models = [
+            key
+            for key in all_fallback_models
+            if any(key in local_key for local_key in local_model_keys)
+        ]
 
         print(f"  📊 All fallback models: {all_fallback_models}")
         print(f"  🏠 Available local models: {local_model_keys}")
@@ -230,13 +262,16 @@ def test_fallback_model_list_filtering():
         if local_fallback_models:
             print("  ✅ Fallback model filtering working correctly")
         else:
-            print("  ⚠️  No local fallback models found (expected if no local models available)")
+            print(
+                "  ⚠️  No local fallback models found (expected if no local models available)"
+            )
 
         return True
 
     except Exception as e:
         print(f"  ❌ Fallback model list filtering test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -259,7 +294,11 @@ def test_ollama_model_detection():
 
             # Get models through LLM router
             all_models = LlmRouter.get_models()
-            ollama_models_in_router = [m for m in all_models if m.local and "ollama" in m.__class__.__module__.lower()]
+            ollama_models_in_router = [
+                m
+                for m in all_models
+                if m.local and "ollama" in m.__class__.__module__.lower()
+            ]
 
             print(f"  🔄 Router found {len(ollama_models_in_router)} Ollama models")
 
@@ -279,5 +318,6 @@ def test_ollama_model_detection():
     except Exception as e:
         print(f"  ❌ Ollama model detection test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False

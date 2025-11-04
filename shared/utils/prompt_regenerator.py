@@ -1,4 +1,5 @@
 from typing import Optional
+
 """
 Prompt Regenerator for CLI-Agent
 
@@ -31,7 +32,7 @@ class PromptRegenerator:
         studium_dir: Optional[str] = None,
         prompts_file: Optional[str] = None,
         num_files: int = 5,
-        time_frame_days: int = 30
+        time_frame_days: int = 30,
     ):
         """
         Initialize the prompt regenerator.
@@ -42,8 +43,12 @@ class PromptRegenerator:
             num_files: Number of random files to analyze (default: 5)
             time_frame_days: How many days back to look for modified files (default: 30)
         """
-        self.studium_dir = Path(studium_dir or Path.home() / "OneDrive" / "Studium").expanduser()
-        self.prompts_file = Path(prompts_file or Path.home() / ".cli-agent" / "suggested_prompts.json").expanduser()
+        self.studium_dir = Path(
+            studium_dir or Path.home() / "OneDrive" / "Studium"
+        ).expanduser()
+        self.prompts_file = Path(
+            prompts_file or Path.home() / ".cli-agent" / "suggested_prompts.json"
+        ).expanduser()
         self.num_files = num_files
         self.time_frame_days = time_frame_days
 
@@ -53,7 +58,7 @@ class PromptRegenerator:
             "Create practice problems based on my coursework",
             "Explain connections between different topics I'm learning",
             "Generate study questions for my upcoming exam",
-            "Summarize key points from my recent lecture notes"
+            "Summarize key points from my recent lecture notes",
         ]
 
     def find_recent_files(self) -> list[tuple[Path, datetime]]:
@@ -67,7 +72,9 @@ class PromptRegenerator:
             logger.warning(f"Studium directory not found: {self.studium_dir}")
             return []
 
-        logger.info(f"Searching for files modified in last {self.time_frame_days} days in {self.studium_dir}")
+        logger.info(
+            f"Searching for files modified in last {self.time_frame_days} days in {self.studium_dir}"
+        )
 
         # Use find command for better performance with large directories
         try:
@@ -75,20 +82,38 @@ class PromptRegenerator:
                 [
                     "find",
                     str(self.studium_dir),
-                    "-type", "f",
-                    "-mtime", f"-{self.time_frame_days}",
-                    "!", "-path", "*/.*",  # Exclude hidden files
-                    "!", "-name", "*.exe",
-                    "!", "-name", "*.dll",
-                    "!", "-name", "*.so",
-                    "!", "-name", "*.dylib",
-                    "!", "-name", "*.zip",
-                    "!", "-name", "*.tar.gz",
-                    "!", "-name", "*.rar",
+                    "-type",
+                    "f",
+                    "-mtime",
+                    f"-{self.time_frame_days}",
+                    "!",
+                    "-path",
+                    "*/.*",  # Exclude hidden files
+                    "!",
+                    "-name",
+                    "*.exe",
+                    "!",
+                    "-name",
+                    "*.dll",
+                    "!",
+                    "-name",
+                    "*.so",
+                    "!",
+                    "-name",
+                    "*.dylib",
+                    "!",
+                    "-name",
+                    "*.zip",
+                    "!",
+                    "-name",
+                    "*.tar.gz",
+                    "!",
+                    "-name",
+                    "*.rar",
                 ],
                 capture_output=True,
                 text=True,
-                check=False
+                check=False,
             )
 
             if result.returncode != 0:
@@ -97,7 +122,7 @@ class PromptRegenerator:
 
             file_paths = [
                 Path(line.strip())
-                for line in result.stdout.strip().split('\n')
+                for line in result.stdout.strip().split("\n")
                 if line.strip()
             ]
 
@@ -121,7 +146,9 @@ class PromptRegenerator:
             logger.error(f"Error finding files: {e}")
             return []
 
-    def select_random_files(self, files: list[tuple[Path, datetime]]) -> list[tuple[Path, datetime]]:
+    def select_random_files(
+        self, files: list[tuple[Path, datetime]]
+    ) -> list[tuple[Path, datetime]]:
         """
         Randomly select N files from the list.
 
@@ -148,10 +175,12 @@ class PromptRegenerator:
         Returns:
             Formatted prompt string
         """
-        file_list = "\n".join([
-            f"- {file_path} (modified: {mtime.strftime('%Y-%m-%d')})"
-            for file_path, mtime in files
-        ])
+        file_list = "\n".join(
+            [
+                f"- {file_path} (modified: {mtime.strftime('%Y-%m-%d')})"
+                for file_path, mtime in files
+            ]
+        )
 
         prompt = f"""I need you to generate 5 contextual prompt suggestions based on my recent study activities.
 
@@ -192,7 +221,9 @@ Here are randomly selected files from the last {self.time_frame_days} days:
 
         return prompt
 
-    async def generate_prompts_with_llm(self, files: list[tuple[Path, datetime]]) -> Optional[list[str]]:
+    async def generate_prompts_with_llm(
+        self, files: list[tuple[Path, datetime]]
+    ) -> Optional[list[str]]:
         """
         Use LLM to generate contextual prompts based on file analysis.
 
@@ -212,13 +243,16 @@ Here are randomly selected files from the last {self.time_frame_days} days:
 
             # Print header for streamed output
             from termcolor import colored
-            print(colored("\n🤖 Generating prompts (streaming):\n", "cyan"))
+
+            print(colored("\nGenerating prompts:\n", "cyan"))
 
             # Generate completion with streaming to console
             response = await llm_router.generate_completion(
                 chat=prompt,  # Pass prompt directly as string
-                generation_stream_callback=lambda char: print(colored(char, 'green'), end='', flush=True),
-                force_preferred_model=False  # Allow fallback models
+                generation_stream_callback=lambda char: print(
+                    colored(char, "green"), end="", flush=True
+                ),
+                force_preferred_model=False,  # Allow fallback models
             )
 
             print(colored("\n\n✅ Generation complete!\n", "cyan"))
@@ -293,10 +327,12 @@ Here are randomly selected files from the last {self.time_frame_days} days:
             self.prompts_file.parent.mkdir(parents=True, exist_ok=True)
 
             # Write JSON file
-            with open(self.prompts_file, 'w', encoding='utf-8') as f:
+            with open(self.prompts_file, "w", encoding="utf-8") as f:
                 json.dump({"prompts": prompts}, f, indent=2, ensure_ascii=False)
 
-            logger.info(f"Successfully wrote {len(prompts)} prompts to {self.prompts_file}")
+            logger.info(
+                f"Successfully wrote {len(prompts)} prompts to {self.prompts_file}"
+            )
             return True
 
         except Exception as e:
@@ -328,7 +364,7 @@ Here are randomly selected files from the last {self.time_frame_days} days:
                 "status": "partial",
                 "prompts": self.default_prompts,
                 "message": f"No files found in {self.studium_dir} (last {self.time_frame_days} days). Using default prompts.",
-                "files_analyzed": 0
+                "files_analyzed": 0,
             }
 
         # 2. Select random subset
@@ -343,7 +379,7 @@ Here are randomly selected files from the last {self.time_frame_days} days:
                 "status": "partial",
                 "prompts": self.default_prompts,
                 "message": "LLM generation failed. Using default prompts.",
-                "files_analyzed": len(selected_files)
+                "files_analyzed": len(selected_files),
             }
 
         # 4. Write to file
@@ -352,7 +388,7 @@ Here are randomly selected files from the last {self.time_frame_days} days:
                 "status": "error",
                 "prompts": [],
                 "message": "Failed to write prompts file",
-                "files_analyzed": len(selected_files)
+                "files_analyzed": len(selected_files),
             }
 
         elapsed = (datetime.now() - start_time).total_seconds()
@@ -363,14 +399,12 @@ Here are randomly selected files from the last {self.time_frame_days} days:
             "prompts": prompts,
             "message": f"Successfully generated {len(prompts)} prompts from {len(selected_files)} files",
             "files_analyzed": len(selected_files),
-            "elapsed_seconds": elapsed
+            "elapsed_seconds": elapsed,
         }
 
 
 async def regenerate_prompts(
-    studium_dir: Optional[str] = None,
-    num_files: int = 5,
-    time_frame_days: int = 30
+    studium_dir: Optional[str] = None, num_files: int = 5, time_frame_days: int = 30
 ) -> dict[str, any]:
     """
     Convenience function for API and programmatic access.
@@ -384,9 +418,7 @@ async def regenerate_prompts(
         Result dictionary from PromptRegenerator.regenerate()
     """
     regenerator = PromptRegenerator(
-        studium_dir=studium_dir,
-        num_files=num_files,
-        time_frame_days=time_frame_days
+        studium_dir=studium_dir, num_files=num_files, time_frame_days=time_frame_days
     )
     return await regenerator.regenerate()
 
@@ -399,25 +431,21 @@ def main():
     parser.add_argument(
         "--studium-dir",
         type=str,
-        help="Path to Studium directory (default: ~/OneDrive/Studium)"
+        help="Path to Studium directory (default: ~/OneDrive/Studium)",
     )
     parser.add_argument(
         "--num-files",
         type=int,
         default=5,
-        help="Number of random files to analyze (default: 5)"
+        help="Number of random files to analyze (default: 5)",
     )
     parser.add_argument(
         "--time-frame-days",
         type=int,
         default=30,
-        help="Days to look back for modified files (default: 30)"
+        help="Days to look back for modified files (default: 30)",
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging"
-    )
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()
 
@@ -428,11 +456,13 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     # Run regeneration
-    result = asyncio.run(regenerate_prompts(
-        studium_dir=args.studium_dir,
-        num_files=args.num_files,
-        time_frame_days=args.time_frame_days
-    ))
+    result = asyncio.run(
+        regenerate_prompts(
+            studium_dir=args.studium_dir,
+            num_files=args.num_files,
+            time_frame_days=args.time_frame_days,
+        )
+    )
 
     # Print results
     if result["status"] == "success":

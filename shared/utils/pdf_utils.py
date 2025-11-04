@@ -10,11 +10,11 @@ import os
 import pickle
 import re
 from io import StringIO
+from typing import Optional
 
 from core.globals import g
 
 
-from typing import Optional
 def clean_pdf_text(text: str) -> str:
     """
     Clean and format extracted PDF text for better readability.
