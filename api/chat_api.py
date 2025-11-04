@@ -654,6 +654,98 @@ async def get_suggested_prompts(request: Any) -> Any:
         }, status=500)
 
 
+async def track_prompt_click(request: Any) -> Any:
+    """POST /api/chat/track-prompt-click
+
+    Track when a user clicks on a generated prompt suggestion.
+    Stores clicked prompts with deduplication for use in future prompt generation.
+
+    Request body:
+    {
+        "prompt": "The clicked prompt text"
+    }
+
+    Response:
+    {
+        "status": "success",
+        "message": "Prompt click tracked"
+    }
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        # Parse request body
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({
+                'status': 'error',
+                'error': 'Invalid JSON in request body',
+                'code': 'INVALID_REQUEST'
+            }, status=400)
+
+        prompt = data.get('prompt', '').strip()
+        if not prompt:
+            return web.json_response({
+                'status': 'error',
+                'error': 'Prompt text is required',
+                'code': 'INVALID_REQUEST'
+            }, status=400)
+
+        # Load existing clicked prompts
+        clicked_prompts_path = Path.home() / ".cli-agent" / "clicked_prompts.json"
+        clicked_prompts_path.parent.mkdir(parents=True, exist_ok=True)
+
+        clicked_prompts = []
+        if clicked_prompts_path.exists():
+            try:
+                with open(clicked_prompts_path, encoding='utf-8') as f:
+                    data = json.load(f)
+                    clicked_prompts = data.get('prompts', [])
+            except Exception as e:
+                logger.warning(f"Failed to load clicked prompts: {e}")
+
+        # Add new prompt to the beginning (most recent first)
+        # Remove duplicates - if prompt already exists, remove old occurrence
+        clicked_prompts = [p for p in clicked_prompts if p != prompt]
+        clicked_prompts.insert(0, prompt)
+
+        # Keep only the most recent 10 (we'll use top 3, but store more for flexibility)
+        clicked_prompts = clicked_prompts[:10]
+
+        # Save back to file
+        try:
+            with open(clicked_prompts_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'prompts': clicked_prompts,
+                    'last_updated': time.time()
+                }, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Tracked prompt click: '{prompt[:50]}...'")
+
+            return web.json_response({
+                'status': 'success',
+                'message': 'Prompt click tracked'
+            })
+
+        except Exception as e:
+            logger.error(f"Failed to save clicked prompts: {e}")
+            return web.json_response({
+                'status': 'error',
+                'error': 'Failed to save clicked prompt',
+                'code': 'INTERNAL_ERROR'
+            }, status=500)
+
+    except Exception as e:
+        logger.error(f"Failed to track prompt click: {e}")
+        return web.json_response({
+            'status': 'error',
+            'error': str(e),
+            'code': 'INTERNAL_ERROR'
+        }, status=500)
+
+
 async def regenerate_prompts(request: Any) -> Any:
     """POST /api/chat/regenerate-prompts
 
@@ -740,5 +832,6 @@ def setup_routes(app: Any):
     app.router.add_get('/api/chat/search', search_chats)
     app.router.add_delete('/api/chat/archive/{id}', delete_archived_chat)
     app.router.add_get('/api/chat/suggested-prompts', get_suggested_prompts)
+    app.router.add_post('/api/chat/track-prompt-click', track_prompt_click)
     app.router.add_post('/api/chat/regenerate-prompts', regenerate_prompts)
     logger.info("Chat API routes registered")
