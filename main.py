@@ -106,10 +106,12 @@ import json
 import logging
 import queue
 import re
+import shutil
 import signal
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -142,13 +144,6 @@ from core.tool_context import tool_context
 from tools.primitives.todos import todos
 from tools.readfile import readfile
 
-# Import TextResourceManager for general resource creation
-try:
-    from shared.utils.text_resource_manager import TextResourceManager
-
-    RESOURCE_MANAGER_AVAILABLE = True
-except ImportError:
-    RESOURCE_MANAGER_AVAILABLE = False
 import linecache
 import traceback
 
@@ -2212,6 +2207,62 @@ async def save_current_llm_config_as_default():
     )
 
 
+def archive_memory_files() -> None:
+    """
+    Archive existing memory files at startup.
+
+    Moves all .txt files from ~/.cli-agent/memory/ to a timestamped
+    session archive directory to preserve previous session's memory.
+    """
+    memory_dir = Path.home() / ".cli-agent" / "memory"
+    archive_dir = Path.home() / ".cli-agent" / "memory_archive"
+
+    # Check if memory directory exists and has files
+    if not memory_dir.exists() or not any(memory_dir.glob("*.txt")):
+        return
+
+    # Create timestamped archive directory
+    session_id = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    session_archive = archive_dir / session_id
+    session_archive.mkdir(parents=True, exist_ok=True)
+
+    # Move all .txt files to archive
+    archived_count = 0
+    for txt_file in memory_dir.glob("*.txt"):
+        try:
+            shutil.move(str(txt_file), str(session_archive / txt_file.name))
+            archived_count += 1
+        except Exception as e:
+            logging.debug(f"Failed to archive {txt_file.name}: {e}")
+
+    if archived_count > 0:
+        logging.info(f"📦 Archived {archived_count} memory files to {session_archive.name}")
+
+
+def save_to_memory_file(content: str, source_name: str) -> Path:
+    """
+    Save large content to a memory file.
+
+    Args:
+        content: The text content to save
+        source_name: Source identifier (used in filename)
+
+    Returns:
+        Path to the created memory file
+    """
+    memory_dir = Path.home() / ".cli-agent" / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create filename with timestamp and sanitized source name
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_source = "".join(c if c.isalnum() or c in "-_" else "_" for c in source_name)
+    memory_file = memory_dir / f"{timestamp}_{safe_source}.txt"
+
+    # Write content
+    memory_file.write_text(content, encoding='utf-8')
+    return memory_file
+
+
 async def main(  # type: ignore[misc]
     input_event: Optional[asyncio.Event] = None,
     input_lock: Optional[threading.Lock] = None,
@@ -2247,6 +2298,9 @@ async def main(  # type: ignore[misc]
             # Setup logging properly for TUI mode (output goes through print/stdout)
             setup_logging(args.debug, tui_mode=True)
 
+            # Archive previous session's memory files
+            archive_memory_files()
+
             # Setup signal handlers for graceful interruption
             setup_signal_handlers()
 
@@ -2264,6 +2318,9 @@ async def main(  # type: ignore[misc]
         elif not tui_callback:
             setup_logging(args.debug)
             g.DEBUG_MODE = args.debug
+
+            # Archive previous session's memory files
+            archive_memory_files()
 
             # Sync command line args to global state
             g.auto_execute = args.yolo
@@ -3854,81 +3911,36 @@ async def main(  # type: ignore[misc]
                                         r"\x1b\[[0-9;]*m", "", context
                                     )  #  remove ANSI escape codes (also known as terminal escape sequences)
                                     if len(context) > readfile.CHUNK_LIMIT:
-                                        # Try to create a resource instead of truncating
-                                        if RESOURCE_MANAGER_AVAILABLE:
-                                            try:
-                                                # Get tool name from executed_tools_info
-                                                tool_name = "unknown"
-                                                if i < len(executed_tools_info):
-                                                    tool_name = executed_tools_info[
-                                                        i
-                                                    ].get("tool_name", "unknown")
+                                        # Save to memory file instead of truncating
+                                        try:
+                                            # Get tool name from executed_tools_info
+                                            tool_name = "unknown"
+                                            if i < len(executed_tools_info):
+                                                tool_name = executed_tools_info[
+                                                    i
+                                                ].get("tool_name", "unknown")
 
-                                                # Create resource with timestamp for uniqueness
-                                                import time
+                                            # Save to memory file
+                                            memory_file = save_to_memory_file(
+                                                content=context,
+                                                source_name=f"{tool_name}_output"
+                                            )
 
-                                                timestamp = int(time.time())
-                                                resource_id = f"tool_output_{tool_name}_{timestamp}_{i}"
+                                            lines_count = len(context.splitlines())
+                                            char_count = len(context)
 
-                                                resource_manager = (
-                                                    TextResourceManager._get_manager()
-                                                )
-                                                resource_manager.create_resource(
-                                                    content=context,
-                                                    source=f"{tool_name}_output",
-                                                    source_type="tool_output",
-                                                    resource_id=resource_id,
-                                                )
+                                            context = f"""Tool output from '{tool_name}' is large ({lines_count:,} lines, {char_count:,} characters) - saved to memory.
 
-                                                lines_count = len(context.splitlines())
-                                                char_count = len(context)
+Memory file: {memory_file}
 
-                                                context = f"""Tool output from '{tool_name}' is large ({lines_count:,} lines, {char_count:,} characters) - stored as searchable resource.
-
-Resource ID: {resource_id}
-
-Use <searchresource><resource_id>{resource_id}</resource_id><search>YOUR_PATTERN</search></searchresource> to search this content.
-Use <searchresource><resource_id>{resource_id}</resource_id><lines>1-50</lines></searchresource> to view specific line ranges.
-
-Examples:
-- Search for errors: <searchresource><resource_id>{resource_id}</resource_id><search>error|failed|exception</search><context>2</context></searchresource>
-- View beginning: <searchresource><resource_id>{resource_id}</resource_id><lines>1-20</lines></searchresource>
-- View end: <searchresource><resource_id>{resource_id}</resource_id><lines>{max(1, lines_count-19)}-{lines_count}</lines></searchresource>"""
-                                            except Exception as e:
-                                                # Fallback to truncation if resource creation fails
-                                                chunk_size = readfile.CHUNK_LIMIT // 4
-                                                # Find closest newline before chunk_size (exclusive)
-                                                start_pos = context.rfind(
-                                                    "\n", 0, chunk_size
-                                                )
-                                                if (
-                                                    start_pos == -1
-                                                ):  # No newline found, use beginning
-                                                    start_pos = 0
-                                                else:
-                                                    start_pos += (
-                                                        1  # Exclude the newline itself
-                                                    )
-
-                                                # Find closest newline after -chunk_size (exclusive)
-                                                end_search_pos = (
-                                                    len(context) - chunk_size
-                                                )
-                                                end_pos = context.find(
-                                                    "\n", end_search_pos
-                                                )
-                                                if (
-                                                    end_pos == -1
-                                                ):  # No newline found, use end
-                                                    end_pos = len(context)
-
-                                                context = (
-                                                    context[:start_pos]
-                                                    + f"...output truncated (resource creation failed: {e})...\n"
-                                                    + context[end_pos:]
-                                                )
-                                        else:
-                                            # Fallback to original truncation when resource manager not available
+Use <readfile>{memory_file}</readfile> to read the full content.
+You can also use bash tools like grep to search:
+  <bash>grep -n "error" {memory_file}</bash>
+  <bash>head -50 {memory_file}</bash>
+  <bash>tail -50 {memory_file}</bash>"""
+                                        except Exception as e:
+                                            # Fallback to truncation if memory save fails
+                                            logging.debug(f"Failed to save tool output to memory: {e}")
                                             chunk_size = readfile.CHUNK_LIMIT // 4
                                             # Find closest newline before chunk_size (exclusive)
                                             start_pos = context.rfind(
@@ -3944,8 +3956,12 @@ Examples:
                                                 )
 
                                             # Find closest newline after -chunk_size (exclusive)
-                                            end_search_pos = len(context) - chunk_size
-                                            end_pos = context.find("\n", end_search_pos)
+                                            end_search_pos = (
+                                                len(context) - chunk_size
+                                            )
+                                            end_pos = context.find(
+                                                "\n", end_search_pos
+                                            )
                                             if (
                                                 end_pos == -1
                                             ):  # No newline found, use end
@@ -3953,7 +3969,7 @@ Examples:
 
                                             context = (
                                                 context[:start_pos]
-                                                + "...output truncated - TextResourceManager not available...\n"
+                                                + "...output truncated due to size...\n"
                                                 + context[end_pos:]
                                             )
                                     returned_context += (

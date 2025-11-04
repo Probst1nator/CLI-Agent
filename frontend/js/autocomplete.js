@@ -536,6 +536,11 @@ class AutocompleteManager {
   insertSuggestion(suggestion) {
     window.visualLogger.info(`[Autocomplete] Selected: ${suggestion.text} (${suggestion.type})`);
 
+    // Track click for suggested prompts (type: 'suggestion')
+    if (suggestion.type === 'suggestion') {
+      this.trackPromptClick(suggestion.fullText || suggestion.text);
+    }
+
     // Set input value based on type
     if (suggestion.type === 'command') {
       this.inputElement.value = suggestion.text + ' ';
@@ -564,6 +569,37 @@ class AutocompleteManager {
     );
 
     // NOTE: Does NOT auto-submit - user must press Enter to send
+  }
+
+  /**
+   * Track a prompt suggestion click for analytics and future prompt generation
+   * @param {string} prompt - The clicked prompt text
+   */
+  async trackPromptClick(prompt) {
+    try {
+      window.visualLogger.debug(`[Autocomplete] Tracking prompt click: "${prompt}"`);
+
+      // Build API URL
+      const url = window.backendConnector
+        ? await window.backendConnector.buildURL('/api/chat/track-prompt-click')
+        : '/api/chat/track-prompt-click';
+
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': window.sessionId || '',
+        },
+        body: JSON.stringify({
+          prompt: prompt,
+        }),
+      });
+
+      window.visualLogger.debug('[Autocomplete] Prompt click tracked successfully');
+    } catch (error) {
+      // Fail silently - tracking is non-critical
+      window.visualLogger.debug(`[Autocomplete] Failed to track prompt click: ${error}`);
+    }
   }
 
   /**
