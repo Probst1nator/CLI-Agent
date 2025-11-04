@@ -68,10 +68,13 @@ BASE_IMAGE = "cli-agent-backend:latest"
 MAX_CONTAINERS_PER_USER = int(os.getenv("MAX_CONTAINERS_PER_USER", "3"))  # Configurable limit
 
 # CORS Configuration
-# Get allowed origins from environment variable or use default
-ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
+# SECURITY: Default to restrictive CORS in production
+# Use "*" only in development mode
+DEFAULT_CORS = "http://localhost:7860,http://127.0.0.1:7860" if os.getenv("ENVIRONMENT") != "development" else "*"
+ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", DEFAULT_CORS).split(",")
 # Strip whitespace from each origin
 ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS]
+logger.info(f"CORS allowed origins: {ALLOWED_ORIGINS}")
 
 app = FastAPI(
     title="CLI-Agent Container Manager",
@@ -379,7 +382,7 @@ class ContainerManager:
                     "CHOWN",              # Change file ownership
                     "SETUID",             # Set user ID
                     "SETGID",             # Set group ID
-                    "DAC_OVERRIDE",       # Bypass file permission checks (needed for some ops)
+                    # DAC_OVERRIDE removed - dangerous capability that bypasses file permissions
                     "NET_BIND_SERVICE"    # Bind to privileged ports (<1024)
                 ],
 

@@ -290,8 +290,9 @@ class VisualServer:
         @web.middleware
         async def cors_middleware(request, handler):
             """Add CORS headers to all responses"""
-            # Get allowed origins from environment variable
-            allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
+            # SECURITY: Default to restrictive CORS in production
+            default_cors = "http://localhost:7860,http://127.0.0.1:7860" if os.getenv("ENVIRONMENT") != "development" else "*"
+            allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", default_cors).split(",")
             allowed_origins = [origin.strip() for origin in allowed_origins]
 
             # Handle preflight requests
@@ -331,6 +332,36 @@ class VisualServer:
             return response
 
         @web.middleware
+        async def security_headers_middleware(request, handler):
+            """Add security headers to all responses"""
+            response = await handler(request)
+
+            # Content Security Policy
+            # SECURITY: Restrict content sources to prevent XSS
+            csp_directives = [
+                "default-src 'self'",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net",
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+                "img-src 'self' data: blob:",
+                "font-src 'self' data:",
+                "connect-src 'self' ws: wss:",
+                "frame-src 'self'",
+                "object-src 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+            ]
+            response.headers['Content-Security-Policy'] = "; ".join(csp_directives)
+
+            # Additional security headers
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+            response.headers['X-XSS-Protection'] = '1; mode=block'
+            response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+            response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+
+            return response
+
+        @web.middleware
         async def request_id_middleware(request, handler):
             """Inject request ID into logging context for correlation"""
             import time
@@ -363,8 +394,9 @@ class VisualServer:
                 # Restore original factory
                 logging.setLogRecordFactory(old_factory)
 
-        # Add middlewares in order (CORS first, then logging, then request ID)
+        # Add middlewares in order (CORS first, then security, then logging, then request ID)
         self.app.middlewares.append(cors_middleware)
+        self.app.middlewares.append(security_headers_middleware)
         self.app.middlewares.append(session_logging_middleware)
         self.app.middlewares.append(request_id_middleware)
 
