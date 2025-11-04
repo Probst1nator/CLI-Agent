@@ -4761,6 +4761,74 @@ window.sendPermissionResponse = function(permissionId, result, action = {}) {
 };
 
 /**
+ * Show the permission rule selector for choosing specificity
+ * @param {string} permissionId - The ID of the permission request
+ */
+window.showPermissionRuleSelector = function(permissionId) {
+    console.log('showPermissionRuleSelector called', { permissionId });
+
+    const selector = document.getElementById(`rule-selector-${permissionId}`);
+    const actions = document.querySelector(`#permission-${permissionId} .permission-actions`);
+
+    if (selector) {
+        selector.style.display = 'block';
+        if (actions) {
+            actions.style.display = 'none';
+        }
+    }
+};
+
+/**
+ * Hide the permission rule selector and return to main actions
+ * @param {string} permissionId - The ID of the permission request
+ */
+window.hidePermissionRuleSelector = function(permissionId) {
+    console.log('hidePermissionRuleSelector called', { permissionId });
+
+    const selector = document.getElementById(`rule-selector-${permissionId}`);
+    const actions = document.querySelector(`#permission-${permissionId} .permission-actions`);
+
+    if (selector) {
+        selector.style.display = 'none';
+        if (actions) {
+            actions.style.display = 'flex';
+        }
+    }
+};
+
+/**
+ * Send permission response with a specific rule
+ * @param {string} permissionId - The ID of the permission request
+ * @param {string} rule - The permission rule to apply
+ */
+window.sendPermissionResponseWithRule = function(permissionId, rule) {
+    console.log('sendPermissionResponseWithRule called', { permissionId, rule });
+
+    if (window.wsManager && window.wsManager.sendMessage) {
+        const response = {
+            type: 'permission_response',
+            permission_id: permissionId,
+            result: 'always_allow',
+            rule: rule,
+            timestamp: Date.now()
+        };
+
+        window.wsManager.sendMessage(JSON.stringify(response));
+
+        // Remove the permission request from UI
+        const permissionElement = document.getElementById('permission-' + permissionId);
+        if (permissionElement) {
+            permissionElement.remove();
+        }
+
+        return true;
+    } else {
+        console.error('WebSocket manager not available for permission response');
+        return false;
+    }
+};
+
+/**
  * Global interrupt signal function
  * @returns {boolean} Whether the interrupt signal was sent successfully
  */

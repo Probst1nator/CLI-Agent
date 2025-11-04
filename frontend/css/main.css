@@ -2484,6 +2484,97 @@ code:not(pre > code) {
     }
 }
 
+/* Permission Rule Selector Styles */
+.permission-rule-selector {
+    margin-top: 15px;
+    padding: 15px;
+    border-top: 1px solid rgba(255, 165, 0, 0.2);
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+    }
+    to {
+        opacity: 1;
+        max-height: 500px;
+    }
+}
+
+.rule-selector-header {
+    margin-bottom: 12px;
+}
+
+.rule-selector-header h4 {
+    margin: 0 0 5px 0;
+    color: var(--text-color);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.rule-selector-hint {
+    margin: 0;
+    color: var(--text-muted, #666);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+.rule-selector-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.rule-option {
+    padding: 10px 12px;
+    background: var(--bg-secondary, #f8f9fa);
+    border: 2px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.rule-option:hover {
+    background: var(--bg-hover, #e9ecef);
+    border-color: var(--primary-color, #007acc);
+    transform: translateX(4px);
+}
+
+.rule-option-description {
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 4px;
+    font-size: 0.9rem;
+}
+
+.rule-option-rule {
+    font-size: 0.8rem;
+    color: var(--text-muted, #666);
+    font-family: 'Courier New', monospace;
+}
+
+.rule-option-rule code {
+    background: rgba(0, 122, 204, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--primary-color, #007acc);
+    font-size: 0.85em;
+}
+
+.cancel-rule-selector {
+    width: 100%;
+    margin-top: 8px;
+    background: var(--secondary-color, #6c757d) !important;
+    color: white !important;
+}
+
+.cancel-rule-selector:hover {
+    background: #5a6268 !important;
+}
+
 /* Permission request responsive design */
 @media (max-width: 768px) {
     .permission-actions {
