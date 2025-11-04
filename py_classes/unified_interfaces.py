@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 import speech_recognition as sr
 
-from core.chat import Chat
+if TYPE_CHECKING:
+    from core.chat import Chat
 
 # Configure logger with a NullHandler by default
 logger = logging.getLogger(__name__)
