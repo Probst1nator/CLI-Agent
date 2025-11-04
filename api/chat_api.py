@@ -381,6 +381,22 @@ async def edit_message(request: Any) -> Any:
                 'code': 'INVALID_REQUEST'
             }, status=400)
 
+        # Validate message_index is an integer
+        if not isinstance(message_index, int):
+            return web.json_response({
+                'status': 'error',
+                'error': 'message_index must be an integer',
+                'code': 'INVALID_REQUEST'
+            }, status=400)
+
+        # Validate new_content is a string
+        if not isinstance(new_content, str):
+            return web.json_response({
+                'status': 'error',
+                'error': 'new_content must be a string',
+                'code': 'INVALID_REQUEST'
+            }, status=400)
+
         from core.globals import g
 
         if not hasattr(g, 'chat') or not g.chat:
@@ -439,7 +455,15 @@ async def delete_message(request: Any) -> Any:
         raise RuntimeError("aiohttp not available")
 
     try:
-        message_index = int(request.match_info.get('index'))
+        # Validate and parse message index
+        try:
+            message_index = int(request.match_info.get('index'))
+        except (ValueError, TypeError):
+            return web.json_response({
+                'status': 'error',
+                'error': 'Invalid message index - must be an integer',
+                'code': 'INVALID_REQUEST'
+            }, status=400)
 
         from core.globals import g
 
@@ -514,7 +538,15 @@ async def truncate_and_continue(request: Any) -> Any:
         raise RuntimeError("aiohttp not available")
 
     try:
-        message_index = int(request.match_info.get('index'))
+        # Validate and parse message index
+        try:
+            message_index = int(request.match_info.get('index'))
+        except (ValueError, TypeError):
+            return web.json_response({
+                'status': 'error',
+                'error': 'Invalid message index - must be an integer',
+                'code': 'INVALID_REQUEST'
+            }, status=400)
 
         from core.globals import g
 
