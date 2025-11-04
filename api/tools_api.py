@@ -19,6 +19,146 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+class UploadSecurity:
+    """Dual-mode upload security with environment-based configuration"""
+
+    def __init__(self):
+        import os
+
+        self.is_containerized = os.getenv("CLI_AGENT_MODE") == "containerized"
+
+        # Stricter limits for SaaS mode
+        if self.is_containerized:
+            self.max_size = 10 * 1024 * 1024  # 10MB for SaaS
+            self.max_files_per_request = 5
+        else:
+            self.max_size = 20 * 1024 * 1024  # 20MB for localhost
+            self.max_files_per_request = 20
+
+        self.allowed_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.pdf', '.txt', '.md'}
+
+        # Different storage paths based on mode
+        if self.is_containerized:
+            # In container: use workspace volume
+            self.upload_dir = Path('/workspace/.cli-agent/uploads')
+        else:
+            # Localhost: use home directory
+            self.upload_dir = Path.home() / '.cli-agent' / 'uploads'
+
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
+
+    def validate_filename(self, filename: str) -> str:
+        """Validate and sanitize filename, return UUID-based safe name"""
+        import uuid
+
+        # Strip directory components
+        safe_name = Path(filename).name
+
+        # Check for path traversal
+        if '..' in safe_name or '/' in safe_name or '\\' in safe_name:
+            raise ValueError("Invalid filename: path traversal detected")
+
+        # Check extension
+        ext = Path(safe_name).suffix.lower()
+        if ext not in self.allowed_extensions:
+            raise ValueError(f"File type {ext} not allowed. Allowed: {', '.join(self.allowed_extensions)}")
+
+        # Generate UUID-based name to prevent collisions
+        unique_name = f"{uuid.uuid4().hex}{ext}"
+        return unique_name
+
+    async def save_upload(self, field, user_uuid: str = None) -> dict:
+        """Save uploaded file with validation"""
+        import time
+
+        filename = field.filename
+        if not filename:
+            raise ValueError("No filename provided")
+
+        # Validate and generate safe filename
+        safe_filename = self.validate_filename(filename)
+
+        # For SaaS mode, organize by user UUID
+        if self.is_containerized and user_uuid:
+            user_dir = self.upload_dir / user_uuid[:8]  # First 8 chars of UUID
+            user_dir.mkdir(exist_ok=True)
+            file_path = user_dir / safe_filename
+        else:
+            file_path = self.upload_dir / safe_filename
+
+        # Write with size limit
+        size = 0
+        try:
+            with open(file_path, 'wb') as f:
+                while True:
+                    chunk = await field.read_chunk(8192)
+                    if not chunk:
+                        break
+
+                    size += len(chunk)
+                    if size > self.max_size:
+                        f.close()
+                        file_path.unlink()
+                        raise ValueError(
+                            f"File exceeds {self.max_size // (1024*1024)}MB limit"
+                        )
+
+                    f.write(chunk)
+        except Exception as e:
+            # Cleanup on error
+            if file_path.exists():
+                file_path.unlink()
+            raise
+
+        # Optional: MIME type verification (requires python-magic)
+        try:
+            import magic
+            mime = magic.from_file(str(file_path), mime=True)
+
+            # Basic MIME validation
+            expected_mimes = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.webp': 'image/webp',
+                '.pdf': 'application/pdf',
+                '.txt': 'text/plain',
+                '.md': 'text/plain'
+            }
+
+            ext = Path(safe_filename).suffix.lower()
+            if mime != expected_mimes.get(ext):
+                logger.warning(f"MIME mismatch: {mime} != {expected_mimes.get(ext)}")
+                # Only fail in containerized mode for security
+                if self.is_containerized:
+                    file_path.unlink()
+                    raise ValueError(f"File content type mismatch")
+
+        except ImportError:
+            # python-magic not installed, skip MIME check
+            logger.debug("python-magic not available, skipping MIME verification")
+
+        return {
+            'path': str(file_path),
+            'original_name': filename,
+            'safe_name': safe_filename,
+            'size': size,
+            'uploaded_at': time.time()
+        }
+
+
+# Global instance
+_upload_security = None
+
+
+def get_upload_security():
+    """Get or create upload security instance"""
+    global _upload_security
+    if _upload_security is None:
+        _upload_security = UploadSecurity()
+    return _upload_security
+
+
 async def get_tools(request: Any) -> Any:
     """GET /api/tools
 
@@ -91,18 +231,22 @@ async def get_tools(request: Any) -> Any:
 async def upload_file(request: Any) -> Any:
     """POST /upload
 
-    Handle file uploads from the frontend.
+    Handle file uploads with security validation (dual-mode: localhost/SaaS).
     """
     if not AIOHTTP_AVAILABLE:
         raise RuntimeError("aiohttp not available")
 
     try:
-        import tempfile
-
         from core.globals import g
 
+        security = get_upload_security()
         reader = await request.multipart()
         uploaded_files = []
+
+        # Get user UUID from header (SaaS mode)
+        user_uuid = request.headers.get('X-User-UUID')
+
+        file_count = 0
 
         while True:
             field = await reader.next()
@@ -110,28 +254,36 @@ async def upload_file(request: Any) -> Any:
                 break
 
             if field.name == 'file':
-                filename = field.filename
-                if not filename:
-                    continue
+                # Check per-request file limit
+                file_count += 1
+                if file_count > security.max_files_per_request:
+                    return web.json_response({
+                        'status': 'error',
+                        'error': f'Upload limit exceeded ({security.max_files_per_request} files per request)',
+                        'code': 'LIMIT_EXCEEDED'
+                    }, status=429)
 
-                file_path = Path(tempfile.gettempdir()) / filename
+                try:
+                    upload_info = await security.save_upload(field, user_uuid=user_uuid)
+                    uploaded_files.append(upload_info)
+                    logger.info(f"File uploaded: {upload_info['original_name']} -> {upload_info['safe_name']} ({upload_info['size']} bytes)")
 
-                with open(file_path, 'wb') as f:
-                    while True:
-                        chunk = await field.read_chunk()
-                        if not chunk:
-                            break
-                        f.write(chunk)
+                except ValueError as e:
+                    logger.warning(f"Upload validation failed: {e}")
+                    return web.json_response({
+                        'status': 'error',
+                        'error': str(e),
+                        'code': 'VALIDATION_FAILED'
+                    }, status=400)
 
-                uploaded_files.append(str(file_path.absolute()))
-                logger.info(f"File uploaded: {filename} -> {file_path}")
-
+        # Add to session images
         if hasattr(g, 'current_images'):
-            g.current_images.extend(uploaded_files)
+            g.current_images.extend([u['path'] for u in uploaded_files])
 
         return web.json_response({
             'status': 'success',
             'files': uploaded_files,
+            'count': len(uploaded_files),
             'message': f'Successfully uploaded {len(uploaded_files)} file(s)'
         })
 

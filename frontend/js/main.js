@@ -5459,9 +5459,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('Identity Manager initialized');
     }
 
+    // Initialize Auth Manager (JWT authentication for SaaS mode)
+    if (window.AuthManager && window.identityManager) {
+        window.authManager = new window.AuthManager(window.identityManager);
+        console.log('Auth Manager initialized');
+    }
+
     // Initialize Backend Connector (discovers backend container)
     if (window.BackendConnector && window.identityManager) {
-        window.backendConnector = new window.BackendConnector(window.identityManager);
+        window.backendConnector = new window.BackendConnector(
+            window.identityManager,
+            window.authManager  // Pass auth manager (null in local mode is OK)
+        );
         console.log('Backend Connector initialized');
 
         // Start discovery immediately (don't wait for first API call)
