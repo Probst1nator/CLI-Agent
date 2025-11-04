@@ -1449,7 +1449,7 @@ class ContentRenderer {
                 matches.push({
                     position: match.index,
                     name: tag,
-                    args: innerContent.substring(0, 500),
+                    args: innerContent,
                     fullMatch: match[0]
                 });
             }
@@ -1464,7 +1464,7 @@ class ContentRenderer {
                 matches.push({
                     position: match.index,
                     name: tag,
-                    args: innerContent.substring(0, 500),
+                    args: innerContent,
                     fullMatch: match[0]
                 });
             }
@@ -1481,7 +1481,7 @@ class ContentRenderer {
                     const index = parseInt(maskMatch[1]);
                     if (parallelToolsBlocks[index]) {
                         // Restore original inner content for display
-                        match.args = parallelToolsBlocks[index].innerContent.substring(0, 500);
+                        match.args = parallelToolsBlocks[index].innerContent;
                     }
                 }
             }
@@ -1514,7 +1514,7 @@ class ContentRenderer {
                 if (toolCalls[nonVisualToolIndex].name !== 'visualresponse' &&
                     toolCalls[nonVisualToolIndex].name !== 'think' &&
                     toolCalls[nonVisualToolIndex].name !== 'todos') {
-                    toolCalls[nonVisualToolIndex].context_returned = contextContent.substring(0, 500);
+                    toolCalls[nonVisualToolIndex].context_returned = contextContent;
                     toolCalls[nonVisualToolIndex].context_length = contextContent.length;
                     nonVisualToolIndex++;
                     break;
