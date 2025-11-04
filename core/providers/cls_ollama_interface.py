@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import atexit
 import json
@@ -11,14 +13,16 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import ollama
 from termcolor import colored
 
-from core.chat import Chat, Role
 from core.globals import g
 from py_classes.unified_interfaces import AIProviderInterface
+
+if TYPE_CHECKING:
+    from core.chat import Chat, Role
 
 logger = logging.getLogger(__name__)
 
@@ -664,7 +668,9 @@ class OllamaClient(AIProviderInterface):
         """
         # Convert string to Chat object if needed
         if isinstance(chat, str):
-            chat_obj = Chat()
+            # Lazy import to avoid circular dependency
+            from core.chat import Chat as ChatClass, Role
+            chat_obj = ChatClass()
             chat_obj.add_message(Role.USER, chat)
             chat_inner = chat_obj
         else:
