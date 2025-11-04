@@ -165,6 +165,31 @@ class PromptRegenerator:
         logger.info(f"Randomly selected {len(selected)} files for analysis")
         return selected
 
+    def load_clicked_prompts(self) -> list[str]:
+        """
+        Load recently clicked prompts from the tracking file.
+
+        Returns:
+            List of recently clicked prompt strings (up to 3 most recent)
+        """
+        clicked_prompts_path = Path.home() / ".cli-agent" / "clicked_prompts.json"
+
+        if not clicked_prompts_path.exists():
+            logger.debug("No clicked prompts file found")
+            return []
+
+        try:
+            with open(clicked_prompts_path, encoding='utf-8') as f:
+                data = json.load(f)
+                prompts = data.get('prompts', [])
+                # Return up to 3 most recent
+                recent_prompts = prompts[:3]
+                logger.info(f"Loaded {len(recent_prompts)} recently clicked prompts")
+                return recent_prompts
+        except Exception as e:
+            logger.warning(f"Failed to load clicked prompts: {e}")
+            return []
+
     def build_llm_prompt(self, files: list[tuple[Path, datetime]]) -> str:
         """
         Build the LLM prompt for generating contextual suggestions.
@@ -182,12 +207,24 @@ class PromptRegenerator:
             ]
         )
 
+        # Load recently clicked prompts for examples
+        clicked_prompts = self.load_clicked_prompts()
+        examples_section = ""
+        if clicked_prompts:
+            examples_list = "\n".join([f"   - \"{prompt}\"" for prompt in clicked_prompts])
+            examples_section = f"""
+## Examples of prompts the user previously clicked:
+{examples_list}
+
+Use these as inspiration for the style and type of prompts the user finds useful.
+"""
+
         prompt = f"""I need you to generate 5 contextual prompt suggestions based on my recent study activities.
 
 ## Context: Recently modified files
 Here are randomly selected files from the last {self.time_frame_days} days:
 {file_list}
-
+{examples_section}
 ## Your Task
 
 1. **Understand my current focus**
