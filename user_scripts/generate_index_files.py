@@ -222,7 +222,12 @@ def read_file_contents(file_path: Path) -> Optional[str]:
 
 
 def generate_file_description_with_llm(
-    file_path: Path, file_contents: str, directory_context: str
+    file_path: Path,
+    file_contents: str,
+    directory_context: str,
+    root: Path,
+    directory: Path,
+    skip_patterns: set[str],
 ) -> str:
     """
     Generate functional description using LLM by reading file contents.
@@ -230,7 +235,7 @@ def generate_file_description_with_llm(
     This function:
     1. Creates a Chat object
     2. Adds system message with instructions
-    3. Adds user message with file contents
+    3. Adds user message with comprehensive context (root INDEX, dir INDEX, file list, contents)
     4. Calls generate_completion() to get description
     """
     try:
@@ -266,17 +271,67 @@ Examples of BAD descriptions:
 
 Output ONLY the description, nothing else."""
 
-    # User message: File context
-    user_message = f"""File: {file_path.name}
+    # Gather comprehensive context
+    context_parts = []
+
+    # 1. Root INDEX.md (if exists)
+    root_index = root / "INDEX.md"
+    if root_index.exists():
+        try:
+            root_index_content = root_index.read_text(encoding="utf-8", errors="ignore")
+            context_parts.append(f"""# Root Project Index (INDEX.md from root)
+```
+{root_index_content[:3000]}
+```
+""")
+        except Exception:
+            pass
+
+    # 2. Current directory INDEX.md (if exists and different from root)
+    dir_index = directory / "INDEX.md"
+    if dir_index.exists() and directory != root:
+        try:
+            dir_index_content = dir_index.read_text(encoding="utf-8", errors="ignore")
+            context_parts.append(f"""# Current Directory Index (INDEX.md from {directory.name}/)
+```
+{dir_index_content[:2000]}
+```
+""")
+        except Exception:
+            pass
+
+    # 3. List of all files in current directory
+    files_in_dir = []
+    try:
+        for item in sorted(directory.iterdir()):
+            if item.is_file() and not should_skip(item, skip_patterns, root):
+                files_in_dir.append(item.name)
+    except Exception:
+        pass
+
+    if files_in_dir:
+        context_parts.append(f"""# Files in Current Directory ({directory.name}/)
+{', '.join(files_in_dir)}
+""")
+
+    # Build user message with all context
+    context_section = "\n".join(context_parts) if context_parts else ""
+
+    user_message = f"""You are analyzing a file to generate its functional description.
+
+{context_section}
+
+# Target File Information
+File: {file_path.name}
 Directory: {directory_context}
 Extension: {file_path.suffix}
 
-File contents:
+# File Contents (first 8000 chars)
 ```
 {file_contents[:8000]}
 ```
 
-Generate a concise functional description (max 100 characters):"""
+Based on the project context, directory context, and file contents above, generate a concise functional description (max 100 characters):"""
 
     # Build context chat with add_message calls
     chat.add_message(Role.SYSTEM, content=system_message)
@@ -308,6 +363,9 @@ def get_file_description(
     dir_name: str,
     use_llm: bool = False,
     cache: Optional[dict[str, str]] = None,
+    root: Optional[Path] = None,
+    directory: Optional[Path] = None,
+    skip_patterns: Optional[set[str]] = None,
 ) -> str:
     """
     Generate a functional description for a file.
@@ -317,6 +375,9 @@ def get_file_description(
         dir_name: Directory name containing the file
         use_llm: Whether to use LLM for description generation
         cache: Cache dictionary for storing/retrieving descriptions
+        root: Project root path (for LLM context)
+        directory: Current directory path (for LLM context)
+        skip_patterns: Skip patterns (for LLM context)
 
     Returns:
         Functional description string
@@ -338,9 +399,9 @@ def get_file_description(
     # Try LLM if enabled and not a special file
     if use_llm and name not in special_files:
         file_contents = read_file_contents(file_path)
-        if file_contents:
+        if file_contents and root and directory and skip_patterns is not None:
             llm_description = generate_file_description_with_llm(
-                file_path, file_contents, dir_name
+                file_path, file_contents, dir_name, root, directory, skip_patterns
             )
             if llm_description:
                 if cache is not None:
@@ -543,7 +604,15 @@ def generate_index_content(
         lines.append("|------|-------------|")
 
         for file in files:
-            desc = get_file_description(file, dir_name, use_llm=use_llm, cache=cache)
+            desc = get_file_description(
+                file,
+                dir_name,
+                use_llm=use_llm,
+                cache=cache,
+                root=root,
+                directory=directory,
+                skip_patterns=skip_patterns,
+            )
             lines.append(f"| `{file.name}` | {desc} |")
 
         lines.append("")
