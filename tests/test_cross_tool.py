@@ -20,7 +20,8 @@ setup_cli_agent_imports()
 def test_all_tools_can_import_core():
     """Test that all tools can import core infrastructure"""
     try:
-        from core import AIStrengths, Chat, LlmRouter, Role, g
+        from core import Chat, LlmRouter, LMCapabilities, Role, g
+
         return True
     except ImportError:
         return False
@@ -30,6 +31,7 @@ def test_all_tools_can_import_shared():
     """Test that all tools can import shared utilities"""
     try:
         from shared import extract_blocks, get_dia_model
+
         return True
     except ImportError:
         return False
@@ -49,7 +51,7 @@ if __name__ == "__main__":
     tests = [
         test_all_tools_can_import_core,
         test_all_tools_can_import_shared,
-        test_path_resolver_consistency
+        test_path_resolver_consistency,
     ]
 
     results = []

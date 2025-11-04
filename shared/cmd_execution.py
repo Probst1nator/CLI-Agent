@@ -115,7 +115,7 @@ def select_and_execute_commands(commands: list[str], auto_execute: bool = False,
         detached (bool): If True, run commands in detached mode.
 
     Returns:
-        Tuple[str, str]: Formatted result and execution summarization.
+        tuple[str, str]: Formatted result and execution summarization.
     """
     if not auto_execute:
         checkbox_list = CheckboxList(

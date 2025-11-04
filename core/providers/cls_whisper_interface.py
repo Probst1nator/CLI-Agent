@@ -1,5 +1,6 @@
 import os
 import tempfile
+from typing import Optional
 
 import numpy as np
 import soundfile as sf
@@ -8,7 +9,6 @@ import speech_recognition as sr
 from core.globals import g
 from py_classes.unified_interfaces import AudioProviderInterface
 from shared.utils_audio import (
-from typing import Optional
     play_audio,
     play_notification,
     record_audio,
@@ -37,7 +37,7 @@ class WhisperInterface(AudioProviderInterface):
             sample_rate: Sample rate of the audio data if provided as numpy array
 
         Returns:
-            Tuple[str, str]: (transcribed text, detected language)
+            tuple[str, str]: (transcribed text, detected language)
         """
         try:
             # Create a temporary file for the audio
@@ -100,7 +100,7 @@ class WhisperInterface(AudioProviderInterface):
             use_wake_word: Whether to wait for wake word before recording
 
         Returns:
-            Tuple[str, str, np.ndarray]: (transcribed text, detected language, audio data)
+            tuple[str, str, np.ndarray]: (transcribed text, detected language, audio data)
         """
         try:
             # Record audio

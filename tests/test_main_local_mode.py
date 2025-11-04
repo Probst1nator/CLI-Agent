@@ -51,9 +51,13 @@ def test_main_local_mode_flag_processing():
 
             for selected_key in g.SELECTED_LLMS:
                 # Find the model (key might be partial match)
-                matching_models = [model for model in all_models if selected_key in model.model_key]
+                matching_models = [
+                    model for model in all_models if selected_key in model.model_key
+                ]
                 if not matching_models:
-                    print(f"  ❌ Selected model key not found in available models: {selected_key}")
+                    print(
+                        f"  ❌ Selected model key not found in available models: {selected_key}"
+                    )
                     return False
 
                 model = matching_models[0]
@@ -66,7 +70,9 @@ def test_main_local_mode_flag_processing():
             print("  ✅ Local mode flag processing working correctly")
             result = True
         else:
-            print("  ⚠️  No models selected - may be expected if no local models available")
+            print(
+                "  ⚠️  No models selected - may be expected if no local models available"
+            )
             result = True
 
         # Restore original state
@@ -78,6 +84,7 @@ def test_main_local_mode_flag_processing():
     except Exception as e:
         print(f"  ❌ Main local mode flag processing test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -88,8 +95,13 @@ def test_fallback_model_display_vs_usage():
 
     try:
         # Get typical fallback models (like from main.py)
-        typical_fallbacks = ["gemini-2.5-flash", "gemini-2.5-flash-lite-preview-06-17",
-                           "gemini-2.5-flash-preview-05-20", "gemini-2.5-pro", "gemma3:27b"]
+        typical_fallbacks = [
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite-preview-06-17",
+            "gemini-2.5-flash-preview-05-20",
+            "gemini-2.5-pro",
+            "gemma3:27b",
+        ]
 
         # Get actual local models
         local_models = LlmRouter.get_models(force_local=True)
@@ -101,7 +113,10 @@ def test_fallback_model_display_vs_usage():
         # Find which fallback models are actually local
         actual_local_fallbacks = []
         for fallback in typical_fallbacks:
-            is_local = any(fallback in local_key or local_key in fallback for local_key in local_keys)
+            is_local = any(
+                fallback in local_key or local_key in fallback
+                for local_key in local_keys
+            )
             if is_local:
                 actual_local_fallbacks.append(fallback)
                 print(f"  ✅ Fallback model is local: {fallback}")
@@ -114,7 +129,9 @@ def test_fallback_model_display_vs_usage():
         # but they should be filtered out in local mode
         cloud_fallbacks_shown = len(typical_fallbacks) - len(actual_local_fallbacks)
         if cloud_fallbacks_shown > 0:
-            print(f"  ⚠️  ISSUE FOUND: {cloud_fallbacks_shown} cloud models shown in fallback list")
+            print(
+                f"  ⚠️  ISSUE FOUND: {cloud_fallbacks_shown} cloud models shown in fallback list"
+            )
             print("  🔍 This explains why cloud models are attempted in local mode!")
 
         return True
@@ -122,6 +139,7 @@ def test_fallback_model_display_vs_usage():
     except Exception as e:
         print(f"  ❌ Fallback model display test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -132,8 +150,13 @@ def test_model_selection_in_generate_completion():
 
     try:
         # Simulate the scenario from the error log
-        preferred_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite-preview-06-17",
-                          "gemini-2.5-flash-preview-05-20", "gemini-2.5-pro", "gemma3:27b"]
+        preferred_models = [
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite-preview-06-17",
+            "gemini-2.5-flash-preview-05-20",
+            "gemini-2.5-pro",
+            "gemma3:27b",
+        ]
 
         # Get actual models for each preference
         router = LlmRouter()
@@ -153,7 +176,9 @@ def test_model_selection_in_generate_completion():
 
         # Test get_model with these preferences and force_local
         if local_preferred:
-            model = LlmRouter.get_model(preferred_models=local_preferred, force_local=True)
+            model = LlmRouter.get_model(
+                preferred_models=local_preferred, force_local=True
+            )
             if model:
                 if not model.local:
                     print(f"  ❌ get_model returned non-local model: {model.model_key}")
@@ -167,13 +192,16 @@ def test_model_selection_in_generate_completion():
         cloud_preferred = [p for p in preferred_models if p not in local_preferred]
         if cloud_preferred:
             print(f"  🔍 ISSUE: Cloud models in preferred list: {cloud_preferred}")
-            print("  🔍 These should be filtered out BEFORE calling get_model in local mode")
+            print(
+                "  🔍 These should be filtered out BEFORE calling get_model in local mode"
+            )
 
         return True
 
     except Exception as e:
         print(f"  ❌ Model selection test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -201,10 +229,10 @@ def test_local_mismatch_error_scenario():
         capable, reason = router.model_capable_check(
             model=cloud_model,
             chat=Chat(),
-            strengths=[],
+            capabilities=[],
             local=True,  # This should cause the mismatch
             force_free=False,
-            has_vision=False
+            has_vision=False,
         )
 
         print(f"  🔍 Capability check result: capable={capable}, reason='{reason}'")
@@ -220,7 +248,9 @@ def test_local_mismatch_error_scenario():
         # This confirms the error message we saw
         if reason == "local mismatch (required: True, model: False)":
             print("  ✅ Confirmed exact error scenario from logs!")
-            print("  🔍 The issue is that cloud models are being tested against local=True requirement")
+            print(
+                "  🔍 The issue is that cloud models are being tested against local=True requirement"
+            )
             print("  🔍 This means the model selection isn't filtering early enough")
 
         return True
@@ -228,5 +258,6 @@ def test_local_mismatch_error_scenario():
     except Exception as e:
         print(f"  ❌ Local mismatch error scenario test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False

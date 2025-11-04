@@ -27,7 +27,6 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict
 
 
 class PublicRepoSync:
@@ -36,12 +35,12 @@ class PublicRepoSync:
         self.config = self._load_config(config_path)
         self.public_branch = "public-release"
 
-    def _load_config(self, config_path: Path) -> Dict:
+    def _load_config(self, config_path: Path) -> dict:
         """Load configuration from JSON file."""
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
-        with open(config_path, 'r') as f:
+        with open(config_path) as f:
             return json.load(f)
 
     def _run_git(self, *args) -> subprocess.CompletedProcess:
@@ -187,7 +186,7 @@ docker_files/traefik/
 
         # Check if additions already present
         if gitignore_path.exists():
-            with open(gitignore_path, 'r') as f:
+            with open(gitignore_path) as f:
                 current = f.read()
             if 'Public repository exclusions' in current:
                 print("\n⏭️  .gitignore already updated")

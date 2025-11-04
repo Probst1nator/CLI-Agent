@@ -1,4 +1,5 @@
 from typing import Optional
+
 # tools/insertline.py
 """
 This file implements the 'insertline' tool. It allows the agent to insert

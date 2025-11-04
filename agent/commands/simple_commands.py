@@ -739,6 +739,7 @@ class PlannerLlmCommand(BaseCommand):
 
         try:
             from core.globals import g
+            from core.llm_profiles import get_profile_manager
 
             if not model_keys:
                 # Disable planner
@@ -751,6 +752,10 @@ class PlannerLlmCommand(BaseCommand):
                     message = f"Planner LLM set to: {model_keys[0]}"
                 else:
                     message = f"Planner LLM set to: {model_keys[0]} (with {len(model_keys)-1} fallback(s))"
+
+            # Update active profile to persist the change
+            profile_manager = get_profile_manager()
+            profile_manager.update_active_profile_role('planner', model_keys)
 
             print(colored(f"# cli-agent: {message}", "green"))
             return CommandResponse(result=CommandResult.CONTINUE, message=message)
@@ -788,6 +793,7 @@ class RouterLlmCommand(BaseCommand):
 
         try:
             from core.globals import g
+            from core.llm_profiles import get_profile_manager
 
             if not model_keys:
                 # Disable router
@@ -800,6 +806,10 @@ class RouterLlmCommand(BaseCommand):
                     message = f"Router LLM set to: {model_keys[0]}"
                 else:
                     message = f"Router LLM set to: {model_keys[0]} (with {len(model_keys)-1} fallback(s))"
+
+            # Update active profile to persist the change
+            profile_manager = get_profile_manager()
+            profile_manager.update_active_profile_role('router', model_keys)
 
             print(colored(f"# cli-agent: {message}", "green"))
             return CommandResponse(result=CommandResult.CONTINUE, message=message)
@@ -837,6 +847,7 @@ class OverrideLlmCommand(BaseCommand):
 
         try:
             from core.globals import g
+            from core.llm_profiles import get_profile_manager
 
             if not model_keys:
                 # Disable override
@@ -849,6 +860,10 @@ class OverrideLlmCommand(BaseCommand):
                     message = f"Override LLM set to: {model_keys[0]}"
                 else:
                     message = f"Override LLM set to: {model_keys[0]} (with {len(model_keys)-1} fallback(s))"
+
+            # Update active profile to persist the change
+            profile_manager = get_profile_manager()
+            profile_manager.update_active_profile_role('override', model_keys)
 
             print(colored(f"# cli-agent: {message}", "green"))
             return CommandResponse(result=CommandResult.CONTINUE, message=message)
@@ -890,12 +905,19 @@ class FallbacksCommand(BaseCommand):
 
         try:
             from core.globals import g
-            g.FALLBACK_MODELS = model_keys
+            from core.llm_profiles import get_profile_manager
+
+            # Use update_llm_role for consistency with other commands
+            g.update_llm_role('fallbacks', model_keys=model_keys if model_keys else None)
 
             if model_keys:
                 message = f"Fallback LLMs set to: {', '.join(model_keys)}"
             else:
                 message = "All fallback LLMs cleared"
+
+            # Update active profile to persist the change
+            profile_manager = get_profile_manager()
+            profile_manager.update_active_profile_role('fallbacks', model_keys)
 
             print(colored(f"# cli-agent: {message}", "green"))
             return CommandResponse(result=CommandResult.CONTINUE, message=message)

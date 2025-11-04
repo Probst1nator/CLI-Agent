@@ -369,7 +369,7 @@ class OllamaClient(AIProviderInterface):
             is_small_model (bool): Whether this is a small/fast model.
 
         Returns:
-            Tuple[Optional[ollama.Client], str, str]: [A valid client or None, found model_key, host].
+            tuple[Optional[ollama.Client], str, str]: [A valid client or None, found model_key, host].
         """
         # Get hosts from comma-separated environment variables
         ollama_host_env = os.getenv("OLLAMA_HOST", "")

@@ -6,9 +6,9 @@ import sqlite3
 import subprocess
 import tempfile
 from collections import defaultdict
+from typing import Optional
 
 from termcolor import colored
-from typing import Optional
 
 # ChromaDB is optional - only import if available
 try:
@@ -72,7 +72,7 @@ def listen_microphone(
     max_duration (Optional[int], optional): The maximum duration to listen. Defaults to 15.
     language (str): The language of the audio (optional).
     Returns:
-    Tuple[str, str, Union[bool, str]]: (transcribed text from the audio, language, used wake word)
+    tuple[str, str, Union[bool, str]]: (transcribed text from the audio, language, used wake word)
     """
     from py_classes.cls_pyaihost_interface import PyAiHost
     global r, source

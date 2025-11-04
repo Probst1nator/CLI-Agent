@@ -4730,6 +4730,16 @@ function initializeApp() {
             console.log('Autocomplete initialized for chat input');
         }
     }
+
+    // Focus the chat input on page load for immediate text entry
+    // Delay focus to allow initial chat messages to load without stealing focus
+    const chatInputForFocus = document.getElementById('chat-input');
+    if (chatInputForFocus) {
+        setTimeout(() => {
+            console.log('[Focus] Focusing chat input after message load');
+            chatInputForFocus.focus();
+        }, 500); // Wait for initial message loading to complete
+    }
 }
 
 /**

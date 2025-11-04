@@ -1,4 +1,5 @@
 from typing import Optional
+
 """
 Minimal dev tool hints for CLI-Agent permission system.
 Provides helpful suggestions when common development tools are detected.

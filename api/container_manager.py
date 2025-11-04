@@ -20,10 +20,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from typing import Optional
 # Configure logging with file persistence
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Optional
 
 import docker
 import httpx

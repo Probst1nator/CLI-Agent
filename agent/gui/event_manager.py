@@ -98,7 +98,7 @@ class GUISession:
 
         self.logger.info(f"GUI session {session_id} created")
 
-    def setup_input_coordination(self) -> Tuple[asyncio.Event, threading.Lock, dict[str, Any]]:
+    def setup_input_coordination(self) -> tuple[asyncio.Event, threading.Lock, dict[str, Any]]:
         """Set up input coordination for threaded GUI operations."""
         self.input_event = asyncio.Event()
         self.input_lock = threading.Lock()

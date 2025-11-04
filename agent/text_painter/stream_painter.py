@@ -1,9 +1,9 @@
 import re
+from typing import Optional
 
 from termcolor import colored
 
 from core.constants import PRIORITY_TAGS
-from typing import Optional
 
 
 class TextStreamPainter:

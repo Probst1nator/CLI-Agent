@@ -14,7 +14,7 @@ import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NotRequired, Protocol, Optional
+from typing import Any, NotRequired, Optional, Protocol
 
 from termcolor import colored
 from typing_extensions import TypedDict
@@ -179,6 +179,7 @@ class Globals:
             'autocomplete': None,
             'fallbacks': [],
         }
+        self.active_profile_id: Optional[str] = None  # Track which profile is currently active
         self.DEFAULT_OLLAMA_HOSTS: list[str] = ["http://localhost:11434"]
 
         # --- Forcing Flags (runtime modifiers) ---
@@ -1221,6 +1222,16 @@ class Globals:
 
         except Exception as e:
             logging.warning(f"Failed to cleanup old format config: {e}")
+
+    def get_active_profile_id(self) -> Optional[str]:
+        """Get the currently active profile ID."""
+        return self.active_profile_id
+
+    def set_active_profile_id(self, profile_id: Optional[str]) -> None:
+        """Set the currently active profile ID."""
+        self.active_profile_id = profile_id
+        if profile_id:
+            logging.debug(f"Active profile set to: {profile_id}")
 
     # --- Cleanup registration and execution ---
     def register_cleanup(self, callback: Callable) -> None:

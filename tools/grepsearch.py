@@ -38,7 +38,7 @@ class grepsearch:
         }
 
     @staticmethod
-    def _find_project_root_and_spec(start_path: str) -> 'Tuple[object | None, str | None]':
+    def _find_project_root_and_spec(start_path: str) -> 'tuple[object | None, str | None]':
         """
         Finds the project root (.git directory) and parses all .gitignore files
         from the start_path up to that root.

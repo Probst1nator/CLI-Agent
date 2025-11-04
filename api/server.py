@@ -270,6 +270,7 @@ class VisualServer:
             autocomplete_api,
             chat_api,
             logs_api,
+            permissions_api,
             profile_api,
             tools_api,
         )
@@ -277,6 +278,7 @@ class VisualServer:
         audio_api.setup_routes(self.app)
         tools_api.setup_routes(self.app)
         profile_api.setup_routes(self.app)
+        permissions_api.setup_routes(self.app)
         agent_state_api.setup_routes(self.app)
         logs_api.setup_routes(self.app)
         autocomplete_api.setup_routes(self.app)
