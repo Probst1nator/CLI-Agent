@@ -1132,7 +1132,7 @@ class Globals:
         if has_valid_roles:
             # Use new format
             step_start = time.time()
-            for key, default_value in [('planner', None), ('router', None), ('override', None), ('fallbacks', [])]:
+            for key, default_value in [('planner', None), ('router', None), ('override', None), ('autocomplete', None), ('fallbacks', [])]:
                 self.llm_roles[key] = config['roles'].get(key, default_value)
             logging.info(f"🚀 ROLES: Loading existing roles took {(time.time() - step_start)*1000:.1f}ms")
         else:
