@@ -129,6 +129,9 @@ async def _try_gui_permission_prompt(
         if not session or not session.is_healthy():
             return None
 
+        # Generate rule options for specificity selection
+        rule_options = _get_permission_rule_options(tool_name, file_path, command)
+
         # Send permission request to GUI
         permission_payload = {
             "id": f"permission-{int(time.time() * 1000)}",
@@ -140,7 +143,11 @@ async def _try_gui_permission_prompt(
                 "file_path": file_path or "",
                 "command": command or "",
                 "reason": reason,
-                "options": ["allow", "deny", "always_allow", "always_deny"]
+                "options": ["allow", "deny", "always_allow", "always_deny"],
+                "rule_options": [
+                    {"description": desc, "rule": rule}
+                    for desc, rule in rule_options
+                ]
             }
         }
 
@@ -157,14 +164,19 @@ async def _try_gui_permission_prompt(
 
                 if response_data and isinstance(response_data, dict):
                     result = response_data.get('result')
+                    rule_selected = response_data.get('rule')  # Specific rule chosen by user
 
                     if result == 'allow':
                         print(colored("✅ Permission granted (GUI)", "green"))
                         return True
 
                     elif result == 'always_allow':
-                        # Add to allow list permanently
-                        rule = _create_permission_rule(tool_name, file_path, command)
+                        # If a specific rule was provided, use it; otherwise use default
+                        if rule_selected:
+                            rule = rule_selected
+                        else:
+                            rule = _create_permission_rule(tool_name, file_path, command)
+
                         settings_manager.add_permission("allow", rule)
                         settings_manager.save_settings()
                         print(colored(f"✅ Permission granted and saved: {rule}", "green"))
@@ -219,7 +231,7 @@ async def _cli_permission_prompt(
     print("\nOptions:")
     print("  [y] Allow once")
     print("  [n] Deny once")
-    print("  [a] Always allow (add to allow list)")
+    print("  [a] Allow and remember... (choose specificity)")
     print("  [d] Always deny (add to deny list)")
     print("  [?] Show help")
     print("")
@@ -250,12 +262,49 @@ async def _cli_permission_prompt(
                 return False
 
             elif response == 'a':
-                # Add to allow list
-                rule = _create_permission_rule(tool_name, file_path, command)
-                settings_manager.add_permission("allow", rule)
-                settings_manager.save_settings()
-                print(colored(f"✅ Permission granted and saved: {rule}", "green"))
-                return True
+                # Show specificity submenu
+                rule_options = _get_permission_rule_options(tool_name, file_path, command)
+
+                print("\n" + "-" * 60)
+                print(colored("Choose permission scope:", "cyan", attrs=['bold']))
+                print("-" * 60)
+
+                for idx, (description, rule) in enumerate(rule_options, 1):
+                    print(f"  [{idx}] {description}")
+                    print(f"      Rule: {colored(rule, 'yellow')}")
+
+                print(f"  [0] Cancel")
+                print("")
+
+                # Get specificity choice
+                while True:
+                    if get_user_input_func:
+                        spec_prompt = colored(f"Choose [0-{len(rule_options)}]: ", "cyan")
+                        spec_response = await _get_async_input(
+                            spec_prompt,
+                            get_user_input_func,
+                            input_event,
+                            input_lock,
+                            shared_input
+                        )
+                    else:
+                        spec_response = input(colored(f"Choose [0-{len(rule_options)}]: ", "cyan"))
+
+                    try:
+                        choice = int(spec_response.strip())
+                        if choice == 0:
+                            print(colored("↩️  Cancelled, returning to permission prompt", "yellow"))
+                            break
+                        elif 1 <= choice <= len(rule_options):
+                            description, rule = rule_options[choice - 1]
+                            settings_manager.add_permission("allow", rule)
+                            settings_manager.save_settings()
+                            print(colored(f"✅ Permission granted and saved: {rule}", "green"))
+                            return True
+                        else:
+                            print(colored(f"Invalid choice. Please enter 0-{len(rule_options)}", "yellow"))
+                    except ValueError:
+                        print(colored(f"Invalid input. Please enter a number 0-{len(rule_options)}", "yellow"))
 
             elif response == 'd':
                 # Add to deny list
@@ -276,10 +325,95 @@ async def _cli_permission_prompt(
             return False
 
 
+def _get_permission_rule_options(tool_name: str, file_path: Optional[str],
+                                 command: Optional[str]) -> list[tuple[str, str]]:
+    """
+    Generate multiple permission rule options with different specificity levels.
+
+    Returns a list of (description, rule) tuples ordered from most to least specific.
+
+    Examples:
+        bash + "npm install package" →
+            [("This exact command", "bash(npm install package)"),
+             ("All 'npm install' commands", "bash(npm install:*)"),
+             ("All npm commands", "bash(npm:*)"),
+             ("All bash commands", "bash")]
+
+        readfile + "/home/user/project/src/main.py" →
+            [("This specific file", "readfile(/home/user/project/src/main.py)"),
+             ("All files in src/", "readfile(/home/user/project/src/*)"),
+             ("All files in src/ tree", "readfile(/home/user/project/src/**)"),
+             ("All files in project/", "readfile(/home/user/project/**)"),
+             ("All readfile operations", "readfile")]
+    """
+    options = []
+
+    if tool_name == "bash" and command:
+        # Bash command specificity levels
+        cmd_parts = command.strip().split()
+        cmd_word = cmd_parts[0]
+
+        # Level 1: Exact command
+        options.append((f"This exact command", f"bash({command})"))
+
+        # Level 2: Command with first N words (if multi-word)
+        if len(cmd_parts) >= 2:
+            first_two = ' '.join(cmd_parts[:2])
+            options.append((f"All '{first_two}' commands", f"bash({first_two}:*)"))
+
+        # Level 3: First word pattern
+        options.append((f"All '{cmd_word}' commands", f"bash({cmd_word}:*)"))
+
+        # Level 4: All bash
+        options.append(("All bash commands", "bash"))
+
+    elif file_path:
+        # File operation specificity levels
+        abs_path = os.path.abspath(file_path)
+        directory = os.path.dirname(abs_path)
+        filename = os.path.basename(abs_path)
+
+        # Level 1: Specific file
+        options.append((f"This specific file: {filename}", f"{tool_name}({abs_path})"))
+
+        # Level 2+: Directory levels (work up the tree)
+        current_dir = directory
+        visited_dirs = set()
+
+        while current_dir and current_dir != '/' and current_dir not in visited_dirs:
+            visited_dirs.add(current_dir)
+            dir_name = os.path.basename(current_dir)
+
+            # Same directory (non-recursive)
+            if current_dir == directory:
+                options.append((f"All files in {dir_name}/", f"{tool_name}({current_dir}/*)"))
+
+            # Directory tree (recursive)
+            options.append((f"All files in {dir_name}/ tree", f"{tool_name}({current_dir}/**)"))
+
+            # Move up one level
+            parent = os.path.dirname(current_dir)
+            if parent == current_dir:  # Reached root
+                break
+            current_dir = parent
+
+        # Final level: All uses of this tool
+        options.append((f"All {tool_name} operations", tool_name))
+
+    else:
+        # Generic tool - only one option
+        options.append((f"All {tool_name} operations", tool_name))
+
+    return options
+
+
 def _create_permission_rule(tool_name: str, file_path: Optional[str],
                             command: Optional[str]) -> str:
     """
     Create a permission rule string from tool execution details.
+    Uses the most common middle-ground specificity level.
+
+    DEPRECATED: Use _get_permission_rule_options() for new code.
 
     Examples:
         bash + "npm install" → "bash(npm:*)"
@@ -348,7 +482,7 @@ def _show_help():
     print(colored("PERMISSION SYSTEM HELP", "cyan", attrs=['bold']))
     print("=" * 60)
     print("""
-This is the simplified permission system for CLI-Agent.
+This is the permission system for CLI-Agent.
 
 OPTIONS:
   y - Allow once
@@ -357,12 +491,24 @@ OPTIONS:
   n - Deny once
       Block this operation now, but ask again next time
 
-  a - Always allow
-      Add a rule to settings.json to always allow similar operations
-      Example: bash(npm:*) allows all npm commands
+  a - Allow and remember...
+      Opens a submenu to choose the specificity of the permission rule.
+      You can allow:
+        - This specific file/command only
+        - Files in this directory (non-recursive)
+        - Files in this directory tree (recursive)
+        - All commands of a specific type (e.g., all npm commands)
+        - All uses of this tool
+
+      Examples of rules created:
+        bash(npm install:*)           - All 'npm install' commands
+        bash(npm:*)                   - All npm commands
+        readfile(/path/to/file.txt)   - This specific file only
+        readfile(/path/to/dir/*)      - All files in this directory
+        readfile(/path/to/dir/**)     - All files in directory tree
 
   d - Always deny
-      Add a rule to settings.json to always block similar operations
+      Add a broad deny rule to settings.json to block similar operations
 
 CONFIGURATION:
   Edit ~/.cli-agent/settings.json to manage permissions manually
@@ -381,6 +527,11 @@ PRECEDENCE:
   2. Ask rules (require confirmation)
   3. Allow rules (always permit)
   4. Default (ask for permission)
+
+TIPS:
+  - Start with more specific rules and broaden as needed
+  - Use 'y' (allow once) to test operations before creating rules
+  - Review your rules with: /perms view
 
 For more information, see: docs/PERMISSION_SYSTEM.md
 """)
