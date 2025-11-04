@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import threading
@@ -7,14 +9,13 @@ import requests
 from groq import Groq
 from termcolor import colored
 
-from core.chat import Chat
 from core.globals import g
 from infrastructure.rate_limiting.cls_rate_limit_tracker import rate_limit_tracker
 from py_classes.unified_interfaces import AIProviderInterface
 
 # Only used for type annotations
 if TYPE_CHECKING:
-    pass
+    from core.chat import Chat
 
 logger = logging.getLogger(__name__)
 
