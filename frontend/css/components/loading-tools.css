@@ -205,7 +205,9 @@
     white-space: pre-wrap;
     overflow-wrap: break-word;
     max-width: 100%;
-    overflow: hidden;
+    max-height: 400px;
+    overflow-y: auto;
+    overflow-x: hidden;
     box-sizing: border-box;
 }
 
