@@ -20,6 +20,18 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# File upload security limits
+MAX_AUDIO_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+ALLOWED_AUDIO_TYPES = {'.webm', '.wav', '.mp3', '.ogg', '.m4a'}
+AUDIO_MAGIC_BYTES = {
+    b'RIFF': 'wav',      # WAV files start with RIFF
+    b'\x1aE\xdf\xa3': 'webm',  # WebM files (Matroska container)
+    b'ID3': 'mp3',       # MP3 with ID3 tag
+    b'\xff\xfb': 'mp3',  # MP3 without ID3
+    b'OggS': 'ogg',      # Ogg container
+    b'ftyp': 'm4a',      # M4A/MP4 audio
+}
+
 
 async def upload_audio(request: Any) -> Any:
     """POST /api/audio/upload
@@ -44,7 +56,27 @@ async def upload_audio(request: Any) -> Any:
                 break
 
             if part.name == 'audio':
-                audio_data = await part.read()
+                # Read with size limit
+                audio_data = bytearray()
+                chunk_size = 8192
+                total_size = 0
+
+                while True:
+                    chunk = await part.read_chunk(chunk_size)
+                    if not chunk:
+                        break
+
+                    total_size += len(chunk)
+                    if total_size > MAX_AUDIO_FILE_SIZE:
+                        return web.json_response({
+                            'status': 'error',
+                            'error': f'File too large. Maximum size: {MAX_AUDIO_FILE_SIZE // (1024*1024)}MB',
+                            'code': 'FILE_TOO_LARGE'
+                        }, status=413)
+
+                    audio_data.extend(chunk)
+
+                audio_data = bytes(audio_data)
                 audio_filename = part.filename or audio_filename
                 break
 
@@ -55,12 +87,37 @@ async def upload_audio(request: Any) -> Any:
                 'code': 'INVALID_REQUEST'
             }, status=400)
 
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(audio_filename).suffix) as tmp_file:
-            tmp_file.write(audio_data)
-            tmp_path = tmp_file.name
+        # Validate file extension
+        file_ext = Path(audio_filename).suffix.lower()
+        if file_ext not in ALLOWED_AUDIO_TYPES:
+            return web.json_response({
+                'status': 'error',
+                'error': f'Invalid file type. Allowed: {", ".join(ALLOWED_AUDIO_TYPES)}',
+                'code': 'INVALID_FILE_TYPE'
+            }, status=400)
 
+        # Validate file content (magic bytes)
+        is_valid = False
+        for magic, file_type in AUDIO_MAGIC_BYTES.items():
+            if audio_data[:len(magic)] == magic or magic in audio_data[:16]:
+                is_valid = True
+                logger.debug(f"Validated audio file as {file_type}")
+                break
+
+        if not is_valid:
+            logger.warning(f"Audio file failed magic byte validation: {audio_data[:16]}")
+            return web.json_response({
+                'status': 'error',
+                'error': 'File content validation failed - not a valid audio file',
+                'code': 'INVALID_FILE_CONTENT'
+            }, status=400)
+
+        # Save to temporary file with automatic cleanup
+        tmp_path = None
         try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(audio_filename).suffix) as tmp_file:
+                tmp_file.write(audio_data)
+                tmp_path = tmp_file.name
             # Load audio file and transcribe
             import soundfile as sf
 
@@ -92,11 +149,13 @@ async def upload_audio(request: Any) -> Any:
             })
 
         finally:
-            # Clean up temp file
-            try:
-                Path(tmp_path).unlink()
-            except Exception as e:
-                logger.warning(f"Failed to delete temp file {tmp_path}: {e}")
+            # Clean up temp file (ensure cleanup even on errors)
+            if tmp_path:
+                try:
+                    Path(tmp_path).unlink()
+                    logger.debug(f"Cleaned up temp file: {tmp_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete temp file {tmp_path}: {e}")
 
     except Exception as e:
         logger.error(f"Audio upload failed: {e}", exc_info=True)
