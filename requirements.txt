@@ -31,7 +31,9 @@ sounddevice>=0.4.0  # Audio playback
 
 # Web server dependencies
 aiohttp>=3.8.0  # Web server for GUI interface
-PyJWT>=2.8.0  # JWT authentication for SaaS mode
+PyJWT>=2.8.0  # JWT token authentication for SaaS mode
+python-magic>=0.4.27  # MIME type detection for file upload security (optional)
+
 
 # Additional utilities
 pathspec>=0.9.0  # File pattern matching
