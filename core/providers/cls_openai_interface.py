@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 import logging
 import os
 import tempfile
 import threading
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import speech_recognition as sr
 from openai import OpenAI
 from termcolor import colored
 
-from core.chat import Chat
 from core.globals import g
 from py_classes.unified_interfaces import AIProviderInterface
+
+if TYPE_CHECKING:
+    from core.chat import Chat
 
 logger = logging.getLogger(__name__)
 
