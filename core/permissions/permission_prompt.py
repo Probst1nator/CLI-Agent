@@ -195,11 +195,12 @@ async def _try_gui_permission_prompt(
                         return False
 
             except TimeoutError:
-                print(colored("⚠️  GUI permission timeout, falling back to CLI", "yellow"))
-                return None
+                print(colored("⚠️  GUI permission timeout - denying by default", "yellow"))
+                return False
 
     except Exception as e:
-        print(colored(f"⚠️  GUI permission error: {e}, falling back to CLI", "yellow"))
+        print(colored(f"⚠️  GUI permission error: {e} - denying by default", "yellow"))
+        return False
 
     return None
 
