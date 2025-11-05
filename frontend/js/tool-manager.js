@@ -240,21 +240,27 @@ class ToolManager {
         try {
             const disabledToolsArray = Array.from(this.disabledTools);
 
-            // Build URL using BackendConnector for multi-user compatibility
-            const url = window.backendConnector
-                ? await window.backendConnector.buildURL('/api/tools/disabled')
-                : '/api/tools/disabled';
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Session-ID': window.sessionId || ''
-                },
-                body: JSON.stringify({
-                    disabled_tools: disabledToolsArray
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/tools/disabled', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Session-ID': window.sessionId || ''
+                    },
+                    body: JSON.stringify({
+                        disabled_tools: disabledToolsArray
+                    })
                 })
-            });
+                : await fetch('/api/tools/disabled', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Session-ID': window.sessionId || ''
+                    },
+                    body: JSON.stringify({
+                        disabled_tools: disabledToolsArray
+                    })
+                });
 
             const data = await response.json();
 
