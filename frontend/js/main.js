@@ -634,12 +634,13 @@ class VisualResponseApp {
      */
     async fetchAgentState() {
         try {
-            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/agent/state') : '/api/agent/state';
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
             try {
-                const response = await fetch(url, { signal: controller.signal });
+                const response = window.backendConnector
+                    ? await window.backendConnector.fetch('/api/agent/state', { signal: controller.signal })
+                    : await fetch('/api/agent/state', { signal: controller.signal });
                 clearTimeout(timeoutId);
                 const data = await response.json();
                 if (data.status === 'success' && data.state) {
@@ -863,15 +864,23 @@ class VisualResponseApp {
             }
 
             try {
-                const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/message/edit') : '/api/chat/message/edit';
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        message_index: parseInt(messageBlock.dataset.messageIndex),
-                        new_content: newContent
+                const response = window.backendConnector
+                    ? await window.backendConnector.fetch('/api/chat/message/edit', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            message_index: parseInt(messageBlock.dataset.messageIndex),
+                            new_content: newContent
+                        })
                     })
-                });
+                    : await fetch('/api/chat/message/edit', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            message_index: parseInt(messageBlock.dataset.messageIndex),
+                            new_content: newContent
+                        })
+                    });
 
                 const data = await response.json();
                 if (data.status === 'success') {
@@ -1585,8 +1594,9 @@ class VisualResponseApp {
         // Fetch current chat state to get accurate message count (including system messages)
         let messageIndex;
         try {
-            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/chat/current') : '/api/chat/current';
-            const response = await fetch(url);
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/chat/current')
+                : await fetch('/api/chat/current');
             const data = await response.json();
             if (data.status === 'success' && data.chat && data.chat.messages) {
                 // The new message will be at the current length index (after it's added by backend)
@@ -4047,12 +4057,13 @@ class VisualResponseApp {
      */
     async loadProfileSlots() {
         try {
-            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/profiles') : '/api/profiles';
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
             try {
-                const response = await fetch(url, { signal: controller.signal });
+                const response = window.backendConnector
+                    ? await window.backendConnector.fetch('/api/profiles', { signal: controller.signal })
+                    : await fetch('/api/profiles', { signal: controller.signal });
                 clearTimeout(timeoutId);
                 const data = await response.json();
 
@@ -4217,11 +4228,14 @@ class VisualResponseApp {
      */
     async refreshSelectorsFromBackend() {
         try {
-            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/llms') : '/api/llms';
-            window.logDebug('📡 Fetching LLM config from:', url);
-            const response = await fetch(url, {
-                headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
-            });
+            window.logDebug('📡 Fetching LLM config from: /api/llms');
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/llms', {
+                    headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
+                })
+                : await fetch('/api/llms', {
+                    headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
+                });
             const data = await response.json();
 
             console.log('📥 Received LLM config:', data);
@@ -5063,8 +5077,9 @@ class ConsoleLogManager {
 
     async fetchAvailableLogs() {
         try {
-            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/logs/list') : '/api/logs/list';
-            const response = await fetch(url);
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/logs/list')
+                : await fetch('/api/logs/list');
             const result = await response.json();
 
             if (result.status === 'success') {
@@ -5083,8 +5098,9 @@ class ConsoleLogManager {
         if (this.logSource !== 'file') return;
 
         try {
-            const url = window.backendConnector ? await window.backendConnector.buildURL(`/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`) : `/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`;
-            const response = await fetch(url);
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch(`/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`)
+                : await fetch(`/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`);
             const result = await response.json();
 
             if (result.status === 'success') {
@@ -5143,7 +5159,10 @@ class ConsoleLogManager {
         this.disconnectSSE();
 
         try {
-            const url = window.backendConnector ? await window.backendConnector.buildURL(`/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`) : `/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`;
+            // Note: EventSource requires a URL string, so we still use buildURL here
+            const url = window.backendConnector
+                ? await window.backendConnector.buildURL(`/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`)
+                : `/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`;
             this.sseConnection = new EventSource(url);
 
             this.sseConnection.onmessage = (event) => {
