@@ -67,9 +67,10 @@ class ToolRegistry {
      */
     async fetchTools() {
         try {
-            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/tools') : '/api/tools';
-            window.logDebug('[ToolRegistry] Fetching tools from:', url);
-            const response = await fetch(url);
+            window.logDebug('[ToolRegistry] Fetching tools from: /api/tools');
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/tools')
+                : await fetch('/api/tools');
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
