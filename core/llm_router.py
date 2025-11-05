@@ -1520,10 +1520,11 @@ class LlmRouter:
         instance = cls()
         cls.call_counter += 1
 
-        # Check for role-specific model selection first
+        # Check for role-specific model selection ONLY if preferred_models wasn't explicitly provided
         # Role is now always set (defaults to FALLBACKS), so just check if config exists
+        # Bug fix: Don't override explicitly passed preferred_models with role-based selection
         role_key = role.value  # Get string value from enum
-        if role_key in g.llm_roles:
+        if not preferred_models and role_key in g.llm_roles:
             role_models = g.llm_roles.get(role_key)
             if role_models:
                 # Convert to list if it's a single model string
