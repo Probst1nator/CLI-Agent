@@ -5,6 +5,8 @@ Hierarchical test framework for running tests at different levels
 from integration tests to unit tests.
 """
 
+from __future__ import annotations
+
 import asyncio
 import sys
 import time
