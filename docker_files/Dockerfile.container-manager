@@ -20,7 +20,8 @@ RUN pip install --no-cache-dir \
     docker==7.1.0 \
     httpx==0.25.1 \
     websockets==12.0 \
-    psutil==5.9.6
+    psutil==5.9.6 \
+    PyJWT>=2.8.0
 
 # Copy container manager code
 COPY api/container_manager.py /app/container_manager.py
