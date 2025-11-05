@@ -213,9 +213,14 @@
                 <section class="settings-section">
                     <div class="section-header">
                         <h3>🛠️ Quick Tool Controls</h3>
-                        <button id="settings-reset-btn" class="settings-action-btn" title="Reset to default template">
-                            Reset to Default
-                        </button>
+                        <div class="section-header-buttons">
+                            <button id="settings-save-default-btn" class="settings-action-btn" title="Save current settings as default template">
+                                Save as Default
+                            </button>
+                            <button id="settings-reset-btn" class="settings-action-btn" title="Reset to default template">
+                                Reset to Default
+                            </button>
+                        </div>
                     </div>
                     <p class="settings-help-text">Control permissions for individual tools. Select allow (execute without asking), ask (require confirmation), or deny (block completely) for each tool.</p>
                     <div class="tools-grid" id="tools-permission-grid">

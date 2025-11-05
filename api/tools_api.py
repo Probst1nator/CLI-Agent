@@ -104,7 +104,7 @@ class UploadSecurity:
                         )
 
                     f.write(chunk)
-        except Exception as e:
+        except Exception:
             # Cleanup on error
             if file_path.exists():
                 file_path.unlink()
@@ -132,7 +132,7 @@ class UploadSecurity:
                 # Only fail in containerized mode for security
                 if self.is_containerized:
                     file_path.unlink()
-                    raise ValueError(f"File content type mismatch")
+                    raise ValueError("File content type mismatch")
 
         except ImportError:
             # python-magic not installed, skip MIME check

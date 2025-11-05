@@ -151,8 +151,18 @@ class CommandHandler:
         return descs
 
     def is_command(self, user_input: str) -> bool:
-        """Check if user input is a command."""
-        return user_input.startswith('/')
+        """Check if user input is a command (vs a file path)."""
+        if not user_input.startswith('/'):
+            return False
+
+        # Get the first word (before any whitespace)
+        first_word = user_input.split()[0] if user_input.split() else user_input
+
+        # If the first word contains more than one '/', it's a file path
+        if first_word.count('/') > 1:
+            return False
+
+        return True
 
     async def handle_command(
         self,

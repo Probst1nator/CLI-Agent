@@ -26,9 +26,9 @@ if __name__ == '__main__':
     if PROJECT_ROOT not in sys.path:
         sys.path.insert(0, PROJECT_ROOT)
 
+from shared.utils.memory_utils import save_to_memory_file
 from shared.utils.search.brave_search import BraveSearchAPI
 from shared.utils.search.search_vector_db import SearchResultsVectorDB
-from shared.utils.text_resource_manager import TextResourceManager
 
 
 class searchweb:
@@ -108,49 +108,10 @@ class searchweb:
 
 
         sourced_snippets = []
-        created_resources = []  # Track created text resources
 
         for i, result in enumerate(results):
             source_content = searchweb.result_to_source(result)
             sourced_snippets.append(source_content)
-
-            # Create individual text resources (only if caching enabled)
-            if use_cache and source_content.strip():
-                try:
-                    resource_manager = TextResourceManager._get_manager()
-
-                    # Create a hash-based resource ID for deduplication
-                    import hashlib
-                    content_hash = hashlib.md5(source_content.encode()).hexdigest()[:8]
-                    resource_id = f"search_result_{content_hash}"
-
-                    # Check if resource already exists
-                    existing_resource = resource_manager.get_resource(resource_id)
-                    if existing_resource:
-                        # Update access time for existing resource
-                        existing_resource.update_access_time()
-                        created_resources.append({
-                            'resource_id': resource_id,
-                            'title': result.get('title', 'No Title'),
-                            'url': result.get('url', 'No URL'),
-                            'is_new': False
-                        })
-                    else:
-                        # Create new resource
-                        resource_manager.create_resource(
-                            content=source_content,
-                            source=result.get('url', f'search_result_{i}'),
-                            source_type='web_search_result',
-                            resource_id=resource_id
-                        )
-                        created_resources.append({
-                            'resource_id': resource_id,
-                            'title': result.get('title', 'No Title'),
-                            'url': result.get('url', 'No URL'),
-                            'is_new': True
-                        })
-                except Exception as e:
-                    print(f"⚠️ Failed to create text resource for result {i}: {e}")
 
         if not sourced_snippets:
             return "No useful information found."
@@ -192,26 +153,23 @@ class searchweb:
             except Exception as e:
                 print(f"⚠️ Failed to store summary in vector database: {e}")
 
-        # Build the enhanced response with resource information
+        # Save full search results to memory file for detailed reference
+        memory_file_path = None
+        if len(joined_text) > 1000:  # Save to memory if substantial content
+            import hashlib
+            query_hash = hashlib.md5(query.encode()).hexdigest()[:8]
+            memory_file_path = save_to_memory_file(
+                joined_text,
+                f"searchweb_{query_hash}"
+            )
+
+        # Build the response
         response = f"Web search summary: {summary}"
 
-        # Add individual source access information (only if resources were created)
-        if use_cache and created_resources:
-            response += "\n\nIndividual Sources Available:"
-            for resource_info in created_resources:
-                status_indicator = "📄" if resource_info['is_new'] else "🔄"
-                response += f"\n- {status_indicator} Resource ID: {resource_info['resource_id']} | Title: \"{resource_info['title']}\" | URL: {resource_info['url']}"
-
-            response += "\n\nAccess individual sources using:"
-            response += "\n• Read full source: <readfile>{resource_id}</readfile>"
-            response += "\n• Search within source: <searchresource><resource_id>{resource_id}</resource_id><search>your search term</search></searchresource>"
-
-            new_count = sum(1 for r in created_resources if r['is_new'])
-            existing_count = len(created_resources) - new_count
-            if new_count > 0:
-                response += f"\n\n📄 Created {new_count} new text resources"
-            if existing_count > 0:
-                response += f" | 🔄 Updated access time for {existing_count} existing resources"
+        # Add memory file reference if created
+        if memory_file_path:
+            response += f"\n\n📁 Full search results saved to: {memory_file_path}"
+            response += f"\nUse <readfile>{memory_file_path}</readfile> to read all source details."
 
         return response
 

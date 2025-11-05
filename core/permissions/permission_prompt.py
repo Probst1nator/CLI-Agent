@@ -64,7 +64,8 @@ async def permission_prompt(
             file_path=file_path,
             command=command,
             reason=reason,
-            settings_manager=settings_manager
+            settings_manager=settings_manager,
+            xml_content=xml_content
         )
         if gui_result is not None:
             return gui_result
@@ -111,7 +112,8 @@ async def _try_gui_permission_prompt(
     file_path: Optional[str],
     command: Optional[str],
     reason: str,
-    settings_manager
+    settings_manager,
+    xml_content: Optional[str] = None
 ) -> Optional[bool]:
     """
     Try to show permission prompt in GUI mode via WebSocket.
@@ -132,6 +134,25 @@ async def _try_gui_permission_prompt(
         # Generate rule options for specificity selection
         rule_options = _get_permission_rule_options(tool_name, file_path, command)
 
+        # Format args_display for frontend to show tool call arguments
+        args_display = ""
+        if tool_name == "bash" and command:
+            args_display = command
+        elif file_path:
+            args_display = f"file: {file_path}"
+        elif xml_content:
+            # Extract arguments from XML content if available
+            try:
+                # Simple extraction of XML content between tags
+                import re
+                content_match = re.search(r'<[^>]+>(.*?)</[^>]+>', xml_content, re.DOTALL)
+                if content_match:
+                    args_display = content_match.group(1).strip()[:200]  # Limit to 200 chars
+            except Exception:
+                args_display = f"{tool_name} (arguments not available)"
+        else:
+            args_display = f"{tool_name}"
+
         # Send permission request to GUI
         permission_payload = {
             "id": f"permission-{int(time.time() * 1000)}",
@@ -142,6 +163,7 @@ async def _try_gui_permission_prompt(
                 "action_description": action_desc,
                 "file_path": file_path or "",
                 "command": command or "",
+                "args_display": args_display,
                 "reason": reason,
                 "options": ["allow", "deny", "always_allow", "always_deny"],
                 "rule_options": [
@@ -153,14 +175,10 @@ async def _try_gui_permission_prompt(
 
         session.send_update(permission_payload)
 
-        # Wait for response from visual interface
+        # Wait for response from visual interface (no timeout - wait indefinitely)
         if hasattr(g, 'visual_input_queue'):
             try:
-                timeout_seconds = 60
-                response_data = await asyncio.wait_for(
-                    g.visual_input_queue.get(),
-                    timeout=timeout_seconds
-                )
+                response_data = await g.visual_input_queue.get()
 
                 if response_data and isinstance(response_data, dict):
                     result = response_data.get('result')
@@ -194,8 +212,8 @@ async def _try_gui_permission_prompt(
                         print(colored("❌ Permission denied (GUI)", "red"))
                         return False
 
-            except TimeoutError:
-                print(colored("⚠️  GUI permission timeout - denying by default", "yellow"))
+            except Exception as e:
+                print(colored(f"⚠️  GUI permission error: {e} - denying by default", "yellow"))
                 return False
 
     except Exception as e:
@@ -274,7 +292,7 @@ async def _cli_permission_prompt(
                     print(f"  [{idx}] {description}")
                     print(f"      Rule: {colored(rule, 'yellow')}")
 
-                print(f"  [0] Cancel")
+                print("  [0] Cancel")
                 print("")
 
                 # Get specificity choice
@@ -355,7 +373,7 @@ def _get_permission_rule_options(tool_name: str, file_path: Optional[str],
         cmd_word = cmd_parts[0]
 
         # Level 1: Exact command
-        options.append((f"This exact command", f"bash({command})"))
+        options.append(("This exact command", f"bash({command})"))
 
         # Level 2: Command with first N words (if multi-word)
         if len(cmd_parts) >= 2:

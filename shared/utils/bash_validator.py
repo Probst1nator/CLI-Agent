@@ -9,7 +9,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def extract_command_name(command: str) -> str:
     return parts[0]
 
 
-def analyze_command_risk(command: str) -> Tuple[str, str, list]:
+def analyze_command_risk(command: str) -> tuple[str, str, list]:
     """
     Analyze command for security risks.
 
@@ -176,7 +176,7 @@ def log_bash_command(command: str, user_id: Optional[str] = None, risk_level: st
         logger.error(f"Failed to log bash command: {e}")
 
 
-def validate_command(command: str, user_id: Optional[str] = None) -> Tuple[bool, str]:
+def validate_command(command: str, user_id: Optional[str] = None) -> tuple[bool, str]:
     """
     Validate bash command and return whether it should be allowed.
 

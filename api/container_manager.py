@@ -736,8 +736,8 @@ manager = ContainerManager()
 
 # === JWT Authentication ===
 
+
 import jwt
-from datetime import timedelta
 
 JWT_SECRET = os.getenv('JWT_SECRET', 'CHANGE-THIS-SECRET-KEY-IN-PRODUCTION-MINIMUM-32-CHARS')
 JWT_ALGORITHM = 'HS256'

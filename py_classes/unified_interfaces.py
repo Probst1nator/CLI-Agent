@@ -37,7 +37,7 @@ class BaseProviderInterface(ABC):
         logger.setLevel(level)
 
     @staticmethod
-    def get_debug_title_prefix(chat: Optional['Chat']) -> str:
+    def get_debug_title_prefix(chat: Optional[Chat]) -> str:
         """
         Get a formatted prefix string for debug messages that includes the chat's debug title if available.
 
@@ -154,7 +154,7 @@ class AIProviderInterface(BaseProviderInterface):
     """
 
     @abstractmethod
-    def generate_response(self, chat: Union['Chat', str], model_key: str,
+    def generate_response(self, chat: Union[Chat, str], model_key: str,
                          temperature: Optional[float] = None, silent_reason: str = "",
                          thinking_budget: Optional[int] = None) -> Any:
         """

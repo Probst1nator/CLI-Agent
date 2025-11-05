@@ -215,7 +215,7 @@ class GroqAPI(AIProviderInterface):
             return []
 
     @staticmethod
-    def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional['Chat'] = None) -> Optional[tuple[str, str]]:
+    def transcribe_audio(filepath: str, model: str = "whisper-large-v3-turbo", language: Optional[str] = None, silent_reason: str = False, chat: Optional[Chat] = None) -> Optional[tuple[str, str]]:
         """
         Transcribes an audio file using Groq's Whisper implementation.
 

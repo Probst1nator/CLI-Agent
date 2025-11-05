@@ -22,12 +22,12 @@ try:
 except ImportError:
     PYMUPDF_AVAILABLE = False
 
-# Import the TextResourceManager, which is central to this tool's functionality
+# Import memory utilities for saving large content
 try:
-    from shared.utils.text_resource_manager import TextResourceManager
-    RESOURCE_MANAGER_AVAILABLE = True
+    from shared.utils.memory_utils import save_to_memory_file
+    MEMORY_UTILS_AVAILABLE = True
 except ImportError:
-    RESOURCE_MANAGER_AVAILABLE = False
+    MEMORY_UTILS_AVAILABLE = False
 
 # A set of common binary file extensions to avoid reading non-text files.
 # .pdf is now handled separately and removed from this list.
@@ -52,7 +52,7 @@ class readdirectory:
         """Provides standardized documentation for this tool."""
         info = {
             "name": "readdirectory",
-            "description": "Recursively lists directory contents and loads readable files into the resource manager. Supports text files and automatically converts PDFs to text. Respects .gitignore rules. Optional max_depth parameter to limit recursion depth.",
+            "description": "Recursively lists directory contents and saves readable files to a memory file for later access. Supports text files and automatically converts PDFs to text. Respects .gitignore rules. Optional max_depth parameter to limit recursion depth.",
             "example": "<readdirectory><path>./documents</path><max_depth>2</max_depth></readdirectory>"
         }
         if not PYMUPDF_AVAILABLE:
@@ -116,10 +116,10 @@ class readdirectory:
     @staticmethod
     def run(content: str) -> str:
         """
-        Executes the directory scan and content ingestion for text and PDF files.
+        Executes the directory scan and saves file contents to memory.
         """
-        if not RESOURCE_MANAGER_AVAILABLE:
-            return "Error: TextResourceManager is not available. This tool cannot function."
+        if not MEMORY_UTILS_AVAILABLE:
+            return "Error: Memory utilities are not available. This tool cannot function."
 
         try:
             path_match = re.search(r'<path>(.*?)</path>', content, re.DOTALL)
@@ -135,11 +135,11 @@ class readdirectory:
             if not os.path.isdir(full_path):
                 return f"Error: Path does not exist or is not a directory: '{full_path}'"
 
-            resource_manager = TextResourceManager._get_manager()
             spec, project_root = readdirectory._find_project_root_and_spec(full_path)
 
             all_paths = []
             ingested_files = []
+            combined_content = []  # Collect all file contents
 
             for root, dirs, files in os.walk(full_path, topdown=True):
                 # Calculate current depth relative to the starting path
@@ -190,37 +190,50 @@ class readdirectory:
                         except OSError:
                             continue # Skip unreadable files
 
-                    # --- Ingestion Logic ---
+                    # --- Collect file content ---
                     if file_content and file_content.strip():
                         try:
-                            resource = resource_manager.create_resource(
-                                content=file_content,
-                                source=file_path,
-                                source_type=content_source_type
-                            )
+                            rel_path = os.path.relpath(file_path, full_path)
+                            # Add separator and file header
+                            combined_content.append(f"\n{'='*80}\n")
+                            combined_content.append(f"FILE: {rel_path}\n")
+                            combined_content.append(f"TYPE: {content_source_type.upper()}\n")
+                            combined_content.append(f"LINES: {len(file_content.splitlines())}\n")
+                            combined_content.append(f"{'='*80}\n\n")
+                            combined_content.append(file_content)
+                            combined_content.append("\n")
+
                             ingested_files.append({
                                 "path": file_path,
-                                "resource_id": resource.resource_id,
                                 "lines": len(file_content.splitlines()),
                                 "type": content_source_type
                             })
                         except Exception:
                             continue
 
+            # --- Save to memory file if content was collected ---
+            memory_file_path = None
+            if combined_content:
+                dir_name = os.path.basename(full_path)
+                all_content = "".join(combined_content)
+                memory_file_path = save_to_memory_file(all_content, f"readdirectory_{dir_name}")
+
             # --- Format the final output ---
             output = [f"Directory scan of '{full_path}' complete."]
 
             if ingested_files:
                 output.append("\n--- Ingested Files ---")
-                output.append("The following files have been loaded into the searchable resource manager:")
+                output.append(f"Collected {len(ingested_files)} readable files and saved to memory:")
                 for item in ingested_files:
                     rel_path = os.path.relpath(item['path'], full_path)
                     file_type = item['type'].upper()
-                    output.append(f"- Path: {rel_path} (Type: {file_type}, Lines: {item['lines']})")
-                    output.append(f"  Resource ID: {item['resource_id']}")
-                output.append("\nUse the <searchresource> tool to inspect these resources.")
+                    output.append(f"- {rel_path} (Type: {file_type}, Lines: {item['lines']})")
+
+                if memory_file_path:
+                    output.append(f"\n📁 Memory file: {memory_file_path}")
+                    output.append(f"\nUse <readfile>{memory_file_path}</readfile> to read the full content.")
             else:
-                output.append("\nNo readable text or PDF files were found to ingest.")
+                output.append("\nNo readable text or PDF files were found.")
 
             tree_output = ["\n--- Directory Tree ---"]
             tree_paths = sorted([os.path.relpath(p, full_path) for p in all_paths])

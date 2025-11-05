@@ -140,10 +140,6 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # --- Tool and Core Imports ---
-from core.tool_context import tool_context
-from tools.primitives.todos import todos
-from tools.readfile import readfile
-
 import linecache
 import traceback
 
@@ -166,7 +162,10 @@ from core.permissions.settings_manager import (
     extract_command_from_xml,
     extract_path_from_xml,
 )
+from core.tool_context import tool_context
 from shared.common_utils import extract_blocks
+from tools.primitives.todos import todos
+from tools.readfile import readfile
 
 # --- Suppress Noisy Library Warnings ---
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -2397,8 +2396,8 @@ async def main(  # type: ignore[misc]
                         else:
                             logging.warning(
                                 colored(
-                                    f"⚠️  Profile '1' has no fallback models - skipping auto-load to preserve defaults. "
-                                    f"Use '/profile_load 1' to load it manually, or save a complete profile with '/profile_save 1'.",
+                                    "⚠️  Profile '1' has no fallback models - skipping auto-load to preserve defaults. "
+                                    "Use '/profile_load 1' to load it manually, or save a complete profile with '/profile_save 1'.",
                                     "yellow"
                                 )
                             )

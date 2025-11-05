@@ -2430,7 +2430,8 @@ code:not(pre > code) {
     display: flex;
     align-items: center;
     gap: 5px;
-    min-width: 100px;
+    min-width: max-content;
+    white-space: nowrap;
     justify-content: center;
 }
 
@@ -4689,6 +4690,32 @@ html[data-theme='light'] .autocomplete-item.selected {
     border-color: #28a745;
 }
 
+.auto-save-status {
+    display: none;
+    padding: 0.5em 1em;
+    font-size: 0.85em;
+    border-radius: 0.3em;
+    transition: opacity 0.3s ease;
+}
+
+.auto-save-status.saving {
+    color: var(--status-connecting);
+    background-color: rgba(255, 193, 7, 0.1);
+    border: 1px solid var(--status-connecting);
+}
+
+.auto-save-status.saved {
+    color: var(--status-connected);
+    background-color: rgba(76, 175, 80, 0.1);
+    border: 1px solid var(--status-connected);
+}
+
+.auto-save-status.error {
+    color: var(--status-error);
+    background-color: rgba(244, 67, 54, 0.1);
+    border: 1px solid var(--status-error);
+}
+
 .settings-close-btn {
     padding: 0.3em 0.7em;
     background-color: transparent;
@@ -4727,6 +4754,12 @@ html[data-theme='light'] .autocomplete-item.selected {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 0.5em;
+}
+
+.section-header-buttons {
+    display: flex;
+    gap: 0.5em;
+    align-items: center;
 }
 
 .settings-section h3 {
@@ -4959,7 +4992,7 @@ html[data-theme='light'] .autocomplete-item.selected {
         gap: 0.5em;
     }
 
-    .section-header button {
+    .section-header-buttons {
         align-self: flex-end;
     }
 
