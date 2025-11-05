@@ -115,7 +115,6 @@ def get_dynamic_path_suggestions(
     """
     import os
     import time
-    from pathlib import Path
 
     # Check cache first
     cache_key = f"{path_prefix}:{max_depth}"
@@ -788,7 +787,7 @@ async def get_custom_autocomplete_suggestions(request: Request) -> Response:  # 
 
         from core.chat import Chat, Role
         from core.globals import g
-        from core.llm_router import LlmRouter, LLMRole
+        from core.llm_router import LLMRole, LlmRouter
 
         # Get context from main.py
         # Note: main.py sets g.chat (not g.context_chat)

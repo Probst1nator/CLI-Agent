@@ -18,6 +18,7 @@ from termcolor import colored
 from core.globals import g
 from tools.bash import bash  # Import to access the shared process list
 
+
 class taskmanager:
 
     @staticmethod

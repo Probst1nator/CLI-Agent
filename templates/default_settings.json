@@ -9,17 +9,7 @@
       "searchweb",
       "viewpermissions"
     ],
-    "deny": [
-      "bash(sudo:*)",
-      "bash(rm -rf:*)",
-      "bash(dd:*)",
-      "bash(mkfs:*)"
-    ],
-    "ask": [
-      "bash(git push:*)",
-      "bash(docker:*)",
-      "writefile",
-      "editfile"
-    ]
+    "deny": [],
+    "ask": []
   }
 }

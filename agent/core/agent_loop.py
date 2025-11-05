@@ -78,7 +78,7 @@ class AgentLoop:
                         continue
 
                     # Handle commands
-                    if user_input and user_input.startswith('/'):
+                    if user_input and self.command_handler.is_command(user_input):
                         command_response = await self.command_handler.handle_command(
                             user_input,
                             args,

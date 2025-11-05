@@ -24,6 +24,10 @@ class SettingsManager {
 
         // Available tools cache
         this.availableTools = [];
+
+        // Auto-save debounce timer
+        this.autoSaveDebounceTimer = null;
+        this.autoSaveDelay = 500; // milliseconds
     }
 
     /**
@@ -35,6 +39,7 @@ class SettingsManager {
         this.settingsBtn = document.getElementById('settings-btn');
         this.closeBtn = document.getElementById('settings-close-btn');
         this.saveBtn = document.getElementById('settings-save-btn');
+        this.saveDefaultBtn = document.getElementById('settings-save-default-btn');
         this.resetBtn = document.getElementById('settings-reset-btn');
         this.chatArea = document.getElementById('content-wrapper');
         this.mainContentArea = document.querySelector('.main-content-area');
@@ -48,16 +53,26 @@ class SettingsManager {
         this.settingsBtn.addEventListener('click', () => this.toggle());
         this.closeBtn.addEventListener('click', () => this.close());
         this.saveBtn.addEventListener('click', () => this.save());
+        this.saveDefaultBtn.addEventListener('click', () => this.saveAsDefault());
         this.resetBtn.addEventListener('click', () => this.reset());
 
-        // Update rule counts on textarea input
+        // Update rule counts on textarea input and trigger auto-save
         const allowTextarea = document.getElementById('allow-patterns');
         const askTextarea = document.getElementById('ask-patterns');
         const denyTextarea = document.getElementById('deny-patterns');
 
-        allowTextarea.addEventListener('input', () => this.updateRuleCount('allow'));
-        askTextarea.addEventListener('input', () => this.updateRuleCount('ask'));
-        denyTextarea.addEventListener('input', () => this.updateRuleCount('deny'));
+        allowTextarea.addEventListener('input', () => {
+            this.updateRuleCount('allow');
+            this.scheduleAutoSave();
+        });
+        askTextarea.addEventListener('input', () => {
+            this.updateRuleCount('ask');
+            this.scheduleAutoSave();
+        });
+        denyTextarea.addEventListener('input', () => {
+            this.updateRuleCount('deny');
+            this.scheduleAutoSave();
+        });
 
         console.log('[SettingsManager] Initialized');
     }
@@ -302,44 +317,46 @@ class SettingsManager {
     }
 
     /**
-     * Save permissions to backend
+     * Schedule auto-save with debouncing
+     */
+    scheduleAutoSave() {
+        // Clear existing timer
+        if (this.autoSaveDebounceTimer) {
+            clearTimeout(this.autoSaveDebounceTimer);
+        }
+
+        // Schedule new auto-save
+        this.autoSaveDebounceTimer = setTimeout(() => {
+            this.autoSave();
+        }, this.autoSaveDelay);
+    }
+
+    /**
+     * Auto-save permissions to backend (without closing panel)
+     */
+    async autoSave() {
+        try {
+            console.log('[SettingsManager] Auto-saving permissions...');
+            this.showAutoSaveStatus('saving');
+
+            await this.performSave();
+
+            console.log('[SettingsManager] Permissions auto-saved successfully');
+            this.showAutoSaveStatus('saved');
+        } catch (error) {
+            console.error('[SettingsManager] Failed to auto-save permissions:', error);
+            this.showAutoSaveStatus('error', error.message);
+        }
+    }
+
+    /**
+     * Save permissions to backend (manual save, closes panel)
      */
     async save() {
         try {
             console.log('[SettingsManager] Saving permissions...');
 
-            // Parse textareas into arrays
-            const allow = document.getElementById('allow-patterns').value
-                .split('\n')
-                .map(line => line.trim())
-                .filter(Boolean);
-            const ask = document.getElementById('ask-patterns').value
-                .split('\n')
-                .map(line => line.trim())
-                .filter(Boolean);
-            const deny = document.getElementById('deny-patterns').value
-                .split('\n')
-                .map(line => line.trim())
-                .filter(Boolean);
-
-            const url = window.backendConnector
-                ? await window.backendConnector.buildURL('/api/permissions')
-                : '/api/permissions';
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Session-ID': window.sessionId || ''
-                },
-                body: JSON.stringify({ allow, ask, deny })
-            });
-
-            const data = await response.json();
-
-            if (data.status !== 'success') {
-                throw new Error(data.error || 'Failed to save permissions');
-            }
+            await this.performSave();
 
             console.log('[SettingsManager] Permissions saved successfully');
             this.showSuccess('Permissions saved successfully!');
@@ -349,6 +366,80 @@ class SettingsManager {
         } catch (error) {
             console.error('[SettingsManager] Failed to save permissions:', error);
             this.showError(`Failed to save permissions: ${error.message}`);
+        }
+    }
+
+    /**
+     * Perform the actual save operation (shared between save and auto-save)
+     */
+    async performSave() {
+        // Parse textareas into arrays
+        const allow = document.getElementById('allow-patterns').value
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+        const ask = document.getElementById('ask-patterns').value
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+        const deny = document.getElementById('deny-patterns').value
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+
+        const url = window.backendConnector
+            ? await window.backendConnector.buildURL('/api/permissions')
+            : '/api/permissions';
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': window.sessionId || ''
+            },
+            body: JSON.stringify({ allow, ask, deny })
+        });
+
+        const data = await response.json();
+
+        if (data.status !== 'success') {
+            throw new Error(data.error || 'Failed to save permissions');
+        }
+    }
+
+    /**
+     * Save current permissions as default template
+     */
+    async saveAsDefault() {
+        if (!confirm('Save current settings as the default template? This will overwrite the existing default.')) {
+            return;
+        }
+
+        try {
+            console.log('[SettingsManager] Saving current settings as default template...');
+
+            const url = window.backendConnector
+                ? await window.backendConnector.buildURL('/api/permissions/save-as-default')
+                : '/api/permissions/save-as-default';
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.status !== 'success') {
+                throw new Error(data.error || 'Failed to save as default');
+            }
+
+            console.log('[SettingsManager] Current settings saved as default template');
+            this.showSuccess('Current settings saved as default template!');
+        } catch (error) {
+            console.error('[SettingsManager] Failed to save as default:', error);
+            this.showError(`Failed to save as default: ${error.message}`);
         }
     }
 
@@ -415,6 +506,59 @@ class SettingsManager {
     showError(message) {
         console.error('[SettingsManager] Error:', message);
         alert(`Error: ${message}`);
+    }
+
+    /**
+     * Show auto-save status indicator
+     */
+    showAutoSaveStatus(status, errorMessage = '') {
+        // Get or create auto-save status indicator
+        let statusIndicator = document.getElementById('auto-save-status');
+
+        if (!statusIndicator) {
+            statusIndicator = document.createElement('div');
+            statusIndicator.id = 'auto-save-status';
+            statusIndicator.className = 'auto-save-status';
+
+            // Insert after the settings header actions
+            const headerActions = document.querySelector('.settings-header-actions');
+            if (headerActions) {
+                headerActions.appendChild(statusIndicator);
+            }
+        }
+
+        // Update status
+        if (status === 'saving') {
+            statusIndicator.textContent = 'Auto-saving...';
+            statusIndicator.className = 'auto-save-status saving';
+            statusIndicator.style.display = 'inline-block';
+        } else if (status === 'saved') {
+            statusIndicator.textContent = 'Auto-saved ✓';
+            statusIndicator.className = 'auto-save-status saved';
+            statusIndicator.style.display = 'inline-block';
+
+            // Fade out after 2 seconds
+            setTimeout(() => {
+                statusIndicator.style.opacity = '0';
+                setTimeout(() => {
+                    statusIndicator.style.display = 'none';
+                    statusIndicator.style.opacity = '1';
+                }, 300);
+            }, 2000);
+        } else if (status === 'error') {
+            statusIndicator.textContent = `Auto-save failed: ${errorMessage}`;
+            statusIndicator.className = 'auto-save-status error';
+            statusIndicator.style.display = 'inline-block';
+
+            // Fade out after 4 seconds
+            setTimeout(() => {
+                statusIndicator.style.opacity = '0';
+                setTimeout(() => {
+                    statusIndicator.style.display = 'none';
+                    statusIndicator.style.opacity = '1';
+                }, 300);
+            }, 4000);
+        }
     }
 }
 

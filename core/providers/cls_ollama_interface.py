@@ -22,7 +22,7 @@ from core.globals import g
 from py_classes.unified_interfaces import AIProviderInterface
 
 if TYPE_CHECKING:
-    from core.chat import Chat, Role
+    from core.chat import Chat
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class OllamaModelList:
         return json.dumps({"models": [model.to_dict() for model in self.models]}, indent=2)
 
     @classmethod
-    def from_json(cls, json_str: str) -> 'OllamaModelList':
+    def from_json(cls, json_str: str) -> OllamaModelList:
         """
         Creates OllamaModelList from a JSON string.
 
@@ -669,7 +669,8 @@ class OllamaClient(AIProviderInterface):
         # Convert string to Chat object if needed
         if isinstance(chat, str):
             # Lazy import to avoid circular dependency
-            from core.chat import Chat as ChatClass, Role
+            from core.chat import Chat as ChatClass
+            from core.chat import Role
             chat_obj = ChatClass()
             chat_obj.add_message(Role.USER, chat)
             chat_inner = chat_obj

@@ -31,6 +31,26 @@ if TYPE_CHECKING:
 EXIT_COUNTDOWN_SECONDS = 5.0
 
 
+def _is_command(user_input: str) -> bool:
+    """
+    Check if user input is a command (vs a file path).
+
+    Commands start with '/' and have only one slash in the first word.
+    File paths start with '/' but have multiple slashes (e.g., /home/user/file.txt).
+    """
+    if not user_input.startswith('/'):
+        return False
+
+    # Get the first word (before any whitespace)
+    first_word = user_input.split()[0] if user_input.split() else user_input
+
+    # If the first word contains more than one '/', it's a file path
+    if first_word.count('/') > 1:
+        return False
+
+    return True
+
+
 class CLIInputSource(InputSource_ABC):
     """CLI input source using prompt_toolkit."""
 
@@ -77,7 +97,7 @@ class CLIInputSource(InputSource_ABC):
                 user_input = await session.prompt_async(html_prompt)
 
             # Determine event type
-            event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+            event_type = InputEventType.COMMAND if _is_command(user_input) else InputEventType.TEXT
 
             # Include context_chat in metadata if available
             metadata = {
@@ -98,7 +118,7 @@ class CLIInputSource(InputSource_ABC):
         except ImportError:
             # Fallback to regular input
             user_input = input(prompt)
-            event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+            event_type = InputEventType.COMMAND if _is_command(user_input) else InputEventType.TEXT
 
             # Include context_chat in metadata if available
             metadata = {'prompt': prompt, 'fallback': True}
@@ -298,7 +318,7 @@ class GUIInputSource(InputSource_ABC):
         self._input_event.clear()
 
         # Determine event type
-        event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+        event_type = InputEventType.COMMAND if _is_command(user_input) else InputEventType.TEXT
 
         return InputEvent(
             event_type=event_type,
@@ -354,7 +374,7 @@ class WebInputSource(InputSource_ABC):
                         import traceback
                         traceback.print_exc()
 
-                    event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+                    event_type = InputEventType.COMMAND if _is_command(user_input) else InputEventType.TEXT
 
                     # Include context_chat in metadata if available
                     metadata = {'prompt': prompt, 'source_queue': 'args.message'}
@@ -559,7 +579,7 @@ class WebInputSource(InputSource_ABC):
                             )
 
                         if user_input:
-                            event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+                            event_type = InputEventType.COMMAND if _is_command(user_input) else InputEventType.TEXT
 
                             # Include context_chat in metadata if available
                             metadata = {'prompt': prompt, 'session_id': session_id}
@@ -591,7 +611,7 @@ class WebInputSource(InputSource_ABC):
 
                         if user_input:
                             self.logger.info(f"🌐 Received browser input: {user_input[:50]}...")
-                            event_type = InputEventType.COMMAND if user_input.startswith('/') else InputEventType.TEXT
+                            event_type = InputEventType.COMMAND if _is_command(user_input) else InputEventType.TEXT
 
                             # Include context_chat in metadata if available
                             metadata = {'prompt': prompt}
@@ -849,7 +869,7 @@ class QueueInputSource(InputSource_ABC):
             traceback.print_exc()
 
         # Determine event type
-        event_type = InputEventType.COMMAND if message.startswith('/') else InputEventType.TEXT
+        event_type = InputEventType.COMMAND if _is_command(message) else InputEventType.TEXT
 
         return InputEvent(
             event_type=event_type,

@@ -2161,7 +2161,7 @@ class VisualResponseApp {
      */
     addFilesToInput(filePaths) {
         const currentValue = this.chatInput.value;
-        const pathsText = filePaths.join(' ');
+        const pathsText = filePaths.map(f => typeof f === 'string' ? f : f.path).join(' ');
         
         if (currentValue.trim()) {
             this.chatInput.value = currentValue + ' ' + pathsText;

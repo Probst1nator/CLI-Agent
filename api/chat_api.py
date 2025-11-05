@@ -89,9 +89,10 @@ async def load_chat(request: Any) -> Any:
         raise RuntimeError("aiohttp not available")
 
     try:
+        import re
+
         from core.chat import Chat
         from core.globals import g
-        import re
 
         chat_id = request.match_info.get('id')
         if not chat_id:
@@ -311,8 +312,9 @@ async def delete_archived_chat(request: Any) -> Any:
         raise RuntimeError("aiohttp not available")
 
     try:
-        from core.chat import Chat
         import re
+
+        from core.chat import Chat
 
         chat_id = request.match_info.get('id')
         if not chat_id:
