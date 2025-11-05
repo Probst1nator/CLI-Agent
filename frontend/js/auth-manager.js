@@ -33,13 +33,25 @@ class AuthManager {
      * @returns {Promise<string|null>} JWT token or null on failure
      */
     async ensureAuthenticated() {
+        console.log('[AuthManager] Ensuring authentication...');
+
         // Check if we have a valid token
         if (this.token && !this.isTokenExpired()) {
+            console.log('[AuthManager] Token valid, using cached token');
             return this.token;
         }
 
         // Token expired or missing - get new one
-        return await this.refreshToken();
+        console.log('[AuthManager] Token missing or expired, fetching new token...');
+        const token = await this.refreshToken();
+
+        if (token) {
+            console.log('[AuthManager] Authentication ready');
+        } else {
+            console.error('[AuthManager] Authentication failed');
+        }
+
+        return token;
     }
 
     /**
@@ -49,6 +61,7 @@ class AuthManager {
     async refreshToken() {
         // Get UUID from identity manager
         const uuid = this.identityManager.getUUID();
+        console.log('[AuthManager] Refreshing JWT token for UUID:', uuid.substring(0, 8) + '...');
 
         try {
             const response = await fetch('/api/manager/auth/login', {
@@ -56,6 +69,13 @@ class AuthManager {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({uuid})
             });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`[AuthManager] HTTP ${response.status}: ${response.statusText}`);
+                console.error('[AuthManager] Response body:', errorText.substring(0, 500));
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
 
             const data = await response.json();
 
@@ -68,15 +88,15 @@ class AuthManager {
                 localStorage.setItem('cli-agent-jwt-token', this.token);
                 localStorage.setItem('cli-agent-jwt-expiry', this.tokenExpiry);
 
-                console.log('JWT token obtained, expires in', data.expires_in, 'seconds');
+                console.log('[AuthManager] JWT token obtained, expires in', data.expires_in, 'seconds');
                 return this.token;
             } else {
-                console.error('Authentication failed:', data.error);
+                console.error('[AuthManager] Authentication failed:', data.error);
                 this.clearAuth();
                 return null;
             }
         } catch (error) {
-            console.error('Authentication error:', error);
+            console.error('[AuthManager] Authentication error:', error);
             this.clearAuth();
             return null;
         }

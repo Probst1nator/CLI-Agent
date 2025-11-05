@@ -111,7 +111,9 @@ class ChatHistorySidebar {
 
         this.setupEventListeners();
         this.loadState();
-        this.loadChats();
+        // Note: loadChats() removed from constructor - it will be called after backend
+        // discovery completes (see main.js waitForReady() callback)
+        // This prevents 401 errors from attempting API calls before JWT auth is ready
     }
 
     /**
@@ -191,6 +193,14 @@ class ChatHistorySidebar {
             const response = window.backendConnector
                 ? await window.backendConnector.fetch('/api/chat/archives')
                 : await fetch('/api/chat/archives');
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`[ChatHistory] HTTP ${response.status}: ${response.statusText}`);
+                console.error('[ChatHistory] Response body:', errorText.substring(0, 500));
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
             const data = await response.json();
 
             if (data.status === 'success') {
@@ -198,7 +208,7 @@ class ChatHistorySidebar {
                 this.renderChats();
             }
         } catch (error) {
-            console.error('Failed to load chat history:', error);
+            console.error('[ChatHistory] Failed to load chat history:', error);
             this.content.innerHTML = '<div class="chat-history-error">Failed to load chat history</div>';
         }
     }

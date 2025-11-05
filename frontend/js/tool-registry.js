@@ -71,7 +71,11 @@ class ToolRegistry {
             const response = window.backendConnector
                 ? await window.backendConnector.fetch('/api/tools')
                 : await fetch('/api/tools');
+
             if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`[ToolRegistry] HTTP ${response.status}: ${response.statusText}`);
+                console.error('[ToolRegistry] Response body:', errorText.substring(0, 500));
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
