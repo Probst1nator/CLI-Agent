@@ -327,8 +327,9 @@ class SearchableLLMSelectbox {
     async loadModelsFromServer() {
         try {
             this.showLoading(true);
-            const url = window.backendConnector ? await window.backendConnector.buildURL('/api/llms') : '/api/llms';
-            const response = await fetch(url);
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/llms')
+                : await fetch('/api/llms');
             const data = await response.json();
 
             if (data.status === 'success') {

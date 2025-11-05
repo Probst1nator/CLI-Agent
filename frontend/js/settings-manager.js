@@ -139,11 +139,9 @@ class SettingsManager {
      */
     async loadPermissions() {
         try {
-            const url = window.backendConnector
-                ? await window.backendConnector.buildURL('/api/permissions')
-                : '/api/permissions';
-
-            const response = await fetch(url);
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/permissions')
+                : await fetch('/api/permissions');
             const data = await response.json();
 
             if (data.status !== 'success') {
@@ -174,11 +172,9 @@ class SettingsManager {
      */
     async loadTools() {
         try {
-            const url = window.backendConnector
-                ? await window.backendConnector.buildURL('/api/tools')
-                : '/api/tools';
-
-            const response = await fetch(url);
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/tools')
+                : await fetch('/api/tools');
             const data = await response.json();
 
             if (data.status !== 'success') {
@@ -387,18 +383,23 @@ class SettingsManager {
             .map(line => line.trim())
             .filter(Boolean);
 
-        const url = window.backendConnector
-            ? await window.backendConnector.buildURL('/api/permissions')
-            : '/api/permissions';
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Session-ID': window.sessionId || ''
-            },
-            body: JSON.stringify({ allow, ask, deny })
-        });
+        const response = window.backendConnector
+            ? await window.backendConnector.fetch('/api/permissions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || ''
+                },
+                body: JSON.stringify({ allow, ask, deny })
+            })
+            : await fetch('/api/permissions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || ''
+                },
+                body: JSON.stringify({ allow, ask, deny })
+            });
 
         const data = await response.json();
 
@@ -418,16 +419,19 @@ class SettingsManager {
         try {
             console.log('[SettingsManager] Saving current settings as default template...');
 
-            const url = window.backendConnector
-                ? await window.backendConnector.buildURL('/api/permissions/save-as-default')
-                : '/api/permissions/save-as-default';
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'X-Session-ID': window.sessionId || ''
-                }
-            });
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/permissions/save-as-default', {
+                    method: 'POST',
+                    headers: {
+                        'X-Session-ID': window.sessionId || ''
+                    }
+                })
+                : await fetch('/api/permissions/save-as-default', {
+                    method: 'POST',
+                    headers: {
+                        'X-Session-ID': window.sessionId || ''
+                    }
+                });
 
             const data = await response.json();
 
@@ -454,16 +458,19 @@ class SettingsManager {
         try {
             console.log('[SettingsManager] Resetting permissions to default template...');
 
-            const url = window.backendConnector
-                ? await window.backendConnector.buildURL('/api/permissions/reset')
-                : '/api/permissions/reset';
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'X-Session-ID': window.sessionId || ''
-                }
-            });
+            const response = window.backendConnector
+                ? await window.backendConnector.fetch('/api/permissions/reset', {
+                    method: 'POST',
+                    headers: {
+                        'X-Session-ID': window.sessionId || ''
+                    }
+                })
+                : await fetch('/api/permissions/reset', {
+                    method: 'POST',
+                    headers: {
+                        'X-Session-ID': window.sessionId || ''
+                    }
+                });
 
             const data = await response.json();
 

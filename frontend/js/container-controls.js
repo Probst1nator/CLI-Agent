@@ -39,11 +39,13 @@ class ContainerControls {
             // Show loading indicator
             this.showLoadingIndicator('Wiping container...');
 
+            // Note: This is a manager API, not backend API, but still needs auth in multi-user mode
             const response = await fetch(`/api/manager/container/${uuid}/wipe`, {
                 method: 'POST',
-                headers: {
-                    'X-User-UUID': uuid
-                }
+                headers: Object.assign(
+                    { 'X-User-UUID': uuid },
+                    window.authManager ? window.authManager.getAuthHeaders() : {}
+                )
             });
 
             if (!response.ok) {
@@ -84,10 +86,12 @@ class ContainerControls {
         }
 
         try {
+            // Note: This is a manager API, not backend API, but still needs auth in multi-user mode
             const response = await fetch('/api/manager/containers', {
-                headers: {
-                    'X-User-UUID': this.identityManager.getUUID()
-                }
+                headers: Object.assign(
+                    { 'X-User-UUID': this.identityManager.getUUID() },
+                    window.authManager ? window.authManager.getAuthHeaders() : {}
+                )
             });
 
             if (!response.ok) {
