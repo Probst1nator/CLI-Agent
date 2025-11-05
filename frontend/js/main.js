@@ -5599,10 +5599,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('Container Controls initialized');
     }
 
-    if (window.ToolRegistry) {
-        console.log('Initializing ToolRegistry...');
-        await window.ToolRegistry.initialize();
-    }
+    // Note: ToolRegistry initialization removed from here - it will be initialized
+    // after backend discovery completes (see waitForReady() callback above)
+    // This prevents 401 errors from attempting API calls before JWT auth is ready
 
     // Initialize console log manager
     consoleLogManager = new ConsoleLogManager();
