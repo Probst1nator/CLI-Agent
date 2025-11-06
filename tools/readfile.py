@@ -165,9 +165,10 @@ class readfile:
         return {
             "name": "readfile",
             "description": (
-                "Supports text, PDF, and image files. "
+                "Supports text, PDF, image, and office document files. "
                 "PDFs are automatically extracted to text (with OCR fallback). "
                 "Images and PDF pages are registered for vision model analysis. "
+                "Office documents (.docx, .xlsx, .pptx, .xls, .odt, .ods, .odp) are extracted to readable text. "
                 "Large text files are automatically saved to memory files that you can access with <readfile>."
             ),
             "example": (
@@ -175,6 +176,8 @@ class readfile:
                 "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>\n"
                 "<readfile>./screenshot.png</readfile>\n"
                 "<readfile>./document.pdf</readfile>\n"
+                "<readfile>./report.docx</readfile>\n"
+                "<readfile>./data.xlsx</readfile>\n"
             )
         }
 
@@ -392,6 +395,317 @@ class readfile:
             return f"Error processing image file '{filepath}': {str(e)}"
 
     @staticmethod
+    def is_office_document(filepath: str) -> tuple:
+        """
+        Check if the file is an office document and return (is_office, format_type).
+
+        Returns:
+            tuple: (bool, str) - (is office document, format type)
+            format_type can be: 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'odt', 'ods', 'odp', 'odg'
+        """
+        _, ext = os.path.splitext(filepath.lower())
+
+        # Map extensions to format types
+        office_extensions = {
+            '.docx': 'docx', '.doc': 'doc',
+            '.xlsx': 'xlsx', '.xls': 'xls',
+            '.pptx': 'pptx', '.ppt': 'ppt',
+            '.odt': 'odt', '.ods': 'ods', '.odp': 'odp', '.odg': 'odg'
+        }
+
+        if ext in office_extensions:
+            return (True, office_extensions[ext])
+
+        # Check magic bytes for files without proper extensions
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(8)
+
+            # ZIP-based formats (DOCX, XLSX, PPTX, ODT, ODS, ODP, ODG) start with PK
+            if header.startswith(b'PK\x03\x04'):
+                # Could be any ZIP-based office format
+                # Try to read the content_types or mimetype file to determine
+                import zipfile
+                try:
+                    with zipfile.ZipFile(filepath, 'r') as zf:
+                        # Check for Office Open XML (Microsoft)
+                        if '[Content_Types].xml' in zf.namelist():
+                            content_types = zf.read('[Content_Types].xml').decode('utf-8', errors='ignore')
+                            if 'wordprocessingml' in content_types:
+                                return (True, 'docx')
+                            elif 'spreadsheetml' in content_types:
+                                return (True, 'xlsx')
+                            elif 'presentationml' in content_types:
+                                return (True, 'pptx')
+
+                        # Check for OpenDocument (LibreOffice/OpenOffice)
+                        if 'mimetype' in zf.namelist():
+                            mimetype = zf.read('mimetype').decode('utf-8', errors='ignore').strip()
+                            if 'opendocument.text' in mimetype:
+                                return (True, 'odt')
+                            elif 'opendocument.spreadsheet' in mimetype:
+                                return (True, 'ods')
+                            elif 'opendocument.presentation' in mimetype:
+                                return (True, 'odp')
+                            elif 'opendocument.graphics' in mimetype:
+                                return (True, 'odg')
+                except Exception:
+                    pass
+
+            # Old Office formats (DOC, XLS, PPT) use OLE2 format
+            elif header.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
+                # This is an OLE2 file, likely old Office format
+                # Without deeper inspection, we can't be 100% sure which type
+                # Return generic 'doc' and let the processor handle it
+                return (True, 'doc')
+
+        except Exception:
+            pass
+
+        return (False, None)
+
+    @staticmethod
+    def process_docx_file(filepath: str) -> str:
+        """Extract text from a .docx file."""
+        try:
+            import docx
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            doc = docx.Document(filepath)
+
+            # Extract text from paragraphs
+            text_parts = []
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    text_parts.append(para.text)
+
+            # Extract text from tables
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = ' | '.join(cell.text.strip() for cell in row.cells)
+                    if row_text.strip():
+                        text_parts.append(row_text)
+
+            if not text_parts:
+                return f"📄 Word document: {filename} ({file_size:.1f} KB)\n\n[Document appears to be empty or contains no extractable text]"
+
+            extracted_text = '\n'.join(text_parts)
+            header = f"📄 Word document: {filename} ({file_size:.1f} KB)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return f"⚠️  Cannot read .docx file: python-docx not installed\nInstall with: pip install python-docx"
+        except Exception as e:
+            return f"Error reading .docx file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_xlsx_file(filepath: str) -> str:
+        """Extract text from a .xlsx file."""
+        try:
+            import openpyxl
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            wb = openpyxl.load_workbook(filepath, data_only=True)
+            text_parts = []
+
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+
+                # Add sheet header
+                text_parts.append(f"\n{'='*60}\nSheet: {sheet_name}\n{'='*60}")
+
+                # Extract cell values
+                for row in sheet.iter_rows(values_only=True):
+                    # Filter out empty rows
+                    row_values = [str(cell) if cell is not None else '' for cell in row]
+                    if any(val.strip() for val in row_values):
+                        text_parts.append(' | '.join(row_values))
+
+            if not text_parts:
+                return f"📊 Excel spreadsheet: {filename} ({file_size:.1f} KB)\n\n[Spreadsheet appears to be empty]"
+
+            extracted_text = '\n'.join(text_parts)
+            header = f"📊 Excel spreadsheet: {filename} ({file_size:.1f} KB) - {len(wb.sheetnames)} sheet(s)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return f"⚠️  Cannot read .xlsx file: openpyxl not installed\nInstall with: pip install openpyxl"
+        except Exception as e:
+            return f"Error reading .xlsx file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_xls_file(filepath: str) -> str:
+        """Extract text from a .xls file (older Excel format)."""
+        try:
+            import xlrd
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            wb = xlrd.open_workbook(filepath)
+            text_parts = []
+
+            for sheet in wb.sheets():
+                # Add sheet header
+                text_parts.append(f"\n{'='*60}\nSheet: {sheet.name}\n{'='*60}")
+
+                # Extract cell values
+                for row_idx in range(sheet.nrows):
+                    row_values = [str(sheet.cell_value(row_idx, col_idx)) for col_idx in range(sheet.ncols)]
+                    if any(val.strip() for val in row_values):
+                        text_parts.append(' | '.join(row_values))
+
+            if not text_parts:
+                return f"📊 Excel spreadsheet (legacy): {filename} ({file_size:.1f} KB)\n\n[Spreadsheet appears to be empty]"
+
+            extracted_text = '\n'.join(text_parts)
+            header = f"📊 Excel spreadsheet (legacy): {filename} ({file_size:.1f} KB) - {wb.nsheets} sheet(s)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return f"⚠️  Cannot read .xls file: xlrd not installed\nInstall with: pip install xlrd"
+        except Exception as e:
+            return f"Error reading .xls file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_pptx_file(filepath: str) -> str:
+        """Extract text from a .pptx file."""
+        try:
+            import pptx
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            prs = pptx.Presentation(filepath)
+            text_parts = []
+
+            for slide_num, slide in enumerate(prs.slides, 1):
+                # Add slide header
+                text_parts.append(f"\n{'='*60}\nSlide {slide_num}\n{'='*60}")
+
+                # Extract text from shapes
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        text_parts.append(shape.text)
+
+                    # Extract text from tables if present
+                    if hasattr(shape, "table"):
+                        for row in shape.table.rows:
+                            row_text = ' | '.join(cell.text.strip() for cell in row.cells)
+                            if row_text.strip():
+                                text_parts.append(row_text)
+
+            if not text_parts:
+                return f"📊 PowerPoint presentation: {filename} ({file_size:.1f} KB)\n\n[Presentation appears to be empty or contains no extractable text]"
+
+            extracted_text = '\n'.join(text_parts)
+            header = f"📊 PowerPoint presentation: {filename} ({file_size:.1f} KB) - {len(prs.slides)} slide(s)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return f"⚠️  Cannot read .pptx file: python-pptx not installed\nInstall with: pip install python-pptx"
+        except Exception as e:
+            return f"Error reading .pptx file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_opendocument_file(filepath: str, format_type: str) -> str:
+        """Extract text from OpenDocument files (.odt, .ods, .odp, .odg)."""
+        try:
+            from odf import text, teletype
+            from odf.opendocument import load
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            doc = load(filepath)
+            text_parts = []
+
+            # Extract text elements
+            for element in doc.getElementsByType(text.P):
+                paragraph_text = teletype.extractText(element)
+                if paragraph_text.strip():
+                    text_parts.append(paragraph_text)
+
+            # Extract text from lists
+            for element in doc.getElementsByType(text.List):
+                list_text = teletype.extractText(element)
+                if list_text.strip():
+                    text_parts.append(list_text)
+
+            # Extract text from headers
+            for element in doc.getElementsByType(text.H):
+                header_text = teletype.extractText(element)
+                if header_text.strip():
+                    text_parts.append(header_text)
+
+            if not text_parts:
+                return f"📄 OpenDocument file: {filename} ({file_size:.1f} KB)\n\n[Document appears to be empty or contains no extractable text]"
+
+            extracted_text = '\n'.join(text_parts)
+
+            doc_type = {
+                'odt': 'OpenDocument Text',
+                'ods': 'OpenDocument Spreadsheet',
+                'odp': 'OpenDocument Presentation',
+                'odg': 'OpenDocument Graphics'
+            }.get(format_type, 'OpenDocument')
+
+            header = f"📄 {doc_type}: {filename} ({file_size:.1f} KB)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return (f"⚠️  Cannot read OpenDocument file: odfpy not installed\n"
+                   f"Install with: pip install odfpy\n"
+                   f"Note: If installation fails, try converting to PDF or DOCX format")
+        except Exception as e:
+            return f"Error reading OpenDocument file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_office_document(filepath: str, format_type: str) -> str:
+        """
+        Route office document to the appropriate processor based on format type.
+
+        Args:
+            filepath: Path to the office document
+            format_type: Document format type (docx, xlsx, pptx, etc.)
+
+        Returns:
+            Extracted text content
+        """
+        if format_type == 'docx':
+            return readfile.process_docx_file(filepath)
+        elif format_type == 'xlsx':
+            return readfile.process_xlsx_file(filepath)
+        elif format_type == 'xls':
+            return readfile.process_xls_file(filepath)
+        elif format_type == 'pptx':
+            return readfile.process_pptx_file(filepath)
+        elif format_type in ('odt', 'ods', 'odp', 'odg'):
+            return readfile.process_opendocument_file(filepath, format_type)
+        elif format_type in ('doc', 'ppt'):
+            # Old Office formats - try LibreOffice conversion as fallback
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+            return (f"📄 Legacy Office document: {filename} ({file_size:.1f} KB)\n\n"
+                   f"⚠️  Legacy .doc/.ppt formats require conversion.\n"
+                   f"Recommended approaches:\n"
+                   f"1. Convert with LibreOffice:\n"
+                   f"   <bash>libreoffice --headless --convert-to pdf '{filepath}'</bash>\n"
+                   f"2. Open in Microsoft Word/PowerPoint and save as .docx/.pptx\n"
+                   f"3. Use an online converter")
+        else:
+            return f"⚠️  Unsupported office document format: {format_type}"
+
+    @staticmethod
     def run(content: str) -> str:
         """
         Reads the content of the file specified in the input string.
@@ -462,6 +776,12 @@ class readfile:
             if readfile.is_image_file(full_path):
                 image_result = readfile.process_image_file(full_path)
                 return search_message + image_result
+
+            # Check if this is an office document
+            is_office, format_type = readfile.is_office_document(full_path)
+            if is_office:
+                office_result = readfile.process_office_document(full_path, format_type)
+                return search_message + office_result
 
             # Attempt to read the file with UTF-8 encoding, replacing errors
             try:
