@@ -1,5 +1,3 @@
-from typing import Optional
-
 """
 Prompt Regenerator for CLI-Agent
 
@@ -15,8 +13,7 @@ import asyncio
 import json
 import logging
 import random
-import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -29,8 +26,8 @@ class PromptRegenerator:
 
     def __init__(
         self,
-        studium_dir: Optional[str] = None,
-        prompts_file: Optional[str] = None,
+        studium_dir: str | None = None,
+        prompts_file: str | None = None,
         num_files: int = 5,
         time_frame_days: int = 30,
     ):
@@ -52,13 +49,13 @@ class PromptRegenerator:
         self.num_files = num_files
         self.time_frame_days = time_frame_days
 
-        # Default prompts if generation fails
+        # Default prompts if generation fails (will have paths added by validate_and_fix_prompt_paths)
         self.default_prompts = [
-            "Help me understand a complex concept from my recent studies",
-            "Create practice problems based on my coursework",
-            "Explain connections between different topics I'm learning",
-            "Generate study questions for my upcoming exam",
-            "Summarize key points from my recent lecture notes",
+            f"Help me understand a complex concept from my recent studies {self.studium_dir}",
+            f"Create practice problems based on my coursework {self.studium_dir}",
+            f"Explain connections between different topics I'm learning {self.studium_dir}",
+            f"Generate study questions for my upcoming exam {self.studium_dir}",
+            f"Summarize key points from my recent lecture notes {self.studium_dir}",
         ]
 
     def find_recent_files(self) -> list[tuple[Path, datetime]]:
@@ -76,94 +73,75 @@ class PromptRegenerator:
             f"Searching for files modified in last {self.time_frame_days} days in {self.studium_dir}"
         )
 
-        # Use find command for better performance with large directories
+        # Allowed file extensions (whitelist)
+        allowed_extensions = {
+            # Text & Documents
+            '.txt', '.md', '.pdf',
+            # Code
+            '.py', '.ipynb', '.cpp', '.c', '.h', '.java', '.js', '.ts', '.rs', '.go',
+            # Images
+            '.png', '.jpg', '.jpeg', '.tiff', '.tif', '.gif', '.svg',
+            # Office documents (proprietary)
+            '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls',
+            # Office documents (open formats)
+            '.odt', '.ods', '.odp', '.odg',
+            # Data files
+            '.csv', '.json', '.yaml', '.yml', '.xml',
+            # Other
+            '.tex', '.html', '.htm', '.css'
+        }
+
+        # Calculate cutoff time
+        cutoff_time = datetime.now() - timedelta(days=self.time_frame_days)
+        cutoff_timestamp = cutoff_time.timestamp()
+
+        files_with_mtime = []
+
         try:
-            result = subprocess.run(
-                [
-                    "find",
-                    str(self.studium_dir),
-                    "-type",
-                    "f",
-                    "-mtime",
-                    f"-{self.time_frame_days}",
-                    "!",
-                    "-path",
-                    "*/.*",  # Exclude hidden files
-                    "!",
-                    "-name",
-                    "*.exe",
-                    "!",
-                    "-name",
-                    "*.dll",
-                    "!",
-                    "-name",
-                    "*.so",
-                    "!",
-                    "-name",
-                    "*.dylib",
-                    "!",
-                    "-name",
-                    "*.zip",
-                    "!",
-                    "-name",
-                    "*.tar.gz",
-                    "!",
-                    "-name",
-                    "*.rar",
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            # Find directories containing pyvenv.cfg (Python virtual environments)
+            venv_dirs = set()
+            for cfg_path in self.studium_dir.rglob('pyvenv.cfg'):
+                if cfg_path.is_file():
+                    venv_dirs.add(cfg_path.parent)
+                    logger.debug(f"Detected virtual environment: {cfg_path.parent}")
 
-            if result.returncode != 0:
-                logger.warning(f"find command failed: {result.stderr}")
-                return []
+            if venv_dirs:
+                logger.info(f"Excluding {len(venv_dirs)} virtual environment directories")
 
-            file_paths = [
-                Path(line.strip())
-                for line in result.stdout.strip().split("\n")
-                if line.strip()
-            ]
+            # Recursively walk the directory tree
+            for file_path in self.studium_dir.rglob('*'):
+                # Skip directories
+                if not file_path.is_file():
+                    continue
 
-            # Get modification times
-            files_with_mtime = []
-            for file_path in file_paths:
+                # Skip files in virtual environment directories
+                if any(file_path.is_relative_to(venv_dir) for venv_dir in venv_dirs):
+                    continue
+
+                # Skip hidden files (any part of path starts with .)
+                if any(part.startswith('.') for part in file_path.parts):
+                    continue
+
+                # Only include files with allowed extensions
+                if file_path.suffix.lower() not in allowed_extensions:
+                    continue
+
                 try:
-                    mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
-                    files_with_mtime.append((file_path, mtime))
-                except Exception as e:
-                    logger.debug(f"Failed to get mtime for {file_path}: {e}")
+                    # Check modification time
+                    stat = file_path.stat()
+                    if stat.st_mtime >= cutoff_timestamp:
+                        mtime = datetime.fromtimestamp(stat.st_mtime)
+                        files_with_mtime.append((file_path, mtime))
+                except (OSError, PermissionError) as e:
+                    logger.debug(f"Failed to access {file_path}: {e}")
                     continue
 
             logger.info(f"Found {len(files_with_mtime)} recent files")
             return files_with_mtime
 
-        except FileNotFoundError:
-            logger.error("'find' command not found. Please install findutils.")
-            return []
         except Exception as e:
             logger.error(f"Error finding files: {e}")
             return []
-
-    def select_random_files(
-        self, files: list[tuple[Path, datetime]]
-    ) -> list[tuple[Path, datetime]]:
-        """
-        Randomly select N files from the list.
-
-        Args:
-            files: List of (file_path, modification_time) tuples
-
-        Returns:
-            List of randomly selected files
-        """
-        if len(files) <= self.num_files:
-            return files
-
-        selected = random.sample(files, self.num_files)
-        logger.info(f"Randomly selected {len(selected)} files for analysis")
-        return selected
 
     def load_clicked_prompts(self) -> list[str]:
         """
@@ -179,9 +157,9 @@ class PromptRegenerator:
             return []
 
         try:
-            with open(clicked_prompts_path, encoding='utf-8') as f:
+            with open(clicked_prompts_path, encoding="utf-8") as f:
                 data = json.load(f)
-                prompts = data.get('prompts', [])
+                prompts = data.get("prompts", [])
                 # Return up to 3 most recent
                 recent_prompts = prompts[:3]
                 logger.info(f"Loaded {len(recent_prompts)} recently clicked prompts")
@@ -190,16 +168,141 @@ class PromptRegenerator:
             logger.warning(f"Failed to load clicked prompts: {e}")
             return []
 
-    def build_llm_prompt(self, files: list[tuple[Path, datetime]]) -> str:
+    def parse_timetable_for_today(self) -> list[dict]:
+        """
+        Parse the Campo timetable and extract today's schedule.
+
+        Returns:
+            List of today's classes with time, course, and type.
+            Format: [{"time": "17:00 - 18:30", "course": "...", "type": "..."}]
+            Returns empty list if timetable not found or today not in schedule.
+        """
+        timetable_path = Path.home() / "OneDrive" / "Studium" / "campo_timetable.md"
+
+        if not timetable_path.exists():
+            logger.warning(f"Timetable file not found: {timetable_path}")
+            return []
+
+        try:
+            # Get today's date and format
+            today = datetime.now()
+            # German weekday abbreviations: Mo., Di., Mi., Do., Fr., Sa., So.
+            weekday_map = {
+                0: "Mo.",  # Monday
+                1: "Di.",  # Tuesday
+                2: "Mi.",  # Wednesday
+                3: "Do.",  # Thursday
+                4: "Fr.",  # Friday
+                5: "Sa.",  # Saturday
+                6: "So.",  # Sunday
+            }
+            weekday_abbr = weekday_map[today.weekday()]
+            date_str = today.strftime("%d.%m.%Y")  # e.g., "03.11.2025"
+            today_header = f"## {weekday_abbr}, {date_str}"
+
+            logger.info(f"Looking for timetable section: {today_header}")
+
+            with open(timetable_path, encoding="utf-8") as f:
+                content = f.read()
+
+            # Find today's section
+            if today_header not in content:
+                logger.info(f"Today's date ({today_header}) not found in timetable")
+                return []
+
+            # Extract the section for today
+            lines = content.split("\n")
+            section_start = None
+            section_lines = []
+
+            for i, line in enumerate(lines):
+                if line.strip() == today_header:
+                    section_start = i
+                elif section_start is not None:
+                    # Stop at next ## heading or end of file
+                    if line.startswith("## ") and i > section_start:
+                        break
+                    section_lines.append(line)
+
+            if not section_lines:
+                logger.info("No content found for today's section")
+                return []
+
+            # Parse the markdown table
+            classes = []
+            in_table = False
+
+            for line in section_lines:
+                line = line.strip()
+
+                # Skip empty lines
+                if not line:
+                    continue
+
+                # Detect table start (header line with Time | Course | ...)
+                if "Time" in line and "|" in line:
+                    in_table = True
+                    continue
+
+                # Skip separator line (|---|---|...)
+                if in_table and line.startswith("|") and "---" in line:
+                    continue
+
+                # Parse table rows
+                if in_table and line.startswith("|"):
+                    cells = [cell.strip() for cell in line.split("|")]
+                    # Filter out empty cells
+                    cells = [c for c in cells if c]
+
+                    # Table format: Time | Course | Room | Instructor | Type
+                    if len(cells) >= 5:
+                        time = cells[0]
+                        course = cells[1]
+                        class_type = cells[4]
+
+                        classes.append(
+                            {
+                                "time": time,
+                                "course": course,
+                                "type": class_type,
+                            }
+                        )
+
+            logger.info(f"Parsed {len(classes)} classes for today")
+            return classes
+
+        except Exception as e:
+            logger.error(f"Error parsing timetable: {e}", exc_info=True)
+            return []
+
+    def build_llm_prompt(
+        self, files: list[tuple[Path, datetime]], timetable: list[dict] = None
+    ) -> str:
         """
         Build the LLM prompt for generating contextual suggestions.
 
         Args:
             files: List of (file_path, modification_time) tuples
+            timetable: Optional list of today's classes from timetable
 
         Returns:
             Formatted prompt string
         """
+        # Get current date info
+        today = datetime.now()
+        weekday_names = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ]
+        weekday = weekday_names[today.weekday()]
+        date_str = today.strftime("%B %d, %Y")  # e.g., "November 3, 2025"
+        current_time = today.strftime("%H:%M")
+
         file_list = "\n".join(
             [
                 f"- {file_path} (modified: {mtime.strftime('%Y-%m-%d')})"
@@ -211,7 +314,9 @@ class PromptRegenerator:
         clicked_prompts = self.load_clicked_prompts()
         examples_section = ""
         if clicked_prompts:
-            examples_list = "\n".join([f"   - \"{prompt}\"" for prompt in clicked_prompts])
+            examples_list = "\n".join(
+                [f'   - "{prompt}"' for prompt in clicked_prompts]
+            )
             examples_section = f"""
 ## Examples of prompts the user previously clicked:
 {examples_list}
@@ -219,8 +324,32 @@ class PromptRegenerator:
 Use these as inspiration for the style and type of prompts the user finds useful.
 """
 
-        prompt = f"""I need you to generate 5 contextual prompt suggestions based on my recent study activities.
+        # Build timetable section if available
+        timetable_section = ""
+        if timetable:
+            class_list = []
+            for cls in timetable:
+                class_list.append(
+                    f"   - {cls['time']}: {cls['course']} ({cls['type']})"
+                )
 
+            timetable_section = f"""
+## Today's Class Schedule ({weekday}):
+{chr(10).join(class_list)}
+
+**Instructions for timetable-aware prompts:**
+- For classes within 2 hours of current time ({current_time}), include the specific time in the prompt
+- For other classes today, focus on course topics and preparation
+- Generate prompts for preparing, reviewing, or creating practice materials
+- Mix timetable-based prompts (6-8 prompts) with general file-based prompts (2-4 prompts)
+"""
+
+        n_prompts = 10
+        prompt = f"""I need you to generate {n_prompts} contextual prompt suggestions based on my current study context.
+
+## Current Date & Time
+Today is {weekday}, {date_str} at {current_time}
+{timetable_section}
 ## Context: Recently modified files
 Here are randomly selected files from the last {self.time_frame_days} days:
 {file_list}
@@ -231,21 +360,27 @@ Here are randomly selected files from the last {self.time_frame_days} days:
    - Analyze the provided files to identify key topics and subjects
    - Explore the directory structure and read additional files within {self.studium_dir} to build richer context
    - Use your judgment on how much exploration is useful vs. excessive
+   {"- Prioritize today's classes when generating prompts" if timetable else ""}
 
-2. **Generate 5 prompts**
+2. **Generate {n_prompts} prompts**
    - Each prompt should be exactly one sentence
-   - You can reference a file by title in your prompt but if you do so also add the full filepath at the end of it. (Ensure your sentence finished fully before providing the filepath as any ending filepaths will be hidden from the user)
+   - **CRITICAL REQUIREMENT**: EVERY single prompt MUST end with a relevant file or directory path
+   - For file-specific prompts: end with the exact file path from the context above
+   - For general/timetable prompts: end with {self.studium_dir}
+   - Format: "Your prompt sentence here /path/to/file.txt" (the path will be hidden from user display)
+   - Example with file: "Explain the simulation methods covered in this lecture /home/prob/OneDrive/Studium/lecture_notes.pdf"
+   - Example with directory: "Review key concepts from today's Informatik lecture {self.studium_dir}"
+   {"- Mix timetable-aware prompts with general study prompts as instructed above" if timetable else ""}
 
 3. **Output Format**
-   Respond with ONLY a JSON object in this exact format:
+    Think about the context first then respond with a JSON object in this exact format:
    ```json
    {{
      "prompts": [
        "Prompt 1 here",
        "Prompt 2 here",
        "Prompt 3 here",
-       "Prompt 4 here",
-       "Prompt 5 here"
+       ...
      ]
    }}
    ```
@@ -254,18 +389,52 @@ Here are randomly selected files from the last {self.time_frame_days} days:
 - Be intelligent about inferring my real-world context and upcoming needs
 - Think across subject boundaries - connect concepts from different domains
 - Aim for prompts that are engaging and intellectually stimulating
+{"- Use time-awareness: mention specific times for imminent classes, topics for later classes" if timetable else ""}
 - DO NOT include any text outside the JSON object"""
 
         return prompt
 
+    def validate_and_fix_prompt_paths(self, prompts: list[str]) -> list[str]:
+        """
+        Validate that every prompt has a file/directory path. Add Studium path if missing.
+
+        Args:
+            prompts: List of generated prompts
+
+        Returns:
+            List of prompts with validated paths
+        """
+        import re
+
+        fixed_prompts = []
+        path_pattern = r"(/[^\s]+|~[^\s]*)"  # Matches absolute paths or ~ paths
+
+        for i, prompt in enumerate(prompts):
+            # Check if prompt contains a path (starts with / or ~)
+            has_path = bool(re.search(path_pattern, prompt))
+
+            if has_path:
+                fixed_prompts.append(prompt)
+                logger.debug(f"Prompt {i + 1}: Path detected ✓")
+            else:
+                # Add Studium directory path at the end
+                fixed_prompt = f"{prompt.rstrip()} {self.studium_dir}"
+                fixed_prompts.append(fixed_prompt)
+                logger.warning(
+                    f"Prompt {i + 1}: Missing path - added {self.studium_dir}"
+                )
+
+        return fixed_prompts
+
     async def generate_prompts_with_llm(
-        self, files: list[tuple[Path, datetime]]
-    ) -> Optional[list[str]]:
+        self, files: list[tuple[Path, datetime]], timetable: list[dict] = None
+    ) -> list[str] | None:
         """
         Use LLM to generate contextual prompts based on file analysis.
 
         Args:
             files: List of (file_path, modification_time) tuples
+            timetable: Optional list of today's classes from timetable
 
         Returns:
             List of generated prompts, or None if generation fails
@@ -276,7 +445,7 @@ Here are randomly selected files from the last {self.time_frame_days} days:
             logger.info("Generating prompts using LLM...")
 
             llm_router = LlmRouter()
-            prompt = self.build_llm_prompt(files)
+            prompt = self.build_llm_prompt(files, timetable)
 
             # Print header for streamed output
             from termcolor import colored
@@ -289,7 +458,6 @@ Here are randomly selected files from the last {self.time_frame_days} days:
                 generation_stream_callback=lambda char: print(
                     colored(char, "green"), end="", flush=True
                 ),
-                force_preferred_model=False,  # Allow fallback models
             )
 
             print(colored("\n\n✅ Generation complete!\n", "cyan"))
@@ -331,8 +499,12 @@ Here are randomly selected files from the last {self.time_frame_days} days:
                     logger.error("LLM response missing 'prompts' array")
                     return None
 
-                if len(prompts) != 5:
-                    logger.warning(f"Expected 5 prompts, got {len(prompts)}")
+                if len(prompts) != 10:
+                    logger.warning(f"Expected 10 prompts, got {len(prompts)}")
+
+                # Validate and fix paths
+                logger.info("Validating prompt paths...")
+                prompts = self.validate_and_fix_prompt_paths(prompts)
 
                 logger.info(f"Successfully generated {len(prompts)} prompts")
                 return prompts
@@ -386,13 +558,23 @@ Here are randomly selected files from the last {self.time_frame_days} days:
                 "status": "success" | "partial" | "error",
                 "prompts": [...],
                 "message": "...",
-                "files_analyzed": N
+                "files_analyzed": N,
+                "todays_classes": N
             }
         """
         logger.info("Starting prompt regeneration...")
         start_time = datetime.now()
 
-        # 1. Find recent files
+        # 1. Parse today's timetable
+        timetable = self.parse_timetable_for_today()
+        if timetable:
+            logger.info(f"Found {len(timetable)} classes in today's schedule")
+        else:
+            logger.info(
+                "No timetable data for today (continuing with file-based prompts)"
+            )
+
+        # 2. Find recent files
         files = self.find_recent_files()
         if not files:
             logger.warning("No recent files found, using default prompts")
@@ -402,13 +584,18 @@ Here are randomly selected files from the last {self.time_frame_days} days:
                 "prompts": self.default_prompts,
                 "message": f"No files found in {self.studium_dir} (last {self.time_frame_days} days). Using default prompts.",
                 "files_analyzed": 0,
+                "todays_classes": len(timetable) if timetable else 0,
             }
 
-        # 2. Select random subset
-        selected_files = self.select_random_files(files)
+        # 3. Select random subset
+        if len(files) > self.num_files:
+            selected_files = random.sample(files, self.num_files)
+            logger.info(f"Randomly selected {len(selected_files)} files for analysis")
+        else:
+            selected_files = files
 
-        # 3. Generate prompts with LLM
-        prompts = await self.generate_prompts_with_llm(selected_files)
+        # 4. Generate prompts with LLM (including timetable context)
+        prompts = await self.generate_prompts_with_llm(selected_files, timetable)
         if not prompts:
             logger.warning("LLM generation failed, using default prompts")
             self.write_prompts_file(self.default_prompts)
@@ -417,47 +604,37 @@ Here are randomly selected files from the last {self.time_frame_days} days:
                 "prompts": self.default_prompts,
                 "message": "LLM generation failed. Using default prompts.",
                 "files_analyzed": len(selected_files),
+                "todays_classes": len(timetable) if timetable else 0,
             }
 
-        # 4. Write to file
+        # 5. Write to file
         if not self.write_prompts_file(prompts):
             return {
                 "status": "error",
                 "prompts": [],
                 "message": "Failed to write prompts file",
                 "files_analyzed": len(selected_files),
+                "todays_classes": len(timetable) if timetable else 0,
             }
 
         elapsed = (datetime.now() - start_time).total_seconds()
         logger.info(f"Prompt regeneration completed in {elapsed:.1f}s")
 
+        # Build success message
+        message_parts = [
+            f"Successfully generated {len(prompts)} prompts from {len(selected_files)} files"
+        ]
+        if timetable:
+            message_parts.append(f"with {len(timetable)} classes from today's schedule")
+
         return {
             "status": "success",
             "prompts": prompts,
-            "message": f"Successfully generated {len(prompts)} prompts from {len(selected_files)} files",
+            "message": " ".join(message_parts),
             "files_analyzed": len(selected_files),
+            "todays_classes": len(timetable) if timetable else 0,
             "elapsed_seconds": elapsed,
         }
-
-
-async def regenerate_prompts(
-    studium_dir: Optional[str] = None, num_files: int = 5, time_frame_days: int = 30
-) -> dict[str, any]:
-    """
-    Convenience function for API and programmatic access.
-
-    Args:
-        studium_dir: Path to Studium directory
-        num_files: Number of files to analyze
-        time_frame_days: Days to look back
-
-    Returns:
-        Result dictionary from PromptRegenerator.regenerate()
-    """
-    regenerator = PromptRegenerator(
-        studium_dir=studium_dir, num_files=num_files, time_frame_days=time_frame_days
-    )
-    return await regenerator.regenerate()
 
 
 def main():
@@ -493,13 +670,12 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     # Run regeneration
-    result = asyncio.run(
-        regenerate_prompts(
-            studium_dir=args.studium_dir,
-            num_files=args.num_files,
-            time_frame_days=args.time_frame_days,
-        )
+    regenerator = PromptRegenerator(
+        studium_dir=args.studium_dir,
+        num_files=args.num_files,
+        time_frame_days=args.time_frame_days,
     )
+    result = asyncio.run(regenerator.regenerate())
 
     # Print results
     if result["status"] == "success":

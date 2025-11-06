@@ -2,7 +2,7 @@ import logging
 import mimetypes
 import os
 import threading
-from typing import Any, Optional
+from typing import Any
 
 import google.generativeai as genai
 from google.generativeai import GenerativeModel, types
@@ -72,9 +72,11 @@ class GoogleAPI(AIProviderInterface):
 
         # Only configure if not already done
         if not _gemini_api_configured:
-            api_key: Optional[str] = os.getenv('GEMINI_API_KEY')
+            api_key: str | None = os.getenv("GEMINI_API_KEY")
             if not api_key:
-                raise Exception("Google API key not found. Set the GEMINI_API_KEY environment variable.")
+                raise Exception(
+                    "Google API key not found. Set the GEMINI_API_KEY environment variable."
+                )
 
             try:
                 genai.configure(api_key=api_key)
@@ -89,15 +91,19 @@ class GoogleAPI(AIProviderInterface):
         model_key: str = "gemini-1.5-pro-latest",
         temperature: float = 0,
         silent_reason: str = "",
-        thinking_budget: Optional[int] = None
+        thinking_budget: int | None = None,
     ) -> Any:  # Return type changed to Any to avoid circular imports
         if g.VERBOSE_DEBUG:
-            print(f"🔍 GOOGLE API ENTRY: model={model_key}, temp={temperature}, chat_type={type(chat).__name__}")
-            if hasattr(chat, 'messages'):
+            print(
+                f"🔍 GOOGLE API ENTRY: model={model_key}, temp={temperature}, chat_type={type(chat).__name__}"
+            )
+            if hasattr(chat, "messages"):
                 print(f"🔍 CHAT MESSAGES: {len(chat.messages)} messages")
                 for i, message in enumerate(chat.messages):
-                    print(f"🔍   MSG {i}: {message.role.value} -> {len(str(message.content))} chars")
-            if hasattr(chat, 'base64_images'):
+                    print(
+                        f"🔍   MSG {i}: {message.role.value} -> {len(str(message.content))} chars"
+                    )
+            if hasattr(chat, "base64_images"):
                 print(f"🔍 BASE64 IMAGES: {len(chat.base64_images)} images")
                 for i, img in enumerate(chat.base64_images):
                     print(f"🔍   IMG {i}: {len(img)} chars, starts with: {img[:50]}...")
@@ -128,10 +134,16 @@ class GoogleAPI(AIProviderInterface):
             chat = chat_obj
 
         # Get the prefix for debug logging
-        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+        prefix = (
+            chat.get_debug_title_prefix()
+            if hasattr(chat, "get_debug_title_prefix")
+            else ""
+        )
 
         # Initialize rate limits for this model if not already done (using lazy initialization)
-        RateLimitConfig.initialize_model_limits(model_key, is_paid=False, provider="gemini", lazy=True)
+        RateLimitConfig.initialize_model_limits(
+            model_key, is_paid=False, provider="gemini", lazy=True
+        )
 
         # Estimate token cost (rough approximation)
         token_cost = 0
@@ -155,21 +167,35 @@ class GoogleAPI(AIProviderInterface):
         status = enhanced_rate_limit_tracker.get_status_summary(model_key)
         if not can_make_request and status["status"] != "no_limits_configured":
             if not silent_reason:
-                g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(f'rate limited ({reason})', 'yellow')}", force_print=True, prefix=prefix)
+                g.debug_log(
+                    f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} is {colored(f'rate limited ({reason})', 'yellow')}",
+                    force_print=True,
+                    prefix=prefix,
+                )
 
             # Get suggested retry delay
-            retry_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(model_key)
+            retry_delay = enhanced_rate_limit_tracker.get_suggested_retry_delay(
+                model_key
+            )
             if retry_delay == -1:
-                raise RateLimitException(f"Model {model_key} exceeded maximum retry attempts")
+                raise RateLimitException(
+                    f"Model {model_key} exceeded maximum retry attempts"
+                )
             else:
-                raise RateLimitException(f"Model {model_key} is rate limited: {reason}. Retry in {retry_delay:.1f}s")
+                raise RateLimitException(
+                    f"Model {model_key} is rate limited: {reason}. Retry in {retry_delay:.1f}s"
+                )
         elif not can_make_request and status["status"] == "no_limits_configured":
             # Model has no limits configured - allow it through (lazy initialization)
-            logger.debug(f"Allowing unconfigured model {model_key} to proceed (lazy initialization)")
+            logger.debug(
+                f"Allowing unconfigured model {model_key} to proceed (lazy initialization)"
+            )
 
         # Configure the API if not already done - let any error here bubble up to the router
         if g.VERBOSE_DEBUG:
-            print(f"🔍 CONFIGURING API: _gemini_api_configured={_gemini_api_configured}")
+            print(
+                f"🔍 CONFIGURING API: _gemini_api_configured={_gemini_api_configured}"
+            )
         GoogleAPI._configure_api()
 
         # Get the appropriate model
@@ -188,19 +214,16 @@ class GoogleAPI(AIProviderInterface):
         )
 
         # Add thinking config if thinking_budget is specified and model supports it
-        if thinking_budget is not None and ("2.5" in model_key or "2.0" in model_key):
-            try:
-                generation_config.thinking_config = genai.types.ThinkingConfig(
-                    thinking_budget=thinking_budget
-                )
-            except Exception as thinking_error:
-                # If thinking config fails, continue without it
-                if not silent_reason:
-                    g.debug_log(f"Google-Api: Warning - thinking config not supported: {thinking_error}", "yellow", prefix=prefix)
-        elif thinking_budget is not None and not ("2.5" in model_key or "2.0" in model_key):
-            # Warn if thinking budget is requested but model doesn't support it
-            if not silent_reason:
-                g.debug_log(f"Google-Api: Warning - thinking budget not supported by model {model_key}", "yellow", prefix=prefix)
+        try:
+            generation_config.thinking_config = genai.types.ThinkingConfig(
+                thinking_budget=thinking_budget
+            )
+        except Exception as thinking_error:
+            g.debug_log(
+                f"Google-Api: Warning - thinking config not supported: {thinking_error}",
+                "yellow",
+                prefix=prefix,
+            )
 
         # Use the Chat's to_gemini method to create Gemini-compatible messages
         if isinstance(chat, Chat):
@@ -211,12 +234,16 @@ class GoogleAPI(AIProviderInterface):
             if g.VERBOSE_DEBUG:
                 print(f"🔍 GEMINI MESSAGES: {len(gemini_messages)} messages")
                 for i, msg in enumerate(gemini_messages):
-                    print(f"🔍   GEMINI MSG {i}: role={msg.get('role', 'unknown')}, parts={len(msg.get('parts', []))}")
-                    for j, part in enumerate(msg.get('parts', [])):
-                        if isinstance(part, dict) and 'inline_data' in part:
-                            mime_type = part['inline_data'].get('mime_type', 'unknown')
-                            data_len = len(part['inline_data'].get('data', ''))
-                            print(f"🔍     PART {j}: IMAGE ({mime_type}, {data_len} chars)")
+                    print(
+                        f"🔍   GEMINI MSG {i}: role={msg.get('role', 'unknown')}, parts={len(msg.get('parts', []))}"
+                    )
+                    for j, part in enumerate(msg.get("parts", [])):
+                        if isinstance(part, dict) and "inline_data" in part:
+                            mime_type = part["inline_data"].get("mime_type", "unknown")
+                            data_len = len(part["inline_data"].get("data", ""))
+                            print(
+                                f"🔍     PART {j}: IMAGE ({mime_type}, {data_len} chars)"
+                            )
                         elif isinstance(part, str):
                             print(f"🔍     PART {j}: TEXT ({len(part)} chars)")
                         else:
@@ -224,12 +251,16 @@ class GoogleAPI(AIProviderInterface):
 
             # Debug vision requests
             has_images = any(
-                isinstance(part, dict) and 'inline_data' in part
+                isinstance(part, dict) and "inline_data" in part
                 for msg in gemini_messages
-                for part in msg.get('parts', [])
+                for part in msg.get("parts", [])
             )
             if has_images and not silent_reason:
-                g.debug_log(f"Google-Api: Sending vision request with {sum(len([p for p in msg.get('parts', []) if isinstance(p, dict) and 'inline_data' in p]) for msg in gemini_messages)} image(s)", "cyan", prefix=prefix)
+                g.debug_log(
+                    f"Google-Api: Sending vision request with {sum(len([p for p in msg.get('parts', []) if isinstance(p, dict) and 'inline_data' in p]) for msg in gemini_messages)} image(s)",
+                    "cyan",
+                    prefix=prefix,
+                )
         else:
             # Simple string input case (should not happen due to conversion above, but just in case)
             if g.VERBOSE_DEBUG:
@@ -238,11 +269,28 @@ class GoogleAPI(AIProviderInterface):
 
         # Print status message with timeout info
         if silent_reason:
-            temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", force_print=g.VERBOSE_DEBUG, prefix=prefix)
+            temp_str = (
+                ""
+                if temperature == 0 or temperature is None
+                else f" at temperature {temperature}"
+            )
+            g.debug_log(
+                f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is {colored('silently', 'green')} generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...",
+                force_print=g.VERBOSE_DEBUG,
+                prefix=prefix,
+            )
         else:
-            temp_str = "" if temperature == 0 or temperature is None else f" at temperature {temperature}"
-            g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...", "green", force_print=g.VERBOSE_DEBUG, prefix=prefix)
+            temp_str = (
+                ""
+                if temperature == 0 or temperature is None
+                else f" at temperature {temperature}"
+            )
+            g.debug_log(
+                f"Google-Api: {colored('<', 'green')}{colored(model_key, 'green')}{colored('>', 'green')} is generating response{temp_str} (timeout: {g.GOOGLE_API_TIMEOUT_SECONDS}s)...",
+                "green",
+                force_print=g.VERBOSE_DEBUG,
+                prefix=prefix,
+            )
 
         # Generate streaming response with timeout - let errors bubble up to the router
         # except for rate limit errors, which we'll handle here
@@ -252,14 +300,28 @@ class GoogleAPI(AIProviderInterface):
             # Debug the actual request being sent
             if g.VERBOSE_DEBUG:
                 message_count = len(gemini_messages)
-                total_parts = sum(len(msg.get('parts', [])) for msg in gemini_messages)
-                image_parts = sum(len([p for p in msg.get('parts', []) if isinstance(p, dict) and 'inline_data' in p]) for msg in gemini_messages)
-                print(f"🔍 REQUEST SUMMARY: {message_count} messages, {total_parts} parts, {image_parts} images")
-                print(f"🔍 GENERATION CONFIG: temp={generation_config.temperature}, max_tokens={generation_config.max_output_tokens}")
+                total_parts = sum(len(msg.get("parts", [])) for msg in gemini_messages)
+                image_parts = sum(
+                    len(
+                        [
+                            p
+                            for p in msg.get("parts", [])
+                            if isinstance(p, dict) and "inline_data" in p
+                        ]
+                    )
+                    for msg in gemini_messages
+                )
+                print(
+                    f"🔍 REQUEST SUMMARY: {message_count} messages, {total_parts} parts, {image_parts} images"
+                )
+                print(
+                    f"🔍 GENERATION CONFIG: temp={generation_config.temperature}, max_tokens={generation_config.max_output_tokens}"
+                )
 
             # Track API call state for better progress reporting
             import time
-            api_state = {'stage': 'initializing', 'stage_start_time': time.time()}
+
+            api_state = {"stage": "initializing", "stage_start_time": time.time()}
 
             # Use threading for synchronous genai call with timeout
             def _generate_with_timeout():
@@ -268,41 +330,44 @@ class GoogleAPI(AIProviderInterface):
                         print("🔍 CALLING model.generate_content() with stream=True")
                         print(f"🔍 Model info: {model}")
 
-                    api_state['stage'] = 'sending_request'
-                    api_state['stage_start_time'] = time.time()
+                    api_state["stage"] = "sending_request"
+                    api_state["stage_start_time"] = time.time()
 
                     result = model.generate_content(
                         gemini_messages,
                         generation_config=generation_config,
-                        stream=True
+                        stream=True,
                     )
 
-                    api_state['stage'] = 'awaiting_response'
-                    api_state['stage_start_time'] = time.time()
+                    api_state["stage"] = "awaiting_response"
+                    api_state["stage_start_time"] = time.time()
 
                     if g.VERBOSE_DEBUG:
-                        print(f"🔍 API CALL SUCCESSFUL: Got result {type(result).__name__}")
+                        print(
+                            f"🔍 API CALL SUCCESSFUL: Got result {type(result).__name__}"
+                        )
 
                     return result
                 except Exception as inner_e:
-                    api_state['stage'] = 'error'
+                    api_state["stage"] = "error"
                     if g.VERBOSE_DEBUG:
                         print(f"🔍 INNER API ERROR: {str(inner_e)}")
                         print(f"🔍 INNER API ERROR TYPE: {type(inner_e).__name__}")
                         print(f"🔍 INNER API ERROR ARGS: {inner_e.args}")
                         import traceback
+
                         print("🔍 INNER API TRACEBACK:")
                         traceback.print_exc()
                     raise
 
             # Create a result container
-            result_container = {'result': None, 'exception': None}
+            result_container = {"result": None, "exception": None}
 
             def _run_generation():
                 try:
-                    result_container['result'] = _generate_with_timeout()
+                    result_container["result"] = _generate_with_timeout()
                 except Exception as e:
-                    result_container['exception'] = e
+                    result_container["exception"] = e
 
             # Run with extended timeout (120 seconds for image analysis tasks)
             thread = threading.Thread(target=_run_generation)
@@ -321,39 +386,50 @@ class GoogleAPI(AIProviderInterface):
                 if thread.is_alive() and not silent_reason:
                     # Show progress indicator every 15 seconds with specific operation details
                     if int(elapsed) % 15 == 0:
-                        stage = api_state['stage']
+                        stage = api_state["stage"]
                         current_time = time.time()
-                        stage_elapsed = current_time - api_state.get('stage_start_time', start_time)
+                        stage_elapsed = current_time - api_state.get(
+                            "stage_start_time", start_time
+                        )
 
-                        if stage == 'initializing':
-                            status_msg = f"initializing request ({int(elapsed)}s elapsed)"
-                        elif stage == 'sending_request':
+                        if stage == "initializing":
+                            status_msg = (
+                                f"initializing request ({int(elapsed)}s elapsed)"
+                            )
+                        elif stage == "sending_request":
                             status_msg = f"sending API request ({int(stage_elapsed)}s in this stage, {int(elapsed)}s total)"
-                        elif stage == 'awaiting_response':
+                        elif stage == "awaiting_response":
                             status_msg = f"awaiting API response ({int(stage_elapsed)}s waiting, {int(elapsed)}s total)"
                         else:
                             status_msg = f"processing... ({int(elapsed)}s elapsed)"
 
-                        g.debug_log(f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} {status_msg}", "yellow", force_print=True, prefix=prefix)
+                        g.debug_log(
+                            f"Google-Api: {colored('<', 'yellow')}{colored(model_key, 'yellow')}{colored('>', 'yellow')} {status_msg}",
+                            "yellow",
+                            force_print=True,
+                            prefix=prefix,
+                        )
 
             if thread.is_alive():
                 # Thread is still running, timeout occurred - provide specific timeout context
-                stage = api_state['stage']
-                if stage == 'sending_request':
+                stage = api_state["stage"]
+                if stage == "sending_request":
                     timeout_msg = f"Request timed out after {timeout_seconds} seconds while sending request to {model_key}"
-                elif stage == 'awaiting_response':
+                elif stage == "awaiting_response":
                     timeout_msg = f"Request timed out after {timeout_seconds} seconds while waiting for response from {model_key}"
                 else:
                     timeout_msg = f"Request timed out after {timeout_seconds} seconds for model {model_key}"
                 raise Exception(timeout_msg)
 
-            if result_container['exception']:
-                raise result_container['exception']
+            if result_container["exception"]:
+                raise result_container["exception"]
 
-            response = result_container['result']
+            response = result_container["result"]
 
             # Record successful request
-            enhanced_rate_limit_tracker.record_request(model_key, token_cost=token_cost, image_count=image_count)
+            enhanced_rate_limit_tracker.record_request(
+                model_key, token_cost=token_cost, image_count=image_count
+            )
 
             # Set up cancellation event for this generation
             GoogleAPI._cancellation_event = threading.Event()
@@ -365,9 +441,12 @@ class GoogleAPI(AIProviderInterface):
             error_str = str(e)
 
             # Check if this is a rate limit error
-            if ("429" in error_str or "quota" in error_str.lower() or
-                "rate" in error_str.lower() or "limit" in error_str.lower()):
-
+            if (
+                "429" in error_str
+                or "quota" in error_str.lower()
+                or "rate" in error_str.lower()
+                or "limit" in error_str.lower()
+            ):
                 # Parse the error using the Gemini-specific parser
                 parser = RateLimitParserFactory.get_parser("gemini")
                 limit_type, cooldown_seconds, extra_info = parser.parse_error(error_str)
@@ -377,29 +456,53 @@ class GoogleAPI(AIProviderInterface):
 
                 # Check if there's already an active cooldown and use remaining time if shorter
                 if model_key in enhanced_rate_limit_tracker.model_limits:
-                    if limit_type in enhanced_rate_limit_tracker.model_limits[model_key]:
-                        existing_limit = enhanced_rate_limit_tracker.model_limits[model_key][limit_type]
+                    if (
+                        limit_type
+                        in enhanced_rate_limit_tracker.model_limits[model_key]
+                    ):
+                        existing_limit = enhanced_rate_limit_tracker.model_limits[
+                            model_key
+                        ][limit_type]
                         if existing_limit.is_rate_limited():
                             remaining_cooldown = existing_limit.get_remaining_cooldown()
-                            if remaining_cooldown > 0 and remaining_cooldown < cooldown_seconds:
+                            if (
+                                remaining_cooldown > 0
+                                and remaining_cooldown < cooldown_seconds
+                            ):
                                 cooldown_seconds = remaining_cooldown
 
                 # Apply the rate limit
                 enhanced_rate_limit_tracker.apply_rate_limit(
-                    model_key, limit_type, cooldown_seconds,
-                    retry_delay=extra_info.get('api_suggested_delay', 0)
+                    model_key,
+                    limit_type,
+                    cooldown_seconds,
+                    retry_delay=extra_info.get("api_suggested_delay", 0),
                 )
 
                 # Show user-friendly message with API error details
                 if not silent_reason:
-                    limit_name = limit_type.value.replace('_', ' ').title()
-                    g.debug_log(f"⚡ {limit_name} limit reached for {model_key} - retry in {cooldown_seconds:.1f}s", "yellow", force_print=True, prefix=prefix)
+                    limit_name = limit_type.value.replace("_", " ").title()
+                    g.debug_log(
+                        f"⚡ {limit_name} limit reached for {model_key} - retry in {cooldown_seconds:.1f}s",
+                        "yellow",
+                        force_print=True,
+                        prefix=prefix,
+                    )
                     # Show actual API error for debugging
-                    api_error_summary = error_str.split('\n')[0][:200]  # First line, max 200 chars
-                    g.debug_log(f"   API Error: {api_error_summary}", "yellow", force_print=True, prefix=prefix)
+                    api_error_summary = error_str.split("\n")[0][
+                        :200
+                    ]  # First line, max 200 chars
+                    g.debug_log(
+                        f"   API Error: {api_error_summary}",
+                        "yellow",
+                        force_print=True,
+                        prefix=prefix,
+                    )
 
                 # Create RateLimitException with already_logged flag
-                rate_limit_exc = RateLimitException(f"Model {model_key} {limit_type.value} limit exceeded. Try again in {cooldown_seconds:.1f} seconds")
+                rate_limit_exc = RateLimitException(
+                    f"Model {model_key} {limit_type.value} limit exceeded. Try again in {cooldown_seconds:.1f} seconds"
+                )
                 rate_limit_exc.already_logged = True
                 raise rate_limit_exc
 
@@ -408,8 +511,8 @@ class GoogleAPI(AIProviderInterface):
                 # Extract meaningful error message
                 error_str = str(e)
                 # Try to get first sentence or first 200 chars
-                if '.' in error_str:
-                    error_summary = error_str.split('.')[0] + '.'
+                if "." in error_str:
+                    error_summary = error_str.split(".")[0] + "."
                 else:
                     error_summary = error_str[:200]
 
@@ -418,7 +521,9 @@ class GoogleAPI(AIProviderInterface):
 
                 # If error is very short/cryptic, also log the full error to file
                 if len(error_summary) < 20:
-                    logger.error(f"Google API error details for {model_key}: {error_str}")
+                    logger.error(
+                        f"Google API error details for {model_key}: {error_str}"
+                    )
 
             # Mark the exception as already logged so the router won't log it again
             e.already_logged = True
@@ -428,9 +533,7 @@ class GoogleAPI(AIProviderInterface):
 
     @staticmethod
     def generate_embeddings(
-        text: str | list[str],
-        model: str = "embedding-001",
-        chat: Optional[Chat] = None
+        text: str | list[str], model: str = "embedding-001", chat: Chat | None = None
     ) -> list[float] | list[list[float]] | None:
         """
         Generates embeddings for the given text using the Google Gemini API.
@@ -449,11 +552,23 @@ class GoogleAPI(AIProviderInterface):
 
             # Print status message
             if chat:
-                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                prefix = (
+                    chat.get_debug_title_prefix()
+                    if hasattr(chat, "get_debug_title_prefix")
+                    else ""
+                )
                 if isinstance(text, list):
-                    g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings...", force_print=True, prefix=prefix)
+                    g.debug_log(
+                        f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating {len(text)} embeddings...",
+                        force_print=True,
+                        prefix=prefix,
+                    )
                 else:
-                    g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding...", force_print=True, prefix=prefix)
+                    g.debug_log(
+                        f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating embedding...",
+                        force_print=True,
+                        prefix=prefix,
+                    )
 
             # Determine task type for embedding (can influence quality)
             task_type = "RETRIEVAL_DOCUMENT"
@@ -461,9 +576,7 @@ class GoogleAPI(AIProviderInterface):
             if isinstance(text, str):
                 # Single text case
                 result = genai.embed_content(
-                    model=model,
-                    content=text,
-                    task_type=task_type
+                    model=model, content=text, task_type=task_type
                 )
                 return result["embedding"]
             else:
@@ -471,9 +584,7 @@ class GoogleAPI(AIProviderInterface):
                 embeddings = []
                 for t in text:
                     result = genai.embed_content(
-                        model=model,
-                        content=t,
-                        task_type=task_type
+                        model=model, content=t, task_type=task_type
                     )
                     embeddings.append(result["embedding"])
                 return embeddings
@@ -481,7 +592,11 @@ class GoogleAPI(AIProviderInterface):
         except Exception as e:
             error_msg = f"Google API embedding error: {e}"
             if chat:
-                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                prefix = (
+                    chat.get_debug_title_prefix()
+                    if hasattr(chat, "get_debug_title_prefix")
+                    else ""
+                )
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             logger.error(error_msg)
             # Keep returning None for embeddings as this appears to be the expected behavior
@@ -489,7 +604,7 @@ class GoogleAPI(AIProviderInterface):
             return None
 
     @staticmethod
-    def get_available_models(chat: Optional[Chat] = None) -> list[dict[str, Any]]:
+    def get_available_models(chat: Chat | None = None) -> list[dict[str, Any]]:
         """
         Discovers and returns available Gemini models.
 
@@ -516,37 +631,57 @@ class GoogleAPI(AIProviderInterface):
             GoogleAPI._configure_api()
 
             # Print status message
-            prefix = chat.get_debug_title_prefix() if chat and hasattr(chat, 'get_debug_title_prefix') else ""
+            prefix = (
+                chat.get_debug_title_prefix()
+                if chat and hasattr(chat, "get_debug_title_prefix")
+                else ""
+            )
             if chat:
-                g.debug_log(f"Google-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} discovering available models...", force_print=True, prefix=prefix)
+                g.debug_log(
+                    f"Google-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} discovering available models...",
+                    force_print=True,
+                    prefix=prefix,
+                )
 
             models = []
 
             # Use genai.list_models() to retrieve available models
             for model in genai.list_models():
                 model_info = {
-                    'name': model.name,
-                    'display_name': model.display_name,
-                    'description': model.description or "",
-                    'supported_generation_methods': list(model.supported_generation_methods) if model.supported_generation_methods else [],
-                    'version': getattr(model, 'version', ''),
-                    'input_token_limit': getattr(model, 'input_token_limit', None),
-                    'output_token_limit': getattr(model, 'output_token_limit', None),
-                    'temperature': getattr(model, 'temperature', None),
-                    'top_p': getattr(model, 'top_p', None),
-                    'top_k': getattr(model, 'top_k', None)
+                    "name": model.name,
+                    "display_name": model.display_name,
+                    "description": model.description or "",
+                    "supported_generation_methods": list(
+                        model.supported_generation_methods
+                    )
+                    if model.supported_generation_methods
+                    else [],
+                    "version": getattr(model, "version", ""),
+                    "input_token_limit": getattr(model, "input_token_limit", None),
+                    "output_token_limit": getattr(model, "output_token_limit", None),
+                    "temperature": getattr(model, "temperature", None),
+                    "top_p": getattr(model, "top_p", None),
+                    "top_k": getattr(model, "top_k", None),
                 }
                 models.append(model_info)
 
             if chat:
-                g.debug_log(f"Google-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} found {len(models)} available models", force_print=True, prefix=prefix)
+                g.debug_log(
+                    f"Google-Api: {colored('<', 'green')}{colored('model-discovery', 'green')}{colored('>', 'green')} found {len(models)} available models",
+                    force_print=True,
+                    prefix=prefix,
+                )
 
             return models
 
         except Exception as e:
             error_msg = f"Google API model discovery error: {e}"
             if chat:
-                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                prefix = (
+                    chat.get_debug_title_prefix()
+                    if hasattr(chat, "get_debug_title_prefix")
+                    else ""
+                )
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             logger.error(error_msg)
             return []
@@ -557,8 +692,8 @@ class GoogleAPI(AIProviderInterface):
         output_file: str = "output.wav",
         model: str = "gemini-2.5-flash-preview-tts",
         temperature: float = 1.0,
-        chat: Optional[Chat] = None,
-        speaker_config: list[dict[str, str]] | None = None
+        chat: Chat | None = None,
+        speaker_config: list[dict[str, str]] | None = None,
     ) -> str:
         """
         Generates speech from text using Google's TTS API with multi-speaker support.
@@ -587,11 +722,19 @@ class GoogleAPI(AIProviderInterface):
 
             # Print status message
             if chat:
-                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                g.debug_log(f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating speech...", force_print=True, prefix=prefix)
+                prefix = (
+                    chat.get_debug_title_prefix()
+                    if hasattr(chat, "get_debug_title_prefix")
+                    else ""
+                )
+                g.debug_log(
+                    f"Google-Api: {colored('<', 'green')}{colored(model, 'green')}{colored('>', 'green')} is generating speech...",
+                    force_print=True,
+                    prefix=prefix,
+                )
 
             # Create the client
-            client = genai.Client( # Using genai from top-level import
+            client = genai.Client(  # Using genai from top-level import
                 api_key=os.environ.get("GEMINI_API_KEY"),
             )
 
@@ -599,17 +742,17 @@ class GoogleAPI(AIProviderInterface):
             if not speaker_config:
                 speaker_config = [
                     {"speaker": "Chloe", "voice": "Kore"},
-                    {"speaker": "Liam", "voice": "Iapetus"}
+                    {"speaker": "Liam", "voice": "Iapetus"},
                 ]
 
             # Create speaker voice configs
             speaker_voice_configs = []
             for config in speaker_config:
                 speaker_voice_configs.append(
-                    types.SpeakerVoiceConfig( # Using types from top-level import
+                    types.SpeakerVoiceConfig(  # Using types from top-level import
                         speaker=config["speaker"],
-                        voice_config=types.VoiceConfig( # Using types from top-level import
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig( # Using types from top-level import
+                        voice_config=types.VoiceConfig(  # Using types from top-level import
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(  # Using types from top-level import
                                 voice_name=config["voice"]
                             )
                         ),
@@ -618,20 +761,22 @@ class GoogleAPI(AIProviderInterface):
 
             # Set up content for TTS
             contents = [
-                types.Content( # Using types from top-level import
+                types.Content(  # Using types from top-level import
                     role="user",
                     parts=[
-                        types.Part.from_text(text=text), # Using types from top-level import
+                        types.Part.from_text(
+                            text=text
+                        ),  # Using types from top-level import
                     ],
                 ),
             ]
 
             # Configure TTS generation
-            generate_content_config = types.GenerateContentConfig( # Using types from top-level import
+            generate_content_config = types.GenerateContentConfig(  # Using types from top-level import
                 temperature=temperature,
                 response_modalities=["audio"],
-                speech_config=types.SpeechConfig( # Using types from top-level import
-                    multi_speaker_voice_config=types.MultiSpeakerVoiceConfig( # Using types from top-level import
+                speech_config=types.SpeechConfig(  # Using types from top-level import
+                    multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(  # Using types from top-level import
                         speaker_voice_configs=speaker_voice_configs
                     ),
                 ),
@@ -657,7 +802,9 @@ class GoogleAPI(AIProviderInterface):
 
                     if file_extension is None:
                         file_extension = ".wav"
-                        data_buffer = convert_to_wav(inline_data.data, inline_data.mime_type)
+                        data_buffer = convert_to_wav(
+                            inline_data.data, inline_data.mime_type
+                        )
 
                     # Ensure output_file has the correct extension
                     base_name, existing_ext = os.path.splitext(output_file)
@@ -669,8 +816,16 @@ class GoogleAPI(AIProviderInterface):
                 else:
                     # Handle text response
                     if chunk.text and chat:
-                        prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
-                        g.debug_log(f"TTS Response: {chunk.text}", force_print=True, prefix=prefix)
+                        prefix = (
+                            chat.get_debug_title_prefix()
+                            if hasattr(chat, "get_debug_title_prefix")
+                            else ""
+                        )
+                        g.debug_log(
+                            f"TTS Response: {chunk.text}",
+                            force_print=True,
+                            prefix=prefix,
+                        )
 
             # If we get here without returning a file, raise an exception
             raise Exception("No audio data received from the API")
@@ -678,7 +833,11 @@ class GoogleAPI(AIProviderInterface):
         except Exception as e:
             error_msg = f"Google API speech generation error: {e}"
             if chat:
-                prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
+                prefix = (
+                    chat.get_debug_title_prefix()
+                    if hasattr(chat, "get_debug_title_prefix")
+                    else ""
+                )
                 g.debug_log(error_msg, "red", is_error=True, prefix=prefix)
             logger.error(error_msg)
             # Mark the exception as already logged so the router won't log it again
@@ -692,6 +851,7 @@ class GoogleAPI(AIProviderInterface):
         Create a cancellable stream wrapper that monitors the cancellation event.
         This allows for immediate interruption of Google/Gemini streaming responses.
         """
+
         class CancellableGoogleStream:
             def __init__(self, stream, cancellation_event, model_key):
                 self.stream = stream
@@ -703,13 +863,15 @@ class GoogleAPI(AIProviderInterface):
                     for chunk in self.stream:
                         # Check for cancellation before yielding each chunk
                         if self.cancellation_event and self.cancellation_event.is_set():
-                            logger.debug(f"Google stream for {self.model_key} cancelled via interruption")
+                            logger.debug(
+                                f"Google stream for {self.model_key} cancelled via interruption"
+                            )
                             break
                         yield chunk
                 finally:
                     # Cleanup: close the stream if possible
                     try:
-                        if hasattr(self.stream, 'close'):
+                        if hasattr(self.stream, "close"):
                             self.stream.close()
                     except Exception as e:
                         logger.debug(f"Error closing Google stream: {e}")

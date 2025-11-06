@@ -16,7 +16,7 @@ import pytest
 # Mark all tests in this module as using anyio (since anyio is available)
 pytestmark = pytest.mark.anyio
 
-from shared.utils.prompt_regenerator import PromptRegenerator, regenerate_prompts
+from shared.utils.prompt_regenerator import PromptRegenerator
 
 
 @pytest.fixture
@@ -121,6 +121,50 @@ class TestPromptRegenerator:
         files = regenerator.find_recent_files()
 
         assert files == []
+
+    def test_find_recent_files_excludes_venv(self, temp_studium_dir, temp_prompts_file):
+        """Test that virtual environment directories are automatically excluded."""
+        regenerator = PromptRegenerator(
+            studium_dir=str(temp_studium_dir),
+            prompts_file=str(temp_prompts_file),
+            num_files=5,
+            time_frame_days=30
+        )
+
+        # Create a virtual environment directory with pyvenv.cfg
+        venv_dir = temp_studium_dir / "KIM3" / "my_project" / "venv"
+        venv_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create pyvenv.cfg file (marker for Python virtual environments)
+        pyvenv_cfg = venv_dir / "pyvenv.cfg"
+        pyvenv_cfg.write_text("home = /usr/bin\nversion = 3.12.3")
+
+        # Create files inside the venv that should be excluded
+        venv_lib = venv_dir / "lib" / "python3.12" / "site-packages"
+        venv_lib.mkdir(parents=True, exist_ok=True)
+        (venv_lib / "module.py").write_text("# venv module")
+
+        # Create a normal file outside venv that should be included
+        normal_file = temp_studium_dir / "KIM3" / "my_project" / "main.py"
+        normal_file.parent.mkdir(parents=True, exist_ok=True)
+        normal_file.write_text("# normal file")
+
+        # Set modification times to ensure they're recent
+        import os
+        recent_time = datetime.now().timestamp()
+        os.utime(pyvenv_cfg, (recent_time, recent_time))
+        os.utime(venv_lib / "module.py", (recent_time, recent_time))
+        os.utime(normal_file, (recent_time, recent_time))
+
+        files = regenerator.find_recent_files()
+        file_paths = [str(f[0]) for f in files]
+
+        # Verify that normal file is included
+        assert any("main.py" in path for path in file_paths), "Normal file should be included"
+
+        # Verify that venv files are excluded (pyvenv.cfg and module.py)
+        assert not any("pyvenv.cfg" in path for path in file_paths), "pyvenv.cfg should be excluded"
+        assert not any("site-packages" in path for path in file_paths), "venv files should be excluded"
 
     def test_select_random_files(self, temp_studium_dir, temp_prompts_file):
         """Test random file selection."""
@@ -378,36 +422,6 @@ class TestPromptRegenerator:
         assert result["status"] == "partial"
         assert result["prompts"] == regenerator.default_prompts
         assert "LLM generation failed" in result["message"]
-
-
-class TestConvenienceFunction:
-    """Test the convenience function for API access."""
-
-    async def test_regenerate_prompts_function(self, temp_studium_dir, temp_prompts_file):
-        """Test the regenerate_prompts convenience function."""
-        # Mock LLM response
-        mock_response = '''{"prompts": ["Test 1", "Test 2", "Test 3", "Test 4", "Test 5"]}'''
-
-        with patch('core.llm_router.LlmRouter') as MockRouter:
-            mock_instance = MockRouter.return_value
-            mock_instance.generate_completion = AsyncMock(return_value=mock_response)
-
-            with patch('shared.utils.prompt_regenerator.PromptRegenerator') as MockRegenerator:
-                mock_regen = MockRegenerator.return_value
-                mock_regen.regenerate = AsyncMock(return_value={
-                    "status": "success",
-                    "prompts": ["Test 1", "Test 2", "Test 3", "Test 4", "Test 5"],
-                    "files_analyzed": 3
-                })
-
-                result = await regenerate_prompts(
-                    studium_dir=str(temp_studium_dir),
-                    num_files=3,
-                    time_frame_days=30
-                )
-
-        assert result["status"] == "success"
-        assert len(result["prompts"]) == 5
 
 
 # Assign test level for hierarchical testing
