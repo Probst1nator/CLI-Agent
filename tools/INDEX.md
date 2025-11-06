@@ -18,7 +18,7 @@
 | `insertline.py` | Python module: insertline |
 | `paralleltools.py` | Python module: paralleltools |
 | `readdirectory.py` | Read file contents |
-| `readfile.py` | Read file contents |
+| `readfile.py` | Read file contents - supports 80+ formats: office docs, PDFs, images, CSV, HTML, archives, SQLite, Jupyter notebooks, and more |
 | `searchconversations.py` | Search codebase for patterns |
 | `searchresource.py` | Search codebase for patterns |
 | `searchweb.py` | Search codebase for patterns |

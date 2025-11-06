@@ -165,16 +165,30 @@ class readfile:
         return {
             "name": "readfile",
             "description": (
-                "Supports text, PDF, and image files. "
-                "PDFs are automatically extracted to text (with OCR fallback). "
-                "Images and PDF pages are registered for vision model analysis. "
-                "Large text files are automatically saved to memory files that you can access with <readfile>."
+                "Comprehensive file reader supporting multiple formats:\n"
+                "- Text files (with line-range support)\n"
+                "- PDFs (text extraction + OCR fallback)\n"
+                "- Images (registered for vision model analysis)\n"
+                "- Office documents (.docx, .xlsx, .pptx, .xls, .odt, .ods, .odp)\n"
+                "- CSV/TSV files (formatted as readable tables)\n"
+                "- HTML files (text extraction)\n"
+                "- Archives (.zip, .tar, .tar.gz, .tar.bz2 - lists contents)\n"
+                "- SQLite databases (.db, .sqlite, .sqlite3 - shows schema and sample data)\n"
+                "- Jupyter notebooks (.ipynb - formatted cells with outputs)\n"
+                "Large files are automatically managed for optimal context usage."
             ),
             "example": (
                 "<readfile>./src/main.py</readfile>\n"
                 "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>\n"
                 "<readfile>./screenshot.png</readfile>\n"
                 "<readfile>./document.pdf</readfile>\n"
+                "<readfile>./report.docx</readfile>\n"
+                "<readfile>./data.xlsx</readfile>\n"
+                "<readfile>./data.csv</readfile>\n"
+                "<readfile>./page.html</readfile>\n"
+                "<readfile>./backup.zip</readfile>\n"
+                "<readfile>./app.db</readfile>\n"
+                "<readfile>./analysis.ipynb</readfile>\n"
             )
         }
 
@@ -392,6 +406,686 @@ class readfile:
             return f"Error processing image file '{filepath}': {str(e)}"
 
     @staticmethod
+    def is_office_document(filepath: str) -> tuple:
+        """
+        Check if the file is an office document and return (is_office, format_type).
+
+        Returns:
+            tuple: (bool, str) - (is office document, format type)
+            format_type can be: 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'odt', 'ods', 'odp', 'odg'
+        """
+        _, ext = os.path.splitext(filepath.lower())
+
+        # Map extensions to format types
+        office_extensions = {
+            '.docx': 'docx', '.doc': 'doc',
+            '.xlsx': 'xlsx', '.xls': 'xls',
+            '.pptx': 'pptx', '.ppt': 'ppt',
+            '.odt': 'odt', '.ods': 'ods', '.odp': 'odp', '.odg': 'odg'
+        }
+
+        if ext in office_extensions:
+            return (True, office_extensions[ext])
+
+        # Check magic bytes for files without proper extensions
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(8)
+
+            # ZIP-based formats (DOCX, XLSX, PPTX, ODT, ODS, ODP, ODG) start with PK
+            if header.startswith(b'PK\x03\x04'):
+                # Could be any ZIP-based office format
+                # Try to read the content_types or mimetype file to determine
+                import zipfile
+                try:
+                    with zipfile.ZipFile(filepath, 'r') as zf:
+                        # Check for Office Open XML (Microsoft)
+                        if '[Content_Types].xml' in zf.namelist():
+                            content_types = zf.read('[Content_Types].xml').decode('utf-8', errors='ignore')
+                            if 'wordprocessingml' in content_types:
+                                return (True, 'docx')
+                            elif 'spreadsheetml' in content_types:
+                                return (True, 'xlsx')
+                            elif 'presentationml' in content_types:
+                                return (True, 'pptx')
+
+                        # Check for OpenDocument (LibreOffice/OpenOffice)
+                        if 'mimetype' in zf.namelist():
+                            mimetype = zf.read('mimetype').decode('utf-8', errors='ignore').strip()
+                            if 'opendocument.text' in mimetype:
+                                return (True, 'odt')
+                            elif 'opendocument.spreadsheet' in mimetype:
+                                return (True, 'ods')
+                            elif 'opendocument.presentation' in mimetype:
+                                return (True, 'odp')
+                            elif 'opendocument.graphics' in mimetype:
+                                return (True, 'odg')
+                except Exception:
+                    pass
+
+            # Old Office formats (DOC, XLS, PPT) use OLE2 format
+            elif header.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
+                # This is an OLE2 file, likely old Office format
+                # Without deeper inspection, we can't be 100% sure which type
+                # Return generic 'doc' and let the processor handle it
+                return (True, 'doc')
+
+        except Exception:
+            pass
+
+        return (False, None)
+
+    @staticmethod
+    def process_docx_file(filepath: str) -> str:
+        """Extract text from a .docx file."""
+        try:
+            import docx
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            doc = docx.Document(filepath)
+
+            # Extract text from paragraphs
+            text_parts = []
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    text_parts.append(para.text)
+
+            # Extract text from tables
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = ' | '.join(cell.text.strip() for cell in row.cells)
+                    if row_text.strip():
+                        text_parts.append(row_text)
+
+            if not text_parts:
+                return f"📄 Word document: {filename} ({file_size:.1f} KB)\n\n[Document appears to be empty or contains no extractable text]"
+
+            extracted_text = '\n'.join(text_parts)
+            header = f"📄 Word document: {filename} ({file_size:.1f} KB)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return f"⚠️  Cannot read .docx file: python-docx not installed\nInstall with: pip install python-docx"
+        except Exception as e:
+            return f"Error reading .docx file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_xlsx_file(filepath: str) -> str:
+        """Extract text from a .xlsx file."""
+        try:
+            import openpyxl
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            wb = openpyxl.load_workbook(filepath, data_only=True)
+            text_parts = []
+
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+
+                # Add sheet header
+                text_parts.append(f"\n{'='*60}\nSheet: {sheet_name}\n{'='*60}")
+
+                # Extract cell values
+                for row in sheet.iter_rows(values_only=True):
+                    # Filter out empty rows
+                    row_values = [str(cell) if cell is not None else '' for cell in row]
+                    if any(val.strip() for val in row_values):
+                        text_parts.append(' | '.join(row_values))
+
+            if not text_parts:
+                return f"📊 Excel spreadsheet: {filename} ({file_size:.1f} KB)\n\n[Spreadsheet appears to be empty]"
+
+            extracted_text = '\n'.join(text_parts)
+            header = f"📊 Excel spreadsheet: {filename} ({file_size:.1f} KB) - {len(wb.sheetnames)} sheet(s)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return f"⚠️  Cannot read .xlsx file: openpyxl not installed\nInstall with: pip install openpyxl"
+        except Exception as e:
+            return f"Error reading .xlsx file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_xls_file(filepath: str) -> str:
+        """Extract text from a .xls file (older Excel format)."""
+        try:
+            import xlrd
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            wb = xlrd.open_workbook(filepath)
+            text_parts = []
+
+            for sheet in wb.sheets():
+                # Add sheet header
+                text_parts.append(f"\n{'='*60}\nSheet: {sheet.name}\n{'='*60}")
+
+                # Extract cell values
+                for row_idx in range(sheet.nrows):
+                    row_values = [str(sheet.cell_value(row_idx, col_idx)) for col_idx in range(sheet.ncols)]
+                    if any(val.strip() for val in row_values):
+                        text_parts.append(' | '.join(row_values))
+
+            if not text_parts:
+                return f"📊 Excel spreadsheet (legacy): {filename} ({file_size:.1f} KB)\n\n[Spreadsheet appears to be empty]"
+
+            extracted_text = '\n'.join(text_parts)
+            header = f"📊 Excel spreadsheet (legacy): {filename} ({file_size:.1f} KB) - {wb.nsheets} sheet(s)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return f"⚠️  Cannot read .xls file: xlrd not installed\nInstall with: pip install xlrd"
+        except Exception as e:
+            return f"Error reading .xls file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_pptx_file(filepath: str) -> str:
+        """Extract text from a .pptx file."""
+        try:
+            import pptx
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            prs = pptx.Presentation(filepath)
+            text_parts = []
+
+            for slide_num, slide in enumerate(prs.slides, 1):
+                # Add slide header
+                text_parts.append(f"\n{'='*60}\nSlide {slide_num}\n{'='*60}")
+
+                # Extract text from shapes
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        text_parts.append(shape.text)
+
+                    # Extract text from tables if present
+                    if hasattr(shape, "table"):
+                        for row in shape.table.rows:
+                            row_text = ' | '.join(cell.text.strip() for cell in row.cells)
+                            if row_text.strip():
+                                text_parts.append(row_text)
+
+            if not text_parts:
+                return f"📊 PowerPoint presentation: {filename} ({file_size:.1f} KB)\n\n[Presentation appears to be empty or contains no extractable text]"
+
+            extracted_text = '\n'.join(text_parts)
+            header = f"📊 PowerPoint presentation: {filename} ({file_size:.1f} KB) - {len(prs.slides)} slide(s)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return f"⚠️  Cannot read .pptx file: python-pptx not installed\nInstall with: pip install python-pptx"
+        except Exception as e:
+            return f"Error reading .pptx file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_opendocument_file(filepath: str, format_type: str) -> str:
+        """Extract text from OpenDocument files (.odt, .ods, .odp, .odg)."""
+        try:
+            from odf import text, teletype
+            from odf.opendocument import load
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            doc = load(filepath)
+            text_parts = []
+
+            # Extract text elements
+            for element in doc.getElementsByType(text.P):
+                paragraph_text = teletype.extractText(element)
+                if paragraph_text.strip():
+                    text_parts.append(paragraph_text)
+
+            # Extract text from lists
+            for element in doc.getElementsByType(text.List):
+                list_text = teletype.extractText(element)
+                if list_text.strip():
+                    text_parts.append(list_text)
+
+            # Extract text from headers
+            for element in doc.getElementsByType(text.H):
+                header_text = teletype.extractText(element)
+                if header_text.strip():
+                    text_parts.append(header_text)
+
+            if not text_parts:
+                return f"📄 OpenDocument file: {filename} ({file_size:.1f} KB)\n\n[Document appears to be empty or contains no extractable text]"
+
+            extracted_text = '\n'.join(text_parts)
+
+            doc_type = {
+                'odt': 'OpenDocument Text',
+                'ods': 'OpenDocument Spreadsheet',
+                'odp': 'OpenDocument Presentation',
+                'odg': 'OpenDocument Graphics'
+            }.get(format_type, 'OpenDocument')
+
+            header = f"📄 {doc_type}: {filename} ({file_size:.1f} KB)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except ImportError:
+            return (f"⚠️  Cannot read OpenDocument file: odfpy not installed\n"
+                   f"Install with: pip install odfpy\n"
+                   f"Note: If installation fails, try converting to PDF or DOCX format")
+        except Exception as e:
+            return f"Error reading OpenDocument file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def process_office_document(filepath: str, format_type: str) -> str:
+        """
+        Route office document to the appropriate processor based on format type.
+
+        Args:
+            filepath: Path to the office document
+            format_type: Document format type (docx, xlsx, pptx, etc.)
+
+        Returns:
+            Extracted text content
+        """
+        if format_type == 'docx':
+            return readfile.process_docx_file(filepath)
+        elif format_type == 'xlsx':
+            return readfile.process_xlsx_file(filepath)
+        elif format_type == 'xls':
+            return readfile.process_xls_file(filepath)
+        elif format_type == 'pptx':
+            return readfile.process_pptx_file(filepath)
+        elif format_type in ('odt', 'ods', 'odp', 'odg'):
+            return readfile.process_opendocument_file(filepath, format_type)
+        elif format_type in ('doc', 'ppt'):
+            # Old Office formats - try LibreOffice conversion as fallback
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+            return (f"📄 Legacy Office document: {filename} ({file_size:.1f} KB)\n\n"
+                   f"⚠️  Legacy .doc/.ppt formats require conversion.\n"
+                   f"Recommended approaches:\n"
+                   f"1. Convert with LibreOffice:\n"
+                   f"   <bash>libreoffice --headless --convert-to pdf '{filepath}'</bash>\n"
+                   f"2. Open in Microsoft Word/PowerPoint and save as .docx/.pptx\n"
+                   f"3. Use an online converter")
+        else:
+            return f"⚠️  Unsupported office document format: {format_type}"
+
+    @staticmethod
+    def is_csv_file(filepath: str) -> bool:
+        """Check if the file is a CSV based on extension."""
+        _, ext = os.path.splitext(filepath.lower())
+        return ext in ('.csv', '.tsv')
+
+    @staticmethod
+    def process_csv_file(filepath: str) -> str:
+        """Extract and format CSV/TSV file as a readable table."""
+        try:
+            import csv
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            # Detect delimiter
+            _, ext = os.path.splitext(filepath.lower())
+            delimiter = '\t' if ext == '.tsv' else None
+
+            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                # Read sample to detect delimiter if not TSV
+                if delimiter is None:
+                    sample = f.read(4096)
+                    f.seek(0)
+                    sniffer = csv.Sniffer()
+                    try:
+                        delimiter = sniffer.sniff(sample).delimiter
+                    except:
+                        delimiter = ','
+
+                reader = csv.reader(f, delimiter=delimiter)
+                rows = list(reader)
+
+            if not rows:
+                return f"📊 CSV file: {filename} ({file_size:.1f} KB)\n\n[File is empty]"
+
+            # Calculate column widths for formatting
+            col_widths = []
+            for col_idx in range(max(len(row) for row in rows)):
+                max_width = max(
+                    (len(str(row[col_idx])) if col_idx < len(row) else 0 for row in rows),
+                    default=0
+                )
+                col_widths.append(min(max_width, 50))  # Cap at 50 chars per column
+
+            # Format rows
+            formatted_rows = []
+            for i, row in enumerate(rows[:100]):  # Limit to first 100 rows
+                formatted_row = ' | '.join(
+                    str(cell)[:50].ljust(col_widths[j]) if j < len(row) else ' ' * col_widths[j]
+                    for j, cell in enumerate(row)
+                )
+                formatted_rows.append(formatted_row)
+
+                # Add separator after header
+                if i == 0 and len(rows) > 1:
+                    separator = '-+-'.join('-' * w for w in col_widths)
+                    formatted_rows.append(separator)
+
+            extracted_text = '\n'.join(formatted_rows)
+
+            rows_shown = min(len(rows), 100)
+            header = f"📊 CSV file: {filename} ({file_size:.1f} KB) - {len(rows)} rows × {len(rows[0]) if rows else 0} columns"
+            if len(rows) > 100:
+                header += f"\n(Showing first 100 rows)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except Exception as e:
+            return f"Error reading CSV file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def is_html_file(filepath: str) -> bool:
+        """Check if the file is HTML based on extension or content."""
+        _, ext = os.path.splitext(filepath.lower())
+        if ext in ('.html', '.htm'):
+            return True
+
+        # Check for HTML content in files without extension
+        try:
+            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                first_line = f.read(1024).lower()
+            return '<!doctype html' in first_line or '<html' in first_line
+        except:
+            return False
+
+    @staticmethod
+    def process_html_file(filepath: str) -> str:
+        """Extract readable text from HTML file."""
+        try:
+            from html.parser import HTMLParser
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            class TextExtractor(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.text_parts = []
+                    self.skip_tags = {'script', 'style', 'head', 'meta', 'link'}
+                    self.current_tag = None
+
+                def handle_starttag(self, tag, attrs):
+                    self.current_tag = tag
+
+                def handle_endtag(self, tag):
+                    self.current_tag = None
+
+                def handle_data(self, data):
+                    if self.current_tag not in self.skip_tags:
+                        text = data.strip()
+                        if text:
+                            self.text_parts.append(text)
+
+            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                html_content = f.read()
+
+            parser = TextExtractor()
+            parser.feed(html_content)
+
+            if not parser.text_parts:
+                return f"🌐 HTML file: {filename} ({file_size:.1f} KB)\n\n[No readable text content found]"
+
+            extracted_text = '\n'.join(parser.text_parts)
+            header = f"🌐 HTML file: {filename} ({file_size:.1f} KB)"
+
+            return f"{header}\n\n{extracted_text}"
+
+        except Exception as e:
+            return f"Error reading HTML file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def is_archive_file(filepath: str) -> tuple:
+        """Check if file is an archive and return (is_archive, archive_type)."""
+        filepath_lower = filepath.lower()
+
+        # Check for .tar.gz or .tar.bz2 first (multi-extension)
+        if filepath_lower.endswith('.tar.gz') or filepath_lower.endswith('.tgz'):
+            return (True, 'tar.gz')
+        elif filepath_lower.endswith('.tar.bz2'):
+            return (True, 'tar.bz2')
+
+        _, ext = os.path.splitext(filepath_lower)
+
+        archive_extensions = {
+            '.zip': 'zip',
+            '.tar': 'tar',
+            '.gz': 'gzip',
+            '.bz2': 'bzip2',
+        }
+
+        if ext in archive_extensions:
+            return (True, archive_extensions[ext])
+
+        # Check magic bytes
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(10)
+
+            if header.startswith(b'PK\x03\x04') or header.startswith(b'PK\x05\x06'):
+                return (True, 'zip')
+            elif header.startswith(b'\x1f\x8b'):
+                # Could be gzip or tar.gz - check if it's a tar archive
+                try:
+                    import tarfile
+                    if tarfile.is_tarfile(filepath):
+                        return (True, 'tar.gz')
+                except:
+                    pass
+                return (True, 'gzip')
+            elif header.startswith(b'BZh'):
+                return (True, 'bzip2')
+        except:
+            pass
+
+        return (False, None)
+
+    @staticmethod
+    def process_archive_file(filepath: str, archive_type: str) -> str:
+        """List contents of archive file."""
+        try:
+            import zipfile
+            import tarfile
+            import gzip
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            file_list = []
+            total_size = 0
+
+            if archive_type == 'zip':
+                with zipfile.ZipFile(filepath, 'r') as zf:
+                    for info in zf.filelist:
+                        if not info.is_dir():
+                            size_kb = info.file_size / 1024
+                            total_size += info.file_size
+                            file_list.append(f"  {info.filename} ({size_kb:.1f} KB)")
+
+            elif archive_type in ('tar', 'tar.gz', 'tar.bz2'):
+                mode = 'r:gz' if 'gz' in archive_type else 'r:bz2' if 'bz2' in archive_type else 'r'
+                with tarfile.open(filepath, mode) as tf:
+                    for member in tf.getmembers():
+                        if member.isfile():
+                            size_kb = member.size / 1024
+                            total_size += member.size
+                            file_list.append(f"  {member.name} ({size_kb:.1f} KB)")
+
+            elif archive_type == 'gzip':
+                # Single file gzip
+                with gzip.open(filepath, 'rb') as gz:
+                    # Try to get original filename from header
+                    original_name = filename[:-3] if filename.endswith('.gz') else 'compressed file'
+                    file_list.append(f"  {original_name} (compressed)")
+
+            if not file_list:
+                return f"📦 Archive: {filename} ({file_size:.1f} KB)\n\n[Archive is empty or contains only directories]"
+
+            total_size_kb = total_size / 1024
+            header = f"📦 Archive: {filename} ({file_size:.1f} KB, uncompressed: {total_size_kb:.1f} KB)"
+            header += f"\n{len(file_list)} file(s):\n"
+
+            # Limit to first 100 files
+            if len(file_list) > 100:
+                shown_files = '\n'.join(file_list[:100])
+                shown_files += f"\n  ... and {len(file_list) - 100} more files"
+            else:
+                shown_files = '\n'.join(file_list)
+
+            return f"{header}\n{shown_files}"
+
+        except Exception as e:
+            return f"Error reading archive file '{filepath}': {str(e)}"
+
+    @staticmethod
+    def is_sqlite_file(filepath: str) -> bool:
+        """Check if file is a SQLite database."""
+        _, ext = os.path.splitext(filepath.lower())
+        if ext in ('.db', '.sqlite', '.sqlite3', '.db3'):
+            return True
+
+        # Check SQLite magic bytes
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(16)
+            return header.startswith(b'SQLite format 3\x00')
+        except:
+            return False
+
+    @staticmethod
+    def process_sqlite_file(filepath: str) -> str:
+        """Extract schema and sample data from SQLite database."""
+        try:
+            import sqlite3
+
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            conn = sqlite3.connect(f"file:{filepath}?mode=ro", uri=True)
+            cursor = conn.cursor()
+
+            # Get all tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            tables = [row[0] for row in cursor.fetchall()]
+
+            if not tables:
+                conn.close()
+                return f"🗄️  SQLite database: {filename} ({file_size:.1f} KB)\n\n[Database contains no tables]"
+
+            output_parts = [f"🗄️  SQLite database: {filename} ({file_size:.1f} KB)\n{len(tables)} table(s):\n"]
+
+            for table in tables:
+                # Get schema
+                cursor.execute(f"PRAGMA table_info({table})")
+                columns = cursor.fetchall()
+
+                # Get row count
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                row_count = cursor.fetchone()[0]
+
+                output_parts.append(f"\n{'='*60}")
+                output_parts.append(f"Table: {table} ({row_count} rows)")
+                output_parts.append('='*60)
+
+                # Show schema
+                output_parts.append("Columns:")
+                for col in columns:
+                    col_name, col_type = col[1], col[2]
+                    pk = " (PRIMARY KEY)" if col[5] else ""
+                    output_parts.append(f"  - {col_name}: {col_type}{pk}")
+
+                # Show sample data (first 5 rows)
+                if row_count > 0:
+                    cursor.execute(f"SELECT * FROM {table} LIMIT 5")
+                    sample_rows = cursor.fetchall()
+
+                    output_parts.append("\nSample data (first 5 rows):")
+                    col_names = [col[1] for col in columns]
+                    output_parts.append("  " + " | ".join(col_names))
+                    output_parts.append("  " + "-+-".join("-" * len(name) for name in col_names))
+
+                    for row in sample_rows:
+                        row_str = " | ".join(str(val)[:50] if val is not None else "NULL" for val in row)
+                        output_parts.append("  " + row_str)
+
+            conn.close()
+            return '\n'.join(output_parts)
+
+        except Exception as e:
+            return f"Error reading SQLite database '{filepath}': {str(e)}"
+
+    @staticmethod
+    def is_jupyter_notebook(filepath: str) -> bool:
+        """Check if file is a Jupyter notebook."""
+        _, ext = os.path.splitext(filepath.lower())
+        return ext == '.ipynb'
+
+    @staticmethod
+    def process_jupyter_notebook(filepath: str) -> str:
+        """Format Jupyter notebook cells for readable output."""
+        try:
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath) / 1024  # KB
+
+            with open(filepath, 'r', encoding='utf-8') as f:
+                notebook = json.load(f)
+
+            cells = notebook.get('cells', [])
+            if not cells:
+                return f"📓 Jupyter Notebook: {filename} ({file_size:.1f} KB)\n\n[Notebook is empty]"
+
+            output_parts = [f"📓 Jupyter Notebook: {filename} ({file_size:.1f} KB)\n{len(cells)} cell(s):\n"]
+
+            for i, cell in enumerate(cells, 1):
+                cell_type = cell.get('cell_type', 'unknown')
+                source = cell.get('source', [])
+
+                # Join source lines
+                if isinstance(source, list):
+                    source_text = ''.join(source)
+                else:
+                    source_text = source
+
+                output_parts.append(f"\n{'='*60}")
+                output_parts.append(f"Cell {i} [{cell_type}]")
+                output_parts.append('='*60)
+                output_parts.append(source_text)
+
+                # Include outputs for code cells
+                if cell_type == 'code':
+                    outputs = cell.get('outputs', [])
+                    if outputs:
+                        output_parts.append("\nOutput:")
+                        for output in outputs[:3]:  # Limit to first 3 outputs
+                            output_type = output.get('output_type', '')
+                            if output_type == 'stream':
+                                text = ''.join(output.get('text', []))
+                                output_parts.append(text)
+                            elif output_type == 'execute_result' or output_type == 'display_data':
+                                data = output.get('data', {})
+                                if 'text/plain' in data:
+                                    text = ''.join(data['text/plain']) if isinstance(data['text/plain'], list) else data['text/plain']
+                                    output_parts.append(text)
+
+            return '\n'.join(output_parts)
+
+        except Exception as e:
+            return f"Error reading Jupyter notebook '{filepath}': {str(e)}"
+
+    @staticmethod
     def run(content: str) -> str:
         """
         Reads the content of the file specified in the input string.
@@ -462,6 +1156,38 @@ class readfile:
             if readfile.is_image_file(full_path):
                 image_result = readfile.process_image_file(full_path)
                 return search_message + image_result
+
+            # Check if this is an office document
+            is_office, format_type = readfile.is_office_document(full_path)
+            if is_office:
+                office_result = readfile.process_office_document(full_path, format_type)
+                return search_message + office_result
+
+            # Check if this is a SQLite database
+            if readfile.is_sqlite_file(full_path):
+                sqlite_result = readfile.process_sqlite_file(full_path)
+                return search_message + sqlite_result
+
+            # Check if this is an archive file
+            is_archive, archive_type = readfile.is_archive_file(full_path)
+            if is_archive:
+                archive_result = readfile.process_archive_file(full_path, archive_type)
+                return search_message + archive_result
+
+            # Check if this is a Jupyter notebook
+            if readfile.is_jupyter_notebook(full_path):
+                notebook_result = readfile.process_jupyter_notebook(full_path)
+                return search_message + notebook_result
+
+            # Check if this is a CSV file
+            if readfile.is_csv_file(full_path):
+                csv_result = readfile.process_csv_file(full_path)
+                return search_message + csv_result
+
+            # Check if this is an HTML file
+            if readfile.is_html_file(full_path):
+                html_result = readfile.process_html_file(full_path)
+                return search_message + html_result
 
             # Attempt to read the file with UTF-8 encoding, replacing errors
             try:
