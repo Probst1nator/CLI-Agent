@@ -251,6 +251,235 @@ Line after empty lines"""
         return True
 
 
+def test_readfile_office_documents():
+    """Test reading office document formats (.docx, .xlsx, .pptx)"""
+    try:
+        import docx
+        import openpyxl
+        import pptx
+    except ImportError:
+        # Skip test if libraries not installed
+        print("Skipping office document tests - required libraries not installed")
+        return True
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Test DOCX
+        docx_file = os.path.join(temp_dir, "test.docx")
+        doc = docx.Document()
+        doc.add_heading('Test Document', 0)
+        doc.add_paragraph('This is test content.')
+        doc.save(docx_file)
+
+        result = readfile.run(docx_file)
+        assert "Test Document" in result, "DOCX: Should extract heading"
+        assert "This is test content" in result, "DOCX: Should extract paragraph"
+        assert "Word document" in result, "DOCX: Should identify as Word document"
+
+        # Test XLSX
+        xlsx_file = os.path.join(temp_dir, "test.xlsx")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws['A1'] = 'Header1'
+        ws['B1'] = 'Header2'
+        ws['A2'] = 'Data1'
+        ws['B2'] = 'Data2'
+        wb.save(xlsx_file)
+
+        result = readfile.run(xlsx_file)
+        assert "Header1" in result, "XLSX: Should extract cell content"
+        assert "Data1" in result, "XLSX: Should extract data"
+        assert "Excel spreadsheet" in result, "XLSX: Should identify as Excel"
+
+        # Test PPTX
+        pptx_file = os.path.join(temp_dir, "test.pptx")
+        prs = pptx.Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[0])
+        title = slide.shapes.title
+        title.text = "Test Slide Title"
+        prs.save(pptx_file)
+
+        result = readfile.run(pptx_file)
+        assert "Test Slide Title" in result, "PPTX: Should extract slide title"
+        assert "PowerPoint presentation" in result, "PPTX: Should identify as PowerPoint"
+
+        return True
+
+
+def test_readfile_office_document_detection():
+    """Test office document detection without file extensions"""
+    try:
+        import docx
+    except ImportError:
+        print("Skipping office document detection test - python-docx not installed")
+        return True
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create DOCX without extension
+        docx_file = os.path.join(temp_dir, "no_extension")
+        doc = docx.Document()
+        doc.add_paragraph('Test content for detection')
+        doc.save(docx_file)
+
+        # Should still detect and process it
+        is_office, format_type = readfile.is_office_document(docx_file)
+        assert is_office, "Should detect office document without extension"
+        assert format_type == 'docx', f"Should detect as docx, got {format_type}"
+
+        # Should be able to read it
+        result = readfile.run(docx_file)
+        assert "Test content for detection" in result, "Should extract content from file without extension"
+
+        return True
+
+
+def test_readfile_csv_files():
+    """Test reading and formatting CSV files."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create CSV file
+        csv_file = os.path.join(temp_dir, "test.csv")
+        with open(csv_file, 'w', newline='') as f:
+            import csv as csv_module
+            writer = csv_module.writer(f)
+            writer.writerow(['Name', 'Age', 'City'])
+            writer.writerow(['Alice', '25', 'NYC'])
+            writer.writerow(['Bob', '30', 'LA'])
+
+        result = readfile.run(csv_file)
+        assert "CSV file" in result, "Should identify as CSV"
+        assert "Name" in result and "Age" in result, "Should contain headers"
+        assert "Alice" in result and "Bob" in result, "Should contain data"
+        assert "3 rows" in result, "Should show row count"
+
+        return True
+
+
+def test_readfile_html_files():
+    """Test reading and extracting text from HTML files."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create HTML file
+        html_file = os.path.join(temp_dir, "test.html")
+        html_content = """<!DOCTYPE html>
+<html>
+<head><title>Test</title><script>alert('skip me');</script></head>
+<body><h1>Heading</h1><p>Paragraph text</p></body>
+</html>"""
+        with open(html_file, 'w') as f:
+            f.write(html_content)
+
+        result = readfile.run(html_file)
+        assert "HTML file" in result, "Should identify as HTML"
+        assert "Heading" in result, "Should extract heading"
+        assert "Paragraph text" in result, "Should extract paragraph"
+        assert "alert" not in result, "Should skip script tags"
+
+        return True
+
+
+def test_readfile_zip_archives():
+    """Test reading ZIP archive contents."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create ZIP file
+        zip_file = os.path.join(temp_dir, "test.zip")
+        import zipfile
+        with zipfile.ZipFile(zip_file, 'w') as zf:
+            zf.writestr('file1.txt', 'Content 1')
+            zf.writestr('folder/file2.txt', 'Content 2')
+
+        result = readfile.run(zip_file)
+        assert "Archive" in result, "Should identify as archive"
+        assert "file1.txt" in result, "Should list first file"
+        assert "folder/file2.txt" in result, "Should list nested file"
+        assert "2 file(s)" in result, "Should show file count"
+
+        return True
+
+
+def test_readfile_tar_gz_archives():
+    """Test reading TAR.GZ archive contents."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create TAR.GZ file
+        tar_file = os.path.join(temp_dir, "test.tar.gz")
+        import tarfile
+        import io
+
+        with tarfile.open(tar_file, 'w:gz') as tf:
+            file1 = io.BytesIO(b'Tar content 1')
+            info1 = tarfile.TarInfo(name='tarfile1.txt')
+            info1.size = len(file1.getvalue())
+            file1.seek(0)
+            tf.addfile(tarinfo=info1, fileobj=file1)
+
+        result = readfile.run(tar_file)
+        assert "Archive" in result, "Should identify as archive"
+        assert "tarfile1.txt" in result, "Should list tar file"
+
+        return True
+
+
+def test_readfile_sqlite_databases():
+    """Test reading SQLite database schema and data."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create SQLite database
+        db_file = os.path.join(temp_dir, "test.db")
+        import sqlite3
+
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        cursor.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)')
+        cursor.execute('INSERT INTO users VALUES (1, "Alice", 25)')
+        cursor.execute('INSERT INTO users VALUES (2, "Bob", 30)')
+        conn.commit()
+        conn.close()
+
+        result = readfile.run(db_file)
+        assert "SQLite database" in result, "Should identify as SQLite"
+        assert "users" in result, "Should show table name"
+        assert "2 rows" in result, "Should show row count"
+        assert "Alice" in result and "Bob" in result, "Should show sample data"
+        assert "PRIMARY KEY" in result, "Should show primary key"
+
+        return True
+
+
+def test_readfile_jupyter_notebooks():
+    """Test reading and formatting Jupyter notebooks."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create Jupyter notebook
+        nb_file = os.path.join(temp_dir, "test.ipynb")
+        import json
+
+        notebook = {
+            "cells": [
+                {
+                    "cell_type": "markdown",
+                    "source": ["# Test Notebook"]
+                },
+                {
+                    "cell_type": "code",
+                    "source": ["print('Hello')"],
+                    "outputs": [
+                        {"output_type": "stream", "text": ["Hello\n"]}
+                    ]
+                }
+            ],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 2
+        }
+
+        with open(nb_file, 'w') as f:
+            json.dump(notebook, f)
+
+        result = readfile.run(nb_file)
+        assert "Jupyter Notebook" in result, "Should identify as Jupyter notebook"
+        assert "# Test Notebook" in result, "Should show markdown content"
+        assert "print('Hello')" in result, "Should show code content"
+        assert "Hello" in result, "Should show output"
+        assert "2 cell(s)" in result, "Should show cell count"
+
+        return True
+
+
 # Test level assignments
 test_readfile_basic_reading.level = 2
 test_readfile_line_indexed_reading.level = 2
@@ -261,3 +490,11 @@ test_readfile_special_characters.level = 2
 test_readfile_different_line_endings.level = 2
 test_readfile_relative_paths.level = 2
 test_readfile_whitespace_handling.level = 2
+test_readfile_office_documents.level = 2
+test_readfile_office_document_detection.level = 2
+test_readfile_csv_files.level = 2
+test_readfile_html_files.level = 2
+test_readfile_zip_archives.level = 2
+test_readfile_tar_gz_archives.level = 2
+test_readfile_sqlite_databases.level = 2
+test_readfile_jupyter_notebooks.level = 2
