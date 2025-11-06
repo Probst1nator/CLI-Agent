@@ -18,6 +18,13 @@ PyMuPDF>=1.23.0  # PDF processing
 numpy>=1.20.0  # Numerical operations
 pexpect>=4.8.0  # Terminal automation for bash tool
 
+# Office document processing
+python-docx>=0.8.11  # Microsoft Word .docx files
+python-pptx>=0.6.21  # Microsoft PowerPoint .pptx files
+openpyxl>=3.0.0  # Microsoft Excel .xlsx files
+xlrd>=2.0.0  # Microsoft Excel .xls files (older format)
+odfpy>=1.4.1  # OpenDocument formats (.odt, .ods, .odp, .odg)
+
 # Vector database and search dependencies
 chromadb>=0.4.0  # Vector database for semantic search
 SpeechRecognition>=3.8.0  # Speech-to-text functionality

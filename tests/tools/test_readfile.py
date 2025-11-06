@@ -251,6 +251,87 @@ Line after empty lines"""
         return True
 
 
+def test_readfile_office_documents():
+    """Test reading office document formats (.docx, .xlsx, .pptx)"""
+    try:
+        import docx
+        import openpyxl
+        import pptx
+    except ImportError:
+        # Skip test if libraries not installed
+        print("Skipping office document tests - required libraries not installed")
+        return True
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Test DOCX
+        docx_file = os.path.join(temp_dir, "test.docx")
+        doc = docx.Document()
+        doc.add_heading('Test Document', 0)
+        doc.add_paragraph('This is test content.')
+        doc.save(docx_file)
+
+        result = readfile.run(docx_file)
+        assert "Test Document" in result, "DOCX: Should extract heading"
+        assert "This is test content" in result, "DOCX: Should extract paragraph"
+        assert "Word document" in result, "DOCX: Should identify as Word document"
+
+        # Test XLSX
+        xlsx_file = os.path.join(temp_dir, "test.xlsx")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws['A1'] = 'Header1'
+        ws['B1'] = 'Header2'
+        ws['A2'] = 'Data1'
+        ws['B2'] = 'Data2'
+        wb.save(xlsx_file)
+
+        result = readfile.run(xlsx_file)
+        assert "Header1" in result, "XLSX: Should extract cell content"
+        assert "Data1" in result, "XLSX: Should extract data"
+        assert "Excel spreadsheet" in result, "XLSX: Should identify as Excel"
+
+        # Test PPTX
+        pptx_file = os.path.join(temp_dir, "test.pptx")
+        prs = pptx.Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[0])
+        title = slide.shapes.title
+        title.text = "Test Slide Title"
+        prs.save(pptx_file)
+
+        result = readfile.run(pptx_file)
+        assert "Test Slide Title" in result, "PPTX: Should extract slide title"
+        assert "PowerPoint presentation" in result, "PPTX: Should identify as PowerPoint"
+
+        return True
+
+
+def test_readfile_office_document_detection():
+    """Test office document detection without file extensions"""
+    try:
+        import docx
+    except ImportError:
+        print("Skipping office document detection test - python-docx not installed")
+        return True
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create DOCX without extension
+        docx_file = os.path.join(temp_dir, "no_extension")
+        doc = docx.Document()
+        doc.add_paragraph('Test content for detection')
+        doc.save(docx_file)
+
+        # Should still detect and process it
+        is_office, format_type = readfile.is_office_document(docx_file)
+        assert is_office, "Should detect office document without extension"
+        assert format_type == 'docx', f"Should detect as docx, got {format_type}"
+
+        # Should be able to read it
+        result = readfile.run(docx_file)
+        assert "Test content for detection" in result, "Should extract content from file without extension"
+
+        return True
+
+
 # Test level assignments
 test_readfile_basic_reading.level = 2
 test_readfile_line_indexed_reading.level = 2
@@ -261,3 +342,5 @@ test_readfile_special_characters.level = 2
 test_readfile_different_line_endings.level = 2
 test_readfile_relative_paths.level = 2
 test_readfile_whitespace_handling.level = 2
+test_readfile_office_documents.level = 2
+test_readfile_office_document_detection.level = 2
