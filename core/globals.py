@@ -14,7 +14,7 @@ import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NotRequired, Optional, Protocol
+from typing import Any, NotRequired, Protocol
 
 from termcolor import colored
 from typing_extensions import TypedDict
@@ -23,46 +23,69 @@ from typing_extensions import TypedDict
 # --- Helper Functions for XDG Base Directory Path Management ---
 def _get_xdg_config_dir() -> str:
     """Get XDG config directory for CLI-Agent configurations."""
-    if os.name == 'nt':  # Windows
-        return os.path.join(os.environ.get('APPDATA', ''), 'cli-agent')
+    if os.name == "nt":  # Windows
+        return os.path.join(os.environ.get("APPDATA", ""), "cli-agent")
     else:  # macOS, Linux, and other UNIX-like systems
-        return os.path.join(os.environ.get('XDG_CONFIG_HOME', os.path.join(Path.home(), '.config')), 'cli-agent')
+        return os.path.join(
+            os.environ.get("XDG_CONFIG_HOME", os.path.join(Path.home(), ".config")),
+            "cli-agent",
+        )
+
 
 def _get_xdg_data_dir() -> str:
     """Get XDG data directory for CLI-Agent persistent data."""
-    if os.name == 'nt':  # Windows
-        return os.path.join(os.environ.get('LOCALAPPDATA', ''), 'cli-agent')
+    if os.name == "nt":  # Windows
+        return os.path.join(os.environ.get("LOCALAPPDATA", ""), "cli-agent")
     else:  # macOS, Linux, and other UNIX-like systems
-        return os.path.join(os.environ.get('XDG_DATA_HOME', os.path.join(Path.home(), '.local', 'share')), 'cli-agent')
+        return os.path.join(
+            os.environ.get(
+                "XDG_DATA_HOME", os.path.join(Path.home(), ".local", "share")
+            ),
+            "cli-agent",
+        )
+
 
 def _get_xdg_cache_dir() -> str:
     """Get XDG cache directory for CLI-Agent cache and temporary files."""
-    if os.name == 'nt':  # Windows
-        return os.path.join(os.environ.get('TEMP', ''), 'cli-agent')
+    if os.name == "nt":  # Windows
+        return os.path.join(os.environ.get("TEMP", ""), "cli-agent")
     else:  # macOS, Linux, and other UNIX-like systems
-        return os.path.join(os.environ.get('XDG_CACHE_HOME', os.path.join(Path.home(), '.cache')), 'cli-agent')
+        return os.path.join(
+            os.environ.get("XDG_CACHE_HOME", os.path.join(Path.home(), ".cache")),
+            "cli-agent",
+        )
+
 
 def _get_xdg_state_dir() -> str:
     """Get XDG state directory for CLI-Agent ephemeral state data."""
-    if os.name == 'nt':  # Windows - use same as data dir on Windows
-        return os.path.join(os.environ.get('LOCALAPPDATA', ''), 'cli-agent', 'state')
+    if os.name == "nt":  # Windows - use same as data dir on Windows
+        return os.path.join(os.environ.get("LOCALAPPDATA", ""), "cli-agent", "state")
     else:  # macOS, Linux, and other UNIX-like systems
-        return os.path.join(os.environ.get('XDG_STATE_HOME', os.path.join(Path.home(), '.local', 'state')), 'cli-agent')
+        return os.path.join(
+            os.environ.get(
+                "XDG_STATE_HOME", os.path.join(Path.home(), ".local", "state")
+            ),
+            "cli-agent",
+        )
+
 
 def _get_persistent_storage_path() -> str:
     """
     Legacy function for backward compatibility.
     Returns the old storage path for migration purposes.
     """
-    if os.name == 'nt':  # Windows
-        return os.path.join(os.environ.get('APPDATA', ''), 'cli-agent')
+    if os.name == "nt":  # Windows
+        return os.path.join(os.environ.get("APPDATA", ""), "cli-agent")
     else:  # macOS, Linux, and other UNIX-like systems
-        return os.path.join(Path.home(), '.cli-agent')
+        return os.path.join(Path.home(), ".cli-agent")
+
 
 # --- TypedDict Definitions for Structured Data ---
 
+
 class LLMModelConfig(TypedDict):
     """Configuration for an individual LLM model."""
+
     selected: NotRequired[bool]
     host: NotRequired[str]
     branches: NotRequired[list[str]]
@@ -74,63 +97,88 @@ class LLMModelConfig(TypedDict):
     available: NotRequired[bool]
     status: NotRequired[str]
 
+
 class LLMRoleConfig(TypedDict, total=False):
     """
     LLM role configuration structure.
     Each role can be either a single model (str) or a fallback chain (List[str]).
     """
-    planner: Optional[str] | list[str]
-    router: Optional[str] | list[str]
-    override: Optional[str] | list[str]
-    autocomplete: Optional[str] | list[str]
+
+    planner: str | None | list[str]
+    router: str | None | list[str]
+    override: str | None | list[str]
+    autocomplete: str | None | list[str]
     fallbacks: list[str]
+
 
 class LLMConfig(TypedDict, total=False):
     """Complete LLM configuration structure."""
+
     roles: LLMRoleConfig
+
 
 class UserConfig(TypedDict, total=False):
     """User configuration structure."""
+
     tts_engine_priority: list[str]
     tts_disabled_engines: list[str]
     tts_context_settings: dict[str, dict[str, Any]]
     tts_defaults: dict[str, Any]
 
+
 class TTSContextSettings(TypedDict):
     """TTS settings for a specific context."""
+
     speed: float
     volume: float
     voice: str
 
+
 class ModelVariant(TypedDict):
     """Model variant information."""
+
     name: str
     size: NotRequired[str]
     parameters: NotRequired[str]
     quantization: NotRequired[str]
     available: NotRequired[bool]
 
+
 class ModelInfo(TypedDict):
     """Model information in discovery cache."""
+
     name: str
     provider: str
     variants: dict[str, ModelVariant]
     description: NotRequired[str]
     tags: NotRequired[list[str]]
 
+
 class ModelDiscoveryCache(TypedDict):
     """Structure for model discovery cache."""
+
     timestamp: float
     model_data: dict[str, ModelInfo]
     version: int
 
+
 class DebugLogProtocol(Protocol):
     """Protocol for debug logging function."""
-    def __call__(self, message: str, color: Optional[str] = None, force_print: bool = False, **kwargs: Any) -> None: ...
+
+    def __call__(
+        self,
+        message: str,
+        color: str | None = None,
+        force_print: bool = False,
+        **kwargs: Any,
+    ) -> None: ...
+
 
 class PrintTokenProtocol(Protocol):
     """Protocol for print token function."""
+
     def __call__(self, token: str) -> None: ...
+
 
 # --- Main Globals Class ---
 class Globals:
@@ -138,9 +186,12 @@ class Globals:
     A singleton class to hold and manage the global state of the application.
     This includes paths, runtime flags, and selected model configurations.
     """
+
     def __init__(self):
         # --- Path Configurations (XDG Base Directory Compliant) ---
-        self.CLIAGENT_ROOT_PATH: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.CLIAGENT_ROOT_PATH: str = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
 
         # XDG Base Directory paths
         self.CLIAGENT_CONFIG_DIR: str = _get_xdg_config_dir()
@@ -152,38 +203,55 @@ class Globals:
         self.CLIAGENT_PERSISTENT_STORAGE_PATH: str = _get_persistent_storage_path()
 
         # Organized directory structure
-        self.CLIAGENT_TEMP_STORAGE_PATH: str = os.path.join(self.CLIAGENT_CACHE_DIR, "temp")
+        self.CLIAGENT_TEMP_STORAGE_PATH: str = os.path.join(
+            self.CLIAGENT_CACHE_DIR, "temp"
+        )
         self.AGENTS_SANDBOX_DIR: str = os.path.join(self.CLIAGENT_DATA_DIR, "sandbox")
 
         # --- File Path Configurations ---
         self.CLIAGENT_ENV_FILE_PATH: str = os.path.join(self.CLIAGENT_ROOT_PATH, ".env")
-        self.USER_CONFIG_PATH: str = os.path.join(self.CLIAGENT_CONFIG_DIR, 'user_config.json')
-        self.LLM_CONFIG_PATH: str = os.path.join(self.CLIAGENT_CONFIG_DIR, 'llm_config.json')
+        self.USER_CONFIG_PATH: str = os.path.join(
+            self.CLIAGENT_CONFIG_DIR, "user_config.json"
+        )
+        self.LLM_CONFIG_PATH: str = os.path.join(
+            self.CLIAGENT_CONFIG_DIR, "llm_config.json"
+        )
 
         # --- Model Limit Paths with Daily Rotation (moved to STATE_DIR) ---
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        model_limits_dir = os.path.join(self.CLIAGENT_STATE_DIR, 'model_limits')
+        model_limits_dir = os.path.join(self.CLIAGENT_STATE_DIR, "model_limits")
         os.makedirs(model_limits_dir, exist_ok=True)
-        self.MODEL_TOKEN_LIMITS_PATH: str = os.path.join(model_limits_dir, f'{today}_model_token_limits.json')
-        self.MODEL_RATE_LIMITS_PATH: str = os.path.join(model_limits_dir, f'{today}_model_rate_limits.json')
+        self.MODEL_TOKEN_LIMITS_PATH: str = os.path.join(
+            model_limits_dir, f"{today}_model_token_limits.json"
+        )
+        self.MODEL_RATE_LIMITS_PATH: str = os.path.join(
+            model_limits_dir, f"{today}_model_rate_limits.json"
+        )
 
-        self.UNCONFIRMED_FINETUNING_PATH: str = os.path.join(self.CLIAGENT_DATA_DIR, "finetuning_data", "unconfirmed")
-        self.CONFIRMED_FINETUNING_PATH: str = os.path.join(self.CLIAGENT_DATA_DIR, "finetuning_data", "confirmed")
+        self.UNCONFIRMED_FINETUNING_PATH: str = os.path.join(
+            self.CLIAGENT_DATA_DIR, "finetuning_data", "unconfirmed"
+        )
+        self.CONFIRMED_FINETUNING_PATH: str = os.path.join(
+            self.CLIAGENT_DATA_DIR, "finetuning_data", "confirmed"
+        )
 
         # --- LLM and Agent Configuration ---
-        self.LLM: Optional[str] = None
+        self.LLM: str | None = None
         self.llm_roles: LLMRoleConfig = {
-            'planner': None,
-            'router': None,
-            'override': None,
-            'autocomplete': None,
-            'fallbacks': [],
+            "planner": None,
+            "router": None,
+            "override": None,
+            "autocomplete": None,
+            "fallbacks": [],
         }
-        self.active_profile_id: Optional[str] = None  # Track which profile is currently active
+        self.active_profile_id: str | None = (
+            None  # Track which profile is currently active
+        )
         self.DEFAULT_OLLAMA_HOSTS: list[str] = ["http://localhost:11434"]
 
         # --- Forcing Flags (runtime modifiers) ---
         import time
+
         import_start = time.time()
         import_time = (time.time() - import_start) * 1000
         if import_time > 1:  # Only log if > 1ms
@@ -198,7 +266,9 @@ class Globals:
         self.GUI_MODE: bool = False  # Set to True when running in GUI mode
 
         # --- Agent Control Flags ---
-        self.CONTINUE_CONVERSATION: bool = False  # Set by CLI args for continuous conversation
+        self.CONTINUE_CONVERSATION: bool = (
+            False  # Set by CLI args for continuous conversation
+        )
         self.AGENT_RESET_REQUESTED: bool = False  # Set when agent reset is requested
         self.autonomous_iteration_count: int = 0  # Counter for autonomous iterations
         self.total_autonomous_count: int = 0  # Total autonomous iterations counter
@@ -214,12 +284,18 @@ class Globals:
         # --- Utility and Tool Management ---
         self.SELECTED_UTILS: list[str] = []
         self.AGENT_IS_COMPACTING: bool = False
-        self.ALLOWED_WRITE_PATHS: list[str] = []  # Paths that are explicitly allowed for writing
+        self.ALLOWED_WRITE_PATHS: list[
+            str
+        ] = []  # Paths that are explicitly allowed for writing
 
         # --- Autocomplete Support ---
-        self.RECENT_FILE_PATHS: list[str] = []  # Track recently accessed files for autocomplete
+        self.RECENT_FILE_PATHS: list[
+            str
+        ] = []  # Track recently accessed files for autocomplete
         self.MAX_RECENT_FILES: int = 50  # Maximum number of recent files to track
-        self.CACHED_FILE_PATHS: list[str] = []  # All filesystem paths (background cached)
+        self.CACHED_FILE_PATHS: list[
+            str
+        ] = []  # All filesystem paths (background cached)
         self.PATH_CACHE_TASK = None  # Running background cache task
         self.path_cache_manager = None  # PathCacheManager instance
 
@@ -228,33 +304,57 @@ class Globals:
         self.OUTPUT_TRUNCATE_TAIL_SIZE: int = 2000
 
         # --- API Timeout Settings ---
-        self.GOOGLE_API_TIMEOUT_SECONDS: int = 300  # 5 minutes to respect rate limit delays
+        self.GOOGLE_API_TIMEOUT_SECONDS: int = (
+            300  # 5 minutes to respect rate limit delays
+        )
 
         # --- Cross-module Communication & State ---
-        self.web_server: Optional[Any] = None
-        self.print_token: PrintTokenProtocol = lambda token: print(token, end="", flush=True)
+        self.web_server: Any | None = None
+        self.print_token: PrintTokenProtocol = lambda token: print(
+            token, end="", flush=True
+        )
         self.debug_log: DebugLogProtocol = self._default_debug_log
         self._user_config: UserConfig = {}
         self._llm_config: LLMConfig = {}
 
         # --- Tool and Agent State ---
-        self.last_executed_tools_info: Optional[Any] = None  # Stores information about last executed tools
-        self.loaded_tool_info: Optional[dict[str, Any]] = None  # Stores information about loaded tools
-        self.current_images: list[str] = []  # Current images for vision models (legacy, use session context)
-        self.disabled_tools: list[str] = []  # List of disabled tools from frontend tool manager
+        self.last_executed_tools_info: Any | None = (
+            None  # Stores information about last executed tools
+        )
+        self.loaded_tool_info: dict[str, Any] | None = (
+            None  # Stores information about loaded tools
+        )
+        self.current_images: list[
+            str
+        ] = []  # Current images for vision models (legacy, use session context)
+        self.disabled_tools: list[
+            str
+        ] = []  # List of disabled tools from frontend tool manager
 
         # --- Session Management (Multi-Tab Support) ---
         self.sessions: dict[str, Any] = {}  # Session ID -> SessionContext mapping
-        self._active_session_id: Optional[str] = None  # Active session for CLI mode
-        self._chat: Optional[Any] = None  # Direct chat storage for backward compat when no sessions exist
+        self._active_session_id: str | None = None  # Active session for CLI mode
+        self._chat: Any | None = (
+            None  # Direct chat storage for backward compat when no sessions exist
+        )
 
         # --- GUI Communication ---
         import asyncio
-        self.visual_input_queue: asyncio.Queue = asyncio.Queue()  # Async queue for visual input from web interface
+
+        self.visual_input_queue: asyncio.Queue = (
+            asyncio.Queue()
+        )  # Async queue for visual input from web interface
 
         # --- TTS Configuration ---
         # Default: Local models first, then remote APIs (prioritize privacy and offline capability)
-        self.TTS_ENGINE_PRIORITY: list[str] = ["piper", "coqui", "huggingface", "system", "openai", "elevenlabs"]
+        self.TTS_ENGINE_PRIORITY: list[str] = [
+            "piper",
+            "coqui",
+            "huggingface",
+            "system",
+            "openai",
+            "elevenlabs",
+        ]
         self.TTS_DISABLED_ENGINES: list[str] = []
         self.TTS_DEFAULT_VOICE: str = "default"
         self.TTS_DEFAULT_SPEED: float = 1.0
@@ -276,22 +376,22 @@ class Globals:
                 "calm": "alloy",
                 "energetic": "echo",
                 "storyteller": "fable",
-                "smooth": "shimmer"
+                "smooth": "shimmer",
             },
             "elevenlabs": {
                 "default": "rachel",
                 "female": "rachel",
                 "male": "drew",
                 "professional": "clyde",
-                "friendly": "dave"
+                "friendly": "dave",
             },
             "piper": {
                 "default": "en_GB-alba-medium",
                 "german_male": "de_DE-thorsten-high",
                 "german_female": "de_DE-kerstin-medium",
                 "english_male": "en_GB-alan-medium",
-                "english_female": "en_GB-alba-medium"
-            }
+                "english_female": "en_GB-alba-medium",
+            },
         }
 
         # --- TTS Context-Specific Settings ---
@@ -299,77 +399,83 @@ class Globals:
             "system_message": {
                 "speed": 0.9,
                 "volume": 0.6,
-                "voice": "default"  # Use default instead of "calm" which doesn't exist
+                "voice": "default",  # Use default instead of "calm" which doesn't exist
             },
             "permission_prompt": {
                 "speed": 0.8,
                 "volume": 0.7,
-                "voice": "default"  # Use default instead of "professional" which doesn't exist
+                "voice": "default",  # Use default instead of "professional" which doesn't exist
             },
             "error_message": {
                 "speed": 0.8,
                 "volume": 0.5,
-                "voice": "default"  # Use default instead of "calm" which doesn't exist
+                "voice": "default",  # Use default instead of "calm" which doesn't exist
             },
-            "user_response": {
-                "speed": 1.0,
-                "volume": 0.7,
-                "voice": "default"
-            },
-            "tool_execution": {
-                "speed": 1.0,
-                "volume": 0.7,
-                "voice": "default"
-            },
-            "test": {
-                "speed": 1.0,
-                "volume": 1.0,
-                "voice": "default"
-            }
+            "user_response": {"speed": 1.0, "volume": 0.7, "voice": "default"},
+            "tool_execution": {"speed": 1.0, "volume": 0.7, "voice": "default"},
+            "test": {"speed": 1.0, "volume": 1.0, "voice": "default"},
         }
 
-
         # --- Model Discovery Cache ---
-        self._model_discovery_cache: Optional[dict[str, ModelInfo]] = None
-        self._model_discovery_task: Optional[Any] = None  # Background asyncio task
+        self._model_discovery_cache: dict[str, ModelInfo] | None = None
+        self._model_discovery_task: Any | None = None  # Background asyncio task
         self._model_discovery_timestamp: float = 0
-        self.MODEL_CACHE_PATH: str = os.path.join(self.CLIAGENT_CACHE_DIR, 'model_cache.json')
+        self.MODEL_CACHE_PATH: str = os.path.join(
+            self.CLIAGENT_CACHE_DIR, "model_cache.json"
+        )
 
         # --- Initial Setup on Instantation ---
         import time
+
         startup_start = time.time()
         logging.info("🚀 GLOBALS INIT: Starting initialization...")
 
         step_start = time.time()
         self._initialize_directories()
-        logging.info(f"🚀 GLOBALS INIT: _initialize_directories took {(time.time() - step_start)*1000:.1f}ms")
+        logging.info(
+            f"🚀 GLOBALS INIT: _initialize_directories took {(time.time() - step_start) * 1000:.1f}ms"
+        )
 
         step_start = time.time()
         self._migrate_legacy_files()  # Migrate files from old structure
-        logging.info(f"🚀 GLOBALS INIT: _migrate_legacy_files took {(time.time() - step_start)*1000:.1f}ms")
+        logging.info(
+            f"🚀 GLOBALS INIT: _migrate_legacy_files took {(time.time() - step_start) * 1000:.1f}ms"
+        )
 
         step_start = time.time()
         self.load_user_config()
-        logging.info(f"🚀 GLOBALS INIT: load_user_config took {(time.time() - step_start)*1000:.1f}ms")
+        logging.info(
+            f"🚀 GLOBALS INIT: load_user_config took {(time.time() - step_start) * 1000:.1f}ms"
+        )
 
         step_start = time.time()
-        self.load_llm_config() # Load LLM config at startup
-        logging.info(f"🚀 GLOBALS INIT: load_llm_config took {(time.time() - step_start)*1000:.1f}ms")
+        self.load_llm_config()  # Load LLM config at startup
+        logging.info(
+            f"🚀 GLOBALS INIT: load_llm_config took {(time.time() - step_start) * 1000:.1f}ms"
+        )
 
         step_start = time.time()
-        self.load_llm_roles() # Load LLM role configuration at startup
-        logging.info(f"🚀 GLOBALS INIT: load_llm_roles took {(time.time() - step_start)*1000:.1f}ms")
+        self.load_llm_roles()  # Load LLM role configuration at startup
+        logging.info(
+            f"🚀 GLOBALS INIT: load_llm_roles took {(time.time() - step_start) * 1000:.1f}ms"
+        )
 
         step_start = time.time()
-        self.load_tts_config_from_user_settings() # Load TTS config at startup
-        logging.info(f"🚀 GLOBALS INIT: load_tts_config_from_user_settings took {(time.time() - step_start)*1000:.1f}ms")
+        self.load_tts_config_from_user_settings()  # Load TTS config at startup
+        logging.info(
+            f"🚀 GLOBALS INIT: load_tts_config_from_user_settings took {(time.time() - step_start) * 1000:.1f}ms"
+        )
 
         step_start = time.time()
         self._configure_ollama_hosts()
-        logging.info(f"🚀 GLOBALS INIT: _configure_ollama_hosts took {(time.time() - step_start)*1000:.1f}ms")
+        logging.info(
+            f"🚀 GLOBALS INIT: _configure_ollama_hosts took {(time.time() - step_start) * 1000:.1f}ms"
+        )
 
         total_time = time.time() - startup_start
-        logging.info(f"🚀 GLOBALS INIT: Total initialization took {total_time*1000:.1f}ms")
+        logging.info(
+            f"🚀 GLOBALS INIT: Total initialization took {total_time * 1000:.1f}ms"
+        )
 
         # --- Cleanup callbacks ---
         self._cleanup_callbacks: list[Callable] = []
@@ -409,32 +515,57 @@ class Globals:
             # Migration mapping: (old_path, new_path, description)
             migrations = [
                 # Configuration files
-                (os.path.join(legacy_path, 'user_config.json'),
-                 self.USER_CONFIG_PATH, 'User configuration'),
-                (os.path.join(legacy_path, 'llm_config.json'),
-                 self.LLM_CONFIG_PATH, 'LLM configuration'),
-
+                (
+                    os.path.join(legacy_path, "user_config.json"),
+                    self.USER_CONFIG_PATH,
+                    "User configuration",
+                ),
+                (
+                    os.path.join(legacy_path, "llm_config.json"),
+                    self.LLM_CONFIG_PATH,
+                    "LLM configuration",
+                ),
                 # Data files
-                (os.path.join(legacy_path, 'finetuning_data'),
-                 os.path.join(self.CLIAGENT_DATA_DIR, 'finetuning_data'), 'Finetuning data'),
-                (os.path.join(legacy_path, 'sandbox'),
-                 os.path.join(self.CLIAGENT_DATA_DIR, 'sandbox'), 'Sandbox directory'),
-
+                (
+                    os.path.join(legacy_path, "finetuning_data"),
+                    os.path.join(self.CLIAGENT_DATA_DIR, "finetuning_data"),
+                    "Finetuning data",
+                ),
+                (
+                    os.path.join(legacy_path, "sandbox"),
+                    os.path.join(self.CLIAGENT_DATA_DIR, "sandbox"),
+                    "Sandbox directory",
+                ),
                 # State files (ephemeral application state)
-                (os.path.join(legacy_path, 'model_limits'),
-                 os.path.join(self.CLIAGENT_STATE_DIR, 'model_limits'), 'Model limits state'),
-
+                (
+                    os.path.join(legacy_path, "model_limits"),
+                    os.path.join(self.CLIAGENT_STATE_DIR, "model_limits"),
+                    "Model limits state",
+                ),
                 # Cache files
-                (os.path.join(legacy_path, 'model_cache.json'),
-                 self.MODEL_CACHE_PATH, 'Model cache'),
-                (os.path.join(legacy_path, 'cache'),
-                 os.path.join(self.CLIAGENT_CACHE_DIR, 'legacy_cache'), 'Legacy cache'),
-                (os.path.join(legacy_path, 'temp'),
-                 os.path.join(self.CLIAGENT_CACHE_DIR, 'legacy_temp'), 'Legacy temp files'),
-
+                (
+                    os.path.join(legacy_path, "model_cache.json"),
+                    self.MODEL_CACHE_PATH,
+                    "Model cache",
+                ),
+                (
+                    os.path.join(legacy_path, "cache"),
+                    os.path.join(self.CLIAGENT_CACHE_DIR, "legacy_cache"),
+                    "Legacy cache",
+                ),
+                (
+                    os.path.join(legacy_path, "temp"),
+                    os.path.join(self.CLIAGENT_CACHE_DIR, "legacy_temp"),
+                    "Legacy temp files",
+                ),
                 # Vector databases and search cache
-                (os.path.join(legacy_path, 'searchweb_vectordb'),
-                 os.path.join(self.CLIAGENT_DATA_DIR, 'vector_db', 'searchweb_vectordb'), 'Search vector database'),
+                (
+                    os.path.join(legacy_path, "searchweb_vectordb"),
+                    os.path.join(
+                        self.CLIAGENT_DATA_DIR, "vector_db", "searchweb_vectordb"
+                    ),
+                    "Search vector database",
+                ),
             ]
 
             for old_path, new_path, description in migrations:
@@ -455,34 +586,48 @@ class Globals:
                             if not os.path.exists(new_path):
                                 shutil.move(old_path, new_path)
 
-                        migration_log.append(f"✓ Migrated {description}: {old_path} → {new_path}")
+                        migration_log.append(
+                            f"✓ Migrated {description}: {old_path} → {new_path}"
+                        )
                         migrated_count += 1
 
                     except Exception as e:
                         migration_log.append(f"✗ Failed to migrate {description}: {e}")
 
             # Move permissions file from home directory to config directory
-            home_permissions_file = os.path.join(Path.home(), 'permissions.json')
-            config_permissions_file = os.path.join(self.CLIAGENT_CONFIG_DIR, 'permissions.json')
+            home_permissions_file = os.path.join(Path.home(), "permissions.json")
+            config_permissions_file = os.path.join(
+                self.CLIAGENT_CONFIG_DIR, "permissions.json"
+            )
 
-            if os.path.exists(home_permissions_file) and not os.path.exists(config_permissions_file):
+            if os.path.exists(home_permissions_file) and not os.path.exists(
+                config_permissions_file
+            ):
                 try:
                     shutil.move(home_permissions_file, config_permissions_file)
-                    migration_log.append(f"✓ Migrated permissions file: {home_permissions_file} → {config_permissions_file}")
+                    migration_log.append(
+                        f"✓ Migrated permissions file: {home_permissions_file} → {config_permissions_file}"
+                    )
                     migrated_count += 1
                 except Exception as e:
                     migration_log.append(f"✗ Failed to migrate permissions file: {e}")
 
             # Log migration results
             if migrated_count > 0:
-                logging.info(f"🚚 Migrated {migrated_count} items to XDG-compliant structure")
+                logging.info(
+                    f"🚚 Migrated {migrated_count} items to XDG-compliant structure"
+                )
                 for log_entry in migration_log:
                     logging.debug(log_entry)
 
                 # Create migration marker to avoid re-migration
-                marker_file = os.path.join(self.CLIAGENT_CONFIG_DIR, '.xdg_migration_completed')
-                with open(marker_file, 'w') as f:
-                    f.write(f"Migration completed at {datetime.datetime.now().isoformat()}\n")
+                marker_file = os.path.join(
+                    self.CLIAGENT_CONFIG_DIR, ".xdg_migration_completed"
+                )
+                with open(marker_file, "w") as f:
+                    f.write(
+                        f"Migration completed at {datetime.datetime.now().isoformat()}\n"
+                    )
                     f.write(f"Migrated {migrated_count} items\n")
 
                 # Only remove legacy directory if it's now empty (safe cleanup)
@@ -494,16 +639,22 @@ class Globals:
                     pass  # Directory not empty or permission issue
 
             # Secondary migration: Move model_limits from data to state directory (for existing XDG installations)
-            data_model_limits = os.path.join(self.CLIAGENT_DATA_DIR, 'model_limits')
-            state_model_limits = os.path.join(self.CLIAGENT_STATE_DIR, 'model_limits')
+            data_model_limits = os.path.join(self.CLIAGENT_DATA_DIR, "model_limits")
+            state_model_limits = os.path.join(self.CLIAGENT_STATE_DIR, "model_limits")
 
-            if os.path.exists(data_model_limits) and not os.path.exists(state_model_limits):
+            if os.path.exists(data_model_limits) and not os.path.exists(
+                state_model_limits
+            ):
                 try:
                     shutil.move(data_model_limits, state_model_limits)
-                    logging.info(f"🚚 Moved model_limits to state directory: {data_model_limits} → {state_model_limits}")
+                    logging.info(
+                        f"🚚 Moved model_limits to state directory: {data_model_limits} → {state_model_limits}"
+                    )
                     migrated_count += 1
                 except Exception as e:
-                    logging.warning(f"Failed to move model_limits to state directory: {e}")
+                    logging.warning(
+                        f"Failed to move model_limits to state directory: {e}"
+                    )
 
         except Exception as e:
             logging.warning(f"Migration process encountered an error: {e}")
@@ -534,11 +685,19 @@ class Globals:
         """Load Ollama hosts from environment variables."""
         ollama_host_env = os.getenv("OLLAMA_HOSTS")
         if ollama_host_env:
-            hosts = [host.strip() for host in ollama_host_env.split(',') if host.strip()]
+            hosts = [
+                host.strip() for host in ollama_host_env.split(",") if host.strip()
+            ]
             if hosts:
                 self.DEFAULT_OLLAMA_HOSTS = hosts
 
-    def _default_debug_log(self, message: str, color: Optional[str] = None, force_print: bool = False, **kwargs: Any):
+    def _default_debug_log(
+        self,
+        message: str,
+        color: str | None = None,
+        force_print: bool = False,
+        **kwargs: Any,
+    ):
         """A simple default logger in case the main one isn't set up yet."""
         if force_print and message.strip():  # Skip empty messages
             if color:
@@ -553,7 +712,9 @@ class Globals:
                 with open(self.USER_CONFIG_PATH) as f:
                     self._user_config = json.load(f)
             except (json.JSONDecodeError, Exception) as e:
-                logging.warning(f"Could not load user config file, it may be corrupt: {e}")
+                logging.warning(
+                    f"Could not load user config file, it may be corrupt: {e}"
+                )
                 self._user_config = {}
         else:
             self._user_config = {}
@@ -561,7 +722,7 @@ class Globals:
     def save_user_config(self) -> None:
         """Save the current user configuration to a JSON file."""
         try:
-            with open(self.USER_CONFIG_PATH, 'w') as f:
+            with open(self.USER_CONFIG_PATH, "w") as f:
                 json.dump(self._user_config, f, indent=4)
         except Exception as e:
             logging.error(f"Failed to save user config: {e}")
@@ -582,7 +743,9 @@ class Globals:
                 with open(self.LLM_CONFIG_PATH) as f:
                     self._llm_config = json.load(f)
             except (json.JSONDecodeError, Exception) as e:
-                logging.warning(f"Could not load LLM config file, it may be corrupt: {e}")
+                logging.warning(
+                    f"Could not load LLM config file, it may be corrupt: {e}"
+                )
                 self._llm_config = {}
         else:
             self._llm_config = {}
@@ -603,11 +766,10 @@ class Globals:
         self._llm_config = config
         try:
             os.makedirs(os.path.dirname(self.LLM_CONFIG_PATH), exist_ok=True)
-            with open(self.LLM_CONFIG_PATH, 'w') as f:
+            with open(self.LLM_CONFIG_PATH, "w") as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
             logging.warning(f"Failed to save LLM config: {e}")
-
 
     def cleanup_temp_py_files(self):
         """Remove temporary Python files from previous runs using enhanced file manager."""
@@ -618,44 +780,60 @@ class Globals:
             file_manager = get_file_manager()
 
             # Clean up tracked Python temp files
-            python_stats = file_manager.cleanup_by_category('python_temp', force_all=True)
+            python_stats = file_manager.cleanup_by_category(
+                "python_temp", force_all=True
+            )
 
             # Clean up legacy untracked files
             legacy_stats = file_manager.cleanup_legacy_files()
 
-            total_removed = python_stats['files_removed'] + legacy_stats['files_removed']
-            total_freed = python_stats['bytes_freed'] + legacy_stats['bytes_freed']
+            total_removed = (
+                python_stats["files_removed"] + legacy_stats["files_removed"]
+            )
+            total_freed = python_stats["bytes_freed"] + legacy_stats["bytes_freed"]
 
             if total_removed > 0:
-                logging.info(f"🧹 Cleaned up {total_removed} temporary files ({total_freed / 1024:.1f} KB freed)")
+                logging.info(
+                    f"🧹 Cleaned up {total_removed} temporary files ({total_freed / 1024:.1f} KB freed)"
+                )
 
         except ImportError:
             # Fallback to original implementation if file manager is not available
             import re
+
             try:
                 if not os.path.exists(self.CLIAGENT_TEMP_STORAGE_PATH):
                     return
                 for f in os.listdir(self.CLIAGENT_TEMP_STORAGE_PATH):
-                    if f.endswith('.py') and re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$', f):
+                    if f.endswith(".py") and re.match(
+                        r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$", f
+                    ):
                         os.remove(os.path.join(self.CLIAGENT_TEMP_STORAGE_PATH, f))
             except OSError as e:
                 logging.warning(f"Could not clean up temporary files: {e}")
             except Exception as e:
-                logging.error(f"An unexpected error occurred during temp file cleanup: {e}")
+                logging.error(
+                    f"An unexpected error occurred during temp file cleanup: {e}"
+                )
         except Exception as e:
             logging.debug(f"File manager cleanup failed, using fallback: {e}")
             # Fallback to original implementation
             import re
+
             try:
                 if not os.path.exists(self.CLIAGENT_TEMP_STORAGE_PATH):
                     return
                 for f in os.listdir(self.CLIAGENT_TEMP_STORAGE_PATH):
-                    if f.endswith('.py') and re.match(r'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$', f):
+                    if f.endswith(".py") and re.match(
+                        r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.py$", f
+                    ):
                         os.remove(os.path.join(self.CLIAGENT_TEMP_STORAGE_PATH, f))
             except OSError as e:
                 logging.warning(f"Could not clean up temporary files: {e}")
             except Exception as e:
-                logging.error(f"An unexpected error occurred during temp file cleanup: {e}")
+                logging.error(
+                    f"An unexpected error occurred during temp file cleanup: {e}"
+                )
 
     def start_background_model_discovery(self, force_refresh: bool = False) -> None:
         """Start background model discovery task."""
@@ -671,11 +849,17 @@ class Globals:
 
                 # Check if cache is fresh enough to skip background refresh
                 cache_age_hours = self.get_persistent_cache_age_hours()
-                if cache_age_hours < 6:  # Cache less than 6 hours old, skip background refresh
-                    logging.debug(f"Using fresh persistent cache ({cache_age_hours:.1f}h old), skipping background refresh")
+                if (
+                    cache_age_hours < 6
+                ):  # Cache less than 6 hours old, skip background refresh
+                    logging.debug(
+                        f"Using fresh persistent cache ({cache_age_hours:.1f}h old), skipping background refresh"
+                    )
                     return
                 else:
-                    logging.debug(f"Loaded persistent cache ({cache_age_hours:.1f}h old), will refresh in background")
+                    logging.debug(
+                        f"Loaded persistent cache ({cache_age_hours:.1f}h old), will refresh in background"
+                    )
 
         async def discover_models():
             """Background task to discover and cache model information."""
@@ -697,10 +881,14 @@ class Globals:
                 logging.debug("Starting background model discovery...")
                 start_time = time.time()
 
-                model_status = OllamaClient.get_comprehensive_downloadable_models(ollama_hosts)
+                model_status = OllamaClient.get_comprehensive_downloadable_models(
+                    ollama_hosts
+                )
 
                 discovery_time = time.time() - start_time
-                variant_count = sum(len(info.get('variants', {})) for info in model_status.values())
+                variant_count = sum(
+                    len(info.get("variants", {})) for info in model_status.values()
+                )
 
                 # Cache the results
                 self._model_discovery_cache = model_status
@@ -709,7 +897,9 @@ class Globals:
                 # Save to persistent cache
                 self.save_persistent_model_cache(model_status)
 
-                logging.debug(f"Background model discovery completed in {discovery_time:.1f}s: {len(model_status)} model bases, {variant_count} variants")
+                logging.debug(
+                    f"Background model discovery completed in {discovery_time:.1f}s: {len(model_status)} model bases, {variant_count} variants"
+                )
 
             except Exception as e:
                 logging.debug(f"Background model discovery failed: {e}")
@@ -726,7 +916,7 @@ class Globals:
             # If no event loop is running, we'll do lazy loading instead
             logging.debug("No event loop available for background model discovery")
 
-    def get_cached_model_discovery(self) -> Optional[dict[str, ModelInfo]]:
+    def get_cached_model_discovery(self) -> dict[str, ModelInfo] | None:
         """Get cached model discovery results."""
         return self._model_discovery_cache
 
@@ -749,7 +939,9 @@ class Globals:
         try:
             loop = asyncio.get_event_loop()
             # Use run_until_complete to properly await the task
-            loop.run_until_complete(asyncio.wait_for(self._model_discovery_task, timeout=timeout))
+            loop.run_until_complete(
+                asyncio.wait_for(self._model_discovery_task, timeout=timeout)
+            )
             return self._model_discovery_cache is not None
         except TimeoutError:
             elapsed = time.time() - start_time
@@ -794,12 +986,13 @@ class Globals:
             return True
 
         import time
+
         age_seconds = time.time() - self._model_discovery_timestamp
         age_minutes = age_seconds / 60
 
         return age_minutes > max_age_minutes
 
-    def load_persistent_model_cache(self) -> Optional[dict[str, ModelInfo]]:
+    def load_persistent_model_cache(self) -> dict[str, ModelInfo] | None:
         """Load model cache from persistent storage."""
         if not os.path.exists(self.MODEL_CACHE_PATH):
             return None
@@ -809,16 +1002,23 @@ class Globals:
                 cache_data = json.load(f)
 
             # Check cache age (default: cache valid for 24 hours)
-            cache_timestamp = cache_data.get('timestamp', 0)
+            cache_timestamp = cache_data.get("timestamp", 0)
             import time
+
             age_hours = (time.time() - cache_timestamp) / 3600
 
             if age_hours > 24:  # Cache older than 24 hours
-                logging.debug(f"Persistent cache is {age_hours:.1f} hours old, will refresh in background")
-                return cache_data.get('model_data', {})  # Return old data for immediate use
+                logging.debug(
+                    f"Persistent cache is {age_hours:.1f} hours old, will refresh in background"
+                )
+                return cache_data.get(
+                    "model_data", {}
+                )  # Return old data for immediate use
 
-            logging.debug(f"Loaded persistent model cache: {len(cache_data.get('model_data', {}))} model bases (age: {age_hours:.1f}h)")
-            return cache_data.get('model_data', {})
+            logging.debug(
+                f"Loaded persistent model cache: {len(cache_data.get('model_data', {}))} model bases (age: {age_hours:.1f}h)"
+            )
+            return cache_data.get("model_data", {})
 
         except (json.JSONDecodeError, Exception) as e:
             logging.warning(f"Failed to load persistent model cache: {e}")
@@ -828,24 +1028,31 @@ class Globals:
         """Save model cache to persistent storage."""
         try:
             import time
+
             cache_data = {
-                'timestamp': time.time(),
-                'model_data': model_data,
-                'version': 1  # For future compatibility
+                "timestamp": time.time(),
+                "model_data": model_data,
+                "version": 1,  # For future compatibility
             }
 
             # Ensure directory exists
             os.makedirs(os.path.dirname(self.MODEL_CACHE_PATH), exist_ok=True)
 
             # Write to temporary file first, then rename (atomic operation)
-            temp_path = self.MODEL_CACHE_PATH + '.tmp'
-            with open(temp_path, 'w') as f:
-                json.dump(cache_data, f, indent=2, default=str)  # default=str handles datetime objects
+            temp_path = self.MODEL_CACHE_PATH + ".tmp"
+            with open(temp_path, "w") as f:
+                json.dump(
+                    cache_data, f, indent=2, default=str
+                )  # default=str handles datetime objects
 
             os.rename(temp_path, self.MODEL_CACHE_PATH)
 
-            variant_count = sum(len(info.get('variants', {})) for info in model_data.values())
-            logging.debug(f"Saved persistent model cache: {len(model_data)} model bases, {variant_count} variants")
+            variant_count = sum(
+                len(info.get("variants", {})) for info in model_data.values()
+            )
+            logging.debug(
+                f"Saved persistent model cache: {len(model_data)} model bases, {variant_count} variants"
+            )
 
         except Exception as e:
             logging.error(f"Failed to save persistent model cache: {e}")
@@ -853,126 +1060,145 @@ class Globals:
     def get_persistent_cache_age_hours(self) -> float:
         """Get the age of persistent cache in hours."""
         if not os.path.exists(self.MODEL_CACHE_PATH):
-            return float('inf')
+            return float("inf")
 
         try:
             with open(self.MODEL_CACHE_PATH) as f:
                 cache_data = json.load(f)
-            cache_timestamp = cache_data.get('timestamp', 0)
+            cache_timestamp = cache_data.get("timestamp", 0)
             import time
+
             return (time.time() - cache_timestamp) / 3600
         except:
-            return float('inf')
+            return float("inf")
 
     # --- TTS Configuration Methods ---
 
     def get_tts_engine_priority(self) -> list[str]:
         """Get TTS engine priority list, excluding disabled engines."""
-        return [engine for engine in self.TTS_ENGINE_PRIORITY if engine not in self.TTS_DISABLED_ENGINES]
+        return [
+            engine
+            for engine in self.TTS_ENGINE_PRIORITY
+            if engine not in self.TTS_DISABLED_ENGINES
+        ]
 
     def set_tts_engine_priority(self, engines: list[str]) -> None:
         """Set TTS engine priority order and save to config."""
         self.TTS_ENGINE_PRIORITY = engines
-        self.set_config_value('tts_engine_priority', engines)
+        self.set_config_value("tts_engine_priority", engines)
 
     def disable_tts_engine(self, engine: str) -> None:
         """Disable a specific TTS engine."""
         if engine not in self.TTS_DISABLED_ENGINES:
             self.TTS_DISABLED_ENGINES.append(engine)
-            self.set_config_value('tts_disabled_engines', self.TTS_DISABLED_ENGINES)
+            self.set_config_value("tts_disabled_engines", self.TTS_DISABLED_ENGINES)
 
     def enable_tts_engine(self, engine: str) -> None:
         """Enable a previously disabled TTS engine."""
         if engine in self.TTS_DISABLED_ENGINES:
             self.TTS_DISABLED_ENGINES.remove(engine)
-            self.set_config_value('tts_disabled_engines', self.TTS_DISABLED_ENGINES)
+            self.set_config_value("tts_disabled_engines", self.TTS_DISABLED_ENGINES)
 
     def get_tts_voice_for_engine(self, engine: str, voice_type: str = "default") -> str:
         """Get the appropriate voice ID for a specific engine and voice type."""
         engine_voices = self.TTS_VOICE_MAPPINGS.get(engine, {})
-        return engine_voices.get(voice_type, voice_type)  # Fallback to voice_type if not mapped
+        return engine_voices.get(
+            voice_type, voice_type
+        )  # Fallback to voice_type if not mapped
 
     def get_tts_context_settings(self, context: str) -> TTSContextSettings:
         """Get TTS settings for a specific context."""
         default_settings: TTSContextSettings = {
             "speed": self.TTS_DEFAULT_SPEED,
             "volume": self.TTS_DEFAULT_VOLUME,
-            "voice": self.TTS_DEFAULT_VOICE
+            "voice": self.TTS_DEFAULT_VOICE,
         }
         stored_settings = self.TTS_CONTEXT_SETTINGS.get(context, default_settings)
         # Ensure all required fields are present
         return {
             "speed": stored_settings.get("speed", self.TTS_DEFAULT_SPEED),
             "volume": stored_settings.get("volume", self.TTS_DEFAULT_VOLUME),
-            "voice": stored_settings.get("voice", self.TTS_DEFAULT_VOICE)
+            "voice": stored_settings.get("voice", self.TTS_DEFAULT_VOICE),
         }
 
-    def set_tts_context_settings(self, context: str, settings: TTSContextSettings) -> None:
+    def set_tts_context_settings(
+        self, context: str, settings: TTSContextSettings
+    ) -> None:
         """Set TTS settings for a specific context."""
         self.TTS_CONTEXT_SETTINGS[context] = settings
         # Save to user config
-        tts_contexts = self.get_config_value('tts_context_settings', {})
+        tts_contexts = self.get_config_value("tts_context_settings", {})
         tts_contexts[context] = settings
-        self.set_config_value('tts_context_settings', tts_contexts)
-
+        self.set_config_value("tts_context_settings", tts_contexts)
 
     def load_tts_config_from_user_settings(self) -> None:
         """Load TTS configuration from saved user settings."""
         # Load engine priority
-        saved_priority = self.get_config_value('tts_engine_priority')
+        saved_priority = self.get_config_value("tts_engine_priority")
         if saved_priority:
             self.TTS_ENGINE_PRIORITY = saved_priority
 
         # Load disabled engines
-        saved_disabled = self.get_config_value('tts_disabled_engines')
+        saved_disabled = self.get_config_value("tts_disabled_engines")
         if saved_disabled:
             self.TTS_DISABLED_ENGINES = saved_disabled
 
         # Load context settings
-        saved_contexts = self.get_config_value('tts_context_settings')
+        saved_contexts = self.get_config_value("tts_context_settings")
         if saved_contexts:
             self.TTS_CONTEXT_SETTINGS.update(saved_contexts)
 
         # Load default settings
-        saved_defaults = self.get_config_value('tts_defaults', {})
-        self.TTS_DEFAULT_VOICE = saved_defaults.get('voice', self.TTS_DEFAULT_VOICE)
-        self.TTS_DEFAULT_SPEED = saved_defaults.get('speed', self.TTS_DEFAULT_SPEED)
-        self.TTS_DEFAULT_VOLUME = saved_defaults.get('volume', self.TTS_DEFAULT_VOLUME)
-        self.TTS_DEFAULT_LANGUAGE = saved_defaults.get('language', self.TTS_DEFAULT_LANGUAGE)
-        self.TTS_DEFAULT_GENDER = saved_defaults.get('gender', self.TTS_DEFAULT_GENDER)
-        self.TTS_DEFAULT_QUALITY = saved_defaults.get('quality', self.TTS_DEFAULT_QUALITY)
+        saved_defaults = self.get_config_value("tts_defaults", {})
+        self.TTS_DEFAULT_VOICE = saved_defaults.get("voice", self.TTS_DEFAULT_VOICE)
+        self.TTS_DEFAULT_SPEED = saved_defaults.get("speed", self.TTS_DEFAULT_SPEED)
+        self.TTS_DEFAULT_VOLUME = saved_defaults.get("volume", self.TTS_DEFAULT_VOLUME)
+        self.TTS_DEFAULT_LANGUAGE = saved_defaults.get(
+            "language", self.TTS_DEFAULT_LANGUAGE
+        )
+        self.TTS_DEFAULT_GENDER = saved_defaults.get("gender", self.TTS_DEFAULT_GENDER)
+        self.TTS_DEFAULT_QUALITY = saved_defaults.get(
+            "quality", self.TTS_DEFAULT_QUALITY
+        )
 
-    def save_tts_defaults(self, voice: Optional[str] = None, speed: Optional[float] = None, volume: Optional[float] = None,
-                         language: Optional[str] = None, gender: Optional[str] = None, quality: Optional[str] = None) -> None:
+    def save_tts_defaults(
+        self,
+        voice: str | None = None,
+        speed: float | None = None,
+        volume: float | None = None,
+        language: str | None = None,
+        gender: str | None = None,
+        quality: str | None = None,
+    ) -> None:
         """Save TTS default settings."""
-        defaults = self.get_config_value('tts_defaults', {})
+        defaults = self.get_config_value("tts_defaults", {})
 
         if voice is not None:
             self.TTS_DEFAULT_VOICE = voice
-            defaults['voice'] = voice
+            defaults["voice"] = voice
         if speed is not None:
             self.TTS_DEFAULT_SPEED = speed
-            defaults['speed'] = speed
+            defaults["speed"] = speed
         if volume is not None:
             self.TTS_DEFAULT_VOLUME = volume
-            defaults['volume'] = volume
+            defaults["volume"] = volume
         if language is not None:
             self.TTS_DEFAULT_LANGUAGE = language
-            defaults['language'] = language
+            defaults["language"] = language
         if gender is not None:
             self.TTS_DEFAULT_GENDER = gender
-            defaults['gender'] = gender
+            defaults["gender"] = gender
         if quality is not None:
             self.TTS_DEFAULT_QUALITY = quality
-            defaults['quality'] = quality
+            defaults["quality"] = quality
 
-        self.set_config_value('tts_defaults', defaults)
+        self.set_config_value("tts_defaults", defaults)
 
     # --- LLM Role Management ---
     @property
-    def planner_llm(self) -> Optional[str]:
+    def planner_llm(self) -> str | None:
         """Backward compatibility property for planner LLM. Returns first item if array."""
-        planner = self.llm_roles.get('planner')
+        planner = self.llm_roles.get("planner")
         if isinstance(planner, list):
             return planner[0] if planner else None
         return planner
@@ -980,7 +1206,7 @@ class Globals:
     @property
     def planner_llms_list(self) -> list[str]:
         """Get planner LLM fallback chain."""
-        planner = self.llm_roles.get('planner')
+        planner = self.llm_roles.get("planner")
         if isinstance(planner, list):
             return planner
         elif planner:
@@ -988,9 +1214,9 @@ class Globals:
         return []
 
     @property
-    def router_llm(self) -> Optional[str]:
+    def router_llm(self) -> str | None:
         """Backward compatibility property for router LLM. Returns first item if array."""
-        router = self.llm_roles.get('router')
+        router = self.llm_roles.get("router")
         if isinstance(router, list):
             return router[0] if router else None
         return router
@@ -998,7 +1224,7 @@ class Globals:
     @property
     def router_llms_list(self) -> list[str]:
         """Get router LLM fallback chain."""
-        router = self.llm_roles.get('router')
+        router = self.llm_roles.get("router")
         if isinstance(router, list):
             return router
         elif router:
@@ -1006,9 +1232,9 @@ class Globals:
         return []
 
     @property
-    def override_llm(self) -> Optional[str]:
+    def override_llm(self) -> str | None:
         """Backward compatibility property for override LLM. Returns first item if array."""
-        override = self.llm_roles.get('override')
+        override = self.llm_roles.get("override")
         if isinstance(override, list):
             return override[0] if override else None
         return override
@@ -1016,7 +1242,7 @@ class Globals:
     @property
     def override_llms_list(self) -> list[str]:
         """Get override LLM fallback chain."""
-        override = self.llm_roles.get('override')
+        override = self.llm_roles.get("override")
         if isinstance(override, list):
             return override
         elif override:
@@ -1024,9 +1250,9 @@ class Globals:
         return []
 
     @property
-    def autocomplete_llm(self) -> Optional[str]:
+    def autocomplete_llm(self) -> str | None:
         """Backward compatibility property for autocomplete LLM. Returns first item if array."""
-        autocomplete = self.llm_roles.get('autocomplete')
+        autocomplete = self.llm_roles.get("autocomplete")
         if isinstance(autocomplete, list):
             return autocomplete[0] if autocomplete else None
         return autocomplete
@@ -1034,7 +1260,7 @@ class Globals:
     @property
     def autocomplete_llms_list(self) -> list[str]:
         """Get autocomplete LLM fallback chain."""
-        autocomplete = self.llm_roles.get('autocomplete')
+        autocomplete = self.llm_roles.get("autocomplete")
         if isinstance(autocomplete, list):
             return autocomplete
         elif autocomplete:
@@ -1044,26 +1270,31 @@ class Globals:
     @property
     def FALLBACK_MODELS(self) -> list[str]:
         """Backward compatibility property for fallback models."""
-        return self.llm_roles.get('fallbacks', [])
+        return self.llm_roles.get("fallbacks", [])
 
     @FALLBACK_MODELS.setter
     def FALLBACK_MODELS(self, value: list[str]) -> None:
         """Setter for fallback models."""
-        self.llm_roles['fallbacks'] = value
+        self.llm_roles["fallbacks"] = value
         self.save_llm_roles()
 
     @property
     def SELECTED_LLMS(self) -> list[str]:
         """Backward compatibility property for selected LLMs. Now points to fallbacks array."""
-        return self.llm_roles.get('fallbacks', [])
+        return self.llm_roles.get("fallbacks", [])
 
     @SELECTED_LLMS.setter
     def SELECTED_LLMS(self, value: list[str]) -> None:
         """Setter for selected LLMs. Now updates fallbacks array."""
-        self.llm_roles['fallbacks'] = value
+        self.llm_roles["fallbacks"] = value
         self.save_llm_roles()
 
-    def update_llm_role(self, role: str, model_key: Optional[str] = None, model_keys: Optional[list[str]] = None) -> None:
+    def update_llm_role(
+        self,
+        role: str,
+        model_key: str | None = None,
+        model_keys: list[str] | None = None,
+    ) -> None:
         """
         Unified method to update LLM roles with automatic persistence.
 
@@ -1075,7 +1306,7 @@ class Globals:
             model_key: Single model key (backward compatibility, converted to single-item array)
             model_keys: List of model keys for multi-model fallback chains
         """
-        if role in ['planner', 'router', 'override', 'autocomplete', 'fallbacks']:
+        if role in ["planner", "router", "override", "autocomplete", "fallbacks"]:
             # Support both single model and model arrays for all roles
             if model_keys is not None and model_key is not None:
                 raise ValueError("Cannot specify both model_key and model_keys")
@@ -1089,18 +1320,20 @@ class Globals:
                 self.llm_roles[role] = model_key
             else:
                 # Clear the role
-                self.llm_roles[role] = [] if role == 'fallbacks' else None
+                self.llm_roles[role] = [] if role == "fallbacks" else None
 
-        elif role == 'selected':
+        elif role == "selected":
             # Redirect selected to fallbacks for backward compatibility
             if model_keys is not None:
-                self.llm_roles['fallbacks'] = model_keys
+                self.llm_roles["fallbacks"] = model_keys
             elif model_key is not None:
-                self.llm_roles['fallbacks'] = [model_key]
+                self.llm_roles["fallbacks"] = [model_key]
             else:
-                self.llm_roles['fallbacks'] = []
+                self.llm_roles["fallbacks"] = []
         else:
-            raise ValueError(f"Unknown role: {role}. Valid roles: planner, router, override, fallbacks")
+            raise ValueError(
+                f"Unknown role: {role}. Valid roles: planner, router, override, fallbacks"
+            )
 
         self.save_llm_roles()
         logging.info(f"🔧 LLM role '{role}' updated to: {model_key or model_keys}")
@@ -1108,64 +1341,89 @@ class Globals:
     def save_llm_roles(self) -> None:
         """Save LLM role configuration to disk."""
         config = self.get_llm_config()
-        config['roles'] = self.llm_roles
+        config["roles"] = self.llm_roles
         self.save_llm_config(config)
 
     def load_llm_roles(self) -> None:
         """Load LLM role configuration from disk, migrating from old format if needed."""
         import time
+
         load_start = time.time()
 
         step_start = time.time()
         config = self.get_llm_config()
-        logging.info(f"🚀 ROLES: get_llm_config took {(time.time() - step_start)*1000:.1f}ms")
+        logging.info(
+            f"🚀 ROLES: get_llm_config took {(time.time() - step_start) * 1000:.1f}ms"
+        )
 
         # Check if we have the new unified format with valid data
         has_valid_roles = (
-            'roles' in config and
-            isinstance(config['roles'], dict) and
+            "roles" in config
+            and isinstance(config["roles"], dict)
+            and
             # Check if roles has been properly populated (not just empty defaults)
-            (config['roles'].get('planner') or config['roles'].get('router') or
-             config['roles'].get('fallbacks'))
+            (
+                config["roles"].get("planner")
+                or config["roles"].get("router")
+                or config["roles"].get("fallbacks")
+            )
         )
 
         if has_valid_roles:
             # Use new format
             step_start = time.time()
-            for key, default_value in [('planner', None), ('router', None), ('override', None), ('autocomplete', None), ('fallbacks', [])]:
-                self.llm_roles[key] = config['roles'].get(key, default_value)
-            logging.info(f"🚀 ROLES: Loading existing roles took {(time.time() - step_start)*1000:.1f}ms")
+            for key, default_value in [
+                ("planner", None),
+                ("router", None),
+                ("override", None),
+                ("autocomplete", None),
+                ("fallbacks", []),
+            ]:
+                self.llm_roles[key] = config["roles"].get(key, default_value)
+            logging.info(
+                f"🚀 ROLES: Loading existing roles took {(time.time() - step_start) * 1000:.1f}ms"
+            )
         else:
             # Migrate from old format
             step_start = time.time()
-            logging.info("🔄 Migrating LLM configuration from old format to unified roles")
+            logging.info(
+                "🔄 Migrating LLM configuration from old format to unified roles"
+            )
 
             # Migrate planner, router, and override
-            self.llm_roles['planner'] = config.get('__planner_llm__')
-            self.llm_roles['router'] = config.get('__router_llm__')
-            self.llm_roles['override'] = config.get('__override_llm__')
+            self.llm_roles["planner"] = config.get("__planner_llm__")
+            self.llm_roles["router"] = config.get("__router_llm__")
+            self.llm_roles["override"] = config.get("__override_llm__")
 
             # Migrate selected models to fallbacks array (eliminating separate selected array)
             selected_models = []
             for model_key, model_config in config.items():
-                if isinstance(model_config, dict) and model_config.get('selected', False):
+                if isinstance(model_config, dict) and model_config.get(
+                    "selected", False
+                ):
                     selected_models.append(model_key)
 
             # Sort by order if available
-            selected_models.sort(key=lambda m: config.get(m, {}).get('order', 999))
+            selected_models.sort(key=lambda m: config.get(m, {}).get("order", 999))
 
             # Store selected models as fallbacks (unified array)
-            self.llm_roles['fallbacks'] = selected_models
-            
+            self.llm_roles["fallbacks"] = selected_models
+
             # If no models were migrated, apply default configuration for new setups
-            if not selected_models and not config.get('__planner_llm__') and not config.get('__router_llm__'):
-                logging.info("🔧 No existing configuration found, applying default LLM configuration")
-                self.llm_roles['planner'] = 'gemini-2.5-pro'
-                self.llm_roles['router'] = 'gemini-flash-lite-latest'
-                self.llm_roles['fallbacks'] = [
-                    'gemini-flash-latest',
-                    'gemini-flash-lite-latest',
-                    'mistral-small3.2:latest'
+            if (
+                not selected_models
+                and not config.get("__planner_llm__")
+                and not config.get("__router_llm__")
+            ):
+                logging.info(
+                    "🔧 No existing configuration found, applying default LLM configuration"
+                )
+                self.llm_roles["planner"] = "gemini-2.5-pro"
+                self.llm_roles["router"] = "gemini-flash-lite-latest"
+                self.llm_roles["fallbacks"] = [
+                    "gemini-flash-latest",
+                    "gemini-flash-lite-latest",
+                    "mistral-small3.2:latest",
                 ]
 
             # Save the migrated configuration and clean up old format
@@ -1174,13 +1432,19 @@ class Globals:
             # Clean up old format keys from config file
             cleanup_start = time.time()
             self._cleanup_old_format_config()
-            logging.info(f"🚀 ROLES: Cleanup took {(time.time() - cleanup_start)*1000:.1f}ms")
+            logging.info(
+                f"🚀 ROLES: Cleanup took {(time.time() - cleanup_start) * 1000:.1f}ms"
+            )
 
             migration_time = time.time() - step_start
-            logging.info(f"✅ Migration completed in {migration_time*1000:.1f}ms: {len(selected_models)} selected models, planner: {self.llm_roles['planner']}, router: {self.llm_roles['router']}")
+            logging.info(
+                f"✅ Migration completed in {migration_time * 1000:.1f}ms: {len(selected_models)} selected models, planner: {self.llm_roles['planner']}, router: {self.llm_roles['router']}"
+            )
 
         total_roles_time = time.time() - load_start
-        logging.info(f"🚀 ROLES: Total load_llm_roles took {total_roles_time*1000:.1f}ms")
+        logging.info(
+            f"🚀 ROLES: Total load_llm_roles took {total_roles_time * 1000:.1f}ms"
+        )
 
     def _cleanup_old_format_config(self) -> None:
         """Remove old format keys from config file after successful migration."""
@@ -1189,30 +1453,30 @@ class Globals:
             cleaned = False
 
             # Remove old special keys
-            if '__planner_llm__' in config:
-                del config['__planner_llm__']
+            if "__planner_llm__" in config:
+                del config["__planner_llm__"]
                 cleaned = True
-            if '__router_llm__' in config:
-                del config['__router_llm__']
+            if "__router_llm__" in config:
+                del config["__router_llm__"]
                 cleaned = True
 
             # Remove 'selected' array from roles (now unified with fallbacks)
-            if 'roles' in config and isinstance(config['roles'], dict):
-                if 'selected' in config['roles']:
-                    del config['roles']['selected']
+            if "roles" in config and isinstance(config["roles"], dict):
+                if "selected" in config["roles"]:
+                    del config["roles"]["selected"]
                     cleaned = True
 
             # Remove 'selected' and 'order' from model entries (they're now in roles)
             for model_key, model_config in list(config.items()):
-                if isinstance(model_config, dict) and model_key != 'roles':
-                    if 'selected' in model_config:
-                        del model_config['selected']
+                if isinstance(model_config, dict) and model_key != "roles":
+                    if "selected" in model_config:
+                        del model_config["selected"]
                         cleaned = True
-                    if 'order' in model_config:
-                        del model_config['order']
+                    if "order" in model_config:
+                        del model_config["order"]
                         cleaned = True
                     # Remove empty model configs
-                    if not model_config or model_config == {'model_key': model_key}:
+                    if not model_config or model_config == {"model_key": model_key}:
                         del config[model_key]
                         cleaned = True
 
@@ -1223,11 +1487,11 @@ class Globals:
         except Exception as e:
             logging.warning(f"Failed to cleanup old format config: {e}")
 
-    def get_active_profile_id(self) -> Optional[str]:
+    def get_active_profile_id(self) -> str | None:
         """Get the currently active profile ID."""
         return self.active_profile_id
 
-    def set_active_profile_id(self, profile_id: Optional[str]) -> None:
+    def set_active_profile_id(self, profile_id: str | None) -> None:
         """Set the currently active profile ID."""
         self.active_profile_id = profile_id
         if profile_id:
@@ -1243,7 +1507,7 @@ class Globals:
         try:
             if callback not in self._cleanup_callbacks:
                 self._cleanup_callbacks.append(callback)
-                cb_name = getattr(callback, '__qualname__', repr(callback))
+                cb_name = getattr(callback, "__qualname__", repr(callback))
                 logging.info(f"Registered cleanup callback: {cb_name}")
         except Exception as e:
             logging.debug(f"Failed to register cleanup callback: {e}")
@@ -1256,7 +1520,7 @@ class Globals:
         """
         try:
             self._persistent_services.add(callback)
-            cb_name = getattr(callback, '__qualname__', repr(callback))
+            cb_name = getattr(callback, "__qualname__", repr(callback))
             logging.debug(f"Registered persistent service: {cb_name}")
         except Exception as e:
             logging.debug(f"Failed to register persistent service: {e}")
@@ -1267,7 +1531,7 @@ class Globals:
         """
         try:
             self._persistent_services.discard(callback)
-            cb_name = getattr(callback, '__qualname__', repr(callback))
+            cb_name = getattr(callback, "__qualname__", repr(callback))
             logging.debug(f"Unregistered persistent service: {cb_name}")
         except Exception as e:
             logging.debug(f"Failed to unregister persistent service: {e}")
@@ -1292,7 +1556,7 @@ class Globals:
             try:
                 # Skip persistent services unless forced
                 if not force_all and callback in self._persistent_services:
-                    cb_name = getattr(callback, '__qualname__', repr(callback))
+                    cb_name = getattr(callback, "__qualname__", repr(callback))
                     logging.debug(f"Skipping persistent service cleanup: {cb_name}")
                     skipped_count += 1
                     continue
@@ -1302,11 +1566,13 @@ class Globals:
                 cleaned_count += 1
 
             except Exception as e:
-                cb_name = getattr(callback, '__qualname__', repr(callback))
+                cb_name = getattr(callback, "__qualname__", repr(callback))
                 logging.error(f"Exception during cleanup of {cb_name}: {e}")
 
         if skipped_count > 0:
-            logging.info(f"Cleanup complete: {cleaned_count} services cleaned, {skipped_count} persistent services preserved")
+            logging.info(
+                f"Cleanup complete: {cleaned_count} services cleaned, {skipped_count} persistent services preserved"
+            )
         else:
             logging.info(f"Cleanup complete: {cleaned_count} services cleaned")
 
@@ -1317,7 +1583,7 @@ class Globals:
 
     # --- Session Management Methods ---
 
-    def create_session(self, session_id: str, chat: Optional[Any] = None) -> Any:
+    def create_session(self, session_id: str, chat: Any | None = None) -> Any:
         """
         Create new session context for multi-tab support
 
@@ -1332,6 +1598,7 @@ class Globals:
 
         if chat is None:
             from core.chat import Chat
+
             chat = Chat()
 
         context = SessionContext(
@@ -1339,7 +1606,7 @@ class Globals:
             chat=chat,
             voice_mode=self.voice_mode,
             tts_only_mode=self.tts_only_mode,
-            auto_execute=self.auto_execute
+            auto_execute=self.auto_execute,
         )
         self.sessions[session_id] = context
 
@@ -1350,11 +1617,11 @@ class Globals:
         logging.info(f"Created session: {session_id}")
         return context
 
-    def get_session(self, session_id: str) -> Optional[Any]:
+    def get_session(self, session_id: str) -> Any | None:
         """Get session context by ID"""
         return self.sessions.get(session_id)
 
-    def get_active_session(self) -> Optional[Any]:
+    def get_active_session(self) -> Any | None:
         """Get active session (for CLI mode compatibility)"""
         if self._active_session_id:
             return self.sessions.get(self._active_session_id)
@@ -1385,8 +1652,7 @@ class Globals:
             timeout_seconds: Inactivity timeout in seconds (default: 1 hour)
         """
         expired = [
-            sid for sid, ctx in self.sessions.items()
-            if ctx.is_expired(timeout_seconds)
+            sid for sid, ctx in self.sessions.items() if ctx.is_expired(timeout_seconds)
         ]
 
         for sid in expired:
@@ -1426,7 +1692,9 @@ class Globals:
         if session:
             session.chat = value
 
+
 # --- Type Validation Helpers ---
+
 
 def validate_llm_config(config: dict[str, Any]) -> LLMConfig:
     """Validate and convert a dictionary to LLMConfig type."""
@@ -1438,42 +1706,45 @@ def validate_llm_config(config: dict[str, Any]) -> LLMConfig:
     validated_config: LLMConfig = {}
 
     # Handle roles configuration
-    if 'roles' in config:
-        roles = config['roles']
+    if "roles" in config:
+        roles = config["roles"]
         if not isinstance(roles, dict):
             raise TypeError("roles must be a dictionary")
 
         validated_roles: LLMRoleConfig = {}
 
         # Validate individual role fields
-        if 'planner' in roles:
-            planner = roles['planner']
+        if "planner" in roles:
+            planner = roles["planner"]
             if planner is not None and not isinstance(planner, str):
                 raise TypeError("planner must be a string or None")
-            validated_roles['planner'] = planner
+            validated_roles["planner"] = planner
 
-        if 'router' in roles:
-            router = roles['router']
+        if "router" in roles:
+            router = roles["router"]
             if router is not None and not isinstance(router, str):
                 raise TypeError("router must be a string or None")
-            validated_roles['router'] = router
+            validated_roles["router"] = router
 
-        if 'fallbacks' in roles:
-            fallbacks = roles['fallbacks']
-            if not isinstance(fallbacks, list) or not all(isinstance(x, str) for x in fallbacks):
+        if "fallbacks" in roles:
+            fallbacks = roles["fallbacks"]
+            if not isinstance(fallbacks, list) or not all(
+                isinstance(x, str) for x in fallbacks
+            ):
                 raise TypeError("fallbacks must be a list of strings")
-            validated_roles['fallbacks'] = fallbacks
+            validated_roles["fallbacks"] = fallbacks
 
         # Backward compatibility: ignore 'selected' key as it's now unified with fallbacks
 
-        validated_config['roles'] = validated_roles
+        validated_config["roles"] = validated_roles
 
     # Handle other dynamic model configurations (they remain as Any for flexibility)
     for key, value in config.items():
-        if key not in ['roles']:
+        if key not in ["roles"]:
             validated_config[key] = value  # type: ignore
 
     return validated_config
+
 
 def validate_user_config(config: dict[str, Any]) -> UserConfig:
     """Validate and convert a dictionary to UserConfig type."""
@@ -1484,47 +1755,51 @@ def validate_user_config(config: dict[str, Any]) -> UserConfig:
     validated_config: UserConfig = {}
 
     # Validate known keys if they exist
-    if 'tts_engine_priority' in config:
-        tts_priority = config['tts_engine_priority']
-        if not isinstance(tts_priority, list) or not all(isinstance(x, str) for x in tts_priority):
+    if "tts_engine_priority" in config:
+        tts_priority = config["tts_engine_priority"]
+        if not isinstance(tts_priority, list) or not all(
+            isinstance(x, str) for x in tts_priority
+        ):
             raise TypeError("tts_engine_priority must be a list of strings")
-        validated_config['tts_engine_priority'] = tts_priority
+        validated_config["tts_engine_priority"] = tts_priority
 
-    if 'tts_disabled_engines' in config:
-        tts_disabled = config['tts_disabled_engines']
-        if not isinstance(tts_disabled, list) or not all(isinstance(x, str) for x in tts_disabled):
+    if "tts_disabled_engines" in config:
+        tts_disabled = config["tts_disabled_engines"]
+        if not isinstance(tts_disabled, list) or not all(
+            isinstance(x, str) for x in tts_disabled
+        ):
             raise TypeError("tts_disabled_engines must be a list of strings")
-        validated_config['tts_disabled_engines'] = tts_disabled
+        validated_config["tts_disabled_engines"] = tts_disabled
 
     # Copy other fields as-is (they remain flexible)
     for key, value in config.items():
-        if key not in ['tts_engine_priority', 'tts_disabled_engines']:
+        if key not in ["tts_engine_priority", "tts_disabled_engines"]:
             validated_config[key] = value  # type: ignore
 
     return validated_config
 
+
 def validate_tts_context_settings(settings: dict[str, Any]) -> TTSContextSettings:
     """Validate and convert a dictionary to TTSContextSettings type."""
     if not isinstance(settings, dict):
-        raise TypeError(f"TTS context settings must be a dictionary, got {type(settings)}")
+        raise TypeError(
+            f"TTS context settings must be a dictionary, got {type(settings)}"
+        )
 
     # Validate required fields
-    speed = settings.get('speed')
+    speed = settings.get("speed")
     if not isinstance(speed, (int, float)):
         raise TypeError("TTS speed must be a number")
 
-    volume = settings.get('volume')
+    volume = settings.get("volume")
     if not isinstance(volume, (int, float)):
         raise TypeError("TTS volume must be a number")
 
-    voice = settings.get('voice')
+    voice = settings.get("voice")
     if not isinstance(voice, str):
         raise TypeError("TTS voice must be a string")
 
-    return {
-        'speed': float(speed),
-        'volume': float(volume),
-        'voice': voice
-    }
+    return {"speed": float(speed), "volume": float(volume), "voice": voice}
+
 
 g = Globals()

@@ -860,13 +860,14 @@ async def regenerate_prompts(request: Any) -> Any:
         logger.info(f"Regenerating prompts (num_files={num_files}, time_frame_days={time_frame_days})")
 
         # Import the regenerator (lazy import to avoid startup overhead)
-        from shared.utils.prompt_regenerator import regenerate_prompts as regen_fn
+        from shared.utils.prompt_regenerator import PromptRegenerator
 
         # Run regeneration
-        result = await regen_fn(
+        regenerator = PromptRegenerator(
             num_files=num_files,
             time_frame_days=time_frame_days
         )
+        result = await regenerator.regenerate()
 
         # Broadcast WebSocket event to notify all clients
         from api.server import get_server

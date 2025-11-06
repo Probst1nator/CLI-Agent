@@ -1,13 +1,15 @@
 # tools/readdirectory.py
 """
-This file implements the 'readdirectory' tool. It allows the agent to
-recursively list the contents of a directory and automatically load all
-readable text files and PDF documents into the searchable resource manager.
-
-NOTE: PDF processing requires the 'pymupdf' package to be installed (`pip install pymupdf`).
+This file implements the 'readdirectory' tool. It recursively lists
+the contents of a directory in a tree structure, showing all files
+and directories without reading their contents.
 """
 import os
 import re
+
+from shared.utils.tool_logging import get_logger_for_tool_module
+
+logger = get_logger_for_tool_module(__name__)
 
 # Attempt to import pathspec for .gitignore handling
 try:
@@ -15,31 +17,6 @@ try:
 except ImportError:
     pathspec = None
 
-# Attempt to import PyMuPDF (fitz) for PDF processing
-try:
-    import fitz  # PyMuPDF
-    PYMUPDF_AVAILABLE = True
-except ImportError:
-    PYMUPDF_AVAILABLE = False
-
-# Import memory utilities for saving large content
-try:
-    from shared.utils.memory_utils import save_to_memory_file
-    MEMORY_UTILS_AVAILABLE = True
-except ImportError:
-    MEMORY_UTILS_AVAILABLE = False
-
-# A set of common binary file extensions to avoid reading non-text files.
-# .pdf is now handled separately and removed from this list.
-BINARY_EXTENSIONS = {
-    '.pyc', '.pyo', '.o', '.so', '.a', '.dll', '.exe', '.lib',
-    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.ico',
-    '.mp3', '.wav', '.flac', '.ogg', '.mp4', '.avi', '.mov', '.mkv',
-    '.zip', '.tar', '.gz', '.bz2', '.rar', '.7z',
-    '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-    '.db', '.sqlite', '.sqlite3',
-    '.eot', '.otf', '.ttf', '.woff', '.woff2'
-}
 
 class readdirectory:
     @staticmethod
@@ -50,20 +27,17 @@ class readdirectory:
     @staticmethod
     def get_tool_info() -> dict:
         """Provides standardized documentation for this tool."""
-        info = {
+        return {
             "name": "readdirectory",
-            "description": "Recursively lists directory contents and saves readable files to a memory file for later access. Supports text files and automatically converts PDFs to text. Respects .gitignore rules. Optional max_depth parameter to limit recursion depth.",
+            "description": "Recursively lists directory contents in a tree structure. Shows all files and subdirectories. Respects .gitignore rules. Optional max_depth parameter to limit recursion depth. Does NOT read file contents.",
             "example": "<readdirectory><path>./documents</path><max_depth>2</max_depth></readdirectory>"
         }
-        if not PYMUPDF_AVAILABLE:
-            info["description"] += " (NOTE: PDF processing is disabled because 'pymupdf' is not installed.)"
-        return info
 
     @staticmethod
-    def _find_project_root_and_spec(start_path: str) -> tuple[pathspec.PathSpec | None, str | None]:
+    def _find_project_root_and_spec(start_path: str) -> tuple:
         """
         Finds the project root (.git) and parses .gitignore files.
-        Logic is adapted from the grepsearch tool for consistency.
+        Returns (pathspec, project_root) or (None, None).
         """
         if not pathspec:
             return None, None
@@ -78,8 +52,11 @@ class readdirectory:
 
             gitignore_path = os.path.join(current_path, '.gitignore')
             if os.path.isfile(gitignore_path):
-                with open(gitignore_path, encoding='utf-8') as f:
-                    gitignore_patterns = f.readlines() + gitignore_patterns
+                try:
+                    with open(gitignore_path, encoding='utf-8') as f:
+                        gitignore_patterns = f.readlines() + gitignore_patterns
+                except Exception as e:
+                    logger.warning(f"Could not read .gitignore at {gitignore_path}: {e}")
 
             parent_path = os.path.dirname(current_path)
             if parent_path == current_path:
@@ -96,32 +73,12 @@ class readdirectory:
         return None, project_root
 
     @staticmethod
-    def _process_pdf_file(file_path: str) -> str | None:
-        """Extracts all text content from a PDF file using PyMuPDF."""
-        if not PYMUPDF_AVAILABLE:
-            return None
-
-        try:
-            doc = fitz.open(file_path)
-            full_text = []
-            for page in doc:
-                full_text.append(page.get_text())
-            doc.close()
-            return "\n".join(full_text)
-        except Exception as e:
-            # Gracefully handle corrupted, encrypted, or image-based PDFs
-            print(f"Skipping PDF '{os.path.basename(file_path)}' due to extraction error: {e}")
-            return None
-
-    @staticmethod
     def run(content: str) -> str:
         """
-        Executes the directory scan and saves file contents to memory.
+        Executes the directory scan and returns a tree structure.
         """
-        if not MEMORY_UTILS_AVAILABLE:
-            return "Error: Memory utilities are not available. This tool cannot function."
-
         try:
+            # Parse path parameter
             path_match = re.search(r'<path>(.*?)</path>', content, re.DOTALL)
             search_path = path_match.group(1).strip() if path_match else '.'
 
@@ -135,11 +92,14 @@ class readdirectory:
             if not os.path.isdir(full_path):
                 return f"Error: Path does not exist or is not a directory: '{full_path}'"
 
+            logger.info(f"Listing directory: {full_path} (max_depth={max_depth})")
+
             spec, project_root = readdirectory._find_project_root_and_spec(full_path)
 
-            all_paths = []
-            ingested_files = []
-            combined_content = []  # Collect all file contents
+            # Collect all paths
+            all_entries = []
+            total_files = 0
+            total_dirs = 0
 
             for root, dirs, files in os.walk(full_path, topdown=True):
                 # Calculate current depth relative to the starting path
@@ -149,6 +109,7 @@ class readdirectory:
                 if max_depth is not None and current_depth >= max_depth:
                     dirs[:] = []  # Clear dirs list to prevent further recursion
                     continue
+
                 # Prune ignored directories
                 if spec and project_root:
                     rel_root = os.path.relpath(root, project_root) if project_root else root
@@ -156,14 +117,22 @@ class readdirectory:
                     ignored_dirs = {os.path.basename(p) for p in spec.match_files(paths_to_check_dirs)}
                     dirs[:] = [d for d in dirs if d not in ignored_dirs and d != '.git']
                 else:
-                    dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv']]
+                    # Default exclusions when no .gitignore
+                    dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', '__pycache__', '.venv', '.vscode']]
 
-                for d in dirs:
-                    all_paths.append(os.path.join(root, d) + os.sep)
+                # Add directories
+                for d in sorted(dirs):
+                    dir_path = os.path.join(root, d)
+                    rel_path = os.path.relpath(dir_path, full_path)
+                    depth = rel_path.count(os.sep)
+                    all_entries.append((rel_path, depth, True))  # True = is_dir
+                    total_dirs += 1
 
-                for filename in files:
+                # Add files
+                for filename in sorted(files):
                     file_path = os.path.join(root, filename)
 
+                    # Check if file is ignored by .gitignore
                     is_ignored = False
                     if spec and project_root:
                         rel_path = os.path.relpath(file_path, project_root).replace('\\', '/')
@@ -173,80 +142,43 @@ class readdirectory:
                     if is_ignored:
                         continue
 
-                    all_paths.append(file_path)
+                    rel_path = os.path.relpath(file_path, full_path)
+                    depth = rel_path.count(os.sep)
+                    all_entries.append((rel_path, depth, False))  # False = is_file
+                    total_files += 1
 
-                    _, ext = os.path.splitext(filename.lower())
-                    file_content = None
-                    content_source_type = "text"
+            # Format the output
+            output = [f"Directory listing of '{full_path}'"]
+            if max_depth is not None:
+                output.append(f"Max depth: {max_depth}")
+            output.append(f"Total: {total_dirs} directories, {total_files} files")
+            output.append("")
+            output.append("=" * 80)
 
-                    # --- Content Extraction Logic ---
-                    if ext == '.pdf':
-                        content_source_type = "pdf"
-                        file_content = readdirectory._process_pdf_file(file_path)
-                    elif ext not in BINARY_EXTENSIONS:
-                        try:
-                            with open(file_path, encoding='utf-8', errors='ignore') as f:
-                                file_content = f.read()
-                        except OSError:
-                            continue # Skip unreadable files
-
-                    # --- Collect file content ---
-                    if file_content and file_content.strip():
-                        try:
-                            rel_path = os.path.relpath(file_path, full_path)
-                            # Add separator and file header
-                            combined_content.append(f"\n{'='*80}\n")
-                            combined_content.append(f"FILE: {rel_path}\n")
-                            combined_content.append(f"TYPE: {content_source_type.upper()}\n")
-                            combined_content.append(f"LINES: {len(file_content.splitlines())}\n")
-                            combined_content.append(f"{'='*80}\n\n")
-                            combined_content.append(file_content)
-                            combined_content.append("\n")
-
-                            ingested_files.append({
-                                "path": file_path,
-                                "lines": len(file_content.splitlines()),
-                                "type": content_source_type
-                            })
-                        except Exception:
-                            continue
-
-            # --- Save to memory file if content was collected ---
-            memory_file_path = None
-            if combined_content:
-                dir_name = os.path.basename(full_path)
-                all_content = "".join(combined_content)
-                memory_file_path = save_to_memory_file(all_content, f"readdirectory_{dir_name}")
-
-            # --- Format the final output ---
-            output = [f"Directory scan of '{full_path}' complete."]
-
-            if ingested_files:
-                output.append("\n--- Ingested Files ---")
-                output.append(f"Collected {len(ingested_files)} readable files and saved to memory:")
-                for item in ingested_files:
-                    rel_path = os.path.relpath(item['path'], full_path)
-                    file_type = item['type'].upper()
-                    output.append(f"- {rel_path} (Type: {file_type}, Lines: {item['lines']})")
-
-                if memory_file_path:
-                    output.append(f"\n📁 Memory file: {memory_file_path}")
-                    output.append(f"\nUse <readfile>{memory_file_path}</readfile> to read the full content.")
+            # Build tree structure
+            if not all_entries:
+                output.append("(empty directory)")
             else:
-                output.append("\nNo readable text or PDF files were found.")
+                # Sort entries by path for consistent output
+                all_entries.sort(key=lambda x: x[0])
 
-            tree_output = ["\n--- Directory Tree ---"]
-            tree_paths = sorted([os.path.relpath(p, full_path) for p in all_paths])
+                for rel_path, depth, is_dir in all_entries:
+                    # Calculate indentation
+                    indent = "  " * depth
+                    marker = "└─ " if depth > 0 else ""
 
-            for path in tree_paths:
-                if path == '.': continue
-                parts = path.split(os.sep)
-                indent = ' ' * 4 * (len(parts) - 1) + '|-- '
-                tree_output.append(f"{indent}{parts[-1]}")
+                    # Add directory marker
+                    if is_dir:
+                        display_name = os.path.basename(rel_path) + "/"
+                    else:
+                        display_name = os.path.basename(rel_path)
 
-            output.extend(tree_output)
+                    output.append(f"{indent}{marker}{display_name}")
 
+            logger.info(f"Listed {total_files} files and {total_dirs} directories")
             return "\n".join(output)
 
         except Exception as e:
-            return f"Error executing readdirectory tool: {str(e)}"
+            error_msg = f"Error executing readdirectory tool: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return error_msg
