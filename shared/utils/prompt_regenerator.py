@@ -12,9 +12,13 @@ import argparse
 import asyncio
 import json
 import logging
+import pickle
 import random
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from rank_bm25 import BM25Plus
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,9 @@ class PromptRegenerator:
         self.prompts_file = Path(
             prompts_file or Path.home() / ".cli-agent" / "suggested_prompts.json"
         ).expanduser()
+        self.bm25_cache_dir = (
+            Path.home() / ".cli-agent" / "bm25_cache" / "studium_index"
+        )
         self.num_files = num_files
         self.time_frame_days = time_frame_days
 
@@ -76,19 +83,51 @@ class PromptRegenerator:
         # Allowed file extensions (whitelist)
         allowed_extensions = {
             # Text & Documents
-            '.txt', '.md', '.pdf',
+            ".txt",
+            ".md",
+            ".pdf",
             # Code
-            '.py', '.ipynb', '.cpp', '.c', '.h', '.java', '.js', '.ts', '.rs', '.go',
+            ".py",
+            ".ipynb",
+            ".cpp",
+            ".c",
+            ".h",
+            ".java",
+            ".js",
+            ".ts",
+            ".rs",
+            ".go",
             # Images
-            '.png', '.jpg', '.jpeg', '.tiff', '.tif', '.gif', '.svg',
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".tiff",
+            ".tif",
+            ".gif",
+            ".svg",
             # Office documents (proprietary)
-            '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls',
+            ".docx",
+            ".doc",
+            ".pptx",
+            ".ppt",
+            ".xlsx",
+            ".xls",
             # Office documents (open formats)
-            '.odt', '.ods', '.odp', '.odg',
+            ".odt",
+            ".ods",
+            ".odp",
+            ".odg",
             # Data files
-            '.csv', '.json', '.yaml', '.yml', '.xml',
+            ".csv",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".xml",
             # Other
-            '.tex', '.html', '.htm', '.css'
+            ".tex",
+            ".html",
+            ".htm",
+            ".css",
         }
 
         # Calculate cutoff time
@@ -100,16 +139,18 @@ class PromptRegenerator:
         try:
             # Find directories containing pyvenv.cfg (Python virtual environments)
             venv_dirs = set()
-            for cfg_path in self.studium_dir.rglob('pyvenv.cfg'):
+            for cfg_path in self.studium_dir.rglob("pyvenv.cfg"):
                 if cfg_path.is_file():
                     venv_dirs.add(cfg_path.parent)
                     logger.debug(f"Detected virtual environment: {cfg_path.parent}")
 
             if venv_dirs:
-                logger.info(f"Excluding {len(venv_dirs)} virtual environment directories")
+                logger.info(
+                    f"Excluding {len(venv_dirs)} virtual environment directories"
+                )
 
             # Recursively walk the directory tree
-            for file_path in self.studium_dir.rglob('*'):
+            for file_path in self.studium_dir.rglob("*"):
                 # Skip directories
                 if not file_path.is_file():
                     continue
@@ -119,7 +160,7 @@ class PromptRegenerator:
                     continue
 
                 # Skip hidden files (any part of path starts with .)
-                if any(part.startswith('.') for part in file_path.parts):
+                if any(part.startswith(".") for part in file_path.parts):
                     continue
 
                 # Only include files with allowed extensions
@@ -142,6 +183,505 @@ class PromptRegenerator:
         except Exception as e:
             logger.error(f"Error finding files: {e}")
             return []
+
+    def _tokenize_text(self, text: str) -> list[str]:
+        """
+        Tokenize text for BM25 indexing.
+
+        Args:
+            text: Text to tokenize
+
+        Returns:
+            List of lowercase tokens
+        """
+        # Simple tokenization: lowercase, split on non-alphanumeric
+        tokens = re.findall(r'\w+', text.lower())
+        return tokens
+
+    def _read_file_content(self, file_path: Path) -> str | None:
+        """
+        Read text content from a file, handling various formats.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            Text content or None if reading fails
+        """
+        try:
+            suffix = file_path.suffix.lower()
+
+            # Plain text files
+            if suffix in {'.txt', '.md', '.py', '.cpp', '.c', '.h', '.java',
+                         '.js', '.ts', '.rs', '.go', '.json', '.yaml', '.yml',
+                         '.xml', '.tex', '.html', '.htm', '.css', '.csv'}:
+                with open(file_path, encoding='utf-8', errors='ignore') as f:
+                    return f.read()
+
+            # PDF files
+            elif suffix == '.pdf':
+                try:
+                    import fitz  # PyMuPDF
+                    doc = fitz.open(file_path)
+                    text = ""
+                    for page in doc:
+                        text += page.get_text()
+                    doc.close()
+                    return text
+                except Exception as e:
+                    logger.debug(f"Failed to read PDF {file_path}: {e}")
+                    return None
+
+            # Office documents - use readfile tool's logic
+            elif suffix in {'.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls',
+                           '.odt', '.ods', '.odp'}:
+                # For now, skip office docs in indexing (can be enhanced later)
+                # TODO: Implement office doc text extraction for BM25
+                logger.debug(f"Skipping office document for BM25: {file_path}")
+                return None
+
+            # Jupyter notebooks
+            elif suffix == '.ipynb':
+                try:
+                    with open(file_path, encoding='utf-8') as f:
+                        nb_data = json.load(f)
+                        text_parts = []
+                        for cell in nb_data.get('cells', []):
+                            source = cell.get('source', [])
+                            if isinstance(source, list):
+                                text_parts.append(''.join(source))
+                            else:
+                                text_parts.append(source)
+                        return '\n'.join(text_parts)
+                except Exception as e:
+                    logger.debug(f"Failed to read notebook {file_path}: {e}")
+                    return None
+
+            # Image files - skip for now
+            elif suffix in {'.png', '.jpg', '.jpeg', '.tiff', '.tif', '.gif', '.svg'}:
+                return None
+
+            else:
+                # Try reading as text
+                try:
+                    with open(file_path, encoding='utf-8', errors='ignore') as f:
+                        return f.read()
+                except:
+                    return None
+
+        except Exception as e:
+            logger.debug(f"Error reading {file_path}: {e}")
+            return None
+
+    def _get_all_files(self) -> list[tuple[Path, datetime]]:
+        """
+        Get all files from Studium directory (not just recent ones).
+
+        Returns:
+            List of (file_path, modification_time) tuples
+        """
+        if not self.studium_dir.exists():
+            logger.warning(f"Studium directory not found: {self.studium_dir}")
+            return []
+
+        logger.info(f"Scanning all files in {self.studium_dir}")
+
+        # Use same allowed extensions as find_recent_files
+        allowed_extensions = {
+            '.txt', '.md', '.pdf', '.py', '.ipynb', '.cpp', '.c', '.h',
+            '.java', '.js', '.ts', '.rs', '.go', '.png', '.jpg', '.jpeg',
+            '.tiff', '.tif', '.gif', '.svg', '.docx', '.doc', '.pptx',
+            '.ppt', '.xlsx', '.xls', '.odt', '.ods', '.odp', '.odg',
+            '.csv', '.json', '.yaml', '.yml', '.xml', '.tex', '.html',
+            '.htm', '.css'
+        }
+
+        files_with_mtime = []
+
+        try:
+            # Find virtual environment directories
+            venv_dirs = set()
+            for cfg_path in self.studium_dir.rglob("pyvenv.cfg"):
+                if cfg_path.is_file():
+                    venv_dirs.add(cfg_path.parent)
+
+            # Recursively walk directory
+            for file_path in self.studium_dir.rglob("*"):
+                if not file_path.is_file():
+                    continue
+
+                # Skip venv directories
+                if any(file_path.is_relative_to(venv_dir) for venv_dir in venv_dirs):
+                    continue
+
+                # Skip hidden files
+                if any(part.startswith(".") for part in file_path.parts):
+                    continue
+
+                # Only include allowed extensions
+                if file_path.suffix.lower() not in allowed_extensions:
+                    continue
+
+                try:
+                    stat = file_path.stat()
+                    mtime = datetime.fromtimestamp(stat.st_mtime)
+                    files_with_mtime.append((file_path, mtime))
+                except (OSError, PermissionError) as e:
+                    logger.debug(f"Failed to access {file_path}: {e}")
+                    continue
+
+            logger.info(f"Found {len(files_with_mtime)} total files")
+            return files_with_mtime
+
+        except Exception as e:
+            logger.error(f"Error scanning files: {e}")
+            return []
+
+    def _check_cache_validity(self, all_files: list[tuple[Path, datetime]]) -> bool:
+        """
+        Check if cached BM25 index is still valid.
+
+        Args:
+            all_files: List of current (file_path, mtime) tuples
+
+        Returns:
+            True if cache is valid, False otherwise
+        """
+        metadata_path = self.bm25_cache_dir / "metadata.json"
+
+        if not metadata_path.exists():
+            return False
+
+        try:
+            with open(metadata_path, encoding='utf-8') as f:
+                metadata = json.load(f)
+
+            cached_files = metadata.get('files', {})
+
+            # Check if same number of files
+            if len(cached_files) != len(all_files):
+                logger.info("Cache invalid: file count changed")
+                return False
+
+            # Check if any file modified
+            for file_path, mtime in all_files:
+                file_str = str(file_path)
+                cached_mtime = cached_files.get(file_str)
+
+                if cached_mtime is None:
+                    logger.info(f"Cache invalid: new file detected: {file_path}")
+                    return False
+
+                if mtime.timestamp() > cached_mtime:
+                    logger.info(f"Cache invalid: file modified: {file_path}")
+                    return False
+
+            logger.info("BM25 cache is valid")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Error checking cache validity: {e}")
+            return False
+
+    def _save_bm25_cache(
+        self,
+        bm25_index: BM25Plus,
+        file_paths: list[Path],
+        all_files: list[tuple[Path, datetime]]
+    ) -> None:
+        """
+        Save BM25 index and metadata to cache.
+
+        Args:
+            bm25_index: BM25Plus index object
+            file_paths: List of file paths in index (same order as corpus)
+            all_files: List of (file_path, mtime) tuples
+        """
+        try:
+            # Create cache directory
+            self.bm25_cache_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save index
+            index_path = self.bm25_cache_dir / "index.pkl"
+            with open(index_path, 'wb') as f:
+                pickle.dump({
+                    'bm25': bm25_index,
+                    'file_paths': file_paths
+                }, f)
+
+            # Save metadata
+            metadata = {
+                'last_indexed': datetime.now().isoformat(),
+                'files': {
+                    str(file_path): mtime.timestamp()
+                    for file_path, mtime in all_files
+                }
+            }
+
+            metadata_path = self.bm25_cache_dir / "metadata.json"
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2)
+
+            logger.info(f"Saved BM25 cache with {len(file_paths)} files")
+
+        except Exception as e:
+            logger.error(f"Failed to save BM25 cache: {e}")
+
+    def _load_bm25_cache(self) -> tuple[BM25Plus, list[Path]] | None:
+        """
+        Load BM25 index from cache.
+
+        Returns:
+            Tuple of (BM25Plus index, file_paths) or None if loading fails
+        """
+        index_path = self.bm25_cache_dir / "index.pkl"
+
+        if not index_path.exists():
+            return None
+
+        try:
+            with open(index_path, 'rb') as f:
+                data = pickle.load(f)
+
+            bm25_index = data['bm25']
+            file_paths = data['file_paths']
+
+            logger.info(f"Loaded BM25 cache with {len(file_paths)} files")
+            return bm25_index, file_paths
+
+        except Exception as e:
+            logger.error(f"Failed to load BM25 cache: {e}")
+            return None
+
+    def build_or_load_bm25_index(self) -> tuple[BM25Plus, list[Path]] | None:
+        """
+        Build or load BM25 index for Studium directory.
+
+        Returns:
+            Tuple of (BM25Plus index, file_paths) or None if building fails
+        """
+        logger.info("Building or loading BM25 index...")
+
+        # Get all files
+        all_files = self._get_all_files()
+
+        if not all_files:
+            logger.warning("No files found for BM25 indexing")
+            return None
+
+        # Check cache validity
+        if self._check_cache_validity(all_files):
+            cached_data = self._load_bm25_cache()
+            if cached_data:
+                return cached_data
+
+        # Build new index
+        logger.info(f"Building BM25 index for {len(all_files)} files...")
+
+        corpus = []
+        file_paths = []
+
+        for file_path, _ in all_files:
+            content = self._read_file_content(file_path)
+
+            if content and len(content.strip()) > 0:
+                tokens = self._tokenize_text(content)
+                if tokens:  # Only add if we got tokens
+                    corpus.append(tokens)
+                    file_paths.append(file_path)
+
+        if not corpus:
+            logger.warning("No readable content found for BM25 indexing")
+            return None
+
+        logger.info(f"Building BM25 index from {len(corpus)} documents...")
+        bm25_index = BM25Plus(corpus)
+
+        # Save to cache
+        self._save_bm25_cache(bm25_index, file_paths, all_files)
+
+        logger.info("BM25 index built successfully")
+        return bm25_index, file_paths
+
+    def search_files_with_bm25(
+        self,
+        query: str,
+        top_n: int = 20,
+        return_top_recent: int = 5
+    ) -> list[tuple[Path, str]] | None:
+        """
+        Search files using BM25 and return top recent matches.
+
+        Args:
+            query: Search query (custom bias text)
+            top_n: Number of top BM25 results to get (default: 20)
+            return_top_recent: Number of most recent files to return (default: 5)
+
+        Returns:
+            List of (file_path, file_content) tuples for top recent matches,
+            or None if search fails
+        """
+        logger.info(f"Searching files with BM25 for query: '{query}'")
+
+        # Build or load index
+        index_data = self.build_or_load_bm25_index()
+        if not index_data:
+            logger.error("Failed to build/load BM25 index")
+            return None
+
+        bm25_index, file_paths = index_data
+
+        # Tokenize query
+        query_tokens = self._tokenize_text(query)
+        if not query_tokens:
+            logger.warning("Query produced no tokens")
+            return None
+
+        # Get BM25 scores
+        scores = bm25_index.get_scores(query_tokens)
+
+        # Get top N indices
+        top_indices = sorted(
+            range(len(scores)),
+            key=lambda i: scores[i],
+            reverse=True
+        )[:top_n]
+
+        logger.info(f"Got {len(top_indices)} BM25 results")
+
+        # Get file paths with scores and modification times
+        results_with_mtime = []
+        for idx in top_indices:
+            file_path = file_paths[idx]
+            score = scores[idx]
+
+            try:
+                mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+                results_with_mtime.append((file_path, score, mtime))
+            except (OSError, PermissionError) as e:
+                logger.debug(f"Failed to get mtime for {file_path}: {e}")
+                continue
+
+        # Sort by modification time (most recent first)
+        results_with_mtime.sort(key=lambda x: x[2], reverse=True)
+
+        # Get top N most recent
+        top_recent = results_with_mtime[:return_top_recent]
+
+        logger.info(f"Selected {len(top_recent)} most recent files from BM25 results")
+
+        # Read file contents
+        results = []
+        for file_path, score, mtime in top_recent:
+            content = self._read_file_content(file_path)
+            if content:
+                results.append((file_path, content))
+                logger.debug(f"  - {file_path} (score: {score:.2f}, modified: {mtime.strftime('%Y-%m-%d')})")
+
+        return results if results else None
+
+    def extract_relevant_content(
+        self,
+        content: str,
+        query: str,
+        max_chars: int = 5000,
+        num_excerpts: int = 3
+    ) -> str:
+        """
+        Extract relevant excerpts from large file content using BM25.
+
+        Args:
+            content: Full file content
+            query: Search query to find relevant sections
+            max_chars: Maximum characters before extracting excerpts (default: 5000)
+            num_excerpts: Number of excerpts to extract (default: 3)
+
+        Returns:
+            Full content if small, or extracted excerpts if large
+        """
+        # If content is small enough, return as-is
+        if len(content) <= max_chars:
+            return content
+
+        logger.debug(f"Extracting excerpts from large content ({len(content)} chars)")
+
+        # Split content into paragraphs
+        # Try multiple separators: double newline, single newline, periods
+        paragraphs = []
+
+        # First try double newlines (typical paragraph separator)
+        if '\n\n' in content:
+            paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+        # Fall back to single newlines
+        elif '\n' in content:
+            # Group consecutive lines into chunks of ~500 chars
+            lines = content.split('\n')
+            current_chunk = []
+            current_length = 0
+
+            for line in lines:
+                current_chunk.append(line)
+                current_length += len(line)
+
+                if current_length >= 500:
+                    chunk_text = '\n'.join(current_chunk).strip()
+                    if chunk_text:
+                        paragraphs.append(chunk_text)
+                    current_chunk = []
+                    current_length = 0
+
+            # Add remaining chunk
+            if current_chunk:
+                chunk_text = '\n'.join(current_chunk).strip()
+                if chunk_text:
+                    paragraphs.append(chunk_text)
+        else:
+            # No newlines, split by sentences (periods followed by space)
+            paragraphs = [s.strip() for s in re.split(r'\.\s+', content) if s.strip()]
+
+        if not paragraphs or len(paragraphs) == 1:
+            # Can't split meaningfully, just truncate
+            logger.debug("Could not split into paragraphs, truncating")
+            return content[:max_chars] + "\n\n[... content truncated ...]"
+
+        logger.debug(f"Split into {len(paragraphs)} paragraphs/chunks")
+
+        # Tokenize paragraphs for BM25
+        tokenized_paragraphs = [self._tokenize_text(p) for p in paragraphs]
+
+        # Build BM25 index for paragraphs
+        try:
+            paragraph_bm25 = BM25Plus(tokenized_paragraphs)
+
+            # Tokenize query
+            query_tokens = self._tokenize_text(query)
+
+            # Get scores
+            scores = paragraph_bm25.get_scores(query_tokens)
+
+            # Get top N paragraph indices
+            top_indices = sorted(
+                range(len(scores)),
+                key=lambda i: scores[i],
+                reverse=True
+            )[:num_excerpts]
+
+            # Sort indices to maintain document order
+            top_indices.sort()
+
+            # Extract excerpts
+            excerpts = [paragraphs[i] for i in top_indices]
+
+            # Join with clear separators
+            result = '\n\n[...]\n\n'.join(excerpts)
+
+            logger.debug(f"Extracted {len(excerpts)} relevant excerpts ({len(result)} chars)")
+            return result
+
+        except Exception as e:
+            logger.warning(f"Failed to extract excerpts with BM25: {e}")
+            # Fall back to truncation
+            return content[:max_chars] + "\n\n[... content truncated ...]"
 
     def load_clicked_prompts(self) -> list[str]:
         """
@@ -276,7 +816,11 @@ class PromptRegenerator:
             return []
 
     def build_llm_prompt(
-        self, files: list[tuple[Path, datetime]], timetable: list[dict] = None
+        self,
+        files: list[tuple[Path, datetime]],
+        timetable: list[dict] | None = None,
+        custom_bias_text: str | None = None,
+        bm25_results: list[tuple[Path, str]] | None = None,
     ) -> str:
         """
         Build the LLM prompt for generating contextual suggestions.
@@ -284,6 +828,8 @@ class PromptRegenerator:
         Args:
             files: List of (file_path, modification_time) tuples
             timetable: Optional list of today's classes from timetable
+            custom_bias_text: Optional topic/subject to bias generation toward
+            bm25_results: Optional list of (file_path, content) tuples from BM25 search
 
         Returns:
             Formatted prompt string
@@ -344,11 +890,71 @@ Use these as inspiration for the style and type of prompts the user finds useful
 - Mix timetable-based prompts (6-8 prompts) with general file-based prompts (2-4 prompts)
 """
 
+        # Build custom bias section if provided
+        custom_bias_section = ""
+        if custom_bias_text:
+            custom_bias_section = f"""
+## 🎯 CUSTOM FOCUS AREA (HIGHEST PRIORITY)
+The user has specifically requested prompts focused on: **"{custom_bias_text}"**
+
+**CRITICAL INSTRUCTIONS:**
+- Generate prompts that are DIRECTLY relevant to "{custom_bias_text}"
+- Prioritize files and concepts that relate to this topic
+- Frame ALL prompts around how this topic connects to the study materials
+- If the topic is related to any of today's classes, emphasize that connection
+- Still ensure prompts end with file/directory paths, but make the content highly relevant to "{custom_bias_text}"
+- You MUST bias heavily toward this focus area - this is the user's explicit request
+"""
+
+        # Build BM25 file contents section if provided
+        bm25_contents_section = ""
+        if bm25_results:
+            file_contents = []
+            for file_path, content in bm25_results:
+                # Extract excerpts from large files
+                processed_content = self.extract_relevant_content(
+                    content,
+                    custom_bias_text or "",
+                    max_chars=5000
+                )
+
+                # Get modification time
+                try:
+                    mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+                    mtime_str = mtime.strftime("%Y-%m-%d")
+                except:
+                    mtime_str = "unknown"
+
+                file_contents.append(f"""
+### File: {file_path}
+**Modified:** {mtime_str}
+**Content:**
+```
+{processed_content}
+```
+""")
+
+            bm25_contents_section = f"""
+## 📄 RELEVANT FILE CONTENTS (BM25 Search Results)
+The following files were identified as most relevant to the focus area "{custom_bias_text}".
+Use these actual file contents to generate highly specific and contextual prompts.
+
+{chr(10).join(file_contents)}
+
+**Instructions for using these files:**
+- Reference specific concepts, formulas, methods, or topics from the file contents
+- Generate prompts that help the user engage with this specific material
+- Mention file names when creating prompts about specific content
+- These files are your PRIMARY source - use them extensively
+"""
+
         n_prompts = 10
         prompt = f"""I need you to generate {n_prompts} contextual prompt suggestions based on my current study context.
 
 ## Current Date & Time
 Today is {weekday}, {date_str} at {current_time}
+{custom_bias_section}
+{bm25_contents_section}
 {timetable_section}
 ## Context: Recently modified files
 Here are randomly selected files from the last {self.time_frame_days} days:
@@ -360,7 +966,8 @@ Here are randomly selected files from the last {self.time_frame_days} days:
    - Analyze the provided files to identify key topics and subjects
    - Explore the directory structure and read additional files within {self.studium_dir} to build richer context
    - Use your judgment on how much exploration is useful vs. excessive
-   {"- Prioritize today's classes when generating prompts" if timetable else ""}
+   {"- Prioritize today's classes when generating prompts" if timetable and not custom_bias_text else ""}
+   {"- MOST IMPORTANTLY: Focus all prompts on the custom topic above" if custom_bias_text else ""}
 
 2. **Generate {n_prompts} prompts**
    - Each prompt should be exactly one sentence
@@ -370,7 +977,7 @@ Here are randomly selected files from the last {self.time_frame_days} days:
    - Format: "Your prompt sentence here /path/to/file.txt" (the path will be hidden from user display)
    - Example with file: "Explain the simulation methods covered in this lecture /home/user/Documents/lecture_notes.pdf"
    - Example with directory: "Review key concepts from today's Informatik lecture {self.studium_dir}"
-   {"- Mix timetable-aware prompts with general study prompts as instructed above" if timetable else ""}
+   {"- Mix timetable-aware prompts with general study prompts as instructed above" if timetable and not custom_bias_text else ""}
 
 3. **Output Format**
     Think about the context first then respond with a JSON object in this exact format:
@@ -389,7 +996,7 @@ Here are randomly selected files from the last {self.time_frame_days} days:
 - Be intelligent about inferring my real-world context and upcoming needs
 - Think across subject boundaries - connect concepts from different domains
 - Aim for prompts that are engaging and intellectually stimulating
-{"- Use time-awareness: mention specific times for imminent classes, topics for later classes" if timetable else ""}
+{"- Use time-awareness: mention specific times for imminent classes, topics for later classes" if timetable and not custom_bias_text else ""}
 - DO NOT include any text outside the JSON object"""
 
         return prompt
@@ -427,7 +1034,10 @@ Here are randomly selected files from the last {self.time_frame_days} days:
         return fixed_prompts
 
     async def generate_prompts_with_llm(
-        self, files: list[tuple[Path, datetime]], timetable: list[dict] = None
+        self,
+        files: list[tuple[Path, datetime]],
+        timetable: list[dict] | None = None,
+        custom_bias_text: str | None = None,
     ) -> list[str] | None:
         """
         Use LLM to generate contextual prompts based on file analysis.
@@ -435,6 +1045,7 @@ Here are randomly selected files from the last {self.time_frame_days} days:
         Args:
             files: List of (file_path, modification_time) tuples
             timetable: Optional list of today's classes from timetable
+            custom_bias_text: Optional topic/subject to bias generation toward
 
         Returns:
             List of generated prompts, or None if generation fails
@@ -444,8 +1055,22 @@ Here are randomly selected files from the last {self.time_frame_days} days:
 
             logger.info("Generating prompts using LLM...")
 
+            # Perform BM25 search if custom bias text is provided
+            bm25_results = None
+            if custom_bias_text:
+                logger.info(f"Performing BM25 search for custom bias: '{custom_bias_text}'")
+                bm25_results = self.search_files_with_bm25(
+                    query=custom_bias_text,
+                    top_n=20,
+                    return_top_recent=5
+                )
+                if bm25_results:
+                    logger.info(f"BM25 search returned {len(bm25_results)} relevant files")
+                else:
+                    logger.warning("BM25 search returned no results, continuing without file contents")
+
             llm_router = LlmRouter()
-            prompt = self.build_llm_prompt(files, timetable)
+            prompt = self.build_llm_prompt(files, timetable, custom_bias_text, bm25_results)
 
             # Print header for streamed output
             from termcolor import colored
@@ -548,9 +1173,12 @@ Here are randomly selected files from the last {self.time_frame_days} days:
             logger.error(f"Failed to write prompts file: {e}")
             return False
 
-    async def regenerate(self) -> dict[str, any]:
+    async def regenerate(self, custom_bias_text: str | None = None) -> dict:
         """
         Main entry point: regenerate prompts based on recent study activity.
+
+        Args:
+            custom_bias_text: Optional topic/subject to bias prompt generation toward
 
         Returns:
             Dict with status and prompts:
@@ -563,6 +1191,8 @@ Here are randomly selected files from the last {self.time_frame_days} days:
             }
         """
         logger.info("Starting prompt regeneration...")
+        if custom_bias_text:
+            logger.info(f"Custom bias text provided: '{custom_bias_text}'")
         start_time = datetime.now()
 
         # 1. Parse today's timetable
@@ -594,8 +1224,10 @@ Here are randomly selected files from the last {self.time_frame_days} days:
         else:
             selected_files = files
 
-        # 4. Generate prompts with LLM (including timetable context)
-        prompts = await self.generate_prompts_with_llm(selected_files, timetable)
+        # 4. Generate prompts with LLM (including timetable context and custom bias)
+        prompts = await self.generate_prompts_with_llm(
+            selected_files, timetable, custom_bias_text
+        )
         if not prompts:
             logger.warning("LLM generation failed, using default prompts")
             self.write_prompts_file(self.default_prompts)

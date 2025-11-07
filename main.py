@@ -3233,11 +3233,64 @@ async def main(  # type: ignore[misc]
                         base64_images = []
 
                     except ModelGenerationFailedException as e:
-                        print(colored(f"Model generation failed: {e}", "red"))
+                        error_msg = f"❌ Model generation failed: {e}"
+                        print(colored(error_msg, "red"))
+
+                        # Create error response for frontend
+                        error_response = f"<response>{error_msg}\n\nAll configured models failed to generate a response. Please check your API keys and model availability.</response>"
+                        context_chat.add_message(Role.ASSISTANT, error_response)
+
+                        # Broadcast error to frontend (GUI mode)
+                        if args.gui or args.api:
+                            try:
+                                import time
+
+                                from api.server import (
+                                    broadcast_generation_complete,
+                                    broadcast_message_added,
+                                )
+                                await broadcast_message_added(context_chat.messages[-1])
+                                # Send generation_complete to hide stop button
+                                await broadcast_generation_complete(
+                                    generation_id="error_" + str(time.time()),
+                                    model_key="none",
+                                    tokens_generated=0,
+                                    elapsed_ms=0,
+                                    tokens_per_second=0.0
+                                )
+                            except Exception as broadcast_err:
+                                logging.debug(f"Failed to broadcast error: {broadcast_err}")
                         break
                     except Exception as e:
-                        print(colored(f"An Exception was raised, e: {e}", "red"))
+                        error_msg = f"❌ An unexpected error occurred: {e}"
+                        print(colored(error_msg, "red"))
                         traceback.print_exc()
+
+                        # Create detailed error response with stack trace for frontend
+                        stack_trace = traceback.format_exc()
+                        error_response = f"<response>{error_msg}\n\n```\n{stack_trace}\n```</response>"
+                        context_chat.add_message(Role.ASSISTANT, error_response)
+
+                        # Broadcast error to frontend (GUI mode)
+                        if args.gui or args.api:
+                            try:
+                                import time
+
+                                from api.server import (
+                                    broadcast_generation_complete,
+                                    broadcast_message_added,
+                                )
+                                await broadcast_message_added(context_chat.messages[-1])
+                                # Send generation_complete to hide stop button
+                                await broadcast_generation_complete(
+                                    generation_id="error_" + str(time.time()),
+                                    model_key="none",
+                                    tokens_generated=0,
+                                    elapsed_ms=0,
+                                    tokens_per_second=0.0
+                                )
+                            except Exception as broadcast_err:
+                                logging.debug(f"Failed to broadcast error: {broadcast_err}")
                         break
 
                     # Don't check "if not assistant_response" here - it gets cleared after tool execution

@@ -347,50 +347,87 @@ class WebSocketManager {
         contentHTML += `
             <div class="permission-actions">
                 <button class="permission-btn allow" onclick="window.sendPermissionResponse('${data.id}', 'allow')">
-                    ✅ Allow Once
+                    ✅ Allow
                 </button>
                 <button class="permission-btn deny" onclick="window.sendPermissionResponse('${data.id}', 'deny')">
-                    ❌ Deny Once
+                    ❌ Deny
                 </button>
-                <button class="permission-btn always-allow" onclick="window.showPermissionRuleSelector('${data.id}')">
-                    ✅ Allow and Remember...
-                </button>
-                <button class="permission-btn always-deny" onclick="window.sendPermissionResponse('${data.id}', 'always_deny')">
-                    ❌ Always Deny
+                <button class="permission-btn configure-autonomy" onclick="window.showAutonomyConfiguration('${data.id}')">
+                    ⚙️ Configure Autonomy
                 </button>
             </div>
         `;
 
-        // Add rule selector (hidden by default)
+        // Add autonomy configuration panel (hidden by default)
+        contentHTML += `
+            <div id="autonomy-config-${data.id}" class="autonomy-config-panel" style="display: none;">
+                <div class="autonomy-config-header">
+                    <h4>⚙️ Configure Autonomy for ${permissionData.tool_name}</h4>
+                    <p class="autonomy-config-description">${permissionData.action_description || `Configure permission for ${permissionData.tool_name}`}</p>
+                </div>
+
+                <div class="autonomy-config-body">
+                    <!-- General Permission Section -->
+                    <div class="autonomy-general-section">
+                        <h5>General Permission</h5>
+                        <p class="autonomy-hint">Apply to all uses of ${permissionData.tool_name}</p>
+                        <div class="tool-permission-controls">
+                            <label class="permission-radio">
+                                <input type="radio" name="autonomy-${data.id}" value="allow">
+                                <span class="permission-label allow">Allow</span>
+                            </label>
+                            <label class="permission-radio">
+                                <input type="radio" name="autonomy-${data.id}" value="ask" checked>
+                                <span class="permission-label ask">Ask</span>
+                            </label>
+                            <label class="permission-radio">
+                                <input type="radio" name="autonomy-${data.id}" value="deny">
+                                <span class="permission-label deny">Deny</span>
+                            </label>
+                        </div>
+                    </div>`;
+
+        // Add specific scope options if available
         if (permissionData.rule_options && permissionData.rule_options.length > 0) {
             contentHTML += `
-                <div id="rule-selector-${data.id}" class="permission-rule-selector" style="display: none;">
-                    <div class="rule-selector-header">
-                        <h4>Choose permission scope:</h4>
-                        <p class="rule-selector-hint">Select how specific you want this permission to be</p>
-                    </div>
-                    <div class="rule-selector-options">
+                    <!-- Advanced Scope Section -->
+                    <div class="autonomy-advanced-section">
+                        <details class="autonomy-advanced-details">
+                            <summary>Or choose specific scope</summary>
+                            <p class="autonomy-hint">Select a specific pattern for fine-grained control</p>
+                            <div class="autonomy-scope-options">
             `;
 
-            permissionData.rule_options.forEach((option, index) => {
+            permissionData.rule_options.forEach((option) => {
                 const escapedRule = option.rule.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
                 const escapedDescription = option.description.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
                 contentHTML += `
-                    <div class="rule-option" data-rule="${escapedRule}" data-permission-id="${data.id}">
-                        <div class="rule-option-description">${escapedDescription}</div>
-                        <div class="rule-option-rule"><code>${option.rule}</code></div>
-                    </div>
+                                <div class="autonomy-scope-option" data-rule="${escapedRule}" data-permission-id="${data.id}">
+                                    <div class="scope-option-description">${escapedDescription}</div>
+                                    <div class="scope-option-rule"><code>${option.rule}</code></div>
+                                </div>
                 `;
             });
 
             contentHTML += `
-                    </div>
-                    <button class="permission-btn cancel-rule-selector" onclick="window.hidePermissionRuleSelector('${data.id}')">
+                            </div>
+                        </details>
+                    </div>`;
+        }
+
+        contentHTML += `
+                </div>
+
+                <div class="autonomy-config-actions">
+                    <button class="permission-btn save-autonomy" onclick="window.saveAutonomyConfiguration('${data.id}')">
+                        💾 Save
+                    </button>
+                    <button class="permission-btn cancel-autonomy" onclick="window.hideAutonomyConfiguration('${data.id}')">
                         ↩️ Cancel
                     </button>
                 </div>
-            `;
-        }
+            </div>
+        `;
 
         contentDiv.innerHTML = contentHTML;
 
@@ -400,15 +437,13 @@ class WebSocketManager {
         this.contentWrapper.appendChild(messageBlock);
         this.scrollToBottom();
 
-        // Add event listeners for rule options
-        const ruleOptions = messageBlock.querySelectorAll('.rule-option');
-        ruleOptions.forEach(option => {
+        // Add event listeners for autonomy scope options
+        const scopeOptions = messageBlock.querySelectorAll('.autonomy-scope-option');
+        scopeOptions.forEach(option => {
             option.addEventListener('click', () => {
-                const rule = option.getAttribute('data-rule');
-                const permissionId = option.getAttribute('data-permission-id');
-                if (rule && permissionId) {
-                    window.sendPermissionResponseWithRule(permissionId, rule);
-                }
+                // Select this option visually
+                scopeOptions.forEach(opt => opt.classList.remove('selected'));
+                option.classList.add('selected');
             });
         });
 

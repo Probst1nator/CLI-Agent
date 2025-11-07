@@ -200,9 +200,26 @@ async def _try_gui_permission_prompt(
                         print(colored(f"✅ Permission granted and saved: {rule}", "green"))
                         return True
 
+                    elif result == 'always_ask':
+                        # Add to ask list permanently (tool-level "ask" permission)
+                        if rule_selected:
+                            rule = rule_selected
+                        else:
+                            # For general "ask" permission, just use the tool name
+                            rule = tool_name
+
+                        settings_manager.add_permission("ask", rule)
+                        settings_manager.save_settings()
+                        print(colored(f"ℹ️  Permission set to 'ask' and saved: {rule}", "yellow"))
+                        return True  # Allow this instance, but will ask again next time
+
                     elif result == 'always_deny':
                         # Add to deny list permanently
-                        rule = _create_permission_rule(tool_name, file_path, command)
+                        if rule_selected:
+                            rule = rule_selected
+                        else:
+                            rule = _create_permission_rule(tool_name, file_path, command)
+
                         settings_manager.add_permission("deny", rule)
                         settings_manager.save_settings()
                         print(colored(f"❌ Permission denied and saved: {rule}", "red"))

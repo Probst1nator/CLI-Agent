@@ -347,6 +347,20 @@
         </div>
     </div>
 
+    <!-- Prompt Regeneration Modal -->
+    <div id="prompt-regen-modal" class="prompt-regen-modal hidden">
+        <div class="prompt-regen-overlay"></div>
+        <div class="prompt-regen-content">
+            <h3>Customize Prompt Generation</h3>
+            <p>Enter a topic/subject to bias suggestions (or leave empty for general prompts)</p>
+            <input type="text" id="prompt-regen-input" placeholder="e.g., 'machine learning', 'quantum physics'..." />
+            <div class="prompt-regen-buttons">
+                <button id="prompt-regen-cancel" class="secondary">Cancel</button>
+                <button id="prompt-regen-submit" class="primary">Generate</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Application Modules -->
     <script src="/js/logger.js"></script>
     <script src="/js/js-utils.js"></script>

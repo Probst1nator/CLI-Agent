@@ -399,8 +399,8 @@ def test_readfile_tar_gz_archives():
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create TAR.GZ file
         tar_file = os.path.join(temp_dir, "test.tar.gz")
-        import tarfile
         import io
+        import tarfile
 
         with tarfile.open(tar_file, 'w:gz') as tf:
             file1 = io.BytesIO(b'Tar content 1')

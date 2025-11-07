@@ -2277,18 +2277,48 @@ class VisualResponseApp {
 
     /**
      * Setup regenerate prompts button event handler
-     * Allows users to regenerate suggested prompts from recent study files
+     * Shows modal to optionally bias prompt generation toward specific topics
      * @private
      */
     setupRegeneratePrompts() {
         const regenerateBtn = document.getElementById('regenerate-prompts-btn');
-        if (!regenerateBtn) {
-            console.warn('Regenerate prompts button not found');
+        const modal = document.getElementById('prompt-regen-modal');
+        const input = document.getElementById('prompt-regen-input');
+        const cancelBtn = document.getElementById('prompt-regen-cancel');
+        const submitBtn = document.getElementById('prompt-regen-submit');
+        const overlay = modal?.querySelector('.prompt-regen-overlay');
+
+        if (!regenerateBtn || !modal || !input || !cancelBtn || !submitBtn) {
+            console.warn('Regenerate prompts elements not found');
             return;
         }
 
-        regenerateBtn.addEventListener('click', async () => {
-            window.logDebug('🔄 Regenerate prompts button clicked');
+        const SESSION_STORAGE_KEY = 'promptRegenCustomText';
+
+        // Show modal
+        const showModal = () => {
+            // Load previous text from sessionStorage
+            const savedText = sessionStorage.getItem(SESSION_STORAGE_KEY) || '';
+            input.value = savedText;
+
+            // Show modal with smooth animation
+            modal.classList.remove('hidden');
+
+            // Focus input after animation
+            setTimeout(() => input.focus(), 100);
+
+            window.logDebug('📝 Prompt regeneration modal opened');
+        };
+
+        // Hide modal
+        const hideModal = () => {
+            modal.classList.add('hidden');
+            window.logDebug('📝 Prompt regeneration modal closed');
+        };
+
+        // Call API with custom text
+        const regeneratePrompts = async (customText) => {
+            window.logDebug(`🔄 Regenerating prompts with custom text: "${customText}"`);
 
             try {
                 // Show loading state
@@ -2301,6 +2331,12 @@ class VisualResponseApp {
 
                 window.logDebug(`Calling regenerate API: ${url}`);
 
+                // Build request body
+                const requestBody = {};
+                if (customText) {
+                    requestBody.custom_text = customText;
+                }
+
                 // Call API endpoint with timeout (60 seconds for LLM generation)
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -2312,6 +2348,7 @@ class VisualResponseApp {
                             'Content-Type': 'application/json',
                             'X-Session-ID': window.sessionId || ''
                         },
+                        body: JSON.stringify(requestBody),
                         signal: controller.signal
                     });
 
@@ -2330,8 +2367,12 @@ class VisualResponseApp {
 
                     if (result.status === 'success') {
                         window.logInfo('✅ Prompts regenerated successfully');
+                        const message = customText
+                            ? `Generated ${result.prompts.length} prompts focused on "${customText}"`
+                            : `Generated ${result.prompts.length} new prompts from ${result.files_analyzed} files`;
+
                         if (this.chatState && this.chatState.showSuccess) {
-                            this.chatState.showSuccess(`Generated ${result.prompts.length} new prompts from ${result.files_analyzed} files`);
+                            this.chatState.showSuccess(message);
                         }
 
                         // Show brief success animation
@@ -2364,9 +2405,53 @@ class VisualResponseApp {
                 }
                 this.setRegeneratePromptsError(regenerateBtn);
             }
+        };
+
+        // Handle submit
+        const handleSubmit = async () => {
+            const customText = input.value.trim();
+
+            // Save to sessionStorage (even if empty, to remember user cleared it)
+            sessionStorage.setItem(SESSION_STORAGE_KEY, customText);
+
+            // Hide modal
+            hideModal();
+
+            // Call API
+            await regeneratePrompts(customText);
+        };
+
+        // Event: Regenerate button click - show modal
+        regenerateBtn.addEventListener('click', () => {
+            window.logDebug('🔄 Regenerate prompts button clicked');
+            showModal();
         });
 
-        window.logDebug('Regenerate prompts button initialized');
+        // Event: Submit button click
+        submitBtn.addEventListener('click', handleSubmit);
+
+        // Event: Cancel button click
+        cancelBtn.addEventListener('click', hideModal);
+
+        // Event: Overlay click to close
+        overlay.addEventListener('click', hideModal);
+
+        // Event: Enter key in input
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSubmit();
+            }
+        });
+
+        // Event: ESC key to close modal
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                hideModal();
+            }
+        });
+
+        window.logDebug('Regenerate prompts button and modal initialized');
     }
 
     /**
@@ -4775,17 +4860,17 @@ window.sendPermissionResponse = function(permissionId, result, action = {}) {
 };
 
 /**
- * Show the permission rule selector for choosing specificity
+ * Show the autonomy configuration panel for a permission request
  * @param {string} permissionId - The ID of the permission request
  */
-window.showPermissionRuleSelector = function(permissionId) {
-    console.log('showPermissionRuleSelector called', { permissionId });
+window.showAutonomyConfiguration = function(permissionId) {
+    console.log('showAutonomyConfiguration called', { permissionId });
 
-    const selector = document.getElementById(`rule-selector-${permissionId}`);
+    const panel = document.getElementById(`autonomy-config-${permissionId}`);
     const actions = document.querySelector(`#permission-${permissionId} .permission-actions`);
 
-    if (selector) {
-        selector.style.display = 'block';
+    if (panel) {
+        panel.style.display = 'block';
         if (actions) {
             actions.style.display = 'none';
         }
@@ -4793,20 +4878,90 @@ window.showPermissionRuleSelector = function(permissionId) {
 };
 
 /**
- * Hide the permission rule selector and return to main actions
+ * Hide the autonomy configuration panel and return to main actions
  * @param {string} permissionId - The ID of the permission request
  */
-window.hidePermissionRuleSelector = function(permissionId) {
-    console.log('hidePermissionRuleSelector called', { permissionId });
+window.hideAutonomyConfiguration = function(permissionId) {
+    console.log('hideAutonomyConfiguration called', { permissionId });
 
-    const selector = document.getElementById(`rule-selector-${permissionId}`);
+    const panel = document.getElementById(`autonomy-config-${permissionId}`);
     const actions = document.querySelector(`#permission-${permissionId} .permission-actions`);
 
-    if (selector) {
-        selector.style.display = 'none';
+    if (panel) {
+        panel.style.display = 'none';
         if (actions) {
             actions.style.display = 'flex';
         }
+    }
+};
+
+/**
+ * Save autonomy configuration (either general permission or specific scope)
+ * @param {string} permissionId - The ID of the permission request
+ */
+window.saveAutonomyConfiguration = function(permissionId) {
+    console.log('saveAutonomyConfiguration called', { permissionId });
+
+    const panel = document.getElementById(`autonomy-config-${permissionId}`);
+    if (!panel) {
+        console.error('Autonomy configuration panel not found');
+        return false;
+    }
+
+    // Check if a specific scope option is selected
+    const selectedScope = panel.querySelector('.autonomy-scope-option.selected');
+
+    if (selectedScope) {
+        // User selected a specific scope rule
+        const rule = selectedScope.getAttribute('data-rule');
+        if (rule) {
+            return window.sendPermissionResponseWithRule(permissionId, rule);
+        }
+    }
+
+    // Otherwise, use the general permission radio selection
+    const selectedRadio = panel.querySelector(`input[name="autonomy-${permissionId}"]:checked`);
+
+    if (!selectedRadio) {
+        console.error('No permission option selected');
+        alert('Please select a permission level (Allow/Ask/Deny) or choose a specific scope.');
+        return false;
+    }
+
+    const permission = selectedRadio.value; // 'allow', 'ask', or 'deny'
+
+    // Get tool name from panel for creating the rule
+    const headerText = panel.querySelector('.autonomy-config-header h4')?.textContent || '';
+    const toolMatch = headerText.match(/Configure Autonomy for (.+)/);
+    const toolName = toolMatch ? toolMatch[1].trim() : '';
+
+    if (!toolName) {
+        console.error('Could not determine tool name');
+        return false;
+    }
+
+    // Send permission response with general tool-level permission
+    if (window.wsManager && window.wsManager.sendMessage) {
+        const response = {
+            type: 'permission_response',
+            permission_id: permissionId,
+            result: `always_${permission}`,  // 'always_allow', 'always_ask', or 'always_deny'
+            rule: toolName,  // Just the tool name for general permission
+            timestamp: Date.now()
+        };
+
+        window.wsManager.sendMessage(JSON.stringify(response));
+
+        // Remove the permission request from UI
+        const permissionElement = document.getElementById('permission-' + permissionId);
+        if (permissionElement) {
+            permissionElement.remove();
+        }
+
+        return true;
+    } else {
+        console.error('WebSocket manager not available for permission response');
+        return false;
     }
 };
 

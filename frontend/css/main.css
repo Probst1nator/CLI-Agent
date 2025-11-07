@@ -364,6 +364,136 @@ body {
     }
 }
 
+/* Prompt Regeneration Modal */
+.prompt-regen-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.3s ease;
+}
+
+.prompt-regen-modal.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.prompt-regen-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    transition: opacity 0.3s ease;
+}
+
+.prompt-regen-modal.hidden .prompt-regen-overlay {
+    opacity: 0;
+}
+
+.prompt-regen-content {
+    position: relative;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    transform: translateY(0);
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.prompt-regen-modal.hidden .prompt-regen-content {
+    transform: translateY(-20px);
+    opacity: 0;
+}
+
+.prompt-regen-content h3 {
+    margin: 0 0 12px 0;
+    color: var(--text-color);
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.prompt-regen-content p {
+    margin: 0 0 20px 0;
+    color: var(--text-color);
+    opacity: 0.8;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.prompt-regen-content input[type="text"] {
+    width: 100%;
+    padding: 12px;
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-color);
+    font-size: 14px;
+    font-family: inherit;
+    box-sizing: border-box;
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+}
+
+.prompt-regen-content input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.prompt-regen-content input[type="text"]::placeholder {
+    color: var(--text-color);
+    opacity: 0.5;
+}
+
+.prompt-regen-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.prompt-regen-buttons button {
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+
+.prompt-regen-buttons button.secondary {
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+.prompt-regen-buttons button.secondary:hover {
+    background-color: var(--button-hover-bg);
+}
+
+.prompt-regen-buttons button.primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.prompt-regen-buttons button.primary:hover {
+    background-color: #0066aa;
+}
+
+.prompt-regen-buttons button:active {
+    transform: scale(0.98);
+}
+
 .header {
     grid-area: header;
     display: flex;
@@ -2654,6 +2784,170 @@ code:not(pre > code) {
 
 .cancel-rule-selector:hover {
     background: #5a6268 !important;
+}
+
+/* Autonomy Configuration Panel */
+.autonomy-config-panel {
+    margin-top: 15px;
+    padding: 20px;
+    background: var(--surface-color, #f8f9fa);
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 8px;
+    animation: slideDown 0.3s ease-out;
+}
+
+.autonomy-config-header {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--primary-color, #007acc);
+}
+
+.autonomy-config-header h4 {
+    margin: 0 0 8px 0;
+    color: var(--text-color);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.autonomy-config-description {
+    margin: 0;
+    color: var(--text-muted, #666);
+    font-size: 0.9rem;
+}
+
+.autonomy-config-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.autonomy-general-section h5 {
+    margin: 0 0 8px 0;
+    color: var(--text-color);
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.autonomy-hint {
+    margin: 0 0 12px 0;
+    color: var(--text-muted, #666);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+.autonomy-advanced-section {
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #dee2e6);
+}
+
+.autonomy-advanced-details {
+    cursor: pointer;
+}
+
+.autonomy-advanced-details summary {
+    font-weight: 600;
+    color: var(--primary-color, #007acc);
+    font-size: 0.9rem;
+    padding: 8px 0;
+    user-select: none;
+}
+
+.autonomy-advanced-details summary:hover {
+    text-decoration: underline;
+}
+
+.autonomy-advanced-details[open] summary {
+    margin-bottom: 12px;
+}
+
+.autonomy-scope-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.autonomy-scope-option {
+    padding: 12px;
+    background: var(--bg-color, white);
+    border: 2px solid var(--border-color, #dee2e6);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.autonomy-scope-option:hover {
+    background: var(--bg-hover, #e9ecef);
+    border-color: var(--primary-color, #007acc);
+    transform: translateX(4px);
+}
+
+.autonomy-scope-option.selected {
+    background: rgba(0, 122, 204, 0.1);
+    border-color: var(--primary-color, #007acc);
+    border-width: 2px;
+}
+
+.scope-option-description {
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 4px;
+    font-size: 0.9rem;
+}
+
+.scope-option-rule {
+    font-size: 0.8rem;
+    color: var(--text-muted, #666);
+    font-family: 'Courier New', monospace;
+}
+
+.scope-option-rule code {
+    background: rgba(0, 122, 204, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--primary-color, #007acc);
+    font-size: 0.85em;
+}
+
+.autonomy-config-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #dee2e6);
+}
+
+.autonomy-config-actions button {
+    flex: 1;
+    padding: 10px 16px;
+    font-weight: 600;
+}
+
+.save-autonomy {
+    background: #28a745 !important;
+    color: white !important;
+}
+
+.save-autonomy:hover {
+    background: #218838 !important;
+}
+
+.cancel-autonomy {
+    background: var(--secondary-color, #6c757d) !important;
+    color: white !important;
+}
+
+.cancel-autonomy:hover {
+    background: #5a6268 !important;
+}
+
+.configure-autonomy {
+    background: var(--primary-color, #007acc) !important;
+    color: white !important;
+}
+
+.configure-autonomy:hover {
+    background: #0066aa !important;
 }
 
 /* Permission request responsive design */
