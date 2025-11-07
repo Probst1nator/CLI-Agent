@@ -1536,9 +1536,10 @@ class LlmRouter:
                 # to allow fallback if the role-specific model fails
 
         # Check for override model - if set, use it exclusively (takes precedence over role)
+        # Use the full override list to support fallback chains within override models
         if g.override_llm:
-            preferred_models = [g.override_llm]
-            force_preferred_model = True  # Force using only the override model
+            preferred_models = g.override_llms_list
+            force_preferred_model = True  # Force using only override models (won't fall back to non-override models)
 
         # Check global force flags
         if g.LLM:

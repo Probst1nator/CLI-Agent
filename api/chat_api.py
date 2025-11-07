@@ -828,7 +828,8 @@ async def regenerate_prompts(request: Any) -> Any:
     Request body (optional):
     {
         "num_files": 5,        // Number of files to analyze (default: 5)
-        "time_frame_days": 30  // Days to look back (default: 30)
+        "time_frame_days": 30, // Days to look back (default: 30)
+        "custom_text": ""      // Optional topic/subject to bias suggestions toward
     }
 
     Response:
@@ -848,16 +849,25 @@ async def regenerate_prompts(request: Any) -> Any:
         # Parse request body for optional parameters
         num_files = 5
         time_frame_days = 30
+        custom_text = None
 
         if request.body_exists:
             try:
                 body = await request.json()
                 num_files = body.get('num_files', 5)
                 time_frame_days = body.get('time_frame_days', 30)
+                custom_text = body.get('custom_text')
+                if custom_text:
+                    custom_text = custom_text.strip()
+                    if not custom_text:
+                        custom_text = None
             except Exception as e:
                 logger.warning(f"Failed to parse request body: {e}, using defaults")
 
-        logger.info(f"Regenerating prompts (num_files={num_files}, time_frame_days={time_frame_days})")
+        if custom_text:
+            logger.info(f"Regenerating prompts with custom focus: '{custom_text}' (num_files={num_files}, time_frame_days={time_frame_days})")
+        else:
+            logger.info(f"Regenerating prompts (num_files={num_files}, time_frame_days={time_frame_days})")
 
         # Import the regenerator (lazy import to avoid startup overhead)
         from shared.utils.prompt_regenerator import PromptRegenerator
@@ -867,7 +877,7 @@ async def regenerate_prompts(request: Any) -> Any:
             num_files=num_files,
             time_frame_days=time_frame_days
         )
-        result = await regenerator.regenerate()
+        result = await regenerator.regenerate(custom_bias_text=custom_text)
 
         # Broadcast WebSocket event to notify all clients
         from api.server import get_server

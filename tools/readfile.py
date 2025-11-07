@@ -508,7 +508,7 @@ class readfile:
             return f"{header}\n\n{extracted_text}"
 
         except ImportError:
-            return f"⚠️  Cannot read .docx file: python-docx not installed\nInstall with: pip install python-docx"
+            return "⚠️  Cannot read .docx file: python-docx not installed\nInstall with: pip install python-docx"
         except Exception as e:
             return f"Error reading .docx file '{filepath}': {str(e)}"
 
@@ -546,7 +546,7 @@ class readfile:
             return f"{header}\n\n{extracted_text}"
 
         except ImportError:
-            return f"⚠️  Cannot read .xlsx file: openpyxl not installed\nInstall with: pip install openpyxl"
+            return "⚠️  Cannot read .xlsx file: openpyxl not installed\nInstall with: pip install openpyxl"
         except Exception as e:
             return f"Error reading .xlsx file '{filepath}': {str(e)}"
 
@@ -581,7 +581,7 @@ class readfile:
             return f"{header}\n\n{extracted_text}"
 
         except ImportError:
-            return f"⚠️  Cannot read .xls file: xlrd not installed\nInstall with: pip install xlrd"
+            return "⚠️  Cannot read .xls file: xlrd not installed\nInstall with: pip install xlrd"
         except Exception as e:
             return f"Error reading .xls file '{filepath}': {str(e)}"
 
@@ -622,7 +622,7 @@ class readfile:
             return f"{header}\n\n{extracted_text}"
 
         except ImportError:
-            return f"⚠️  Cannot read .pptx file: python-pptx not installed\nInstall with: pip install python-pptx"
+            return "⚠️  Cannot read .pptx file: python-pptx not installed\nInstall with: pip install python-pptx"
         except Exception as e:
             return f"Error reading .pptx file '{filepath}': {str(e)}"
 
@@ -630,7 +630,7 @@ class readfile:
     def process_opendocument_file(filepath: str, format_type: str) -> str:
         """Extract text from OpenDocument files (.odt, .ods, .odp, .odg)."""
         try:
-            from odf import text, teletype
+            from odf import teletype, text
             from odf.opendocument import load
 
             filename = os.path.basename(filepath)
@@ -674,9 +674,9 @@ class readfile:
             return f"{header}\n\n{extracted_text}"
 
         except ImportError:
-            return (f"⚠️  Cannot read OpenDocument file: odfpy not installed\n"
-                   f"Install with: pip install odfpy\n"
-                   f"Note: If installation fails, try converting to PDF or DOCX format")
+            return ("⚠️  Cannot read OpenDocument file: odfpy not installed\n"
+                   "Install with: pip install odfpy\n"
+                   "Note: If installation fails, try converting to PDF or DOCX format")
         except Exception as e:
             return f"Error reading OpenDocument file '{filepath}': {str(e)}"
 
@@ -735,7 +735,7 @@ class readfile:
             _, ext = os.path.splitext(filepath.lower())
             delimiter = '\t' if ext == '.tsv' else None
 
-            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            with open(filepath, encoding='utf-8', errors='replace') as f:
                 # Read sample to detect delimiter if not TSV
                 if delimiter is None:
                     sample = f.read(4096)
@@ -780,7 +780,7 @@ class readfile:
             rows_shown = min(len(rows), 100)
             header = f"📊 CSV file: {filename} ({file_size:.1f} KB) - {len(rows)} rows × {len(rows[0]) if rows else 0} columns"
             if len(rows) > 100:
-                header += f"\n(Showing first 100 rows)"
+                header += "\n(Showing first 100 rows)"
 
             return f"{header}\n\n{extracted_text}"
 
@@ -796,7 +796,7 @@ class readfile:
 
         # Check for HTML content in files without extension
         try:
-            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            with open(filepath, encoding='utf-8', errors='replace') as f:
                 first_line = f.read(1024).lower()
             return '<!doctype html' in first_line or '<html' in first_line
         except:
@@ -830,7 +830,7 @@ class readfile:
                         if text:
                             self.text_parts.append(text)
 
-            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            with open(filepath, encoding='utf-8', errors='replace') as f:
                 html_content = f.read()
 
             parser = TextExtractor()
@@ -897,9 +897,9 @@ class readfile:
     def process_archive_file(filepath: str, archive_type: str) -> str:
         """List contents of archive file."""
         try:
-            import zipfile
-            import tarfile
             import gzip
+            import tarfile
+            import zipfile
 
             filename = os.path.basename(filepath)
             file_size = os.path.getsize(filepath) / 1024  # KB
@@ -1040,7 +1040,7 @@ class readfile:
             filename = os.path.basename(filepath)
             file_size = os.path.getsize(filepath) / 1024  # KB
 
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, encoding='utf-8') as f:
                 notebook = json.load(f)
 
             cells = notebook.get('cells', [])

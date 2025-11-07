@@ -41,19 +41,18 @@ class response:
             The content string in GUI/API mode, empty string in CLI mode
         """
         try:
+            import asyncio
             import logging
+            import time
 
-            # Try to broadcast to frontend if visualresponse server is available
-            # We check if the server exists rather than relying on flags, since flags
-            # may not be properly set in containerized/multi-user setups
+            # Try to broadcast to frontend if server is available
+            # Check for existing server without creating one (fixes unwanted server startup in CLI mode)
             try:
-                import time
+                from api.server import get_server
 
-                from tools.visualresponse import visualresponse
-
-                session = visualresponse._get_session()
-                if session and session.is_healthy():
-                    # Server is running, so we're in GUI/API mode
+                server = get_server()
+                if server is not None:
+                    # Server is running (started with --gui or --api), so we're in GUI/API mode
                     payload = {
                         'type': 'assistant_message',
                         'action': 'display',
@@ -62,8 +61,21 @@ class response:
                         'timestamp': time.time()
                     }
 
-                    # Use sync send_update which handles async properly
-                    session.send_update(payload)
+                    # Schedule async broadcast properly
+                    try:
+                        loop = asyncio.get_running_loop()
+                        asyncio.ensure_future(server.broadcast(payload), loop=loop)
+                    except RuntimeError:
+                        # No running loop, try to get or create one
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.run_coroutine_threadsafe(server.broadcast(payload), loop)
+                            else:
+                                loop.create_task(server.broadcast(payload))
+                        except Exception as e:
+                            logging.debug(f"Response tool: Failed to schedule broadcast: {e}")
+                            return ""
 
                     logging.info(f"Response tool: Broadcasted text message to frontend ({len(content)} chars)")
 
@@ -73,7 +85,7 @@ class response:
             except Exception as e:
                 logging.debug(f"Response tool: Failed to broadcast to frontend: {e}")
 
-            # In CLI mode or if broadcast failed, return empty string
+            # In CLI mode (no server) or if broadcast failed, return empty string
             # Main loop will display the content from the <response> tags directly
             return ""
 
