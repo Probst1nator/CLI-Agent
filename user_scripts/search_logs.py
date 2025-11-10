@@ -24,7 +24,7 @@ import json
 import re
 import subprocess
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -52,15 +52,9 @@ class LogEntry:
     message: str
     request_id: Optional[str] = None
     session_id: Optional[str] = None
-    context_before: list[str] = None
-    context_after: list[str] = None
+    context_before: list[str] = field(default_factory=list)
+    context_after: list[str] = field(default_factory=list)
     raw_line: str = ""
-
-    def __post_init__(self):
-        if self.context_before is None:
-            self.context_before = []
-        if self.context_after is None:
-            self.context_after = []
 
 
 class LogSearcher:
@@ -232,13 +226,13 @@ class LogSearcher:
 
     def search(
         self,
-        sources: list[str] = None,
-        pattern: str = None,
-        level: str = None,
-        request_id: str = None,
-        session_id: str = None,
-        since: str = None,
-        until: str = None,
+        sources: Optional[list[str]] = None,
+        pattern: Optional[str] = None,
+        level: Optional[str] = None,
+        request_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
         context_lines: int = 0
     ) -> list[LogEntry]:
         """

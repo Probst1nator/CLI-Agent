@@ -797,10 +797,10 @@ def filter_latex_for_tts(text: str) -> str:
     return text.strip()
 
 
-def _try_coqui_tts(text: str, voice: str = "default", speed: float = 1.0,
+def _try_coqui_tts_old(text: str, voice: str = "default", speed: float = 1.0,
                   output_path: Optional[str] = None, play: bool = True,
                   language: str = "auto", volume: float = 1.0, **kwargs) -> bool:
-    """Try Coqui TTS XTTS model for natural multi-lingual speech."""
+    """Try Coqui TTS XTTS model for natural multi-lingual speech. DEPRECATED: See _try_coqui_tts below."""
     try:
         import tempfile
 
@@ -1082,7 +1082,7 @@ def _try_modern_hf_tts(text: str, voice: str = "default", speed: float = 1.0,
 
                 # Generate speech
                 output = synthesizer(text)
-                audio_array, sample_rate = output["audio"], output["sampling_rate"]
+                audio_array, sample_rate = output["audio"], output["sampling_rate"]  # type: ignore[index]
 
                 # Handle speed adjustment
                 if speed != 1.0:

@@ -10,7 +10,7 @@ import tkinter as tk
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional, TypedDict
+from typing import Any, Optional, TypedDict, cast
 
 from ollama._types import Image as OllamaImage
 from ollama._types import Message as OllamaMessage
@@ -56,6 +56,11 @@ class MessageMetadata(TypedDict, total=False):
     model: str  # LLM model used to generate this message
     tool_info: list[ToolInfo]  # Information about tools executed in this message
     message_id: int  # Unique message identifier
+
+
+def _create_empty_metadata() -> MessageMetadata:
+    """Helper to create empty metadata dict with proper type."""
+    return cast(MessageMetadata, {})
 
 
 @dataclass
@@ -124,7 +129,7 @@ class Message:
     role: Role
     content: str
     images: list[str] = field(default_factory=list)
-    metadata: MessageMetadata = field(default_factory=dict)  # Runtime: dict, Type hint: MessageMetadata
+    metadata: MessageMetadata = field(default_factory=_create_empty_metadata)
 
 class Chat:
     # Role-to-color mapping for terminal output

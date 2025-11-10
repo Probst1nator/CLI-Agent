@@ -263,15 +263,15 @@ class PiperInterface(AudioProviderInterface):
         noise_w_scale: float = 0.1 
         """Stochastic duration of phonemes/words (controls timing variability)"""  
         
-        normalize_audio: bool = True  
-        """Whether to normalize output audio levels for consistent volume"""  
-        
-        volume: float = 1.0  
+        normalize_audio: bool = True
+        """Whether to normalize output audio levels for consistent volume"""
+
+        synth_volume: float = volume
         """Output volume multiplier (1.0=normal, >1.0=louder, <1.0=quieter)"""
 
-        if "voice_id" in self.VOICES[voice_name]:  
-            speaker_id = self.VOICES[voice_name]["voice_id"]  
-            synthConf = SynthesisConfig(speaker_id, length_scale, noise_scale, noise_w_scale, normalize_audio, volume)
+        if "voice_id" in self.VOICES[voice_name]:
+            speaker_id = self.VOICES[voice_name]["voice_id"]
+            synthConf = SynthesisConfig(speaker_id, length_scale, noise_scale, noise_w_scale, normalize_audio, synth_volume)
         else:
             synthConf = SynthesisConfig()
 
@@ -312,7 +312,7 @@ class PiperInterface(AudioProviderInterface):
                     audio_data = audio_data.astype(np.float32)
 
             # Validate audio content (detect silent audio)
-            rms_level = np.sqrt(np.mean(audio_data**2))
+            rms_level = np.sqrt(np.mean(np.power(audio_data, 2)))
             non_zero_ratio = np.count_nonzero(audio_data) / len(audio_data) if len(audio_data) > 0 else 0
 
             if rms_level < 1e-6 or non_zero_ratio < 0.01:

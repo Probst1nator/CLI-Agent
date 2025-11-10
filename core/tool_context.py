@@ -29,6 +29,7 @@ class ToolContext:
         self.image_descriptions: list[str] = []
         self.metadata: dict[str, Any] = {}
         self.current_viz_id: str = None
+        self.end_turn: bool = False  # Default: tools do NOT end the agent's turn
 
     def add_base64_image(self, base64_data: str, description: str = ""):
         """
@@ -73,6 +74,29 @@ class ToolContext:
     def get_current_viz_id(self) -> str:
         """Get the current visualresponse message ID."""
         return self.current_viz_id
+
+    def set_end_turn(self, value: bool):
+        """
+        Set whether the current tool execution should end the agent's turn.
+        Used by response/visualresponse tools to control turn-ending behavior.
+
+        Args:
+            value: True to end the turn, False to continue executing
+        """
+        self.end_turn = value
+
+    def get_end_turn(self) -> bool:
+        """
+        Get whether the current tool execution should end the agent's turn.
+
+        Returns:
+            bool: True if turn should end, False to continue (default)
+        """
+        return self.end_turn
+
+    def clear_end_turn(self):
+        """Reset the end_turn flag to its default value (False)."""
+        self.end_turn = False
 
 # Global instance
 tool_context = ToolContext()

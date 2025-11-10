@@ -1372,6 +1372,7 @@ class Globals:
         if has_valid_roles:
             # Use new format
             step_start = time.time()
+            roles = config.get("roles", {})
             for key, default_value in [
                 ("planner", None),
                 ("router", None),
@@ -1379,7 +1380,7 @@ class Globals:
                 ("autocomplete", None),
                 ("fallbacks", []),
             ]:
-                self.llm_roles[key] = config["roles"].get(key, default_value)
+                self.llm_roles[key] = roles.get(key, default_value)
             logging.info(
                 f"🚀 ROLES: Loading existing roles took {(time.time() - step_start) * 1000:.1f}ms"
             )

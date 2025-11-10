@@ -4,20 +4,26 @@ API endpoints for accessing log files.
 Provides endpoints to read and tail log files for debugging and monitoring.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-try:
+if TYPE_CHECKING:
     from aiohttp import web
-    AIOHTTP_AVAILABLE = True
-except ImportError:
-    web = None
-    AIOHTTP_AVAILABLE = False
+
+AIOHTTP_AVAILABLE = False
+if not TYPE_CHECKING:
+    try:
+        from aiohttp import web
+        AIOHTTP_AVAILABLE = True
+    except ImportError:
+        web = None  # type: ignore
 
 try:
     from core.globals import g

@@ -472,6 +472,8 @@ class bash:
                 logger.error(colored("  - Bash session creation failed completely", "red"))
                 raise RuntimeError("Unable to create bash session")
 
+        # Type narrowing: if we reach here, session must be non-None
+        assert bash._session is not None
         return bash._session
 
     @staticmethod

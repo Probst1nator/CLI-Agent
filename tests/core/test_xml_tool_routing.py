@@ -10,6 +10,8 @@ import os
 import sys
 from unittest.mock import Mock
 
+import pytest
+
 # Add project root to path for imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_root)

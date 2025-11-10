@@ -1216,7 +1216,8 @@ class visualresponse:
                 "Create content in a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. Prefer dark theme.\n"
                 "PARAMETERS:\n"
                 "- `<type>`: Must be either `html` or `markdown`.\n"
-                "- `<content>`: The full HTML document or Markdown text. For HTML, you can wrap content in <![CDATA[...]]> to ensure correct parsing."
+                "- `<content>`: The full HTML document or Markdown text. For HTML, you can wrap content in <![CDATA[...]]> to ensure correct parsing.\n"
+                "- `<end_turn>`: Optional boolean (true/false) to control whether the agent's turn ends (default: true)."
             ),
             "example": (
                 "// Create an interactive Plotly chart using the 'html' type\n"
@@ -1232,7 +1233,9 @@ class visualresponse:
                 "</body></html>\n"
                 "]]></content></visualresponse>\n\n"
                 "// Create a simple markdown panel\n"
-                "<visualresponse><type>markdown</type><content># hello world</content></visualresponse>"
+                "<visualresponse><type>markdown</type><content># hello world</content></visualresponse>\n\n"
+                "// Continue executing after showing visualization\n"
+                "<visualresponse><end_turn>false</end_turn><type>markdown</type><content>Partial result, more to come...</content></visualresponse>"
             ),
         }
 
@@ -1414,6 +1417,15 @@ class visualresponse:
         try:
             if content.strip().lower() in ["status", "test", "diagnostic", "debug"]:
                 return visualresponse._run_diagnostics()
+
+            # Parse end_turn parameter (default: True for backward compatibility)
+            end_turn = True
+            end_turn_match = re.search(r'<end_turn>\s*(true|false)\s*</end_turn>', content, re.IGNORECASE)
+            if end_turn_match:
+                end_turn = end_turn_match.group(1).lower() == 'true'
+
+            # Set the end_turn flag in tool_context for main loop to check
+            tool_context.set_end_turn(end_turn)
 
             # --- Simplified parsing: always create, auto-generate ID ---
             args = {}

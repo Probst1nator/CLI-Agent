@@ -56,7 +56,7 @@ async def test_auto_background_integration():
 
                 # Test 3: List background processes
                 print("\n🧪 Test 3: List background processes")
-                list_result = taskmanager.run("<list/>")
+                list_result = await taskmanager.run("<list/>")
                 print("Background processes:")
                 print(list_result)
 
@@ -70,7 +70,7 @@ async def test_auto_background_integration():
                 # Wait a moment for some output to accumulate
                 await asyncio.sleep(2)
 
-                stdout_result = taskmanager.run(f"<stdout>{process_id}</stdout>")
+                stdout_result = await taskmanager.run(f"<stdout>{process_id}</stdout>")
                 print("Process output:")
                 print(stdout_result)
 
@@ -81,7 +81,7 @@ async def test_auto_background_integration():
 
                 # Test 5: Kill background process
                 print("\n🧪 Test 5: Kill background process")
-                kill_result = taskmanager.run(f"<kill>{process_id}</kill>")
+                kill_result = await taskmanager.run(f"<kill>{process_id}</kill>")
                 print(f"Kill result: {kill_result}")
 
                 if "killed" in kill_result:

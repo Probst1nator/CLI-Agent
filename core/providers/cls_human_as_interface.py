@@ -117,8 +117,12 @@ class HumanAPI(AIProviderInterface):
                     language=language
                 )
 
-            no_speech_prob = response.segments[0]['no_speech_prob']
-            if (no_speech_prob > 0.7):
+            if response.segments and len(response.segments) > 0:
+                no_speech_prob = response.segments[0].no_speech_prob
+            else:
+                no_speech_prob = 0.0
+
+            if no_speech_prob > 0.7:
                 if chat:
                     prefix = chat.get_debug_title_prefix() if hasattr(chat, 'get_debug_title_prefix') else ""
                     g.debug_log("No speech detected", force_print=True, prefix=prefix)

@@ -241,7 +241,7 @@ def test_local_mismatch_error_scenario():
             print("  ❌ Cloud model should not be capable when local=True required")
             return False
 
-        if "local mismatch" not in reason:
+        if not reason or "local mismatch" not in reason:
             print(f"  ❌ Expected 'local mismatch' in reason, got: {reason}")
             return False
 
