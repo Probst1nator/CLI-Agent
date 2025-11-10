@@ -873,15 +873,218 @@ class LlmRouter:
         Returns:
             str: The full response string
         """
+        import traceback
+
         full_response = ""
         finished_response = ""
         token_stream_painter = TextStreamPainter()
+        stream_exception = None  # Track any exception during stream processing
+        provider_name = provider.__class__.__name__.replace("API", "").replace("Client", "")
 
-        # Handle different stream types
-        # ! Anthropic
-        if isinstance(provider, AnthropicAPI):
-            if hasattr(stream, "text_stream"):
-                for token in stream.text_stream:
+        try:
+            # Handle different stream types
+            # ! Anthropic
+            if isinstance(provider, AnthropicAPI):
+                if hasattr(stream, "text_stream"):
+                    for token in stream.text_stream:
+                        if token:
+                            full_response += token
+                            if callback is not None:
+                                finished_response = await callback(token)
+                                if finished_response and isinstance(finished_response, str):
+                                    break
+                            elif (not hidden_reason) or g.DEBUG_MODE:
+                                g.print_token(token_stream_painter.apply_color(token))
+                else:
+                    logger.warning(
+                        f"Anthropic stream missing 'text_stream' attribute. Stream type: {type(stream).__name__}"
+                    )
+                    raise Exception(
+                        f"Anthropic stream format error: expected 'text_stream' attribute on {type(stream).__name__}"
+                    )
+            # ! OpenAI/NVIDIA
+            elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
+                if hasattr(stream, "choices"):
+                    for chunk in stream:
+                        # Safely access delta content
+                        token = None
+                        if (
+                            chunk.choices
+                            and hasattr(chunk.choices[0], "delta")
+                            and hasattr(chunk.choices[0].delta, "content")
+                        ):
+                            token = chunk.choices[0].delta.content
+
+                        if (
+                            token is not None
+                        ):  # Ensure token is not None (can be empty string)
+                            full_response += token
+                            if callback is not None:
+                                finished_response = await callback(token)
+                                if finished_response and isinstance(finished_response, str):
+                                    break
+                            elif (not hidden_reason) or g.DEBUG_MODE:
+                                g.print_token(token_stream_painter.apply_color(token))
+            # ! Google Gemini - IMPROVED HANDLING
+            elif isinstance(provider, GoogleAPI):
+                try:
+                    first_chunk_processed = False
+                    last_finish_reason = None
+                    last_safety_ratings = None
+
+                    for chunk in stream:  # chunk is a GenerateContentResponse
+                        if not first_chunk_processed:
+                            first_chunk_processed = True
+                            # Minimal check for immediate prompt blocking on the first chunk
+                            if (
+                                hasattr(chunk, "prompt_feedback")
+                                and chunk.prompt_feedback
+                                and hasattr(chunk.prompt_feedback, "block_reason")
+                                and chunk.prompt_feedback.block_reason
+                            ):
+                                block_reason = chunk.prompt_feedback.block_reason
+                                logger.warning(f"Google API blocked prompt: {block_reason}")
+                                raise Exception(
+                                    f"Google API blocked the prompt (reason: {block_reason})"
+                                )
+
+                        # Track finish_reason and safety_ratings from all chunks
+                        if hasattr(chunk, "candidates") and chunk.candidates:
+                            candidate = chunk.candidates[0]
+                            if (
+                                hasattr(candidate, "finish_reason")
+                                and candidate.finish_reason
+                            ):
+                                last_finish_reason = candidate.finish_reason
+                            if (
+                                hasattr(candidate, "safety_ratings")
+                                and candidate.safety_ratings
+                            ):
+                                last_safety_ratings = candidate.safety_ratings
+
+                            # Check for safety blocking (finish_reason == 3 is SAFETY, 4 is RECITATION)
+                            if last_finish_reason in [3, 4]:
+                                reason_name = (
+                                    "SAFETY" if last_finish_reason == 3 else "RECITATION"
+                                )
+                                safety_details = ""
+                                if last_safety_ratings:
+                                    blocked_categories = [
+                                        str(rating.category)
+                                        .replace("HarmCategory.", "")
+                                        .replace("HARM_CATEGORY_", "")
+                                        for rating in last_safety_ratings
+                                        if hasattr(rating, "blocked") and rating.blocked
+                                    ]
+                                    if blocked_categories:
+                                        safety_details = f" - Blocked categories: {', '.join(blocked_categories)}"
+                                logger.warning(
+                                    f"Google API blocked generation: {reason_name}{safety_details}"
+                                )
+                                raise Exception(
+                                    f"Google API content blocked: {reason_name}{safety_details}"
+                                )
+
+                        token_from_this_chunk = ""
+                        try:
+                            # Safely attempt to extract text.
+                            # The .parts property on GenerateContentResponse is a shortcut for candidates[0].content.parts
+                            if hasattr(chunk, "parts") and chunk.parts:
+                                for part in chunk.parts:
+                                    if hasattr(part, "text") and part.text is not None:
+                                        token_from_this_chunk += part.text
+                            # If chunk.parts is empty or not present, token_from_this_chunk remains ""
+                            # This avoids the error from directly accessing chunk.text if parts are missing.
+                        except AttributeError:
+                            # This catches if `chunk.parts` itself or `part.text` is missing when expected.
+                            # Silently treat as no token for this chunk to prevent crash.
+                            pass
+
+                        if token_from_this_chunk:
+                            full_response += token_from_this_chunk
+                            if callback is not None:
+                                # Callback can return the final response string to terminate early
+                                result_from_callback = await callback(token_from_this_chunk)
+                                if result_from_callback and isinstance(
+                                    result_from_callback, str
+                                ):
+                                    finished_response = result_from_callback
+                                    break
+                            elif (not hidden_reason) or g.DEBUG_MODE:
+                                g.print_token(
+                                    token_stream_painter.apply_color(token_from_this_chunk)
+                                )
+
+                    # If callback signaled to finish early
+                    if finished_response and isinstance(finished_response, str):
+                        return finished_response
+
+                    # Check if stream ended with no content but has blocking info
+                    if (
+                        not full_response or not full_response.strip()
+                    ) and last_finish_reason in [3, 4]:
+                        reason_name = "SAFETY" if last_finish_reason == 3 else "RECITATION"
+                        safety_details = ""
+                        if last_safety_ratings:
+                            blocked_categories = [
+                                str(rating.category)
+                                .replace("HarmCategory.", "")
+                                .replace("HARM_CATEGORY_", "")
+                                for rating in last_safety_ratings
+                                if hasattr(rating, "blocked") and rating.blocked
+                            ]
+                            if blocked_categories:
+                                safety_details = f" - Blocked categories: {', '.join(blocked_categories)}"
+                        logger.warning(
+                            f"Google API blocked generation: {reason_name}{safety_details}"
+                        )
+                        raise Exception(
+                            f"Google API content blocked: {reason_name}{safety_details}"
+                        )
+
+                except StopIteration:
+                    pass  # Normal end of stream
+            # ! Ollama/Groq
+            elif provider.__class__.__name__ == "OllamaClient" or isinstance(
+                provider, GroqAPI
+            ):
+                chunk_count = 0
+                for chunk in stream:
+                    chunk_count += 1
+                    token = None
+                    if isinstance(provider, GroqAPI):
+                        if (
+                            hasattr(chunk, "choices")
+                            and chunk.choices
+                            and hasattr(chunk.choices[0], "delta")
+                            and hasattr(chunk.choices[0].delta, "content")
+                        ):
+                            token = chunk.choices[0].delta.content
+                    elif provider.__class__.__name__ == "OllamaClient":
+                        if isinstance(chunk, dict):  # Ollama dictionary chunks
+                            if "error" in chunk:
+                                # Raise a specific exception if the Ollama server returns an error in the stream
+                                raise Exception(f"Ollama server error: {chunk['error']}")
+                            token = chunk.get("message", {}).get(
+                                "content", ""
+                            ) or chunk.get("response", "")
+                        elif hasattr(chunk, "message"):  # Ollama response object
+                            if hasattr(chunk.message, "content"):
+                                token = chunk.message.content
+
+                    if token is not None:  # Ensure token is not None
+                        full_response += token
+                        if callback is not None:
+                            finished_response = await callback(token)
+                            if finished_response and isinstance(finished_response, str):
+                                break
+                        elif (not hidden_reason) or g.DEBUG_MODE:
+                            g.print_token(token_stream_painter.apply_color(token))
+
+            # Fallback for other unknown stream types (original logic)
+            else:
+                for chunk_item in stream:  # Renamed to avoid conflict
+                    token = str(chunk_item)  # Basic conversion
                     if token:
                         full_response += token
                         if callback is not None:
@@ -890,204 +1093,15 @@ class LlmRouter:
                                 break
                         elif (not hidden_reason) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
-            else:
-                logger.warning(
-                    f"Anthropic stream missing 'text_stream' attribute. Stream type: {type(stream).__name__}"
-                )
-                raise Exception(
-                    f"Anthropic stream format error: expected 'text_stream' attribute on {type(stream).__name__}"
-                )
-        # ! OpenAI/NVIDIA
-        elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
-            if hasattr(stream, "choices"):
-                for chunk in stream:
-                    # Safely access delta content
-                    token = None
-                    if (
-                        chunk.choices
-                        and hasattr(chunk.choices[0], "delta")
-                        and hasattr(chunk.choices[0].delta, "content")
-                    ):
-                        token = chunk.choices[0].delta.content
 
-                    if (
-                        token is not None
-                    ):  # Ensure token is not None (can be empty string)
-                        full_response += token
-                        if callback is not None:
-                            finished_response = await callback(token)
-                            if finished_response and isinstance(finished_response, str):
-                                break
-                        elif (not hidden_reason) or g.DEBUG_MODE:
-                            g.print_token(token_stream_painter.apply_color(token))
-        # ! Google Gemini - IMPROVED HANDLING
-        elif isinstance(provider, GoogleAPI):
-            try:
-                first_chunk_processed = False
-                last_finish_reason = None
-                last_safety_ratings = None
-
-                for chunk in stream:  # chunk is a GenerateContentResponse
-                    if not first_chunk_processed:
-                        first_chunk_processed = True
-                        # Minimal check for immediate prompt blocking on the first chunk
-                        if (
-                            hasattr(chunk, "prompt_feedback")
-                            and chunk.prompt_feedback
-                            and hasattr(chunk.prompt_feedback, "block_reason")
-                            and chunk.prompt_feedback.block_reason
-                        ):
-                            block_reason = chunk.prompt_feedback.block_reason
-                            logger.warning(f"Google API blocked prompt: {block_reason}")
-                            raise Exception(
-                                f"Google API blocked the prompt (reason: {block_reason})"
-                            )
-
-                    # Track finish_reason and safety_ratings from all chunks
-                    if hasattr(chunk, "candidates") and chunk.candidates:
-                        candidate = chunk.candidates[0]
-                        if (
-                            hasattr(candidate, "finish_reason")
-                            and candidate.finish_reason
-                        ):
-                            last_finish_reason = candidate.finish_reason
-                        if (
-                            hasattr(candidate, "safety_ratings")
-                            and candidate.safety_ratings
-                        ):
-                            last_safety_ratings = candidate.safety_ratings
-
-                        # Check for safety blocking (finish_reason == 3 is SAFETY, 4 is RECITATION)
-                        if last_finish_reason in [3, 4]:
-                            reason_name = (
-                                "SAFETY" if last_finish_reason == 3 else "RECITATION"
-                            )
-                            safety_details = ""
-                            if last_safety_ratings:
-                                blocked_categories = [
-                                    str(rating.category)
-                                    .replace("HarmCategory.", "")
-                                    .replace("HARM_CATEGORY_", "")
-                                    for rating in last_safety_ratings
-                                    if hasattr(rating, "blocked") and rating.blocked
-                                ]
-                                if blocked_categories:
-                                    safety_details = f" - Blocked categories: {', '.join(blocked_categories)}"
-                            logger.warning(
-                                f"Google API blocked generation: {reason_name}{safety_details}"
-                            )
-                            raise Exception(
-                                f"Google API content blocked: {reason_name}{safety_details}"
-                            )
-
-                    token_from_this_chunk = ""
-                    try:
-                        # Safely attempt to extract text.
-                        # The .parts property on GenerateContentResponse is a shortcut for candidates[0].content.parts
-                        if hasattr(chunk, "parts") and chunk.parts:
-                            for part in chunk.parts:
-                                if hasattr(part, "text") and part.text is not None:
-                                    token_from_this_chunk += part.text
-                        # If chunk.parts is empty or not present, token_from_this_chunk remains ""
-                        # This avoids the error from directly accessing chunk.text if parts are missing.
-                    except AttributeError:
-                        # This catches if `chunk.parts` itself or `part.text` is missing when expected.
-                        # Silently treat as no token for this chunk to prevent crash.
-                        pass
-
-                    if token_from_this_chunk:
-                        full_response += token_from_this_chunk
-                        if callback is not None:
-                            # Callback can return the final response string to terminate early
-                            result_from_callback = await callback(token_from_this_chunk)
-                            if result_from_callback and isinstance(
-                                result_from_callback, str
-                            ):
-                                finished_response = result_from_callback
-                                break
-                        elif (not hidden_reason) or g.DEBUG_MODE:
-                            g.print_token(
-                                token_stream_painter.apply_color(token_from_this_chunk)
-                            )
-
-                # If callback signaled to finish early
-                if finished_response and isinstance(finished_response, str):
-                    return finished_response
-
-                # Check if stream ended with no content but has blocking info
-                if (
-                    not full_response or not full_response.strip()
-                ) and last_finish_reason in [3, 4]:
-                    reason_name = "SAFETY" if last_finish_reason == 3 else "RECITATION"
-                    safety_details = ""
-                    if last_safety_ratings:
-                        blocked_categories = [
-                            str(rating.category)
-                            .replace("HarmCategory.", "")
-                            .replace("HARM_CATEGORY_", "")
-                            for rating in last_safety_ratings
-                            if hasattr(rating, "blocked") and rating.blocked
-                        ]
-                        if blocked_categories:
-                            safety_details = f" - Blocked categories: {', '.join(blocked_categories)}"
-                    logger.warning(
-                        f"Google API blocked generation: {reason_name}{safety_details}"
-                    )
-                    raise Exception(
-                        f"Google API content blocked: {reason_name}{safety_details}"
-                    )
-
-            except StopIteration:
-                pass  # Normal end of stream
-        # ! Ollama/Groq
-        elif provider.__class__.__name__ == "OllamaClient" or isinstance(
-            provider, GroqAPI
-        ):
-            chunk_count = 0
-            for chunk in stream:
-                chunk_count += 1
-                token = None
-                if isinstance(provider, GroqAPI):
-                    if (
-                        hasattr(chunk, "choices")
-                        and chunk.choices
-                        and hasattr(chunk.choices[0], "delta")
-                        and hasattr(chunk.choices[0].delta, "content")
-                    ):
-                        token = chunk.choices[0].delta.content
-                elif provider.__class__.__name__ == "OllamaClient":
-                    if isinstance(chunk, dict):  # Ollama dictionary chunks
-                        if "error" in chunk:
-                            # Raise a specific exception if the Ollama server returns an error in the stream
-                            raise Exception(f"Ollama server error: {chunk['error']}")
-                        token = chunk.get("message", {}).get(
-                            "content", ""
-                        ) or chunk.get("response", "")
-                    elif hasattr(chunk, "message"):  # Ollama response object
-                        if hasattr(chunk.message, "content"):
-                            token = chunk.message.content
-
-                if token is not None:  # Ensure token is not None
-                    full_response += token
-                    if callback is not None:
-                        finished_response = await callback(token)
-                        if finished_response and isinstance(finished_response, str):
-                            break
-                    elif (not hidden_reason) or g.DEBUG_MODE:
-                        g.print_token(token_stream_painter.apply_color(token))
-
-        # Fallback for other unknown stream types (original logic)
-        else:
-            for chunk_item in stream:  # Renamed to avoid conflict
-                token = str(chunk_item)  # Basic conversion
-                if token:
-                    full_response += token
-                    if callback is not None:
-                        finished_response = await callback(token)
-                        if finished_response and isinstance(finished_response, str):
-                            break
-                    elif (not hidden_reason) or g.DEBUG_MODE:
-                        g.print_token(token_stream_painter.apply_color(token))
+        except Exception as e:
+            # Capture the exception for later use
+            stream_exception = e
+            # Log the full traceback for debugging
+            logger.error(
+                f"Exception during stream processing for {provider_name} ({model_key or 'unknown'}): {str(e)}\n"
+                f"Traceback:\n{traceback.format_exc()}"
+            )
 
         # If callback returned a final response string at any point (and broke the loop)
         if finished_response and isinstance(finished_response, str):
@@ -1095,32 +1109,35 @@ class LlmRouter:
 
         # Check for empty response before returning
         if not full_response or not full_response.strip():
-            provider_name = provider.__class__.__name__.replace("API", "").replace(
-                "Client", ""
-            )
             error_msg = f"Empty response from {provider_name}"
             if model_key:
                 error_msg += f" ({model_key})"
 
-            # Add diagnostic hints based on provider
-            if isinstance(provider, GoogleAPI):
-                error_msg += ": Check if response was blocked by safety filters or if the prompt was rejected"
-            elif isinstance(provider, AnthropicAPI):
-                error_msg += ": Model may have overload issues or content was filtered"
-            elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
-                error_msg += (
-                    ": Check API quota, rate limits, or if content triggered moderation"
+            # If we captured an exception during streaming, include it in the error
+            if stream_exception:
+                error_msg += f"\nUnderlying error: {type(stream_exception).__name__}: {str(stream_exception)}"
+                # Log the connection between empty response and the exception
+                logger.warning(
+                    f"{error_msg}\nFull traceback was logged above."
                 )
-            elif (
-                isinstance(provider, GroqAPI)
-                or provider.__class__.__name__ == "OllamaClient"
-            ):
-                error_msg += (
-                    ": Check if the model is running or if there's a connection issue"
-                )
+                # Raise with exception chaining to preserve the original exception
+                raise Exception(error_msg) from stream_exception
+            else:
+                # No exception was caught, so provide diagnostic hints based on provider
+                if isinstance(provider, GoogleAPI):
+                    error_msg += "\nPossible causes: Response blocked by safety filters, prompt rejected, or API error"
+                elif isinstance(provider, AnthropicAPI):
+                    error_msg += "\nPossible causes: Model overload, content filtered, or API error"
+                elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
+                    error_msg += "\nPossible causes: API quota exceeded, rate limits, content moderation, or API error"
+                elif (
+                    isinstance(provider, GroqAPI)
+                    or provider.__class__.__name__ == "OllamaClient"
+                ):
+                    error_msg += "\nPossible causes: Model not running, connection issue, or server error"
 
-            logger.warning(error_msg)
-            raise Exception(error_msg)
+                logger.warning(error_msg)
+                raise Exception(error_msg)
 
         return full_response
 

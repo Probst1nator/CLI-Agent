@@ -9,6 +9,8 @@ Requirements:
     pip install playwright requests
     playwright install chromium
 """
+from __future__ import annotations
+
 import asyncio
 import json
 import subprocess
@@ -16,15 +18,20 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-try:
+if TYPE_CHECKING:
     from playwright.async_api import Page, async_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    Page = None  # Define as None for type hints when not installed
-    print("WARNING: Playwright not installed. Install with: pip install playwright")
-    print("Then run: playwright install chromium")
+
+PLAYWRIGHT_AVAILABLE = False
+if not TYPE_CHECKING:
+    try:
+        from playwright.async_api import Page, async_playwright
+        PLAYWRIGHT_AVAILABLE = True
+    except ImportError:
+        Page = None  # type: ignore
+        print("WARNING: Playwright not installed. Install with: pip install playwright")
+        print("Then run: playwright install chromium")
 
 try:
     import requests

@@ -6,6 +6,8 @@ and audit logging. Auto-starts when visualresponse tool is called,
 auto-stops when last client disconnects (unless --gui flag is set).
 """
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
@@ -16,16 +18,21 @@ import time
 import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-try:
+if TYPE_CHECKING:
     import aiohttp
     from aiohttp import web
-    AIOHTTP_AVAILABLE = True
-except ImportError:
-    web = None
-    aiohttp = None
-    AIOHTTP_AVAILABLE = False
+
+AIOHTTP_AVAILABLE = False
+if not TYPE_CHECKING:
+    try:
+        import aiohttp
+        from aiohttp import web
+        AIOHTTP_AVAILABLE = True
+    except ImportError:
+        web = None  # type: ignore
+        aiohttp = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 

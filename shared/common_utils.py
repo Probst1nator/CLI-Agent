@@ -37,7 +37,7 @@ from core.globals import g
 # Moved pdfminer imports to lazy loading in functions that need them
 from core.providers.cls_ollama_interface import OllamaClient
 
-r: Recognizer = None
+r: Optional[Recognizer] = None
 def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
     """
     Calibrate the microphone for ambient noise.

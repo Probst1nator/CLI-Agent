@@ -169,7 +169,7 @@ def test_model_capability_check_local_filtering():
                 )
                 return False
 
-            if "local mismatch" not in reason:
+            if not reason or "local mismatch" not in reason:
                 print(f"  ❌ Expected 'local mismatch' in reason, got: {reason}")
                 return False
 

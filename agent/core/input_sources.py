@@ -301,6 +301,11 @@ class GUIInputSource(InputSource_ABC):
         if not all([self._input_event, self._input_lock, self._shared_input]):
             raise RuntimeError("GUI handlers not configured")
 
+        # Type narrowing assertions for type checker
+        assert self._input_event is not None
+        assert self._input_lock is not None
+        assert self._shared_input is not None
+
         self.logger.debug("Waiting for GUI input event...")
 
         # Wait for GUI input

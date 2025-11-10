@@ -5,6 +5,11 @@ agent to deliver its final, conversational answer to the user, signaling the
 end of its operational turn.
 """
 
+import re
+
+from core.tool_context import tool_context
+
+
 class response:
     """
     A structural tool to wrap the agent's final conversational output.
@@ -22,8 +27,8 @@ class response:
         """Provides standardized documentation for this tool for the agent's system prompt."""
         return {
             "name": "response",
-            "description": "Delivers the final, conversational answer to the user. Use this after all other tools have been used to complete your turn.",
-            "example": "<response>I have successfully read the file and here is the summary.</response>"
+            "description": "Delivers the final, conversational answer to the user. Use this after all other tools have been used to complete your turn. Supports optional <end_turn> parameter to control whether the agent's turn ends (default: true).",
+            "example": "<response>I have successfully read the file and here is the summary.</response>\n\n<!-- Continue executing after response -->\n<response><end_turn>false</end_turn>Here is my partial answer, I will continue working.</response>"
         }
 
     @staticmethod
@@ -35,12 +40,24 @@ class response:
         In CLI mode: Returns empty string (main loop displays content directly).
 
         Args:
-            content: The text content to display to the user
+            content: The text content to display to the user.
+                    Supports optional <end_turn>true/false</end_turn> parameter
+                    to control whether the agent's turn ends (default: true).
 
         Returns:
             The content string in GUI/API mode, empty string in CLI mode
         """
         try:
+            # Parse end_turn parameter (default: True for backward compatibility)
+            end_turn = True
+            end_turn_match = re.search(r'<end_turn>\s*(true|false)\s*</end_turn>', content, re.IGNORECASE)
+            if end_turn_match:
+                end_turn = end_turn_match.group(1).lower() == 'true'
+                # Remove the tag from content
+                content = re.sub(r'<end_turn>\s*(true|false)\s*</end_turn>', '', content, flags=re.IGNORECASE).strip()
+
+            # Set the end_turn flag in tool_context for main loop to check
+            tool_context.set_end_turn(end_turn)
             import asyncio
             import logging
             import time

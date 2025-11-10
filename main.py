@@ -653,7 +653,9 @@ def list_tools_and_exit() -> None:
 
     # Get tool info
     tool_info = g.loaded_tool_info
-    all_tool_names = set(tool_info["loaded_tools"])
+    if not tool_info:
+        tool_info = {"loaded_tools": [], "skipped_tools": []}
+    all_tool_names = set(tool_info.get("loaded_tools", []))
     disabled_tool_names = set(disabled_tools)
     skipped_tool_names = set(tool_info.get("skipped_tools", []))
 
@@ -3004,6 +3006,9 @@ async def main(  # type: ignore[misc]
                     print(colored("\n🛑 Agent loop interrupted by user.", "red"))
                     break
 
+                # Reset end_turn flag at the start of each agent loop iteration
+                tool_context.clear_end_turn()
+
                 try:
                     if assistant_response:
                         context_chat.add_message(Role.ASSISTANT, assistant_response)
@@ -4064,12 +4069,16 @@ You can also use bash tools like grep to search:
 
                                     # Check for images from tool context and add them to the chat
                                     if tool_context.has_images():
-                                        context_chat.base64_images.extend(
-                                            tool_context.get_images()
-                                        )
+                                        images = tool_context.get_images()
+                                        # Attach images to last USER message so LLM sees them as input
+                                        # Provider interfaces (to_gemini, to_anthropic) only check message.images, not chat.base64_images
+                                        for i in range(len(context_chat.messages) - 1, -1, -1):
+                                            if context_chat.messages[i].role == Role.USER:
+                                                context_chat.messages[i].images.extend(images)
+                                                break
                                         logging.info(
                                             colored(
-                                                f"📸 Added {len(tool_context.get_images())} image(s) to chat context for vision analysis",
+                                                f"📸 Added {len(images)} image(s) to last user message for vision analysis",
                                                 "blue",
                                             )
                                         )
@@ -4253,12 +4262,15 @@ You can also use bash tools like grep to search:
                                         )
 
                                 # Now check if we should break (after TTS has been processed)
+                                # Check tool_context.get_end_turn() instead of hardcoded tool names
                                 if (
-                                    tool_name in ["response", "visualresponse"]
+                                    tool_context.get_end_turn()
                                     and "error" not in returned_context.lower()
                                 ):
                                     # Set flag to break from outer agent loop after tool execution completes
                                     should_break_agent_loop = True
+                                    # Clear the end_turn flag after using it
+                                    tool_context.clear_end_turn()
                                     break  # Break from tool execution for loop
 
                                 continue  # Continue the agent loop for the next action
@@ -4315,7 +4327,7 @@ You can also use bash tools like grep to search:
                         # Check if we should break from agent loop after tool execution
                         if should_break_agent_loop:
                             logging.debug(
-                                "Breaking from agent loop after visualresponse/response tool execution"
+                                "Breaking from agent loop after tool set end_turn=true"
                             )
                             break  # Break from outer agent while loop
 

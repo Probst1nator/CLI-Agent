@@ -51,10 +51,11 @@ def test_piper_basic():
         )
 
         if audio_files:
-            print(f"✅ German audio generated: {audio_files[0]}")
+            # Note: audio_files is currently typed as bool, but implementation may return list
+            print(f"✅ German audio generated: {audio_files[0]}")  # type: ignore[index]
 
             # Check file exists and has content
-            audio_file = Path(audio_files[0])
+            audio_file = Path(audio_files[0])  # type: ignore[index]
             if audio_file.exists():
                 size = audio_file.stat().st_size
                 print(f"📁 File size: {size} bytes")
@@ -87,10 +88,11 @@ def test_piper_basic():
         )
 
         if audio_files:
-            print(f"✅ English audio generated: {audio_files[0]}")
+            # Note: audio_files is currently typed as bool, but implementation may return list
+            print(f"✅ English audio generated: {audio_files[0]}")  # type: ignore[index]
 
             # Check file exists and has content
-            audio_file = Path(audio_files[0])
+            audio_file = Path(audio_files[0])  # type: ignore[index]
             if audio_file.exists():
                 size = audio_file.stat().st_size
                 print(f"📁 File size: {size} bytes")

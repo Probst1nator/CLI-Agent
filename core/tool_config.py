@@ -8,6 +8,7 @@ and a centralized interface for modifying tool availability.
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class ToolConfigManager:
 
 
 # Global singleton instance
-_tool_config_manager: ToolConfigManager = None
+_tool_config_manager: Optional[ToolConfigManager] = None
 
 
 def get_tool_config_manager() -> ToolConfigManager:

@@ -70,7 +70,7 @@ Respond with ONLY a JSON object containing:
             "modifications_needed": None
         }
 
-def request_implementation(
+async def request_implementation(
     context_chat: Chat,
     requirements: str,
     args: argparse.Namespace
@@ -102,7 +102,7 @@ The implementation must:
 Respond with ONLY the Python code, no explanations or markdown."""
     )
 
-    response = LlmRouter.generate_completion(
+    response = await LlmRouter.generate_completion(
         implement_chat,
         ["claude-3-5-sonnet-latest", "gpt-4o", "qwen2.5-coder:7b-instruct"],
         force_local=args.local

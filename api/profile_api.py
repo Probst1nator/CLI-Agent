@@ -4,16 +4,22 @@ Profile API endpoints for CLI-Agent.
 Provides LLM profile management endpoints.
 """
 
-import logging
-from typing import Any
+from __future__ import annotations
 
-try:
+import logging
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
     from aiohttp import web
 
-    AIOHTTP_AVAILABLE = True
-except ImportError:
-    web = None
-    AIOHTTP_AVAILABLE = False
+AIOHTTP_AVAILABLE = False
+if not TYPE_CHECKING:
+    try:
+        from aiohttp import web
+
+        AIOHTTP_AVAILABLE = True
+    except ImportError:
+        web = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 

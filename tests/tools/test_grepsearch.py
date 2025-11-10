@@ -261,20 +261,20 @@ def test_grepsearch_error_cases():
     with tempfile.TemporaryDirectory() as temp_dir:
 
         # Test missing pattern
-        result = search.run(f"<path>{temp_dir}</path>")
+        result = grepsearch.run(f"<path>{temp_dir}</path>")
         assert result.startswith("Error: Invalid format"), "Should fail without pattern"
 
         # Test empty pattern
-        result = search.run(f"<pattern></pattern><path>{temp_dir}</path>")
+        result = grepsearch.run(f"<pattern></pattern><path>{temp_dir}</path>")
         assert result.startswith("Error: Search pattern cannot be empty"), "Should fail with empty pattern"
 
         # Test invalid regex pattern
-        result = search.run(f"<pattern>[invalid regex</pattern><path>{temp_dir}</path>")
+        result = grepsearch.run(f"<pattern>[invalid regex</pattern><path>{temp_dir}</path>")
         assert result.startswith("Error: Invalid regex pattern"), "Should fail with invalid regex"
 
         # Test non-existent path
         fake_path = os.path.join(temp_dir, "nonexistent")
-        result = search.run(f"<pattern>test</pattern><path>{fake_path}</path>")
+        result = grepsearch.run(f"<pattern>test</pattern><path>{fake_path}</path>")
         assert result.startswith("Error: Path does not exist"), "Should fail for non-existent path"
 
         return True
