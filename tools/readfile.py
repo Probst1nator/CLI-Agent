@@ -1229,6 +1229,44 @@ class readfile:
                 # Silently fail if globals not available
                 pass
 
+            # Check if this is a memory file that's too large to read in full
+            # This prevents recursive memory file creation when LLM tries to read large memory files
+            try:
+                from pathlib import Path
+                memory_dir = Path.home() / ".cli-agent" / "memory"
+                file_path_obj = Path(full_path)
+
+                # Check if file is in memory directory
+                is_memory_file = False
+                try:
+                    file_path_obj.relative_to(memory_dir)
+                    is_memory_file = True
+                except ValueError:
+                    is_memory_file = False
+
+                # If it's a memory file and content is too large, return warning instead
+                if is_memory_file and len(file_content) > readfile.CONTENT_THRESHOLD:
+                    lines_count = len(file_content.splitlines())
+                    char_count = len(file_content)
+
+                    return f"""⚠️  Memory file too large to read in full ({lines_count:,} lines, {char_count:,} characters).
+
+This is a memory file created from previous tool output. Reading it in full would bloat the context.
+
+Use targeted read operations instead:
+
+Read specific line ranges:
+  <readfile><filepath>{full_path}</filepath><lines>1-50</lines></readfile>  (first 50 lines)
+  <readfile><filepath>{full_path}</filepath><lines>{max(1, lines_count - 50)}-{lines_count}</lines></readfile>  (last 50 lines)
+  <readfile><filepath>{full_path}</filepath><lines>100-200</lines></readfile>  (lines 100-200)
+
+Search for keywords:
+  <searchfile><query>your_search_term</query><path>{full_path}</path></searchfile>"""
+
+            except Exception:
+                # Silently fail - if check fails, just return content normally
+                pass
+
             # Return full content - main.py will automatically create resource if too large
             return search_message + file_content
 

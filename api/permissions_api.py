@@ -356,10 +356,117 @@ async def save_as_default_permissions(request: Any) -> Any:
         }, status=500)
 
 
+async def add_permission_rule(request: Any) -> Any:
+    """POST /api/permissions/add-rule
+
+    Add a single permission rule to the current permissions.
+    If an active profile exists, update it. Otherwise, update settings.json.
+
+    Request body:
+        {
+            "permission_type": "allow" | "deny" | "ask",
+            "rule": "bash(npm:*)" | "readfile(./src/**)" | tool name, etc.
+        }
+
+    Returns:
+        {
+            "status": "success",
+            "message": "Permission rule added",
+            "permissions": {...}
+        }
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        from core.globals import g
+        from core.llm_profiles import get_profile_manager
+        from core.permissions.settings_manager import SettingsManager
+
+        data = await request.json()
+
+        # Validate input
+        permission_type = data.get("permission_type")
+        rule = data.get("rule")
+
+        if not permission_type or permission_type not in ["allow", "deny", "ask"]:
+            return web.json_response({
+                "status": "error",
+                "error": "permission_type must be 'allow', 'deny', or 'ask'",
+                "code": "INVALID_INPUT"
+            }, status=400)
+
+        if not rule or not isinstance(rule, str):
+            return web.json_response({
+                "status": "error",
+                "error": "rule must be a non-empty string",
+                "code": "INVALID_INPUT"
+            }, status=400)
+
+        # Get active profile (if any)
+        profile_id = g.get_active_profile_id()
+
+        if profile_id:
+            # Profile is active - update the profile
+            profile_manager = get_profile_manager()
+            profile = profile_manager.get_profile(profile_id)
+
+            if profile:
+                # Get current permissions
+                current_perms = profile.permissions.copy()
+
+                # Add the new rule to the appropriate list (if not already there)
+                if rule not in current_perms.get(permission_type, []):
+                    current_perms.setdefault(permission_type, []).append(rule)
+
+                    # Update profile
+                    profile.update_permissions(
+                        current_perms.get("allow", []),
+                        current_perms.get("deny", []),
+                        current_perms.get("ask", [])
+                    )
+
+                    # Save profile
+                    profile_manager.save_profiles()
+
+                    # Apply permissions immediately
+                    profile.apply_permissions()
+
+                    logger.info(f"Added permission rule '{rule}' ({permission_type}) to profile '{profile_id}'")
+
+                return web.json_response({
+                    "status": "success",
+                    "message": f"Permission rule added to profile {profile_id}",
+                    "permissions": profile.permissions
+                })
+
+        # No active profile or profile not found - update settings.json directly
+        mgr = SettingsManager()
+        mgr.add_permission(permission_type, rule)
+        mgr.save_settings()
+
+        logger.info(f"Added permission rule '{rule}' ({permission_type}) to settings.json")
+
+        return web.json_response({
+            "status": "success",
+            "message": "Permission rule added",
+            "permissions": mgr.get_all_permissions()
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to add permission rule: {e}", exc_info=True)
+        return web.json_response({
+            "status": "error",
+            "error": f"Failed to add permission rule: {str(e)}",
+            "code": "INTERNAL_ERROR"
+        }, status=500)
+
+
 def setup_routes(app: Any):
     """Register all permissions API routes"""
     app.router.add_get("/api/permissions", get_permissions)
     app.router.add_post("/api/permissions", update_permissions)
+    app.router.add_post("/api/permissions/add-rule", add_permission_rule)
     app.router.add_post("/api/permissions/reset", reset_permissions)
     app.router.add_post("/api/permissions/save-as-default", save_as_default_permissions)
     logger.info("Permissions API routes registered")

@@ -1097,10 +1097,14 @@ class ContentRenderer {
                     </div>
                 `;
 
-                // Add click handler for expandable details (only for new items)
-                if (!isUpdating) {
-                    const mainDiv = toolItem.querySelector('.loading-tool-main');
-                    mainDiv.addEventListener('click', () => {
+                // Add click handler for expandable details (for all items, new or existing)
+                const mainDiv = toolItem.querySelector('.loading-tool-main');
+                if (mainDiv) {
+                    // Remove any existing click handlers to avoid duplicates
+                    const newMainDiv = mainDiv.cloneNode(true);
+                    mainDiv.parentNode.replaceChild(newMainDiv, mainDiv);
+
+                    newMainDiv.addEventListener('click', () => {
                         const details = toolItem.querySelector('.loading-tool-details');
                         const isCollapsed = details.classList.contains('collapsed');
 
@@ -1112,7 +1116,10 @@ class ContentRenderer {
                             details.classList.add('collapsed');
                         }
                     });
+                }
 
+                // Only append to DOM if this is a new item
+                if (!isUpdating) {
                     toolsHeader.appendChild(toolItem);
                 }
             });

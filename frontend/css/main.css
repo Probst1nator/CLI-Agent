@@ -2619,6 +2619,18 @@ code:not(pre > code) {
     font-weight: 600;
 }
 
+.permission-args {
+    display: inline-block;
+    background: rgba(0, 0, 0, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+    color: var(--text-color);
+    word-break: break-word;
+    max-width: 100%;
+}
+
 .permission-actions {
     margin-top: 15px;
     display: flex;
@@ -4983,6 +4995,29 @@ html[data-theme='light'] .autocomplete-item.selected {
 
 .autocomplete-container::-webkit-scrollbar-thumb:hover {
     background-color: var(--primary-color);
+}
+
+/* Inline ghost text for autocomplete preview */
+.autocomplete-inline-ghost {
+    position: absolute;
+    left: 0;
+    top: 0;
+    padding: 10px 15px;
+    color: rgba(128, 128, 128, 0.5);
+    font-size: 1rem;
+    font-family: inherit;
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    z-index: 1;
+}
+
+html[data-theme='dark'] .autocomplete-inline-ghost {
+    color: rgba(200, 200, 200, 0.4);
+}
+
+html[data-theme='light'] .autocomplete-inline-ghost {
+    color: rgba(100, 100, 100, 0.5);
 }
 
 /* ============================================

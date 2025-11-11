@@ -337,9 +337,10 @@ class WebSocketManager {
             contentHTML += `<p><strong>File:</strong> ${permissionData.file_path}</p>`;
         }
 
-        if (permissionData.args_display) {
-            contentHTML += `<p><strong>Command:</strong> ${permissionData.args_display}</p>`;
-        }
+        // Always show args (truncated to fit the permission box width)
+        const argsText = permissionData.args_display || 'No arguments';
+        const truncatedArgs = this.truncateText(argsText, 100);
+        contentHTML += `<p><strong>Arguments:</strong> <code class="permission-args">${this.escapeHtml(truncatedArgs)}</code></p>`;
 
         contentHTML += `</div>`;
 
@@ -1215,6 +1216,19 @@ class WebSocketManager {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /**
+     * Truncates text to a maximum length and adds ellipsis
+     * @private
+     * @param {string} text - Text to truncate
+     * @param {number} maxLength - Maximum length before truncation
+     * @returns {string} Truncated text with "..." if needed
+     */
+    truncateText(text, maxLength = 100) {
+        if (!text) return '';
+        if (text.length <= maxLength) return text;
+        return text.substring(0, maxLength) + '...';
     }
 
 

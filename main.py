@@ -3990,11 +3990,13 @@ async def main(  # type: ignore[misc]
 
 Memory file: {memory_file}
 
-Use <readfile>{memory_file}</readfile> to read the full content.
-You can also use bash tools like grep to search:
-  <bash>grep -n "error" {memory_file}</bash>
-  <bash>head -50 {memory_file}</bash>
-  <bash>tail -50 {memory_file}</bash>"""
+Read specific sections using line ranges:
+  <readfile><filepath>{memory_file}</filepath><lines>1-50</lines></readfile>  (first 50 lines)
+  <readfile><filepath>{memory_file}</filepath><lines>{lines_count - 50}-{lines_count}</lines></readfile>  (last 50 lines)
+  <readfile><filepath>{memory_file}</filepath><lines>100-200</lines></readfile>  (lines 100-200)
+
+Search for keywords:
+  <searchfile><query>error</query><path>{memory_file}</path></searchfile>"""
                                         except Exception as e:
                                             # Fallback to truncation if memory save fails
                                             logging.debug(f"Failed to save tool output to memory: {e}")

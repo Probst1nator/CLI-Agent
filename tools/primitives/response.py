@@ -74,6 +74,7 @@ class response:
                         'type': 'assistant_message',
                         'action': 'display',
                         'message': content,
+                        'format': 'markdown',  # Indicate content should be rendered as markdown
                         'id': int(time.time() * 1000000),
                         'timestamp': time.time()
                     }

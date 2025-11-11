@@ -339,6 +339,27 @@ class Llm:
             # OllamaClient not available, skip Ollama models
             pass
 
+        # Add HuggingFace Local models (transformers-based inference)
+        try:
+            from core.providers.cls_huggingface_local_interface import (
+                HuggingFaceLocalClient,
+            )
+            from core.providers.huggingface_local_models import SUPPORTED_MODELS
+
+            for model_info in SUPPORTED_MODELS:
+                llms.append(
+                    Llm(
+                        HuggingFaceLocalClient(),
+                        model_info["model_key"],
+                        None,  # Free local inference
+                        model_info["context_window"],
+                        model_info["capabilities"],
+                    )
+                )
+        except ImportError:
+            # HuggingFaceLocalClient not available, skip HF local models
+            pass
+
         # Non-Ollama guard models
         if GroqAPI:
             llms.extend(
