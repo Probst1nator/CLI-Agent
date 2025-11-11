@@ -280,7 +280,7 @@ async def save_as_default_permissions(request: Any) -> Any:
 
     Save current permissions as the default template.
     Gets current permissions from active profile or settings.json,
-    then saves them to templates/default_settings.json.
+    then saves them to core/permissions/default_settings.json.
 
     Returns:
         {
@@ -322,7 +322,7 @@ async def save_as_default_permissions(request: Any) -> Any:
             logger.info("Getting permissions from settings.json to save as default")
 
         # Load current template to preserve other settings
-        template_path = Path(__file__).parent.parent / "templates" / "default_settings.json"
+        template_path = Path(__file__).parent.parent / "core" / "permissions" / "default_settings.json"
 
         if template_path.exists():
             with open(template_path) as f:
