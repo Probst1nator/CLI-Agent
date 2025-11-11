@@ -2,6 +2,20 @@
 
 Guidance for Claude Code when working with this repository.
 
+## Core Principles
+
+### No Legacy Mindset
+
+**Clean breaks over backward compatibility**: When restructuring or refactoring, make clean breaks instead of maintaining legacy compatibility layers. No symlinks, no deprecated aliases, no transitional shims. Update everything to use the new structure immediately. Technical debt starts as "temporary" but becomes permanent.
+
+If something needs to change:
+1. ✅ Change it completely
+2. ✅ Update all references immediately
+3. ❌ Don't create compatibility layers
+4. ❌ Don't add "we'll remove this later" code
+
+This keeps the codebase clean and forces proper migration instead of accumulated cruft.
+
 ## Quick Commands
 
 ### Testing & Quality
@@ -57,7 +71,95 @@ grep "Model.*selected" ~/.cli-agent/logs/session.log # LLM routing
 - `~/.cli-agent/logs/tools_<name>.log` - Per-tool (14d, 20MB)
 - `~/.cli-agent/audit_logs/sessions/` - Session audits (90d)
 
-See `docs/LOGGING.md` for full documentation.
+See `shared/docs/LOGGING.md` for full documentation.
+
+## Documentation Strategy
+
+**Hierarchical Documentation**: This project uses a distributed, hierarchical documentation structure where documentation lives close to the code it describes, with increasing specificity as you traverse the directory tree.
+
+### Structure Principles
+
+1. **Locality**: Documentation lives in `docs/` folders within each component directory
+2. **Specificity**: More detailed documentation at deeper levels
+3. **Navigation**: Each component's INDEX.md links to its local docs
+
+### Documentation Layers
+
+**Root Level** (`/docs/`): Cross-cutting concerns
+- Development workflow (linting, debugging, testing)
+- Release process and deployment
+- High-level architecture decisions
+- Getting started guides
+
+**Component Level** (`component/docs/`): Component architecture
+- Design decisions and patterns
+- Component-specific workflows
+- Integration with other components
+
+**Subcomponent Level** (`component/subdir/docs/`): Implementation details
+- Specific feature documentation
+- API references
+- Implementation guides
+
+### Standard Files
+
+Each major component maintains:
+- `INDEX.md` - Quick overview, file listing (already present)
+- `docs/README.md` - Architectural deep-dive for that component
+- `docs/*.md` - Feature-specific documentation
+
+### Finding Documentation
+
+1. **For a specific component**: Check `<component>/docs/` first
+   - `core/docs/` for LLM router, providers, permissions
+   - `api/docs/` for backend API, sessions, WebSocket
+   - `frontend/docs/` for UI, state management, audio
+   - `agent/docs/` for commands, GUI, app context
+   - `tools/docs/` for tool implementations
+   - `shared/docs/` for utilities (logging, audio, file handling)
+   - `docker_files/docs/` for deployment and containers
+   - `infrastructure/docs/` for rate limiting, vector DB
+   - `tests/docs/` for testing strategy
+
+2. **For cross-cutting concerns**: Check root `/docs/`
+   - Development: `docs/development/`
+   - Deployment: `docs/deployment/`
+
+3. **Master index**: See `/docs/INDEX.md` for complete documentation map
+
+### When to Update Docs
+
+- **Changing code**: Update the closest `docs/` folder to your changes
+- **New feature**: Add doc to the component's `docs/` folder
+- **Cross-cutting change**: Update root `/docs/` + affected component docs
+- **Architecture change**: Update component's `docs/README.md`
+
+### Example Lookups
+
+```
+# Working on LLM router?
+→ core/docs/README.md, core/docs/LLM_ROUTER_API.md
+
+# Adding a new permission feature?
+→ core/permissions/docs/PERMISSION_SYSTEM.md
+
+# Modifying frontend state management?
+→ frontend/docs/README.md, frontend/docs/STATE_MANAGEMENT.md
+
+# Changing Docker deployment?
+→ docker_files/docs/README.md, docker_files/docs/DEPLOYMENT.md
+
+# Setting up development environment?
+→ docs/development/LINTER_SETUP.md
+```
+
+### Documentation References
+
+When referencing other docs, use relative paths from the project root:
+```markdown
+See also: core/permissions/docs/PERMISSION_SYSTEM.md
+Architecture: api/docs/README.md
+```
 
 ## Architecture
 
