@@ -873,8 +873,10 @@ class LlmRouter:
         Returns:
             str: The full response string
         """
+        import time
         import traceback
 
+        start_time = time.time()
         full_response = ""
         finished_response = ""
         token_stream_painter = TextStreamPainter()
@@ -904,8 +906,10 @@ class LlmRouter:
                     )
             # ! OpenAI/NVIDIA
             elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
+                chunk_count = 0
                 if hasattr(stream, "choices"):
                     for chunk in stream:
+                        chunk_count += 1
                         # Safely access delta content
                         token = None
                         if (
@@ -925,14 +929,22 @@ class LlmRouter:
                                     break
                             elif (not hidden_reason) or g.DEBUG_MODE:
                                 g.print_token(token_stream_painter.apply_color(token))
+
+                    # Check if we got zero chunks
+                    if chunk_count == 0:
+                        logger.warning(f"{provider_name} API returned empty stream for {model_key or 'unknown'}: Stream yielded zero chunks")
+                        raise Exception(f"{provider_name} API: Stream yielded zero chunks")
+
             # ! Google Gemini - IMPROVED HANDLING
             elif isinstance(provider, GoogleAPI):
                 try:
                     first_chunk_processed = False
                     last_finish_reason = None
                     last_safety_ratings = None
+                    last_chunk = None  # Store last chunk for post-processing
 
                     for chunk in stream:  # chunk is a GenerateContentResponse
+                        last_chunk = chunk  # Track for debugging
                         if not first_chunk_processed:
                             first_chunk_processed = True
                             # Minimal check for immediate prompt blocking on the first chunk
@@ -1019,6 +1031,19 @@ class LlmRouter:
                     if finished_response and isinstance(finished_response, str):
                         return finished_response
 
+                    # Check if we got zero chunks from the stream
+                    if not first_chunk_processed:
+                        # Stream yielded no chunks at all - this is unusual
+                        error_detail = "Stream yielded zero chunks"
+
+                        # Try to inspect the stream object for error information
+                        if hasattr(stream, 'prompt_feedback') and stream.prompt_feedback:
+                            if hasattr(stream.prompt_feedback, 'block_reason') and stream.prompt_feedback.block_reason:
+                                error_detail = f"Prompt blocked: {stream.prompt_feedback.block_reason}"
+
+                        logger.warning(f"Google API returned empty stream for {model_key or 'unknown'}: {error_detail}")
+                        raise Exception(f"Google API: {error_detail}")
+
                     # Check if stream ended with no content but has blocking info
                     if (
                         not full_response or not full_response.strip()
@@ -1081,6 +1106,11 @@ class LlmRouter:
                         elif (not hidden_reason) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
 
+                # Check if we got zero chunks
+                if chunk_count == 0:
+                    logger.warning(f"{provider_name} API returned empty stream for {model_key or 'unknown'}: Stream yielded zero chunks")
+                    raise Exception(f"{provider_name} API: Stream yielded zero chunks")
+
             # Fallback for other unknown stream types (original logic)
             else:
                 for chunk_item in stream:  # Renamed to avoid conflict
@@ -1094,6 +1124,9 @@ class LlmRouter:
                         elif (not hidden_reason) or g.DEBUG_MODE:
                             g.print_token(token_stream_painter.apply_color(token))
 
+        except (UserInterruptedException, StreamInterruptedException):
+            # These are normal control flow exceptions, not errors - re-raise immediately
+            raise
         except Exception as e:
             # Capture the exception for later use
             stream_exception = e
@@ -1109,33 +1142,22 @@ class LlmRouter:
 
         # Check for empty response before returning
         if not full_response or not full_response.strip():
+            elapsed_time = time.time() - start_time
+            elapsed_str = f"{elapsed_time:.1f}s" if elapsed_time < 60 else f"{elapsed_time/60:.1f}min"
+
             error_msg = f"Empty response from {provider_name}"
             if model_key:
                 error_msg += f" ({model_key})"
+            error_msg += f" after waiting {elapsed_str}"
 
             # If we captured an exception during streaming, include it in the error
             if stream_exception:
                 error_msg += f"\nUnderlying error: {type(stream_exception).__name__}: {str(stream_exception)}"
-                # Log the connection between empty response and the exception
-                logger.warning(
-                    f"{error_msg}\nFull traceback was logged above."
-                )
+                logger.warning(f"{error_msg}\nFull traceback was logged above.")
                 # Raise with exception chaining to preserve the original exception
                 raise Exception(error_msg) from stream_exception
             else:
-                # No exception was caught, so provide diagnostic hints based on provider
-                if isinstance(provider, GoogleAPI):
-                    error_msg += "\nPossible causes: Response blocked by safety filters, prompt rejected, or API error"
-                elif isinstance(provider, AnthropicAPI):
-                    error_msg += "\nPossible causes: Model overload, content filtered, or API error"
-                elif isinstance(provider, OpenAIAPI) or isinstance(provider, NvidiaAPI):
-                    error_msg += "\nPossible causes: API quota exceeded, rate limits, content moderation, or API error"
-                elif (
-                    isinstance(provider, GroqAPI)
-                    or provider.__class__.__name__ == "OllamaClient"
-                ):
-                    error_msg += "\nPossible causes: Model not running, connection issue, or server error"
-
+                # No exception was caught - just log and raise the basic error
                 logger.warning(error_msg)
                 raise Exception(error_msg)
 

@@ -4899,7 +4899,7 @@ window.hideAutonomyConfiguration = function(permissionId) {
  * Save autonomy configuration (either general permission or specific scope)
  * @param {string} permissionId - The ID of the permission request
  */
-window.saveAutonomyConfiguration = function(permissionId) {
+window.saveAutonomyConfiguration = async function(permissionId) {
     console.log('saveAutonomyConfiguration called', { permissionId });
 
     const panel = document.getElementById(`autonomy-config-${permissionId}`);
@@ -4915,7 +4915,7 @@ window.saveAutonomyConfiguration = function(permissionId) {
         // User selected a specific scope rule
         const rule = selectedScope.getAttribute('data-rule');
         if (rule) {
-            return window.sendPermissionResponseWithRule(permissionId, rule);
+            return await window.sendPermissionResponseWithRule(permissionId, rule, 'allow');
         }
     }
 
@@ -4940,59 +4940,75 @@ window.saveAutonomyConfiguration = function(permissionId) {
         return false;
     }
 
-    // Send permission response with general tool-level permission
-    if (window.wsManager && window.wsManager.sendMessage) {
-        const response = {
-            type: 'permission_response',
-            permission_id: permissionId,
-            result: `always_${permission}`,  // 'always_allow', 'always_ask', or 'always_deny'
-            rule: toolName,  // Just the tool name for general permission
-            timestamp: Date.now()
-        };
-
-        window.wsManager.sendMessage(JSON.stringify(response));
-
-        // Remove the permission request from UI
-        const permissionElement = document.getElementById('permission-' + permissionId);
-        if (permissionElement) {
-            permissionElement.remove();
-        }
-
-        return true;
-    } else {
-        console.error('WebSocket manager not available for permission response');
-        return false;
-    }
+    // Save permission via REST API instead of WebSocket
+    return await window.sendPermissionResponseWithRule(permissionId, toolName, permission);
 };
 
 /**
  * Send permission response with a specific rule
  * @param {string} permissionId - The ID of the permission request
  * @param {string} rule - The permission rule to apply
+ * @param {string} permissionType - The permission type: 'allow', 'deny', or 'ask'
  */
-window.sendPermissionResponseWithRule = function(permissionId, rule) {
-    console.log('sendPermissionResponseWithRule called', { permissionId, rule });
+window.sendPermissionResponseWithRule = async function(permissionId, rule, permissionType = 'allow') {
+    console.log('sendPermissionResponseWithRule called', { permissionId, rule, permissionType });
 
-    if (window.wsManager && window.wsManager.sendMessage) {
-        const response = {
-            type: 'permission_response',
-            permission_id: permissionId,
-            result: 'always_allow',
-            rule: rule,
-            timestamp: Date.now()
-        };
+    try {
+        // Build URL for multi-user support
+        const url = window.backendConnector
+            ? await window.backendConnector.buildURL('/api/permissions/add-rule')
+            : '/api/permissions/add-rule';
 
-        window.wsManager.sendMessage(JSON.stringify(response));
+        // Save permission to backend via REST API
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': window.sessionId || ''
+            },
+            body: JSON.stringify({
+                permission_type: permissionType,
+                rule: rule
+            })
+        });
 
-        // Remove the permission request from UI
-        const permissionElement = document.getElementById('permission-' + permissionId);
-        if (permissionElement) {
-            permissionElement.remove();
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            console.log('✅ Permission rule saved successfully:', data);
+
+            // Also send the permission response to resolve the active permission prompt
+            if (window.wsManager && window.wsManager.sendMessage) {
+                const wsResponse = {
+                    type: 'permission_response',
+                    permission_id: permissionId,
+                    result: `always_${permissionType}`,
+                    rule: rule,
+                    timestamp: Date.now()
+                };
+                window.wsManager.sendMessage(JSON.stringify(wsResponse));
+            }
+
+            // Remove the permission request from UI
+            const permissionElement = document.getElementById('permission-' + permissionId);
+            if (permissionElement) {
+                permissionElement.remove();
+            }
+
+            // Show success notification
+            if (window.visualLogger) {
+                window.visualLogger.info(`Permission saved: ${permissionType} ${rule}`);
+            }
+
+            return true;
+        } else {
+            console.error('Failed to save permission:', data.error);
+            alert(`Failed to save permission: ${data.error}`);
+            return false;
         }
-
-        return true;
-    } else {
-        console.error('WebSocket manager not available for permission response');
+    } catch (error) {
+        console.error('Error saving permission:', error);
+        alert(`Error saving permission: ${error.message}`);
         return false;
     }
 };

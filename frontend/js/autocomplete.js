@@ -39,6 +39,8 @@ class AutocompleteManager {
     this.lastInput = '';
     this.showingSuggestedPrompts = false; // Track which type is shown
     this.autoShowDropdown = false; // Don't auto-show until user focuses input
+    this.inlineCompletionVisible = false; // Track if inline ghost text is shown
+    this.currentInlineCompletion = ''; // Store the current inline completion text
 
     // Abort controller for cancelling in-flight custom suggestion requests
     this.customSuggestionsAbortController = null;
@@ -83,6 +85,14 @@ class AutocompleteManager {
 
     // Insert after input element
     this.inputElement.parentElement.insertBefore(this.container, this.inputElement.nextSibling);
+
+    // Create inline ghost text element for inline completion
+    this.ghostText = document.createElement('div');
+    this.ghostText.className = 'autocomplete-inline-ghost';
+    this.ghostText.style.display = 'none';
+
+    // Insert ghost text into the input container
+    this.inputElement.parentElement.insertBefore(this.ghostText, this.inputElement.nextSibling);
   }
 
   /**
@@ -128,16 +138,36 @@ class AutocompleteManager {
 
     // Keydown event - handle navigation and selection
     this.inputElement.addEventListener('keydown', (e) => {
+      // Handle Tab for inline completion (priority over dropdown)
+      if (e.key === 'Tab' && this.inlineCompletionVisible) {
+        e.preventDefault();
+        this.acceptInlineCompletion();
+        return;
+      }
+
+      // Handle Escape for both inline completion and dropdown
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.hideInlineCompletion();
+        this.hide();
+        return;
+      }
+
+      // Rest of the handlers only apply when dropdown is visible
       if (!this.isVisible) return;
 
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
           this.selectNext();
+          // Update inline completion to match selected item
+          this.updateInlineCompletion();
           break;
         case 'ArrowUp':
           e.preventDefault();
           this.selectPrevious();
+          // Update inline completion to match selected item
+          this.updateInlineCompletion();
           break;
         case 'Enter':
           if (this.selectedIndex >= 0) {
@@ -145,11 +175,8 @@ class AutocompleteManager {
             this.insertSuggestion(this.suggestions[this.selectedIndex]);
           }
           break;
-        case 'Escape':
-          e.preventDefault();
-          this.hide();
-          break;
         case 'Tab':
+          // Tab with dropdown visible - insert selected suggestion
           if (this.selectedIndex >= 0) {
             e.preventDefault();
             this.insertSuggestion(this.suggestions[this.selectedIndex]);
@@ -169,6 +196,7 @@ class AutocompleteManager {
     this.inputElement.addEventListener('blur', () => {
       setTimeout(() => {
         this.hide();
+        this.hideInlineCompletion();
         // Disable auto-show when input loses focus
         this.autoShowDropdown = false;
       }, 200);
@@ -394,6 +422,9 @@ class AutocompleteManager {
       this.suggestions = mergedSuggestions;
       this.render();
 
+      // Update inline completion with first suggestion
+      this.updateInlineCompletion();
+
       // Only show dropdown if input is focused (autoShowDropdown flag)
       if (this.autoShowDropdown) {
         this.show();
@@ -406,6 +437,7 @@ class AutocompleteManager {
       this.previousCustomSuggestions.length === 0
     ) {
       this.hide();
+      this.hideInlineCompletion();
     }
   }
 
@@ -464,6 +496,107 @@ class AutocompleteManager {
   }
 
   /**
+   * Update inline ghost text completion based on first suggestion or selected suggestion
+   * Shows completion text after cursor position with transparency
+   * @param {number} suggestionIndex - Optional index of suggestion to use (default: selected or first)
+   */
+  updateInlineCompletion(suggestionIndex = null) {
+    const inputValue = this.inputElement.value;
+
+    // Determine which suggestion to use
+    let targetIndex = suggestionIndex;
+    if (targetIndex === null) {
+      // Use selected suggestion if one is selected, otherwise use first
+      targetIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0;
+    }
+
+    const targetSuggestion = this.suggestions[targetIndex];
+
+    // Hide if no suggestion or input is empty
+    if (!targetSuggestion || inputValue.length === 0) {
+      this.hideInlineCompletion();
+      return;
+    }
+
+    // Get the suggestion text (use fullText for suggestions, text otherwise)
+    const suggestionText = targetSuggestion.fullText || targetSuggestion.text;
+
+    // Check if suggestion starts with current input (case-insensitive for better UX)
+    if (!suggestionText.toLowerCase().startsWith(inputValue.toLowerCase())) {
+      this.hideInlineCompletion();
+      return;
+    }
+
+    // Calculate the completion part (what comes after current input)
+    const completionText = suggestionText.substring(inputValue.length);
+
+    if (completionText.length === 0) {
+      this.hideInlineCompletion();
+      return;
+    }
+
+    // Store the completion for Tab key handler
+    this.currentInlineCompletion = completionText;
+
+    // Create a canvas to measure text width for proper positioning
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    const inputStyles = window.getComputedStyle(this.inputElement);
+    context.font = `${inputStyles.fontSize} ${inputStyles.fontFamily}`;
+
+    // Measure the width of the typed text
+    const typedTextWidth = context.measureText(inputValue).width;
+
+    // Position ghost text after the typed text
+    this.ghostText.textContent = inputValue + completionText;
+    this.ghostText.style.display = 'block';
+    this.ghostText.style.paddingLeft = `calc(15px + ${typedTextWidth}px)`;
+    this.inlineCompletionVisible = true;
+
+    window.visualLogger.debug(
+      `[Autocomplete] Inline completion: "${completionText}" (from: "${suggestionText}")`
+    );
+  }
+
+  /**
+   * Hide inline ghost text completion
+   */
+  hideInlineCompletion() {
+    if (this.ghostText) {
+      this.ghostText.style.display = 'none';
+      this.inlineCompletionVisible = false;
+      this.currentInlineCompletion = '';
+    }
+  }
+
+  /**
+   * Accept the current inline completion by inserting it into the input
+   */
+  acceptInlineCompletion() {
+    if (!this.inlineCompletionVisible || !this.currentInlineCompletion) {
+      return false;
+    }
+
+    // Insert the completion text
+    this.inputElement.value += this.currentInlineCompletion;
+
+    // Trigger input event to update listeners
+    this.inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+
+    // Hide the ghost text
+    this.hideInlineCompletion();
+
+    // Move cursor to end
+    this.inputElement.setSelectionRange(
+      this.inputElement.value.length,
+      this.inputElement.value.length
+    );
+
+    window.visualLogger.info('[Autocomplete] Inline completion accepted');
+    return true;
+  }
+
+  /**
    * Get icon for suggestion type
    * @param {string} type - Suggestion type (command, tool, file, suggestion)
    * @returns {string} Icon character
@@ -500,6 +633,8 @@ class AutocompleteManager {
     this.container.style.display = 'none';
     this.isVisible = false;
     this.selectedIndex = -1;
+    // Note: Don't automatically hide inline completion here
+    // It should persist independently of the dropdown
   }
 
   /**
@@ -575,8 +710,9 @@ class AutocompleteManager {
     // Call custom onSelect callback
     this.options.onSelect(suggestion);
 
-    // Hide dropdown and focus input
+    // Hide dropdown and inline completion
     this.hide();
+    this.hideInlineCompletion();
     this.inputElement.focus();
 
     // Move cursor to end
@@ -710,6 +846,9 @@ class AutocompleteManager {
     this.showingSuggestedPrompts = true;
     this.render();
 
+    // Update inline completion with first suggested prompt
+    this.updateInlineCompletion();
+
     // Only show dropdown if input is focused (autoShowDropdown flag)
     if (this.autoShowDropdown) {
       this.show();
@@ -757,8 +896,14 @@ class AutocompleteManager {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
+    if (this.customSuggestionsTimer) {
+      clearTimeout(this.customSuggestionsTimer);
+    }
     if (this.container && this.container.parentElement) {
       this.container.parentElement.removeChild(this.container);
+    }
+    if (this.ghostText && this.ghostText.parentElement) {
+      this.ghostText.parentElement.removeChild(this.ghostText);
     }
     window.visualLogger.info('[Autocomplete] Destroyed');
   }
