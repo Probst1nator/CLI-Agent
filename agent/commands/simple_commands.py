@@ -491,7 +491,7 @@ class PermissionCommand(BaseCommand):
 
         template_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "templates/default_settings.json"
+            "core/permissions/default_settings.json"
         )
 
         if not os.path.exists(template_path):
