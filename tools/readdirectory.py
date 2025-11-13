@@ -29,9 +29,353 @@ class readdirectory:
         """Provides standardized documentation for this tool."""
         return {
             "name": "readdirectory",
-            "description": "Recursively lists directory contents in a tree structure. Shows all files and subdirectories. Respects .gitignore rules. Optional max_depth parameter to limit recursion depth. Does NOT read file contents.",
-            "example": "<readdirectory><path>./documents</path><max_depth>2</max_depth></readdirectory>"
+            "description": (
+                "View directory structure as a tree showing all files and subdirectories. "
+                "Respects .gitignore. Most common: <path>./src</path>. "
+                "Use <help>readdirectory</help> for max_depth and filtering options."
+            ),
+            "example": (
+                "<readdirectory><path>./src</path></readdirectory>\n"
+                "<readdirectory><path>./documents</path><max_depth>2</max_depth></readdirectory>"
+            )
         }
+
+    @staticmethod
+    def get_detailed_tool_info() -> str:
+        """Provides comprehensive help documentation for this tool."""
+        return """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                      READDIRECTORY TOOL - EXTENDED HELP                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+BASIC USAGE:
+  <readdirectory>
+    <path>./directory</path>
+    <max_depth>3</max_depth>
+  </readdirectory>
+
+PURPOSE:
+Explore project structure by displaying directory contents in a visual tree format.
+Shows files and subdirectories without reading file contents. Automatically
+filters out ignored files using .gitignore rules.
+
+PARAMETERS:
+
+  <path> (OPTIONAL, default: ".")
+    - Directory path to list
+    - Can be absolute or relative
+    - Defaults to current directory
+    - Examples:
+      <path>./src</path>
+      <path>/home/user/project</path>
+      <path>../other_project</path>
+
+  <max_depth> (OPTIONAL, default: unlimited)
+    - Maximum recursion depth
+    - Positive integer
+    - Depth 1 = only immediate children
+    - Depth 2 = children and grandchildren
+    - Unlimited if not specified
+    - Examples:
+      <max_depth>1</max_depth>  # Shallow overview
+      <max_depth>3</max_depth>  # Moderate depth
+      <max_depth>5</max_depth>  # Deep exploration
+
+OUTPUT FORMAT:
+
+Tree structure with indentation:
+
+Directory listing of '/home/user/project/src'
+Total: 5 directories, 12 files
+
+================================================================================
+components/
+  └─ Button.tsx
+  └─ Input.tsx
+  └─ Layout.tsx
+utils/
+  └─ api.ts
+  └─ helpers.ts
+index.ts
+App.tsx
+
+Directories: Shown with trailing "/"
+Files: Shown without special marker
+Indentation: "  " (2 spaces) per level
+Tree markers: "└─ " for children
+
+DEPTH EXAMPLES:
+
+1. DEPTH 1 (Immediate children only):
+   <readdirectory>
+     <path>./src</path>
+     <max_depth>1</max_depth>
+   </readdirectory>
+
+   Result:
+   components/
+   utils/
+   index.ts
+   App.tsx
+
+2. DEPTH 2 (One level deeper):
+   <readdirectory>
+     <path>./src</path>
+     <max_depth>2</max_depth>
+   </readdirectory>
+
+   Result:
+   components/
+     └─ Button.tsx
+     └─ Input.tsx
+   utils/
+     └─ api.ts
+   index.ts
+
+3. UNLIMITED (Full tree):
+   <readdirectory>
+     <path>./src</path>
+   </readdirectory>
+
+   Shows complete directory structure with all nested levels.
+
+GITIGNORE BEHAVIOR:
+
+Automatically filters files/directories based on .gitignore:
+- Reads all .gitignore files from path up to project root
+- Identifies project root by .git directory
+- Applies standard gitignore matching rules
+
+Always excluded (regardless of .gitignore):
+  - .git/
+
+Default exclusions (when no .gitignore found):
+  - node_modules/
+  - __pycache__/
+  - .venv/
+  - .vscode/
+
+Result:
+  - Cleaner output focused on source code
+  - Faster execution (skips large dependency directories)
+  - More relevant for understanding project structure
+
+COMMON USE CASES:
+
+1. Quick project overview:
+   <readdirectory>
+     <path>.</path>
+     <max_depth>2</max_depth>
+   </readdirectory>
+
+   Perfect for understanding high-level project organization.
+
+2. Explore specific component:
+   <readdirectory>
+     <path>./src/components</path>
+     <max_depth>3</max_depth>
+   </readdirectory>
+
+   Focus on specific part of codebase.
+
+3. Find configuration files:
+   <readdirectory>
+     <path>.</path>
+     <max_depth>1</max_depth>
+   </readdirectory>
+
+   See root-level config files and directories.
+
+4. Check test structure:
+   <readdirectory>
+     <path>./tests</path>
+   </readdirectory>
+
+   View complete test organization.
+
+5. Compare directory structures:
+   <readdirectory>
+     <path>./src</path>
+     <max_depth>2</max_depth>
+   </readdirectory>
+   <readdirectory>
+     <path>./dist</path>
+     <max_depth>2</max_depth>
+   </readdirectory>
+
+   Compare source and build outputs.
+
+6. Document project layout:
+   <readdirectory>
+     <path>.</path>
+     <max_depth>3</max_depth>
+   </readdirectory>
+
+   Create documentation showing project structure.
+
+7. Verify build output:
+   <readdirectory>
+     <path>./build</path>
+     <max_depth>2</max_depth>
+   </readdirectory>
+
+   Check what was generated during build.
+
+TIPS AND BEST PRACTICES:
+
+1. START SHALLOW, GO DEEPER:
+   ✓ First: <max_depth>1</max_depth> - Get overview
+   ✓ Then: <max_depth>2</max_depth> - More detail
+   ✓ Finally: No limit - Full exploration
+
+2. USE SPECIFIC PATHS:
+   ✓ <path>./src/components</path> - Focused
+   ✗ <path>.</path> - Can be overwhelming
+
+3. LIMIT DEPTH FOR LARGE PROJECTS:
+   ✓ <max_depth>3</max_depth> - Manageable output
+   ✗ No limit - Potential information overload
+
+4. COMBINE WITH OTHER TOOLS:
+   Workflow: readdirectory → readfile → editfile
+
+   Step 1: See structure
+   <readdirectory><path>./src</path><max_depth>2</max_depth></readdirectory>
+
+   Step 2: Read specific file
+   <readfile><filepath>./src/components/Button.tsx</filepath></readfile>
+
+   Step 3: Make changes
+   <editfile><filepath>./src/components/Button.tsx</filepath>
+             <search>old</search><replace>new</replace></editfile>
+
+5. CHECK IGNORED FILES:
+   If you expect files that aren't showing:
+   - Check .gitignore in parent directories
+   - Verify files aren't in excluded directories
+   - Consider if pathspec library is installed
+
+6. USE FOR DOCUMENTATION:
+   Output is already formatted for markdown:
+   - Copy tree structure to README
+   - Document project organization
+   - Explain directory conventions
+
+PERFORMANCE NOTES:
+
+- Fast for small to medium projects (<1000 files)
+- Depth limiting improves performance on large projects
+- .gitignore filtering speeds up searches
+- Skips reading file contents (only lists names)
+
+Empty directories:
+  - Shown in output if they exist
+  - May not appear if filtered by .gitignore
+
+Large projects:
+  - Consider using max_depth to limit output
+  - Focus on specific subdirectories
+  - Use grepsearch for targeted file finding
+
+UNDERSTANDING OUTPUT:
+
+COUNT LINE:
+  "Total: 5 directories, 12 files"
+  - Only counts visible (non-ignored) items
+  - Excludes .git and ignored directories
+  - Accurate count of project structure
+
+TREE MARKERS:
+  "└─ " - Child item (file or directory)
+  "  " - Indentation (2 spaces per level)
+  "/" - Directory indicator
+
+SORTING:
+  - Directories listed before files at same level
+  - Alphabetical within each category
+  - Consistent across all platforms
+
+COMPARISON WITH OTHER TOOLS:
+
+vs grepsearch:
+  - readdirectory: Shows structure, no content search
+  - grepsearch: Searches file contents with regex
+
+vs readfile:
+  - readdirectory: Lists files, doesn't read them
+  - readfile: Reads file contents
+
+vs searchfile:
+  - readdirectory: Shows all files in tree
+  - searchfile: Finds files matching query with BM25
+
+Use readdirectory when:
+  ✓ Exploring new codebase
+  ✓ Understanding project organization
+  ✓ Finding where files are located
+  ✓ Documenting structure
+
+Use other tools when:
+  ✗ Need to search file contents (use grepsearch/searchfile)
+  ✗ Need to read files (use readfile)
+  ✗ Need to find specific patterns (use grepsearch)
+
+LIMITATIONS:
+
+- Does NOT read file contents (only lists names)
+- Cannot filter by file type or extension
+- Cannot search within filenames (use grepsearch for that)
+- No file size or modification date information
+- Maximum reasonable output: ~1000 files
+- Very deep nesting may be truncated in display
+
+ERROR MESSAGES:
+
+"Path does not exist or is not a directory"
+  → Verify path is correct
+  → Check for typos
+  → Ensure directory exists
+
+"Could not read .gitignore"
+  → .gitignore file has permission issues
+  → Non-critical - continues without that .gitignore
+
+EXAMPLE WORKFLOWS:
+
+1. EXPLORING NEW PROJECT:
+   <readdirectory><path>.</path><max_depth>2</max_depth></readdirectory>
+   # Get high-level overview
+
+   <readdirectory><path>./src</path></readdirectory>
+   # Deep dive into source code
+
+   <readfile><filepath>./README.md</filepath></readfile>
+   # Read project documentation
+
+2. FINDING SPECIFIC FILES:
+   <readdirectory><path>./src</path><max_depth>2</max_depth></readdirectory>
+   # See structure
+
+   <grepsearch><pattern>config</pattern><path>./src</path></grepsearch>
+   # Find config-related files
+
+   <readfile><filepath>./src/config/app.config.ts</filepath></readfile>
+   # Read the config file
+
+3. DOCUMENTING STRUCTURE:
+   <readdirectory><path>.</path><max_depth>3</max_depth></readdirectory>
+   # Generate tree for README.md
+
+   Copy output to document project layout
+
+RELATED TOOLS:
+  - <help>grepsearch</help> - Search for patterns in files
+  - <help>searchfile</help> - BM25-ranked content search
+  - <help>readfile</help> - Read file contents
+  - <help>writefile</help> - Create new files
+
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
 
     @staticmethod
     def _find_project_root_and_spec(start_path: str) -> tuple:
