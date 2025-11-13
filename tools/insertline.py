@@ -33,256 +33,70 @@ class insertline:
     @staticmethod
     def get_detailed_tool_info() -> str:
         """Provides comprehensive help documentation for this tool."""
-        return """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                        INSERTLINE TOOL - EXTENDED HELP                       ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+        return """INSERTLINE - EXTENDED HELP
 
-BASIC USAGE:
-  <insertline><filepath>path/to/file</filepath><after>10</after><content>new line</content></insertline>
-  <insertline><filepath>path/to/file</filepath><before>5</before><content>new line</content></insertline>
+USAGE:
+  <insertline><filepath>path/file</filepath><after>10</after><content>new</content></insertline>
+  <insertline><filepath>path/file</filepath><before>5</before><content>new</content></insertline>
+  <insertline><filepath>path/file</filepath><content>append</content></insertline>
 
-THREE INSERTION MODES:
-
-1. AFTER MODE (Insert after specific line)
-   - Uses <after> tag with line number
-   - Line numbers are 1-based (line 1 is first line)
-   - <after>0</after> inserts at beginning of file
-   - <after>N</after> inserts after line N
-
-2. BEFORE MODE (Insert before specific line)
-   - Uses <before> tag with line number
-   - Line numbers are 1-based
-   - <before>1</before> inserts at beginning
-   - <before>N</before> inserts before line N
-
-3. DEFAULT MODE (Insert at end)
-   - Omit both <after> and <before> tags
-   - Inserts at end of file
-   - Useful for appending content
+MODES:
+  After: <after>N</after> - Insert AFTER line N (1-based, <after>0</after> = start)
+  Before: <before>N</before> - Insert BEFORE line N (1-based)
+  Default: No tag - Append to end of file
 
 PARAMETERS:
-  <filepath>  - Path to file (required, relative to current directory)
-  <content>   - Text to insert (required, can be multiline)
-  <after>     - Line number to insert after (optional)
-  <before>    - Line number to insert before (optional)
+  <filepath> - File path (required)
+  <content>  - Text to insert (required, can be multiline)
+  <after>    - Line number to insert after (optional)
+  <before>   - Line number to insert before (optional)
 
-POSITIONING EXAMPLES:
+EXAMPLES:
+  Start: <insertline><filepath>./main.py</filepath><after>0</after><content>#!/usr/bin/env python3</content></insertline>
+  After: <insertline><filepath>./utils.py</filepath><after>15</after><content>    # Comment</content></insertline>
+  Before: <insertline><filepath>./config.py</filepath><before>20</before><content>DEBUG = True</content></insertline>
+  End: <insertline><filepath>./log.txt</filepath><content>[2024-01-15] Entry</content></insertline>
 
-1. Insert at beginning:
-   <insertline>
-     <filepath>./main.py</filepath>
-     <after>0</after>
-     <content>#!/usr/bin/env python3</content>
-   </insertline>
+MULTILINE:
+  <insertline><filepath>./app.py</filepath><after>10</after><content>def new_function():
+    return True</content></insertline>
 
-   OR:
+KEY BEHAVIORS:
+  • Lines numbered from 1
+  • Auto-adds newline if missing
+  • YOU must include indentation in <content>
+  • Changes immediate and permanent
+  • Use readfile to see line numbers
 
-   <insertline>
-     <filepath>./main.py</filepath>
-     <before>1</before>
-     <content>#!/usr/bin/env python3</content>
-   </insertline>
-
-2. Insert after specific line:
-   <insertline>
-     <filepath>./utils.py</filepath>
-     <after>15</after>
-     <content>    # New helper function</content>
-   </insertline>
-
-3. Insert before specific line:
-   <insertline>
-     <filepath>./config.py</filepath>
-     <before>20</before>
-     <content>DEBUG_MODE = True</content>
-   </insertline>
-
-4. Insert at end (default):
-   <insertline>
-     <filepath>./README.md</filepath>
-     <content>## New Section</content>
-   </insertline>
-
-MULTILINE CONTENT:
-
-Insert multiple lines at once:
-<insertline>
-  <filepath>./app.py</filepath>
-  <after>10</after>
-  <content>def new_function():
-    \"\"\"New function documentation.\"\"\"
-    return True</content>
-</insertline>
-
-Important: The tool automatically adds a newline if not present.
-
-INDENTATION TIPS:
-
-1. PRESERVE INDENTATION:
-   Include leading whitespace in <content>:
-   <insertline>
-     <filepath>./class.py</filepath>
-     <after>25</after>
-     <content>    def method(self):  # 4 spaces
-        pass                   # 8 spaces</content>
-   </insertline>
-
-2. MATCH SURROUNDING CODE:
-   Read context first to match indentation:
-   <readfile><filepath>./app.py</filepath><lines>20-30</lines></readfile>
-   Then insert with matching indentation.
-
-3. PYTHON INDENTATION:
-   - Use 4 spaces per level (PEP 8)
-   - Avoid mixing tabs and spaces
-   - Include proper indentation in <content>
-
-4. JAVASCRIPT/CSS INDENTATION:
-   - Common: 2 spaces per level
-   - Match project style
-   - Check existing code first
-
-IMPORTANT BEHAVIORS:
-
-1. LINE NUMBERING:
-   - Lines are numbered starting from 1
-   - <after>0</after> is special: inserts at beginning
-   - Use readfile with <lines> to see line numbers
-
-2. NEWLINE HANDLING:
-   - Automatically adds newline if missing
-   - Preserves existing newlines in content
-   - File always ends with proper line ending
-
-3. FILE MODIFICATION:
-   - Original file is modified in-place
-   - No backup is created automatically
-   - Changes are immediate and permanent
-
-4. PERMISSIONS:
-   - Respects write access controls
-   - May be restricted by security policy
-
-WORKFLOW RECOMMENDATIONS:
-
-1. SAFE INSERTION WORKFLOW:
-   Step 1 - Find insertion point:
-   <searchfile><query>class MyClass</query><path>./app.py</path></searchfile>
-
-   Step 2 - Read context with line numbers:
-   <readfile><filepath>./app.py</filepath><lines>20-40</lines></readfile>
-
-   Step 3 - Insert at correct position:
-   <insertline><filepath>./app.py</filepath><after>30</after><content>    def new_method(self):
+WORKFLOW:
+  1. Find: <searchfile><query>class MyClass</query><path>./app.py</path></searchfile>
+  2. Verify: <readfile><filepath>./app.py</filepath><lines>20-40</lines></readfile>
+  3. Insert: <insertline><filepath>./app.py</filepath><after>30</after><content>    def new_method(self):
         pass</content></insertline>
 
-2. ADD MULTIPLE LINES:
-   Insert from bottom to top to preserve line numbers:
-   <insertline><filepath>./utils.py</filepath><after>100</after><content>line 1</content></insertline>
-   <insertline><filepath>./utils.py</filepath><after>50</after><content>line 2</content></insertline>
-   <insertline><filepath>./utils.py</filepath><after>20</after><content>line 3</content></insertline>
+MULTI-LINE INSERTION:
+  Insert bottom to top to preserve line numbers:
+    <insertline><filepath>./utils.py</filepath><after>100</after><content>line 1</content></insertline>
+    <insertline><filepath>./utils.py</filepath><after>50</after><content>line 2</content></insertline>
 
-COMMON USE CASES:
+TIPS:
+  • Include indentation: "    def method(self):" for 4 spaces
+  • Read context first to match indentation style
+  • Insert from bottom when adding multiple lines
+  • Verify with readfile after insertion
 
-1. Add import statements:
-   <insertline>
-     <filepath>./main.py</filepath>
-     <after>0</after>
-     <content>import datetime</content>
-   </insertline>
-
-2. Insert function definition:
-   <insertline>
-     <filepath>./helpers.py</filepath>
-     <after>45</after>
-     <content>def validate_input(data):
-    return bool(data)</content>
-   </insertline>
-
-3. Add comment blocks:
-   <insertline>
-     <filepath>./config.py</filepath>
-     <before>10</before>
-     <content># Configuration section
-# Updated: 2024-01-15</content>
-   </insertline>
-
-4. Append to file:
-   <insertline>
-     <filepath>./log.txt</filepath>
-     <content>[2024-01-15] New log entry</content>
-   </insertline>
-
-5. Add class methods:
-   <insertline>
-     <filepath>./models.py</filepath>
-     <after>50</after>
-     <content>    def to_dict(self):
-        \"\"\"Convert object to dictionary.\"\"\"
-        return self.__dict__</content>
-   </insertline>
-
-TIPS AND BEST PRACTICES:
-
-1. CHECK LINE NUMBERS FIRST:
-   - Always read the file to verify line numbers
-   - Line numbers can shift after edits
-   - Use searchfile to locate insertion points
-
-2. PRESERVE INDENTATION:
-   - Include exact whitespace in content
-   - Match surrounding code style
-   - Test with small insertions first
-
-3. INSERT FROM BOTTOM TO TOP:
-   - When adding multiple lines, start from bottom
-   - Prevents line number shifting
-   - More reliable for batch insertions
-
-4. USE MULTILINE FOR COMPLEX ADDITIONS:
-   - Include entire blocks in single insertion
-   - Maintains proper structure
-   - Easier to verify correctness
-
-5. VERIFY AFTER INSERTION:
-   - Read the modified section to confirm
-   - Check indentation and formatting
-   - Ensure no syntax errors introduced
-
-6. BACKUP IMPORTANT FILES:
-   - Insertions are permanent
-   - Consider using version control
-   - No undo functionality available
-
-ERROR MESSAGES:
-
-"Line number exceeds file length"
-  → File has fewer lines than specified
-  → Re-read file to check current line count
-  → Omit <after>/<before> to append at end
-
-"Invalid line number"
-  → Must be an integer
-  → Check for typos in line number
-
-"Write access denied"
-  → Check file permissions
-  → May be restricted by security policy
+COMMON ERRORS:
+  "Line exceeds file length" → Check line count with readfile
+  "Invalid line number" → Must be integer
+  "Write access denied" → Check permissions or security policy
 
 LIMITATIONS:
-  - No automatic indentation detection
-  - No undo functionality
-  - Cannot insert into multiple files in one call
-  - Must specify exact line numbers
+  • No auto-indentation
+  • No undo functionality
+  • Single file per call
+  • Must specify exact line numbers
 
-RELATED TOOLS:
-  - <help>editfile</help> - Modify existing line content
-  - <help>deletelines</help> - Remove lines from files
-  - <help>readfile</help> - View file with line numbers
-  - <help>searchfile</help> - Find insertion points
-
-╚══════════════════════════════════════════════════════════════════════════════╝
+RELATED: <help>editfile</help> <help>deletelines</help> <help>readfile</help>
 """
 
     @staticmethod
