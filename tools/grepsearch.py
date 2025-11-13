@@ -24,18 +24,347 @@ class grepsearch:
         return {
             "name": "grepsearch",
             "description": (
-                f"Recursively searches for a regex pattern in file/directory names and file contents, starting from a given path. "
-                f"Defaults to the current directory. Automatically ignores files and directories specified in .gitignore files. "
-                f"Stops after {grepsearch.MAX_RESULTS} matches."
+                "Search for regex patterns in file contents, filenames, and directories. "
+                "Respects .gitignore rules. Most common: <pattern>function_name</pattern><path>./src</path>. "
+                f"Use <help>grepsearch</help> for modes and regex syntax."
             ),
             "example": (
-                "<grepsearch>"
-                "<pattern>my_function</pattern>"
-                "<path>./src</path>"
-                "<mode>files</mode>" # Optional: 'all' (default), 'files', or 'directories'
-                "</grepsearch>"
+                "<grepsearch><pattern>my_function</pattern><path>./src</path></grepsearch>\n"
+                "<grepsearch><pattern>class.*Config</pattern><path>.</path><mode>files</mode></grepsearch>"
             )
         }
+
+    @staticmethod
+    def get_detailed_tool_info() -> str:
+        """Provides comprehensive help documentation for this tool."""
+        return f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        GREPSEARCH TOOL - EXTENDED HELP                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+BASIC USAGE:
+  <grepsearch>
+    <pattern>your_regex_pattern</pattern>
+    <path>./directory</path>
+    <mode>all</mode>
+  </grepsearch>
+
+PURPOSE:
+Recursively search for regex patterns in:
+- File contents (showing matching lines with line numbers)
+- File names
+- Directory names
+
+Automatically respects .gitignore rules to filter out irrelevant files.
+
+PARAMETERS:
+
+  <pattern> (REQUIRED)
+    - Regular expression pattern to search for
+    - Supports full Python regex syntax
+    - Case-sensitive by default
+    - Examples:
+      <pattern>def my_function</pattern>
+      <pattern>class.*Config</pattern>
+      <pattern>TODO|FIXME|HACK</pattern>
+
+  <path> (OPTIONAL, default: ".")
+    - Starting directory or file path
+    - Can be absolute or relative
+    - Defaults to current directory
+    - Examples:
+      <path>./src</path>
+      <path>/home/user/project</path>
+      <path>./specific_file.py</path>
+
+  <mode> (OPTIONAL, default: "all")
+    - Search scope filter
+    - Three modes available:
+
+    1. 'all' (default) - Search everything
+       - File contents (shows matching lines)
+       - File names
+       - Directory names
+
+    2. 'files' - Search only files
+       - File contents and file names
+       - Skips directory name matching
+
+    3. 'directories' - Search only directory names
+       - Only matches directory names
+       - Ignores file contents and names
+
+REGEX PATTERN EXAMPLES:
+
+1. EXACT MATCH:
+   <pattern>my_function</pattern>
+   Matches: "my_function", "def my_function()", "call my_function()"
+
+2. WORD BOUNDARY:
+   <pattern>\\bconfig\\b</pattern>
+   Matches: "config", "get config", "config ="
+   Not: "configuration", "reconfig"
+
+3. CASE INSENSITIVE:
+   <pattern>(?i)error</pattern>
+   Matches: "error", "Error", "ERROR", "ErRoR"
+
+4. MULTIPLE OPTIONS:
+   <pattern>TODO|FIXME|HACK</pattern>
+   Matches any of: "TODO", "FIXME", "HACK"
+
+5. CLASS/FUNCTION DEFINITIONS:
+   <pattern>(class|def)\\s+\\w+</pattern>
+   Matches: "class MyClass", "def my_function"
+
+6. IMPORT STATEMENTS:
+   <pattern>^import|^from.*import</pattern>
+   Matches: "import os", "from typing import List"
+
+7. STRING LITERALS:
+   <pattern>"[^"]*database[^"]*"</pattern>
+   Matches: "database_url", "connect to database"
+
+GITIGNORE BEHAVIOR:
+
+Automatically filters out files/directories matching .gitignore patterns:
+- Reads all .gitignore files from search path up to project root
+- Identifies project root by presence of .git directory
+- Applies standard gitignore matching rules
+
+Common ignored patterns:
+  - node_modules/
+  - __pycache__/
+  - .venv/, venv/
+  - build/, dist/
+  - *.pyc, *.log
+  - .git/
+
+If pathspec library not installed:
+  - Falls back to basic filtering (node_modules, __pycache__, etc.)
+  - Warning message displayed
+
+RESULT FORMAT:
+
+Three types of matches:
+
+1. DIRECTORY MATCH:
+   DIR:  /path/to/matching_directory
+
+2. FILENAME MATCH:
+   FILE: /path/to/matching_file.py
+
+3. CONTENT MATCH:
+   LINE: /path/to/file.py:42: matching line content here
+
+Results limited to {grepsearch.MAX_RESULTS} matches to prevent overwhelming output.
+
+SEARCH MODES IN DETAIL:
+
+MODE: 'all' (Most comprehensive)
+  <grepsearch>
+    <pattern>config</pattern>
+    <path>./src</path>
+    <mode>all</mode>
+  </grepsearch>
+
+  Returns:
+  - Directories named "config" or containing "config"
+  - Files named "config.py", "my_config.json", etc.
+  - Lines in files containing "config"
+
+MODE: 'files' (Code search)
+  <grepsearch>
+    <pattern>def parse_</pattern>
+    <path>./src</path>
+    <mode>files</mode>
+  </grepsearch>
+
+  Returns:
+  - Files with "parse_" in name
+  - Lines in files with function definitions like "def parse_json()"
+  - Ignores directory names
+
+MODE: 'directories' (Structure exploration)
+  <grepsearch>
+    <pattern>test</pattern>
+    <path>.</path>
+    <mode>directories</mode>
+  </grepsearch>
+
+  Returns:
+  - Directories named "tests", "test_utils", etc.
+  - Does NOT search file contents
+
+COMMON USE CASES:
+
+1. Find function definitions:
+   <grepsearch>
+     <pattern>^def \\w+</pattern>
+     <path>./src</path>
+     <mode>files</mode>
+   </grepsearch>
+
+2. Find TODO comments:
+   <grepsearch>
+     <pattern>#\\s*(TODO|FIXME|HACK)</pattern>
+     <path>.</path>
+     <mode>files</mode>
+   </grepsearch>
+
+3. Find import statements:
+   <grepsearch>
+     <pattern>^from .* import|^import</pattern>
+     <path>./src</path>
+     <mode>files</mode>
+   </grepsearch>
+
+4. Find configuration files:
+   <grepsearch>
+     <pattern>config\\.(json|yaml|yml|toml)</pattern>
+     <path>.</path>
+     <mode>files</mode>
+   </grepsearch>
+
+5. Find error handling:
+   <grepsearch>
+     <pattern>except.*Error|raise.*Error</pattern>
+     <path>./src</path>
+     <mode>files</mode>
+   </grepsearch>
+
+6. Find test directories:
+   <grepsearch>
+     <pattern>test</pattern>
+     <path>.</path>
+     <mode>directories</mode>
+   </grepsearch>
+
+7. Find API endpoints:
+   <grepsearch>
+     <pattern>@app\\.(get|post|put|delete)</pattern>
+     <path>./api</path>
+     <mode>files</mode>
+   </grepsearch>
+
+TIPS AND BEST PRACTICES:
+
+1. START SPECIFIC, THEN BROADEN:
+   ✓ Start with: <pattern>def my_specific_function</pattern>
+   ✓ If no results: <pattern>my_specific</pattern>
+   ✓ Still nothing: <pattern>specific</pattern>
+
+2. USE WORD BOUNDARIES:
+   ✓ <pattern>\\buser\\b</pattern> matches "user"
+   ✗ <pattern>user</pattern> matches "username", "user_id", "superuser"
+
+3. ESCAPE SPECIAL CHARACTERS:
+   Regex special chars: . * + ? [ ] ( ) {{ }} ^ $ | \\
+   ✓ <pattern>file\\.txt</pattern> matches "file.txt"
+   ✗ <pattern>file.txt</pattern> matches "fileXtxt", "file.txt"
+
+4. LIMIT SEARCH SCOPE:
+   ✓ <path>./src/components</path> - Specific directory
+   ✗ <path>.</path> - Entire project (slower)
+
+5. USE APPROPRIATE MODE:
+   - Looking for code? Use mode='files'
+   - Exploring structure? Use mode='directories'
+   - Not sure? Use mode='all' (default)
+
+6. LEVERAGE GITIGNORE:
+   - Searches are automatically filtered
+   - No need to exclude common directories manually
+   - Results focus on relevant source code
+
+7. COMBINE WITH OTHER TOOLS:
+   Workflow: grepsearch → readfile → editfile
+
+   Step 1: Find files
+   <grepsearch><pattern>old_api_function</pattern><path>./src</path></grepsearch>
+
+   Step 2: Read context
+   <readfile><filepath>./src/api.py</filepath><lines>40-60</lines></readfile>
+
+   Step 3: Make changes
+   <editfile><filepath>./src/api.py</filepath><search>old_api</search><replace>new_api</replace></editfile>
+
+PERFORMANCE NOTES:
+
+- Stops after {grepsearch.MAX_RESULTS} matches to prevent overwhelming output
+- Skips binary files automatically
+- Skips files larger than 2MB
+- Uses streaming for large files
+- Respects .gitignore for faster searches
+
+LIMITATIONS:
+
+- Maximum {grepsearch.MAX_RESULTS} results per search
+- No multi-line regex patterns (searches line-by-line)
+- No negative lookahead/lookbehind in patterns
+- Files >2MB are skipped
+- Binary files are skipped
+- Cannot modify search results directly
+
+ERROR MESSAGES:
+
+"Invalid regex pattern"
+  → Check regex syntax, escape special characters
+  → Test pattern with simpler version
+
+"Path does not exist"
+  → Verify path is correct
+  → Check for typos in directory name
+
+"No matches found"
+  → Try broader pattern
+  → Check if files are .gitignored
+  → Verify you're searching the right directory
+
+"Search stopped after reaching {grepsearch.MAX_RESULTS} results"
+  → Refine pattern to be more specific
+  → Narrow search path
+  → Use more restrictive mode
+
+REGEX QUICK REFERENCE:
+
+ANCHORS:
+  ^     - Start of line
+  $     - End of line
+  \\b    - Word boundary
+
+QUANTIFIERS:
+  *     - 0 or more
+  +     - 1 or more
+  ?     - 0 or 1
+  {{n}}   - Exactly n times
+  {{n,m}} - Between n and m times
+
+CHARACTER CLASSES:
+  .     - Any character
+  \\d    - Digit [0-9]
+  \\w    - Word character [a-zA-Z0-9_]
+  \\s    - Whitespace
+  [abc] - Any of a, b, or c
+  [^abc]- None of a, b, or c
+
+GROUPS:
+  (...)  - Capturing group
+  (?:...)- Non-capturing group
+  |      - OR operator
+
+MODIFIERS:
+  (?i)   - Case insensitive
+  (?m)   - Multi-line mode
+
+RELATED TOOLS:
+  - <help>searchfile</help> - BM25-ranked content search (better for relevance)
+  - <help>readfile</help> - Read file contents with line numbers
+  - <help>editfile</help> - Modify file contents
+  - <help>readdirectory</help> - View directory structure
+
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
 
     @staticmethod
     def _find_project_root_and_spec(start_path: str) -> 'tuple[object | None, str | None]':

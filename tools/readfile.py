@@ -165,32 +165,177 @@ class readfile:
         return {
             "name": "readfile",
             "description": (
-                "Comprehensive file reader supporting multiple formats:\n"
-                "- Text files (with line-range support)\n"
-                "- PDFs (text extraction + OCR fallback)\n"
-                "- Images (registered for vision model analysis)\n"
-                "- Office documents (.docx, .xlsx, .pptx, .xls, .odt, .ods, .odp)\n"
-                "- CSV/TSV files (formatted as readable tables)\n"
-                "- HTML files (text extraction)\n"
-                "- Archives (.zip, .tar, .tar.gz, .tar.bz2 - lists contents)\n"
-                "- SQLite databases (.db, .sqlite, .sqlite3 - shows schema and sample data)\n"
-                "- Jupyter notebooks (.ipynb - formatted cells with outputs)\n"
-                "Large files are automatically managed for optimal context usage."
+                "Read files in multiple formats (text, PDF, images, Office docs, CSV, HTML, archives, SQLite, Jupyter notebooks). "
+                "Supports line ranges for text files. Auto-detects format and handles large files intelligently. "
+                "Use <help>readfile</help> for comprehensive format documentation and advanced options."
             ),
             "example": (
                 "<readfile>./src/main.py</readfile>\n"
                 "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>\n"
-                "<readfile>./screenshot.png</readfile>\n"
-                "<readfile>./document.pdf</readfile>\n"
-                "<readfile>./report.docx</readfile>\n"
-                "<readfile>./data.xlsx</readfile>\n"
-                "<readfile>./data.csv</readfile>\n"
-                "<readfile>./page.html</readfile>\n"
-                "<readfile>./backup.zip</readfile>\n"
-                "<readfile>./app.db</readfile>\n"
-                "<readfile>./analysis.ipynb</readfile>\n"
+                "<readfile>./screenshot.png</readfile>"
             )
         }
+
+    @staticmethod
+    def get_detailed_tool_info() -> str:
+        """Provides comprehensive help documentation for this tool."""
+        return """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          READFILE TOOL - EXTENDED HELP                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+BASIC USAGE:
+  <readfile>path/to/file.ext</readfile>
+  <readfile><filepath>path/to/file.ext</filepath></readfile>
+
+PARAMETERS:
+  <filepath>      - Path to file (required, can be root-level content too)
+  <lines>         - Line range for text files (e.g., "10-20", "50-", "-100") [OPTIONAL]
+  <encoding>      - File encoding (default: utf-8) [OPTIONAL]
+  <max_lines>     - Override default line limit [OPTIONAL]
+  <preview_mode>  - Show file info without full content [OPTIONAL]
+
+SUPPORTED FILE FORMATS:
+
+1. TEXT FILES (.txt, .py, .js, .md, .json, .yaml, .xml, etc.)
+   - Full content or line ranges
+   - Syntax detection and formatting
+   - Large file handling with truncation
+   - Example: <readfile><filepath>app.py</filepath><lines>100-150</lines></readfile>
+
+2. PDF DOCUMENTS (.pdf)
+   - Text extraction from PDF
+   - OCR fallback for scanned documents
+   - Page-by-page processing
+   - Example: <readfile>report.pdf</readfile>
+
+3. IMAGES (.png, .jpg, .jpeg, .gif, .bmp, .webp)
+   - Registered for vision model analysis
+   - Base64 encoding for multimodal processing
+   - Automatic format detection
+   - Example: <readfile>screenshot.png</readfile>
+
+4. OFFICE DOCUMENTS
+   - Word: .docx (text extraction)
+   - Excel: .xlsx, .xls (formatted tables)
+   - PowerPoint: .pptx (slide text)
+   - OpenDocument: .odt, .ods, .odp
+   - Example: <readfile>spreadsheet.xlsx</readfile>
+
+5. CSV/TSV FILES (.csv, .tsv)
+   - Formatted as readable tables
+   - Automatic delimiter detection
+   - Header recognition
+   - Example: <readfile>data.csv</readfile>
+
+6. HTML FILES (.html, .htm)
+   - Text extraction from HTML
+   - Strips tags and formatting
+   - Preserves structure
+   - Example: <readfile>page.html</readfile>
+
+7. ARCHIVE FILES (.zip, .tar, .tar.gz, .tar.bz2)
+   - Lists archive contents
+   - Shows file sizes and paths
+   - No extraction required
+   - Example: <readfile>backup.zip</readfile>
+
+8. SQLITE DATABASES (.db, .sqlite, .sqlite3)
+   - Shows database schema
+   - Displays table structures
+   - Sample data from each table
+   - Example: <readfile>app.db</readfile>
+
+9. JUPYTER NOTEBOOKS (.ipynb)
+   - Formatted cells with outputs
+   - Code and markdown cells
+   - Execution results included
+   - Example: <readfile>analysis.ipynb</readfile>
+
+LINE RANGE SYNTAX (Text files only):
+
+  <lines>10</lines>         - Read only line 10
+  <lines>10-20</lines>      - Read lines 10 through 20
+  <lines>50-</lines>        - Read from line 50 to end of file
+  <lines>-100</lines>       - Read first 100 lines
+  <lines>100-200</lines>    - Read lines 100 to 200
+
+ENCODING OPTIONS:
+
+  <encoding>utf-8</encoding>      - UTF-8 (default)
+  <encoding>latin-1</encoding>    - Latin-1/ISO-8859-1
+  <encoding>ascii</encoding>      - ASCII
+  <encoding>utf-16</encoding>     - UTF-16
+
+ADVANCED FEATURES:
+
+1. LARGE FILE HANDLING
+   - Automatic truncation for files > 20,000 characters
+   - Shows beginning and end sections
+   - Preserves context while managing token usage
+   - State tracking for multi-part reading
+
+2. AUTOMATIC FORMAT DETECTION
+   - MIME type detection
+   - Extension-based fallback
+   - Binary file identification
+
+3. PATH RESOLUTION
+   - Relative to current working directory
+   - Absolute paths supported
+   - Recursive search if file not found
+
+4. PREVIEW MODE
+   <readfile><filepath>large_file.txt</filepath><preview_mode>true</preview_mode></readfile>
+   - Shows file metadata without content
+   - Useful for large files
+
+USAGE EXAMPLES:
+
+1. Read entire text file:
+   <readfile>./src/main.py</readfile>
+
+2. Read specific line range:
+   <readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>
+
+3. Read image for vision analysis:
+   <readfile>./screenshot.png</readfile>
+
+4. Read PDF document:
+   <readfile>./report.pdf</readfile>
+
+5. Read Excel spreadsheet:
+   <readfile>./data.xlsx</readfile>
+
+6. Read with specific encoding:
+   <readfile><filepath>./legacy.txt</filepath><encoding>latin-1</encoding></readfile>
+
+7. List archive contents:
+   <readfile>./backup.zip</readfile>
+
+8. Inspect database schema:
+   <readfile>./app.db</readfile>
+
+9. Read Jupyter notebook:
+   <readfile>./analysis.ipynb</readfile>
+
+TIPS:
+  • Use line ranges to focus on specific code sections
+  • Images are automatically prepared for vision model analysis
+  • Large files are truncated - use line ranges for precision
+  • Archives show contents without extraction
+  • SQLite databases show schema + sample data
+
+LIMITATIONS:
+  • Binary files (except images/PDFs) show metadata only
+  • Very large files automatically truncated
+  • Archive extraction not supported (list only)
+  • OCR may be slow for large scanned PDFs
+
+For file editing, see: <help>editfile</help>, <help>insertline</help>, <help>deletelines</help>
+
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
 
     @staticmethod
     def is_pdf_file(filepath: str) -> bool:
