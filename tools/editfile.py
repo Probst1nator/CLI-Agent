@@ -18,9 +18,198 @@ class editfile:
     def get_tool_info() -> dict:
         return {
             "name": "editfile",
-            "description": "Finds and replaces ALL occurrences of a string in a specified file, or edits specific lines. Supports line-specific editing with <line> tag. Paths are resolved relative to the current working directory. Requires `<filepath>`, and either `<find>`+`<replace>` tags OR `<line>`+`<content>` tags.",
-            "example": "<editfile><filepath>./src/app.js</filepath><search>const old_variable = 1;</search><replace>const new_variable = 2;</replace></editfile> or <editfile><filepath>./src/main.py</filepath><line>15</line><replace>print('new line')</replace></editfile>"
+            "description": (
+                "Find and replace text in files. Supports global replace or line-specific edits. "
+                "Use <search><replace> for find/replace, or <line><replace> for line editing. "
+                "Use <help>editfile</help> for advanced options and examples."
+            ),
+            "example": (
+                "<editfile><filepath>./app.js</filepath><search>old_var</search><replace>new_var</replace></editfile>\n"
+                "<editfile><filepath>./main.py</filepath><line>15</line><replace>print('updated')</replace></editfile>"
+            )
         }
+
+    @staticmethod
+    def get_detailed_tool_info() -> str:
+        """Provides comprehensive help documentation for this tool."""
+        return """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          EDITFILE TOOL - EXTENDED HELP                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+BASIC USAGE:
+  <editfile><filepath>path/to/file</filepath><search>old</search><replace>new</replace></editfile>
+  <editfile><filepath>path/to/file</filepath><line>10</line><replace>new content</replace></editfile>
+
+TWO EDITING MODES:
+
+1. GLOBAL REPLACE MODE
+   - Finds and replaces ALL occurrences of a string
+   - Uses exact string matching
+   - Requires <search> and <replace> tags
+
+2. LINE-SPECIFIC MODE
+   - Replaces content of a specific line number
+   - Requires <line> and <replace> tags
+   - Line numbers start at 1
+
+PARAMETERS:
+  <filepath>  - Path to file (required, relative to current directory)
+  <search>    - String to find (for global replace mode)
+  <replace>   - Replacement string (required in both modes)
+  <line>      - Line number to edit (for line-specific mode)
+
+GLOBAL REPLACE EXAMPLES:
+
+1. Basic find and replace:
+   <editfile>
+     <filepath>./src/config.js</filepath>
+     <search>const PORT = 3000;</search>
+     <replace>const PORT = 8080;</replace>
+   </editfile>
+
+2. Replace variable name:
+   <editfile>
+     <filepath>./app.py</filepath>
+     <search>old_variable</search>
+     <replace>new_variable</replace>
+   </editfile>
+
+3. Replace multiline content:
+   <editfile>
+     <filepath>./README.md</filepath>
+     <search>## Old Section
+This is old content</search>
+     <replace>## New Section
+This is updated content</replace>
+   </editfile>
+
+4. Replace with empty string (deletion):
+   <editfile>
+     <filepath>./style.css</filepath>
+     <search>.deprecated-class {
+  color: red;
+}</search>
+     <replace></replace>
+   </editfile>
+
+LINE-SPECIFIC EXAMPLES:
+
+1. Edit a specific line:
+   <editfile>
+     <filepath>./main.py</filepath>
+     <line>15</line>
+     <replace>    print("Updated line")</replace>
+   </editfile>
+
+2. Replace function definition:
+   <editfile>
+     <filepath>./utils.py</filepath>
+     <line>42</line>
+     <replace>def new_function_name(param1, param2):</replace>
+   </editfile>
+
+3. Update configuration value:
+   <editfile>
+     <filepath>./config.yaml</filepath>
+     <line>8</line>
+     <replace>debug: false</replace>
+   </editfile>
+
+IMPORTANT BEHAVIORS:
+
+1. GLOBAL REPLACE:
+   - Replaces ALL occurrences (not just first)
+   - Fails if search string not found
+   - Exact string matching (case-sensitive)
+   - Preserves file encoding (UTF-8)
+
+2. LINE EDITING:
+   - Replaces entire line content
+   - Preserves line ending (\\n)
+   - Fails if line number exceeds file length
+   - Shows old and new content in success message
+
+3. PATH RESOLUTION:
+   - Paths resolved relative to current working directory
+   - Absolute paths supported
+   - Symbolic links are followed
+
+4. PERMISSIONS:
+   - Respects write access controls
+   - May be restricted by --allow-write-path configuration
+
+TIPS AND BEST PRACTICES:
+
+1. USE SPECIFIC SEARCH STRINGS
+   - Include context to make searches unique
+   - Avoid generic strings that might match unintended locations
+   - Example: Use "const API_URL = 'old';" instead of just "'old'"
+
+2. CHECK BEFORE EDITING
+   - Use searchfile to verify what will be changed
+   - Use readfile to view content before editing
+   - Workflow: search → read → edit
+
+3. LINE NUMBERS
+   - Use readfile with <lines> to see line numbers
+   - Example: <readfile><filepath>./app.py</filepath><lines>10-20</lines></readfile>
+
+4. PRESERVE INDENTATION
+   - Include leading whitespace in <replace> content
+   - Example: <replace>    return value</replace> (4 spaces)
+
+5. MULTILINE EDITS
+   - Global replace supports multiline content
+   - Use line-specific mode for single line changes
+   - Consider insertline or deletelines for structural changes
+
+WORKFLOW EXAMPLES:
+
+1. Safe editing workflow:
+   Step 1 - Find the line:
+   <searchfile><query>def old_function</query><path>./utils.py</path></searchfile>
+
+   Step 2 - Read context:
+   <readfile><filepath>./utils.py</filepath><lines>40-50</lines></readfile>
+
+   Step 3 - Edit:
+   <editfile><filepath>./utils.py</filepath><search>def old_function()</search><replace>def new_function()</replace></editfile>
+
+2. Batch variable renaming:
+   <editfile><filepath>./app.py</filepath><search>old_var</search><replace>new_var</replace></editfile>
+   <editfile><filepath>./utils.py</filepath><search>old_var</search><replace>new_var</replace></editfile>
+   <editfile><filepath>./config.py</filepath><search>old_var</search><replace>new_var</replace></editfile>
+
+LIMITATIONS:
+  - No regex support (exact string matching only)
+  - No undo functionality
+  - Cannot edit binary files
+  - Global replace is all-or-nothing (can't replace just first occurrence)
+  - Cannot create new files (file must exist)
+
+ERROR MESSAGES:
+
+"String to find was not found"
+  → Check spelling, whitespace, and case sensitivity
+  → Use searchfile to verify the exact string
+
+"Line exceeds file length"
+  → Use insertline to add new lines instead
+  → Check file has expected number of lines
+
+"Write access denied"
+  → Check file permissions
+  → May be restricted by security policy
+
+RELATED TOOLS:
+  - <help>insertline</help> - Add new lines to files
+  - <help>deletelines</help> - Remove lines from files
+  - <help>searchfile</help> - Find content before editing
+  - <help>readfile</help> - View content with line numbers
+
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
 
     @staticmethod
     def run(content: str) -> str:
