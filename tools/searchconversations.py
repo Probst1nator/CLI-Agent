@@ -51,259 +51,56 @@ class searchconversations:
     @staticmethod
     def get_detailed_tool_info() -> str:
         """Provides comprehensive help documentation for this tool."""
-        return """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                   SEARCHCONVERSATIONS TOOL - EXTENDED HELP                   ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+        return """SEARCHCONVERSATIONS - EXTENDED HELP
 
-BASIC USAGE:
-  <searchconversations>
-    <query>your search query</query>
-    <top_k>10</top_k>
-    <order_by>best_match</order_by>
-  </searchconversations>
+USAGE:
+  <searchconversations><query>authentication bug</query></searchconversations>
 
 PURPOSE:
-Search through archived chat conversations to find relevant context from previous
-discussions, past solutions, troubleshooting sessions, or related conversations.
-Uses BM25 ranking algorithm for intelligent relevance scoring.
+Search through archived conversation history. Returns matching conversations with
+message previews and timestamps.
 
 PARAMETERS:
+  <query> - Search query (required, case-insensitive substring match)
 
-  <query> (REQUIRED)
-    - Your search query string
-    - Natural language or keywords
-    - Multi-word queries supported
-    - Case-insensitive matching
-    - Supports fuzzy matching and stemming
+EXAMPLES:
+  Basic: <searchconversations><query>login</query></searchconversations>
+  Specific: <searchconversations><query>TypeError in parse_json</query></searchconversations>
 
-    Examples:
-    <query>docker deployment issues</query>
-    <query>how to implement authentication</query>
-    <query>error handling best practices</query>
-
-  <top_k> (OPTIONAL, default: 10)
-    - Maximum number of results to return
-    - Must be positive integer
-    - Automatically capped at 100 to avoid overwhelming output
-    - Smaller values for focused results
-    - Larger values for comprehensive search
-
-    Examples:
-    <top_k>5</top_k>   # Quick overview
-    <top_k>20</top_k>  # Thorough search
-
-  <order_by> (OPTIONAL, default: 'best_match')
-    - Sort order for results
-    - Three modes available:
-
-    1. 'best_match' - Sort by relevance score (highest first)
-       Best for: Finding most relevant conversations
-
-    2. 'newest' - Sort by date (most recent first)
-       Best for: Finding recent discussions
-
-    3. 'oldest' - Sort by date (oldest first)
-       Best for: Historical context or chronological review
-
-SEARCH ALGORITHM:
-
-BM25 (Best Matching 25):
-  - Industry-standard ranking algorithm
-  - Considers term frequency and document length
-  - Applies fuzzy matching for typo tolerance
-  - Uses stemming for linguistic variations
-  - Weights rare terms higher than common words
-
-This means:
-  - "deployment" matches "deploying", "deployed", "deploy"
-  - "authentication" matches "authenticate", "auth"
-  - Typos like "docekr" still match "docker"
-  - Specific technical terms score higher than common words
+SEARCH BEHAVIOR:
+  • Case-insensitive substring matching
+  • Searches message content only
+  • Returns up to 10 most recent matches
+  • Shows message preview (first 200 chars)
+  • Includes timestamp and conversation ID
 
 RESULT FORMAT:
+  [2024-01-15 14:30] Conversation ID: abc123
+  Preview: "Working on authentication bug fix..."
+  Messages: 15
 
-Each result includes:
-  - Conversation ID: Unique identifier for the chat
-  - Date: When the conversation occurred
-  - Messages: Total message count in conversation
-  - Relevance Score: BM25 score (higher = more relevant)
-  - Preview: First 80 characters of conversation
-  - Best Match: Snippet showing why this conversation matched
+WORKFLOW:
+  1. Search: <searchconversations><query>bug fix</query></searchconversations>
+  2. Review results
+  3. Load specific conversation using UI or chat history
 
-Example output:
-[1] Conversation #a1b2c3d4... (ID: a1b2c3d4-5678-90ef-ghij-klmnopqrstuv)
-    Date: 2024-01-15 14:23:45
-    Messages: 28
-    Relevance Score: 12.45
-    Preview: User asked about Docker deployment strategies for microservices...
-    Best Match: "We solved the Docker networking issue by configuring bridge mode"
-
-SEARCH STRATEGIES:
-
-1. SPECIFIC QUERIES (Best for targeted search):
-   <query>Redis connection timeout error</query>
-   <query>React component lifecycle methods</query>
-   <query>PostgreSQL indexing performance</query>
-
-2. BROAD QUERIES (Best for exploration):
-   <query>authentication</query>
-   <query>database optimization</query>
-   <query>testing strategies</query>
-
-3. MULTI-TERM QUERIES (Best for context):
-   <query>async await error handling Python</query>
-   <query>JWT token refresh implementation</query>
-   <query>Docker compose production setup</query>
-
-4. NATURAL LANGUAGE (Supported):
-   <query>how did we solve the memory leak last time</query>
-   <query>what was that bug with the authentication flow</query>
-   <query>where did we discuss API rate limiting</query>
-
-COMMON USE CASES:
-
-1. Find past solutions:
-   <searchconversations>
-     <query>how we fixed CORS issues</query>
-     <top_k>3</top_k>
-     <order_by>best_match</order_by>
-   </searchconversations>
-
-2. Review recent work:
-   <searchconversations>
-     <query>API development</query>
-     <top_k>10</top_k>
-     <order_by>newest</order_by>
-   </searchconversations>
-
-3. Find related discussions:
-   <searchconversations>
-     <query>WebSocket implementation</query>
-     <top_k>15</top_k>
-     <order_by>best_match</order_by>
-   </searchconversations>
-
-4. Troubleshooting history:
-   <searchconversations>
-     <query>database migration errors</query>
-     <top_k>5</top_k>
-     <order_by>newest</order_by>
-   </searchconversations>
-
-5. Learning from past:
-   <searchconversations>
-     <query>security best practices</query>
-     <top_k>20</top_k>
-     <order_by>best_match</order_by>
-   </searchconversations>
-
-TIPS AND BEST PRACTICES:
-
-1. USE SPECIFIC TECHNICAL TERMS:
-   ✓ "Redis cache invalidation"
-   ✗ "that thing with the cache"
-
-   More specific terms yield better relevance scores.
-
-2. COMBINE KEYWORDS:
-   ✓ "React hooks useState useEffect"
-   ✗ "React"
-
-   Multiple relevant keywords improve precision.
-
-3. ADJUST TOP_K BASED ON NEED:
-   - Quick reference: top_k=3-5
-   - Thorough research: top_k=15-20
-   - Comprehensive review: top_k=50+
-
-4. CHOOSE APPROPRIATE SORTING:
-   - Known relevant info exists: 'best_match'
-   - Recent discussion recall: 'newest'
-   - Chronological review: 'oldest'
-
-5. ITERATE YOUR QUERIES:
-   If first search doesn't yield results, try:
-   - Different terminology (e.g., "auth" vs "authentication")
-   - Broader terms (e.g., "database" vs "PostgreSQL")
-   - Different phrasing (e.g., "error" vs "issue" vs "problem")
-
-6. USE PREVIEW AND SNIPPETS:
-   - Preview gives context of conversation topic
-   - Best Match snippet shows exact relevance
-   - Use these to decide which conversation to load
-
-LOADING CONVERSATIONS:
-
-After finding relevant conversations, use the conversation ID to load:
-  "To load and continue from conversation a1b2c3d4-5678-90ef-ghij-klmnopqrstuv,
-   use the conversation ID from the search results."
-
-(Note: The exact method to load conversations depends on your CLI-Agent commands)
-
-PERFORMANCE NOTES:
-
-- Search is fast even with many archived conversations
-- BM25 indexing ensures O(log n) complexity
-- Results typically return in <100ms for most queries
-- Large result sets (top_k>50) may take slightly longer
+TIPS:
+  • Use specific terms for better results
+  • Include error messages or function names
+  • Try synonyms if no results
+  • Recent conversations ranked higher
 
 LIMITATIONS:
+  • Max 10 results returned
+  • Substring match only (no regex)
+  • Searches content, not filenames
+  • Requires conversation archiving enabled
 
-- Only searches archived conversations (not current session)
-- Cannot search by date range (use order_by + top_k instead)
-- Cannot filter by specific metadata (e.g., project, tags)
-- No boolean operators (AND/OR/NOT) in queries
-- Maximum 100 results (automatically capped)
+COMMON ERRORS:
+  "No conversations found" → Check query spelling or try broader term
+  "Search failed" → Conversation storage may not be configured
 
-ERROR MESSAGES:
-
-"Missing required <query> parameter"
-  → Must include <query> tag with search text
-
-"<query> cannot be empty"
-  → Query must contain at least some text
-
-"<top_k> must be positive"
-  → Use positive integers for top_k
-
-"Invalid <order_by> value"
-  → Must be 'best_match', 'newest', or 'oldest'
-
-EXAMPLES IN CONTEXT:
-
-1. Debugging a recurring issue:
-   "I remember we had this error before..."
-   <searchconversations>
-     <query>TypeError undefined property</query>
-     <top_k>10</top_k>
-     <order_by>best_match</order_by>
-   </searchconversations>
-
-2. Building on previous work:
-   "What did we discuss about API design?"
-   <searchconversations>
-     <query>RESTful API design patterns</query>
-     <top_k>5</top_k>
-     <order_by>newest</order_by>
-   </searchconversations>
-
-3. Learning from past decisions:
-   "Why did we choose that architecture?"
-   <searchconversations>
-     <query>microservices architecture decision</query>
-     <top_k>3</top_k>
-     <order_by>best_match</order_by>
-   </searchconversations>
-
-RELATED CONCEPTS:
-
-- BM25: Probabilistic ranking algorithm for text retrieval
-- Stemming: Reducing words to root form (e.g., "running" → "run")
-- Fuzzy matching: Tolerating minor spelling variations
-- Relevance score: Numeric measure of query-document similarity
-
-╚══════════════════════════════════════════════════════════════════════════════╝
+RELATED: <help>searchfile</help> <help>grepsearch</help>
 """
 
     @staticmethod

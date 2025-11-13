@@ -53,121 +53,65 @@ class searchfile:
     @staticmethod
     def get_detailed_tool_info() -> str:
         """Provides comprehensive help documentation for this tool."""
-        return """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                        SEARCHFILE TOOL - EXTENDED HELP                        ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+        return """SEARCHFILE - EXTENDED HELP
 
-BASIC USAGE:
+USAGE:
   <searchfile><query>search terms</query><path>./directory</path></searchfile>
   <searchfile><query>regex pattern</query><path>./file.py</path></searchfile>
 
-TWO OPERATING MODES:
-
-1. DIRECTORY MODE (path is a directory)
-   - Searches all files in directory tree
-   - Uses BM25 ranking algorithm for relevance
-   - Returns top-k most relevant files
-   - Respects .gitignore patterns
-
-2. FILE MODE (path is a file)
-   - Searches within a single file
-   - Returns matching lines with line numbers
-   - Supports regex patterns
-   - Shows context around matches
+MODES:
+  Directory: Searches all files, returns top-K by BM25 relevance
+  File: Searches single file, returns matching lines with line numbers
 
 PARAMETERS:
-  <query>         - Search query or regex pattern [REQUIRED]
-  <path>          - File or directory path [REQUIRED]
-  <top_k>         - Number of results for directory mode (default: 10) [OPTIONAL]
+  <query> - Search query or regex (required)
+  <path> - File or directory path (required)
+  <top_k> - Number of results for directory mode (optional, default 10)
 
-DIRECTORY MODE EXAMPLES:
+EXAMPLES:
+  Dir: <searchfile><query>authentication logic</query><path>./src</path></searchfile>
+  File: <searchfile><query>error|exception</query><path>./app.py</path></searchfile>
+  More results: <searchfile><query>database</query><path>./src</path><top_k>20</top_k></searchfile>
 
-1. Basic directory search:
-   <searchfile>
-     <query>authentication logic</query>
-     <path>./src</path>
-   </searchfile>
-
-2. Search with more results:
-   <searchfile>
-     <query>database connection</query>
-     <path>./src</path>
-     <top_k>20</top_k>
-   </searchfile>
-
-FILE MODE EXAMPLES:
-
-1. Search within a file:
-   <searchfile>
-     <query>error|exception</query>
-     <path>./app.py</path>
-   </searchfile>
-
-2. Regex pattern search:
-   <searchfile>
-     <query>class \w+Controller</query>
-     <path>./controllers.py</path>
-   </searchfile>
-
-QUERY SYNTAX:
-
-DIRECTORY MODE:
-  - Simple keywords: "authentication database"
-  - Multiple terms matched with BM25 ranking
-  - Case-insensitive by default
+DIRECTORY MODE (BM25):
+  • Ranks files by relevance using BM25 algorithm
+  • Considers term frequency and document length
+  • Weights rare terms higher
+  • Returns sorted by score
+  • Requires rank-bm25 library (falls back to simple match)
 
 FILE MODE:
-  - Supports regex patterns
-  - Use | for OR: "error|exception|warning"
-  - Use \w, \d, \s for character classes
-  - Case-insensitive by default
+  • Regex pattern support
+  • Returns matching lines with numbers
+  • Shows first 50 matches
+  • Case-insensitive by default
 
-BM25 RANKING ALGORITHM:
+QUERY SYNTAX:
+  Directory: Simple keywords ("auth database connection")
+  File: Regex patterns ("error|exception", "class \\w+Controller")
 
-Directory mode uses BM25 (Best Matching 25), a state-of-the-art ranking algorithm:
-  - Considers term frequency in documents
-  - Accounts for document length
-  - Weights rare terms higher than common ones
-  - Returns results sorted by relevance score
+BM25 RANKING:
+  • Best for finding relevant files in large codebases
+  • Accounts for document length
+  • Boosts rare/specific terms
+  • Better than simple grep for discovery
 
-PERFORMANCE TIPS:
+WORKFLOW:
+  1. Discover: <searchfile><query>login validation</query><path>./src</path></searchfile>
+  2. Inspect: <searchfile><query>def validate_login</query><path>./src/auth.py</path></searchfile>
+  3. Read: <readfile><filepath>./src/auth.py</filepath><lines>45-75</lines></readfile>
 
-1. Use specific paths instead of searching from root
-2. Use directory mode to identify relevant files first
-3. Then use file mode on specific files for exact locations
-4. Binary files are automatically skipped
-
-WORKFLOW RECOMMENDATIONS:
-
-1. DISCOVERY: Use directory mode to find relevant files
-   <searchfile><query>login validation</query><path>./src</path></searchfile>
-
-2. INSPECTION: Use file mode to find exact locations
-   <searchfile><query>def validate_login</query><path>./src/auth.py</path></searchfile>
-
-3. READING: Use readfile to get the actual content
-   <readfile><filepath>./src/auth.py</filepath><lines>45-75</lines></readfile>
+VS GREPSEARCH:
+  searchfile: BM25 ranking, better for relevance/discovery
+  grepsearch: Traditional grep, better for exact patterns
 
 LIMITATIONS:
-  - Directory mode requires rank_bm25 library (fallback available)
-  - Very large files may take longer to search
-  - Binary files are skipped automatically
-  - Regex in directory mode not supported (file mode only)
+  • Directory mode requires rank-bm25 (pip install rank-bm25)
+  • Binary files skipped
+  • Very large files may be slow
+  • Regex only in file mode
 
-COMPARISON WITH OTHER TOOLS:
-
-searchfile vs grepsearch:
-  - searchfile: BM25 ranking, better for finding relevant files
-  - grepsearch: Traditional grep, better for exact pattern matching
-
-searchfile vs readfile:
-  - searchfile: Find and preview matches
-  - readfile: Read full file content
-
-Use searchfile first to locate, then readfile to inspect!
-
-╚══════════════════════════════════════════════════════════════════════════════╝
+RELATED: <help>grepsearch</help> <help>readfile</help> <help>readdirectory</help>
 """
 
     @staticmethod

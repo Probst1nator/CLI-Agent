@@ -32,183 +32,60 @@ class editfile:
     @staticmethod
     def get_detailed_tool_info() -> str:
         """Provides comprehensive help documentation for this tool."""
-        return """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                          EDITFILE TOOL - EXTENDED HELP                        ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+        return """EDITFILE - EXTENDED HELP
 
-BASIC USAGE:
-  <editfile><filepath>path/to/file</filepath><search>old</search><replace>new</replace></editfile>
-  <editfile><filepath>path/to/file</filepath><line>10</line><replace>new content</replace></editfile>
+USAGE:
+  <editfile><filepath>path/file</filepath><search>old</search><replace>new</replace></editfile>
+  <editfile><filepath>path/file</filepath><line>10</line><replace>content</replace></editfile>
 
-TWO EDITING MODES:
-
-1. GLOBAL REPLACE MODE
-   - Finds and replaces ALL occurrences of a string
-   - Uses exact string matching
-   - Requires <search> and <replace> tags
-
-2. LINE-SPECIFIC MODE
-   - Replaces content of a specific line number
-   - Requires <line> and <replace> tags
-   - Line numbers start at 1
+MODES:
+  Global Replace: <search><replace> - Replace ALL occurrences (exact match)
+  Line-Specific: <line><replace> - Replace entire line N (1-based)
 
 PARAMETERS:
-  <filepath>  - Path to file (required, relative to current directory)
-  <search>    - String to find (for global replace mode)
-  <replace>   - Replacement string (required in both modes)
-  <line>      - Line number to edit (for line-specific mode)
+  <filepath> - File path (required)
+  <search>   - String to find (global mode)
+  <replace>  - Replacement string (both modes)
+  <line>     - Line number (line mode, 1-based)
 
-GLOBAL REPLACE EXAMPLES:
+EXAMPLES:
+  Global: <editfile><filepath>./app.py</filepath><search>old_var</search><replace>new_var</replace></editfile>
+  Line:   <editfile><filepath>./main.py</filepath><line>15</line><replace>print("updated")</replace></editfile>
+  Multi:  <editfile><filepath>./README.md</filepath><search>## Old
+Content</search><replace>## New
+Content</replace></editfile>
 
-1. Basic find and replace:
-   <editfile>
-     <filepath>./src/config.js</filepath>
-     <search>const PORT = 3000;</search>
-     <replace>const PORT = 8080;</replace>
-   </editfile>
+KEY BEHAVIORS:
+  • Global mode replaces ALL matches (not just first)
+  • Case-sensitive exact matching
+  • Line mode replaces entire line content
+  • Preserves indentation when you include it in <replace>
+  • UTF-8 encoding, preserves line endings
+  • No undo - changes immediate
 
-2. Replace variable name:
-   <editfile>
-     <filepath>./app.py</filepath>
-     <search>old_variable</search>
-     <replace>new_variable</replace>
-   </editfile>
+WORKFLOW:
+  1. Find: <searchfile><query>pattern</query><path>file</path></searchfile>
+  2. Verify: <readfile><filepath>file</filepath><lines>40-50</lines></readfile>
+  3. Edit: <editfile><filepath>file</filepath><search>old</search><replace>new</replace></editfile>
 
-3. Replace multiline content:
-   <editfile>
-     <filepath>./README.md</filepath>
-     <search>## Old Section
-This is old content</search>
-     <replace>## New Section
-This is updated content</replace>
-   </editfile>
+TIPS:
+  • Use specific search strings with context to avoid unintended matches
+  • Check line numbers with readfile before line-specific edits
+  • Include indentation in <replace> (e.g., "    return value")
+  • For structural changes use insertline/deletelines instead
 
-4. Replace with empty string (deletion):
-   <editfile>
-     <filepath>./style.css</filepath>
-     <search>.deprecated-class {
-  color: red;
-}</search>
-     <replace></replace>
-   </editfile>
-
-LINE-SPECIFIC EXAMPLES:
-
-1. Edit a specific line:
-   <editfile>
-     <filepath>./main.py</filepath>
-     <line>15</line>
-     <replace>    print("Updated line")</replace>
-   </editfile>
-
-2. Replace function definition:
-   <editfile>
-     <filepath>./utils.py</filepath>
-     <line>42</line>
-     <replace>def new_function_name(param1, param2):</replace>
-   </editfile>
-
-3. Update configuration value:
-   <editfile>
-     <filepath>./config.yaml</filepath>
-     <line>8</line>
-     <replace>debug: false</replace>
-   </editfile>
-
-IMPORTANT BEHAVIORS:
-
-1. GLOBAL REPLACE:
-   - Replaces ALL occurrences (not just first)
-   - Fails if search string not found
-   - Exact string matching (case-sensitive)
-   - Preserves file encoding (UTF-8)
-
-2. LINE EDITING:
-   - Replaces entire line content
-   - Preserves line ending (\\n)
-   - Fails if line number exceeds file length
-   - Shows old and new content in success message
-
-3. PATH RESOLUTION:
-   - Paths resolved relative to current working directory
-   - Absolute paths supported
-   - Symbolic links are followed
-
-4. PERMISSIONS:
-   - Respects write access controls
-   - May be restricted by --allow-write-path configuration
-
-TIPS AND BEST PRACTICES:
-
-1. USE SPECIFIC SEARCH STRINGS
-   - Include context to make searches unique
-   - Avoid generic strings that might match unintended locations
-   - Example: Use "const API_URL = 'old';" instead of just "'old'"
-
-2. CHECK BEFORE EDITING
-   - Use searchfile to verify what will be changed
-   - Use readfile to view content before editing
-   - Workflow: search → read → edit
-
-3. LINE NUMBERS
-   - Use readfile with <lines> to see line numbers
-   - Example: <readfile><filepath>./app.py</filepath><lines>10-20</lines></readfile>
-
-4. PRESERVE INDENTATION
-   - Include leading whitespace in <replace> content
-   - Example: <replace>    return value</replace> (4 spaces)
-
-5. MULTILINE EDITS
-   - Global replace supports multiline content
-   - Use line-specific mode for single line changes
-   - Consider insertline or deletelines for structural changes
-
-WORKFLOW EXAMPLES:
-
-1. Safe editing workflow:
-   Step 1 - Find the line:
-   <searchfile><query>def old_function</query><path>./utils.py</path></searchfile>
-
-   Step 2 - Read context:
-   <readfile><filepath>./utils.py</filepath><lines>40-50</lines></readfile>
-
-   Step 3 - Edit:
-   <editfile><filepath>./utils.py</filepath><search>def old_function()</search><replace>def new_function()</replace></editfile>
-
-2. Batch variable renaming:
-   <editfile><filepath>./app.py</filepath><search>old_var</search><replace>new_var</replace></editfile>
-   <editfile><filepath>./utils.py</filepath><search>old_var</search><replace>new_var</replace></editfile>
-   <editfile><filepath>./config.py</filepath><search>old_var</search><replace>new_var</replace></editfile>
+COMMON ERRORS:
+  "String not found" → Verify exact match with searchfile (check case/whitespace)
+  "Line exceeds length" → Use insertline to add lines
+  "Write access denied" → Check permissions or security policy
 
 LIMITATIONS:
-  - No regex support (exact string matching only)
-  - No undo functionality
-  - Cannot edit binary files
-  - Global replace is all-or-nothing (can't replace just first occurrence)
-  - Cannot create new files (file must exist)
+  • Exact string matching only (no regex)
+  • Cannot create new files
+  • Global replace is all-or-nothing
+  • No undo functionality
 
-ERROR MESSAGES:
-
-"String to find was not found"
-  → Check spelling, whitespace, and case sensitivity
-  → Use searchfile to verify the exact string
-
-"Line exceeds file length"
-  → Use insertline to add new lines instead
-  → Check file has expected number of lines
-
-"Write access denied"
-  → Check file permissions
-  → May be restricted by security policy
-
-RELATED TOOLS:
-  - <help>insertline</help> - Add new lines to files
-  - <help>deletelines</help> - Remove lines from files
-  - <help>searchfile</help> - Find content before editing
-  - <help>readfile</help> - View content with line numbers
-
-╚══════════════════════════════════════════════════════════════════════════════╝
+RELATED: <help>insertline</help> <help>deletelines</help> <help>readfile</help>
 """
 
     @staticmethod
