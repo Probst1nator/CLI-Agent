@@ -1213,31 +1213,423 @@ class visualresponse:
         return {
             "name": "visualresponse",
             "description": (
-                "Create content in a browser UI. Use `<type>html</type>` for any interactive or complex content by providing a complete, self-contained HTML document. Use `<type>markdown</type>` for simple text and diagrams. Prefer dark theme.\n"
-                "PARAMETERS:\n"
-                "- `<type>`: Must be either `html` or `markdown`.\n"
-                "- `<content>`: The full HTML document or Markdown text. For HTML, you can wrap content in <![CDATA[...]]> to ensure correct parsing.\n"
-                "- `<end_turn>`: Optional boolean (true/false) to control whether the agent's turn ends (default: true)."
+                "Display HTML or Markdown in browser UI. Use <type>html</type> for interactive content "
+                "(charts, forms, visualizations) with self-contained document. Use <type>markdown</type> "
+                "for simple text. Prefer dark theme. Use <help>visualresponse</help> for CDATA wrapping and examples."
             ),
             "example": (
-                "// Create an interactive Plotly chart using the 'html' type\n"
-                "<visualresponse><type>html</type><content><![CDATA[\n"
-                "<!DOCTYPE html><html><head>\n"
-                "  <script src='https://cdn.plot.ly/plotly-latest.min.js'></script>\n"
-                "</head><body>\n"
-                "  <div id='plotDiv' style='width:100%;height:100%;'></div>\n"
-                "  <script>\n"
-                "    const data = [{'x': [1,2,3], 'y': [4,2,5], 'type': 'bar'}];\n"
-                "    Plotly.newPlot('plotDiv', data, {title: 'My Bar Chart'});\n"
-                "  </script>\n"
-                "</body></html>\n"
-                "]]></content></visualresponse>\n\n"
-                "// Create a simple markdown panel\n"
-                "<visualresponse><type>markdown</type><content># hello world</content></visualresponse>\n\n"
-                "// Continue executing after showing visualization\n"
-                "<visualresponse><end_turn>false</end_turn><type>markdown</type><content>Partial result, more to come...</content></visualresponse>"
+                "<visualresponse><type>html</type><content><![CDATA[<!DOCTYPE html>...full HTML...</content></visualresponse>\n"
+                "<visualresponse><type>markdown</type><content># Title\nContent here</content></visualresponse>"
             ),
         }
+
+    @staticmethod
+    def get_detailed_tool_info() -> str:
+        """Provides comprehensive help documentation for this tool."""
+        return """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     VISUALRESPONSE TOOL - EXTENDED HELP                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+BASIC USAGE:
+  <visualresponse>
+    <type>html</type>
+    <content><![CDATA[
+      <!DOCTYPE html>
+      <html>...</html>
+    ]]></content>
+  </visualresponse>
+
+PURPOSE:
+Create rich, interactive visualizations and formatted content displayed in a
+browser interface. Supports full HTML documents with JavaScript libraries or
+simple Markdown text.
+
+PARAMETERS:
+
+  <type> (REQUIRED)
+    - Content format: "html" or "markdown"
+    - Determines how content is rendered
+
+    html:
+      - Full HTML document required
+      - Must be self-contained (<!DOCTYPE html>)
+      - Can include inline CSS, JavaScript
+      - External CDN libraries allowed
+      - Interactive elements supported
+
+    markdown:
+      - Simple text formatting
+      - GitHub-flavored markdown
+      - No JavaScript support
+      - Faster rendering
+
+  <content> (REQUIRED)
+    - The actual HTML document or Markdown text
+    - For HTML: Wrap in <![CDATA[...]]> to prevent XML parsing issues
+    - For Markdown: Plain text, CDATA optional
+    - Must be complete and valid
+
+  <end_turn> (OPTIONAL, default: true)
+    - Boolean: true or false
+    - Controls whether agent's turn ends after display
+    - true: Show content, end turn (user responds)
+    - false: Show content, continue execution
+    - Useful for multi-step visualizations
+
+CONTENT TYPES IN DETAIL:
+
+1. HTML TYPE (Interactive, Complex):
+
+   Requirements:
+   - Complete HTML document (<!DOCTYPE html>)
+   - Self-contained (all scripts/styles inline or from CDN)
+   - Wrap content in <![CDATA[...]]> to avoid XML conflicts
+   - Prefer dark theme for consistency
+
+   Structure:
+   <!DOCTYPE html>
+   <html>
+   <head>
+     <meta charset="UTF-8">
+     <title>Visualization</title>
+     <!-- Inline CSS or CDN links -->
+   </head>
+   <body>
+     <!-- Content here -->
+     <!-- Inline JavaScript -->
+   </body>
+   </html>
+
+   Best for:
+   - Interactive charts (Plotly, Chart.js, D3.js)
+   - Data visualizations
+   - Custom forms
+   - Complex layouts
+   - Games or demos
+
+2. MARKDOWN TYPE (Simple, Fast):
+
+   Features:
+   - GitHub-flavored markdown
+   - Headings, lists, code blocks, tables
+   - No JavaScript
+   - Automatic styling
+
+   Best for:
+   - Text explanations
+   - Simple diagrams (Mermaid supported)
+   - Documentation
+   - Quick messages
+
+CDATA WRAPPING:
+
+Why use CDATA:
+  XML parsers treat < > & as special characters. CDATA tells the parser to
+  treat content as raw text, not XML.
+
+When to use:
+  ✓ Always for HTML content (has <script>, <div>, etc.)
+  ✓ Optional for Markdown (but safe to use)
+
+Syntax:
+  <content><![CDATA[
+    Your content here...
+  ]]></content>
+
+Common mistake:
+  ✗ <content><!DOCTYPE html>...</content>  # XML parsing errors
+  ✓ <content><![CDATA[<!DOCTYPE html>...]]></content>  # Works correctly
+
+DARK THEME GUIDELINES:
+
+For HTML visualizations:
+  - Background: #1e1e1e, #2d2d2d, or similar
+  - Text: #ffffff, #e0e0e0
+  - Borders: #444, #555
+  - Accent colors: Bright but not harsh
+
+Example CSS:
+  body {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', sans-serif;
+  }
+
+For Markdown:
+  - Automatic dark theme applied
+  - No manual styling needed
+
+INTERACTIVE CHART EXAMPLES:
+
+1. PLOTLY CHART:
+   <visualresponse>
+     <type>html</type>
+     <content><![CDATA[
+       <!DOCTYPE html>
+       <html>
+       <head>
+         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+       </head>
+       <body style="background:#1e1e1e;margin:0;padding:20px;">
+         <div id="chart" style="width:100%;height:500px;"></div>
+         <script>
+           const data = [{
+             x: ['Jan', 'Feb', 'Mar', 'Apr'],
+             y: [10, 15, 13, 17],
+             type: 'bar',
+             marker: {color: '#4CAF50'}
+           }];
+           const layout = {
+             title: 'Monthly Sales',
+             paper_bgcolor: '#1e1e1e',
+             plot_bgcolor: '#1e1e1e',
+             font: {color: '#e0e0e0'}
+           };
+           Plotly.newPlot('chart', data, layout);
+         </script>
+       </body>
+       </html>
+     ]]></content>
+   </visualresponse>
+
+2. CHART.JS CHART:
+   <visualresponse>
+     <type>html</type>
+     <content><![CDATA[
+       <!DOCTYPE html>
+       <html>
+       <head>
+         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+       </head>
+       <body style="background:#2d2d2d;padding:20px;">
+         <canvas id="myChart" width="400" height="200"></canvas>
+         <script>
+           const ctx = document.getElementById('myChart').getContext('2d');
+           new Chart(ctx, {
+             type: 'line',
+             data: {
+               labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+               datasets: [{
+                 label: 'Website Traffic',
+                 data: [120, 190, 150, 180, 220],
+                 borderColor: '#4CAF50',
+                 backgroundColor: 'rgba(76, 175, 80, 0.2)'
+               }]
+             },
+             options: {
+               plugins: {
+                 legend: {labels: {color: '#fff'}}
+               },
+               scales: {
+                 y: {ticks: {color: '#fff'}},
+                 x: {ticks: {color: '#fff'}}
+               }
+             }
+           });
+         </script>
+       </body>
+       </html>
+     ]]></content>
+   </visualresponse>
+
+3. D3.JS VISUALIZATION:
+   <visualresponse>
+     <type>html</type>
+     <content><![CDATA[
+       <!DOCTYPE html>
+       <html>
+       <head>
+         <script src="https://d3js.org/d3.v7.min.js"></script>
+       </head>
+       <body style="background:#1e1e1e;">
+         <svg id="viz" width="600" height="400"></svg>
+         <script>
+           const data = [30, 80, 45, 60, 20];
+           const svg = d3.select("#viz");
+           svg.selectAll("rect")
+             .data(data)
+             .enter().append("rect")
+             .attr("x", (d, i) => i * 70)
+             .attr("y", d => 400 - d * 4)
+             .attr("width", 65)
+             .attr("height", d => d * 4)
+             .attr("fill", "#4CAF50");
+         </script>
+       </body>
+       </html>
+     ]]></content>
+   </visualresponse>
+
+MARKDOWN EXAMPLES:
+
+1. SIMPLE TEXT:
+   <visualresponse>
+     <type>markdown</type>
+     <content>
+   # Analysis Results
+
+   The data shows a **significant trend**:
+   - 45% increase in engagement
+   - 23% reduction in bounce rate
+   - 12% improvement in conversion
+     </content>
+   </visualresponse>
+
+2. CODE BLOCKS:
+   <visualresponse>
+     <type>markdown</type>
+     <content>
+   ## Python Example
+
+   ```python
+   def calculate_average(numbers):
+       return sum(numbers) / len(numbers)
+
+   result = calculate_average([10, 20, 30])
+   print(f"Average: {result}")
+   ```
+     </content>
+   </visualresponse>
+
+3. TABLES:
+   <visualresponse>
+     <type>markdown</type>
+     <content>
+   | Metric | Q1 | Q2 | Q3 | Q4 |
+   |--------|----|----|----|----|
+   | Revenue | $50K | $65K | $72K | $85K |
+   | Growth | - | 30% | 11% | 18% |
+     </content>
+   </visualresponse>
+
+4. MERMAID DIAGRAMS:
+   <visualresponse>
+     <type>markdown</type>
+     <content>
+   ## System Architecture
+
+   ```mermaid
+   graph TD
+     A[User] -->|Request| B[API Gateway]
+     B --> C[Auth Service]
+     B --> D[Data Service]
+     D --> E[Database]
+   ```
+     </content>
+   </visualresponse>
+
+MULTI-STEP WORKFLOWS:
+
+Using <end_turn>false</end_turn> to continue execution:
+
+1. Progressive visualization:
+   <visualresponse>
+     <end_turn>false</end_turn>
+     <type>markdown</type>
+     <content># Step 1: Data loaded</content>
+   </visualresponse>
+
+   <!-- Agent continues, processes data -->
+
+   <visualresponse>
+     <end_turn>false</end_turn>
+     <type>markdown</type>
+     <content># Step 2: Analysis complete</content>
+   </visualresponse>
+
+   <!-- Agent continues, creates visualization -->
+
+   <visualresponse>
+     <type>html</type>
+     <content><![CDATA[
+       <!-- Final interactive chart -->
+     ]]></content>
+   </visualresponse>
+
+2. Dashboard with updates:
+   Show initial dashboard, then update with new data without user interaction.
+
+TIPS AND BEST PRACTICES:
+
+1. ALWAYS USE CDATA FOR HTML:
+   ✓ <content><![CDATA[<!DOCTYPE html>...]]></content>
+   ✗ <content><!DOCTYPE html>...</content>
+
+2. SELF-CONTAINED HTML:
+   ✓ Include all CSS/JS inline or from CDN
+   ✗ Reference local files (won't load)
+
+3. DARK THEME:
+   - Makes content consistent with interface
+   - Better for extended viewing
+   - Use #1e1e1e, #2d2d2d backgrounds
+
+4. CHOOSE APPROPRIATE TYPE:
+   - Simple text/tables? → markdown
+   - Interactive charts? → html
+   - Need JavaScript? → html
+   - Quick message? → markdown
+
+5. TEST INCREMENTALLY:
+   - Start with simple version
+   - Add complexity gradually
+   - Verify each addition works
+
+6. CDN LIBRARIES:
+   Popular CDN options:
+   - Plotly: https://cdn.plot.ly/plotly-latest.min.js
+   - Chart.js: https://cdn.jsdelivr.net/npm/chart.js
+   - D3.js: https://d3js.org/d3.v7.min.js
+   - Three.js: https://cdn.jsdelivr.net/npm/three
+   - Mermaid: https://cdn.jsdelivr.net/npm/mermaid
+
+7. RESPONSIVE DESIGN:
+   Use percentages and vh/vw units:
+   - width: 100%; height: 100vh;
+   - Makes visualizations adapt to window size
+
+COMMON USE CASES:
+
+1. Data visualization - Charts, graphs, heatmaps
+2. Results dashboard - Multi-metric displays
+3. Interactive demos - Games, simulations
+4. Form interfaces - Custom input collection
+5. Documentation - Formatted text with diagrams
+6. Progress tracking - Real-time status updates
+7. Comparison views - Side-by-side data
+
+LIMITATIONS:
+
+- No file system access from HTML
+- No server-side execution
+- External resources must be CDN (no local files)
+- Large visualizations may be slow
+- JavaScript errors not reported back to agent
+
+ERROR PREVENTION:
+
+Common mistakes:
+  ✗ Missing <!DOCTYPE html>
+  ✗ Not wrapping HTML in CDATA
+  ✗ Referencing local files
+  ✗ Incomplete HTML structure
+  ✗ Forgetting closing tags
+
+Solutions:
+  ✓ Always include full HTML template
+  ✓ Use CDATA wrapper
+  ✓ Use CDN for libraries
+  ✓ Validate HTML structure
+  ✓ Close all tags properly
+
+RELATED TOOLS:
+  - <help>readfile</help> - Read data files for visualization
+  - <help>writefile</help> - Save generated HTML to file
+  - <help>bash</help> - Process data before visualization
+
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
 
     @staticmethod
     async def _get_or_create_server(open_browser: bool = True):
