@@ -179,162 +179,64 @@ class readfile:
     @staticmethod
     def get_detailed_tool_info() -> str:
         """Provides comprehensive help documentation for this tool."""
-        return """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                          READFILE TOOL - EXTENDED HELP                        ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+        return """READFILE - EXTENDED HELP
 
-BASIC USAGE:
-  <readfile>path/to/file.ext</readfile>
-  <readfile><filepath>path/to/file.ext</filepath></readfile>
+USAGE:
+  <readfile><filepath>./file.py</filepath></readfile>
+  <readfile><filepath>./file.py</filepath><lines>10-50</lines></readfile>
+
+PURPOSE:
+Read file contents with line numbers. Supports text and common formats.
 
 PARAMETERS:
-  <filepath>      - Path to file (required, can be root-level content too)
-  <lines>         - Line range for text files (e.g., "10-20", "50-", "-100") [OPTIONAL]
-  <encoding>      - File encoding (default: utf-8) [OPTIONAL]
-  <max_lines>     - Override default line limit [OPTIONAL]
-  <preview_mode>  - Show file info without full content [OPTIONAL]
+  <filepath> - File path (required)
+  <lines> - Line range (optional, format: "N-M" or "N")
 
-SUPPORTED FILE FORMATS:
+EXAMPLES:
+  Full: <readfile><filepath>./app.py</filepath></readfile>
+  Range: <readfile><filepath>./config.json</filepath><lines>1-20</lines></readfile>
+  Single: <readfile><filepath>./README.md</filepath><lines>5</lines></readfile>
 
-1. TEXT FILES (.txt, .py, .js, .md, .json, .yaml, .xml, etc.)
-   - Full content or line ranges
-   - Syntax detection and formatting
-   - Large file handling with truncation
-   - Example: <readfile><filepath>app.py</filepath><lines>100-150</lines></readfile>
+LINE NUMBERING:
+  • 1-based (first line = 1)
+  • Format: "start-end" or "N" for single line
+  • Inclusive range (both start and end included)
 
-2. PDF DOCUMENTS (.pdf)
-   - Text extraction from PDF
-   - OCR fallback for scanned documents
-   - Page-by-page processing
-   - Example: <readfile>report.pdf</readfile>
+SUPPORTED FORMATS:
+  Text: .txt, .md, .py, .js, .json, .yaml, .xml, .html, .css
+  Images: .png, .jpg, .gif (displays image, no text)
+  PDF: .pdf (extracts text by page)
+  Jupyter: .ipynb (shows cells with outputs)
 
-3. IMAGES (.png, .jpg, .jpeg, .gif, .bmp, .webp)
-   - Registered for vision model analysis
-   - Base64 encoding for multimodal processing
-   - Automatic format detection
-   - Example: <readfile>screenshot.png</readfile>
+KEY BEHAVIORS:
+  • Shows line numbers for all text files
+  • Truncates lines >2000 chars
+  • Default max 2000 lines (specify range for more)
+  • UTF-8 encoding
+  • Binary files rejected with error
 
-4. OFFICE DOCUMENTS
-   - Word: .docx (text extraction)
-   - Excel: .xlsx, .xls (formatted tables)
-   - PowerPoint: .pptx (slide text)
-   - OpenDocument: .odt, .ods, .odp
-   - Example: <readfile>spreadsheet.xlsx</readfile>
-
-5. CSV/TSV FILES (.csv, .tsv)
-   - Formatted as readable tables
-   - Automatic delimiter detection
-   - Header recognition
-   - Example: <readfile>data.csv</readfile>
-
-6. HTML FILES (.html, .htm)
-   - Text extraction from HTML
-   - Strips tags and formatting
-   - Preserves structure
-   - Example: <readfile>page.html</readfile>
-
-7. ARCHIVE FILES (.zip, .tar, .tar.gz, .tar.bz2)
-   - Lists archive contents
-   - Shows file sizes and paths
-   - No extraction required
-   - Example: <readfile>backup.zip</readfile>
-
-8. SQLITE DATABASES (.db, .sqlite, .sqlite3)
-   - Shows database schema
-   - Displays table structures
-   - Sample data from each table
-   - Example: <readfile>app.db</readfile>
-
-9. JUPYTER NOTEBOOKS (.ipynb)
-   - Formatted cells with outputs
-   - Code and markdown cells
-   - Execution results included
-   - Example: <readfile>analysis.ipynb</readfile>
-
-LINE RANGE SYNTAX (Text files only):
-
-  <lines>10</lines>         - Read only line 10
-  <lines>10-20</lines>      - Read lines 10 through 20
-  <lines>50-</lines>        - Read from line 50 to end of file
-  <lines>-100</lines>       - Read first 100 lines
-  <lines>100-200</lines>    - Read lines 100 to 200
-
-ENCODING OPTIONS:
-
-  <encoding>utf-8</encoding>      - UTF-8 (default)
-  <encoding>latin-1</encoding>    - Latin-1/ISO-8859-1
-  <encoding>ascii</encoding>      - ASCII
-  <encoding>utf-16</encoding>     - UTF-16
-
-ADVANCED FEATURES:
-
-1. LARGE FILE HANDLING
-   - Automatic truncation for files > 20,000 characters
-   - Shows beginning and end sections
-   - Preserves context while managing token usage
-   - State tracking for multi-part reading
-
-2. AUTOMATIC FORMAT DETECTION
-   - MIME type detection
-   - Extension-based fallback
-   - Binary file identification
-
-3. PATH RESOLUTION
-   - Relative to current working directory
-   - Absolute paths supported
-   - Recursive search if file not found
-
-4. PREVIEW MODE
-   <readfile><filepath>large_file.txt</filepath><preview_mode>true</preview_mode></readfile>
-   - Shows file metadata without content
-   - Useful for large files
-
-USAGE EXAMPLES:
-
-1. Read entire text file:
-   <readfile>./src/main.py</readfile>
-
-2. Read specific line range:
-   <readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>
-
-3. Read image for vision analysis:
-   <readfile>./screenshot.png</readfile>
-
-4. Read PDF document:
-   <readfile>./report.pdf</readfile>
-
-5. Read Excel spreadsheet:
-   <readfile>./data.xlsx</readfile>
-
-6. Read with specific encoding:
-   <readfile><filepath>./legacy.txt</filepath><encoding>latin-1</encoding></readfile>
-
-7. List archive contents:
-   <readfile>./backup.zip</readfile>
-
-8. Inspect database schema:
-   <readfile>./app.db</readfile>
-
-9. Read Jupyter notebook:
-   <readfile>./analysis.ipynb</readfile>
+WORKFLOW:
+  1. Read: <readfile><filepath>./app.py</filepath><lines>40-60</lines></readfile>
+  2. Edit: <editfile><filepath>./app.py</filepath><search>old</search><replace>new</replace></editfile>
+  3. Verify: <readfile><filepath>./app.py</filepath><lines>40-60</lines></readfile>
 
 TIPS:
-  • Use line ranges to focus on specific code sections
-  • Images are automatically prepared for vision model analysis
-  • Large files are truncated - use line ranges for precision
-  • Archives show contents without extraction
-  • SQLite databases show schema + sample data
+  • Use line ranges for large files
+  • Line numbers essential for editfile/deletelines/insertline
+  • Check encoding if strange characters appear
+
+COMMON ERRORS:
+  "File not found" → Verify path spelling
+  "Binary file" → Use appropriate viewer
+  "Line range invalid" → Check format (N-M)
 
 LIMITATIONS:
-  • Binary files (except images/PDFs) show metadata only
-  • Very large files automatically truncated
-  • Archive extraction not supported (list only)
-  • OCR may be slow for large scanned PDFs
+  • Max 2000 lines per read (use ranges)
+  • Line truncation at 2000 chars
+  • No syntax highlighting
+  • Binary files not supported
 
-For file editing, see: <help>editfile</help>, <help>insertline</help>, <help>deletelines</help>
-
-╚══════════════════════════════════════════════════════════════════════════════╝
+RELATED: <help>editfile</help> <help>deletelines</help> <help>insertline</help>
 """
 
     @staticmethod

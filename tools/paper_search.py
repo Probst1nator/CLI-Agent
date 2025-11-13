@@ -35,141 +35,78 @@ class paper_search:
     MAX_RESULTS = 10
 
     # Comprehensive help documentation
-    HELP_TEXT = """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                        PAPER_SEARCH TOOL - EXTENDED HELP                      ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+    HELP_TEXT = """PAPER_SEARCH - EXTENDED HELP
 
-BASIC USAGE:
-  <paper_search>
-    <query>your search terms</query>
-  </paper_search>
+USAGE:
+  <paper_search><query>machine learning transformers</query><max_results>5</max_results></paper_search>
+
+PURPOSE:
+Search academic papers using arXiv API. Returns title, abstract, authors, year, and PDF links.
 
 PARAMETERS:
-  <query>       - Search terms (supports advanced syntax, see below) [REQUIRED]
-  <source>      - arxiv|scholar|both (default: arxiv) [OPTIONAL]
-  <max_results> - 1-50 papers (default: 10) [OPTIONAL]
-  <sort_by>     - relevance|submitted_date|updated_date (default: relevance) [OPTIONAL]
-  <sort_order>  - ascending|descending (default: descending) [OPTIONAL]
-  <author>      - Filter by author name (e.g., "Hinton") [OPTIONAL]
-  <category>    - Filter by arXiv category (e.g., "cs.AI", "cs.LG") [OPTIONAL]
-  <date_from>   - Start date YYYY-MM-DD (e.g., "2023-01-01") [OPTIONAL]
-  <date_to>     - End date YYYY-MM-DD (e.g., "2024-12-31") [OPTIONAL]
-  <arxiv_ids>   - Comma-separated arXiv IDs for direct lookup [OPTIONAL]
+  <query> - Search terms (required, supports field syntax)
+  <source> - arxiv|scholar|both (optional, default arxiv)
+  <max_results> - 1-50 papers (optional, default 10)
+  <sort_by> - relevance|submitted_date|updated_date (optional, default relevance)
+  <sort_order> - ascending|descending (optional, default descending)
+  <author> - Filter by author (optional)
+  <category> - arXiv category filter like cs.AI, cs.LG (optional)
+  <date_from> - Start date YYYY-MM-DD (optional)
+  <date_to> - End date YYYY-MM-DD (optional)
+  <arxiv_ids> - Comma-separated IDs for direct lookup (optional)
+
+EXAMPLES:
+  Basic: <paper_search><query>neural networks</query></paper_search>
+  Filtered: <paper_search><query>transformers</query><category>cs.LG</category><max_results>10</max_results></paper_search>
+  Author: <paper_search><query>deep learning</query><author>Hinton</author></paper_search>
+  Date range: <paper_search><query>attention</query><date_from>2017-01-01</date_from><date_to>2020-12-31</date_to></paper_search>
 
 ADVANCED QUERY SYNTAX:
-  Field-specific searches:
-    ti:title_words          - Search in title only
-    au:author_name          - Search by author
-    abs:abstract_words      - Search in abstract
-    cat:category            - Search by category (cs.AI, cs.LG, quant-ph, etc.)
-    co:comment              - Search in comments
-    jr:journal              - Search by journal reference
-    all:keywords            - Search all fields (default)
+  Field searches:
+    ti:title_words - Title only
+    au:author_name - By author
+    abs:abstract_words - Abstract
+    cat:category - By category (cs.AI, cs.LG, etc.)
 
-  Boolean operators (use uppercase):
-    AND     - Both terms required: au:Hinton AND ti:deep
-    OR      - Either term: ti:transformer OR ti:attention
-    ANDNOT  - Exclude: cat:cs.AI ANDNOT ti:survey
+  Boolean operators (UPPERCASE):
+    AND - Both required: au:Hinton AND ti:deep
+    OR - Either: ti:transformer OR ti:attention
+    ANDNOT - Exclude: cat:cs.AI ANDNOT ti:survey
 
-  Examples of complex queries:
-    "au:LeCun AND ti:convolution"
-    "cat:cs.LG AND abs:reinforcement"
-    "ti:transformer ANDNOT ti:survey"
-    "au:Hinton OR au:Bengio"
+COMMON CATEGORIES:
+  cs.AI - Artificial Intelligence
+  cs.LG - Machine Learning
+  cs.CV - Computer Vision
+  cs.CL - Computation and Language
+  cs.NE - Neural Networks
+  stat.ML - Statistics ML
 
-ARXIV CATEGORIES (common):
-  Computer Science:
-    cs.AI - Artificial Intelligence
-    cs.LG - Machine Learning
-    cs.CL - Computation and Language (NLP)
-    cs.CV - Computer Vision
-    cs.NE - Neural and Evolutionary Computing
-    cs.RO - Robotics
-
-  Physics:
-    quant-ph - Quantum Physics
-    cond-mat - Condensed Matter
-    astro-ph - Astrophysics
-
-  Mathematics:
-    math.CO - Combinatorics
-    math.ST - Statistics Theory
-
-  Statistics:
-    stat.ML - Machine Learning (Statistics)
-
-USAGE EXAMPLES:
-
-1. Basic keyword search:
-   <paper_search>
-     <query>quantum computing</query>
-   </paper_search>
-
-2. Search by specific author:
-   <paper_search>
-     <query>au:Hinton</query>
-     <max_results>10</max_results>
-   </paper_search>
-
-3. Category-specific search:
-   <paper_search>
-     <query>deep learning</query>
-     <category>cs.LG</category>
-     <sort_by>submitted_date</sort_by>
-     <sort_order>descending</sort_order>
-   </paper_search>
-
-4. Date range filtering:
-   <paper_search>
-     <query>transformer architecture</query>
-     <date_from>2023-01-01</date_from>
-     <date_to>2024-01-01</date_to>
-   </paper_search>
-
-5. Combined filters:
-   <paper_search>
-     <query>ti:reinforcement AND abs:policy</query>
-     <author>Sutton</author>
-     <category>cs.LG</category>
-     <date_from>2020-01-01</date_from>
-     <max_results>5</max_results>
-   </paper_search>
-
-6. Direct arXiv ID lookup:
-   <paper_search>
-     <arxiv_ids>2103.14030,2010.11929</arxiv_ids>
-   </paper_search>
-
-7. Complex boolean query:
-   <paper_search>
-     <query>cat:cs.AI AND (ti:transformer OR ti:attention) ANDNOT ti:survey</query>
-     <max_results>15</max_results>
-   </paper_search>
-
-8. Author collaboration search:
-   <paper_search>
-     <query>au:Bengio AND au:LeCun</query>
-   </paper_search>
+RESULTS FORMAT:
+  Title: Paper title
+  Authors: Author list
+  Published: YYYY-MM-DD
+  Abstract: Summary (truncated)
+  PDF: Download URL
+  arXiv ID: Identifier
 
 TIPS:
-  • Use field prefixes (ti:, au:, etc.) for more precise searches
-  • Combine filters for better targeting
-  • Sort by submitted_date for latest papers
-  • Use ANDNOT to exclude review papers or surveys
-  • Check paper categories to find related work
-  • Direct ID lookup is fastest when you know the arXiv IDs
+  • Use specific technical terms
+  • Combine field searches: ti:transformer AND cat:cs.LG
+  • Filter by recent dates for latest research
+  • Use author field for specific researchers
 
 LIMITATIONS:
-  • Google Scholar support is optional (may be unreliable)
   • Max 50 results per query
-  • Date filtering applies post-search (may affect result count)
-  • Complex queries may take longer to process
+  • Rate limits apply
+  • arXiv only (no other sources currently)
+  • Some papers may lack PDF links
 
-For more information on arXiv categories:
-  https://arxiv.org/category_taxonomy
+COMMON ERRORS:
+  "No results" → Broaden query or check spelling
+  "Invalid category" → Use format cs.XX or stat.XX
+  "Rate limit" → Wait before retrying
 
-╚══════════════════════════════════════════════════════════════════════════════╝
+RELATED: <help>websearch</help> <help>readfile</help>
 """
 
     @staticmethod
