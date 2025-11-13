@@ -47,7 +47,6 @@ BASIC USAGE:
 
 PARAMETERS:
   <query>       - Search terms (supports advanced syntax, see below) [REQUIRED]
-  <help/>       - Include this tag to display this help [OPTIONAL]
   <source>      - arxiv|scholar|both (default: arxiv) [OPTIONAL]
   <max_results> - 1-50 papers (default: 10) [OPTIONAL]
   <sort_by>     - relevance|submitted_date|updated_date (default: relevance) [OPTIONAL]
@@ -185,7 +184,7 @@ For more information on arXiv categories:
             "description": (
                 f"Advanced academic paper search on arXiv with field-specific queries, boolean operators, "
                 f"and filtering. Supports author, category, date range filtering, and direct ID lookup. "
-                f"Use <help/> for comprehensive documentation. "
+                f"Use <help>paper_search</help> for comprehensive documentation. "
                 f"Basic: <query>search terms</query>. "
                 f"Advanced: <query>au:Hinton AND ti:deep</query><category>cs.AI</category><date_from>2023-01-01</date_from>. "
                 f"Direct lookup: <arxiv_ids>2103.14030,2010.11929</arxiv_ids>"
@@ -193,10 +192,14 @@ For more information on arXiv categories:
             "example": (
                 "<paper_search><query>quantum computing</query></paper_search>\n"
                 "<paper_search><query>au:Hinton AND ti:deep learning</query><max_results>5</max_results></paper_search>\n"
-                "<paper_search><query>transformer</query><category>cs.LG</category><date_from>2023-01-01</date_from></paper_search>\n"
-                "<paper_search><help/></paper_search>"
+                "<paper_search><query>transformer</query><category>cs.LG</category><date_from>2023-01-01</date_from></paper_search>"
             )
         }
+
+    @staticmethod
+    def get_detailed_tool_info() -> str:
+        """Provides comprehensive help documentation for this tool."""
+        return paper_search.HELP_TEXT
 
     @staticmethod
     def _build_arxiv_query(
@@ -583,13 +586,9 @@ For more information on arXiv categories:
             content: XML-formatted string with search parameters
 
         Returns:
-            Formatted string with paper search results or help documentation
+            Formatted string with paper search results
         """
         try:
-            # Check for help request first
-            if '<help' in content:
-                return paper_search.HELP_TEXT
-
             # Parse XML parameters
             query_match = re.search(r'<query>(.*?)</query>', content, re.DOTALL)
             source_match = re.search(r'<source>(.*?)</source>', content, re.DOTALL)
@@ -624,7 +623,7 @@ For more information on arXiv categories:
 
             # Validate required parameters for query-based search
             if not query_match:
-                return "Error: No search query provided. Use <query>your search</query> or <help/> for documentation."
+                return "Error: No search query provided. Use <query>your search</query> or <help>paper_search</help> for documentation."
 
             query = query_match.group(1).strip()
             if not query:
@@ -734,17 +733,16 @@ For more information on arXiv categories:
 if __name__ == '__main__':
     async def test_search():
         """Test the paper search tool"""
-        # Test help
-        print("=== TESTING HELP ===")
-        help_result = await paper_search.run('<help/>')
-        print(help_result)
-
-        print("\n=== TESTING BASIC SEARCH ===")
+        print("=== TESTING BASIC SEARCH ===")
         basic_result = await paper_search.run('<query>quantum computing</query><max_results>2</max_results>')
         print(basic_result)
 
         print("\n=== TESTING ADVANCED SEARCH ===")
         advanced_result = await paper_search.run('<query>au:Hinton AND ti:deep</query><max_results>2</max_results>')
         print(advanced_result)
+
+        print("\n=== TESTING DETAILED HELP ===")
+        help_text = paper_search.get_detailed_tool_info()
+        print(help_text[:500] + "...[truncated]")
 
     asyncio.run(test_search())
