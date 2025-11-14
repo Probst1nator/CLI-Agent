@@ -19,7 +19,8 @@ READ_ONLY_FILE_TOOLS = {
 }
 
 # Agent memory directory - safe for read-only tool access
-AGENT_MEMORY_DIR = os.path.expanduser("~/.cli-agent/")
+# Specifically targets the memory subdirectory where agent stores working context
+AGENT_MEMORY_DIR = os.path.expanduser("~/.cli-agent/memory/")
 
 
 class SettingsManager:
@@ -215,7 +216,7 @@ class SettingsManager:
             >>> mgr.check_permission("readfile", file_path="./src/main.py")
             ("allow", "Permitted by rule: readfile(./src/**)")
 
-            >>> mgr.check_permission("readfile", file_path="~/.cli-agent/memory/file.txt")
+            >>> mgr.check_permission("readfile", file_path="~/.cli-agent/memory/context.txt")
             ("allow", "Auto-allowed: read-only access to agent memory (readfile)")
         """
         permissions = self.settings.get("permissions", {})
