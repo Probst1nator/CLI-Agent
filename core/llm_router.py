@@ -1661,7 +1661,7 @@ class LlmRouter:
 
                     # Provide detailed information about what failed
                     failed_count = len(instance.failed_models)
-                    available_count = len(instance.retry_models) + failed_count
+                    filtered_count = len(instance.retry_models)
 
                     if failed_count > 0:
                         failed_list = ", ".join(
@@ -1670,15 +1670,23 @@ class LlmRouter:
                         if failed_count > 3:
                             failed_list += f" (and {failed_count - 3} others)"
 
+                        # Create detailed error message
+                        error_details = f"All {failed_count} attempted models failed. Recently failed: {failed_list}"
+                        if filtered_count > 0:
+                            error_details += f" ({filtered_count} models filtered out due to constraints)"
+
                         g.debug_log(
-                            f"All {available_count} available models failed. Recently failed: {failed_list}",
+                            error_details,
                             "red",
                             is_error=True,
                             prefix=prefix,
                         )
 
                         # Store the failure reason for the final exception
-                        instance._last_failure_reason = f"All {available_count} models failed (including: {failed_list})"
+                        failure_msg = f"All {failed_count} attempted models failed (including: {failed_list})"
+                        if filtered_count > 0:
+                            failure_msg += f". {filtered_count} models were not attempted due to constraints (token limits, capabilities, etc.)"
+                        instance._last_failure_reason = failure_msg
                     else:
                         # For single preferred model, be more specific about why it wasn't found
                         if force_preferred_model and len(preferred_models) == 1:
