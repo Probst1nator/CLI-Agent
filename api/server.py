@@ -274,6 +274,7 @@ class VisualServer:
         from api import (
             agent_state_api,
             audio_api,
+            audio_stream_api,
             autocomplete_api,
             chat_api,
             logs_api,
@@ -283,6 +284,7 @@ class VisualServer:
         )
         chat_api.setup_routes(self.app)
         audio_api.setup_routes(self.app)
+        audio_stream_api.setup_routes(self.app)
         tools_api.setup_routes(self.app)
         profile_api.setup_routes(self.app)
         permissions_api.setup_routes(self.app)
