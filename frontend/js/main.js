@@ -1946,48 +1946,15 @@ class VisualResponseApp {
                 console.log('🔊 Speak mode auto-enabled with voice mode');
             }
 
-            // Handle microphone recording
+            // Handle microphone recording (simplified - no VAD)
             if (this.audioManager) {
-                // Check if VAD mode is enabled
-                const vadToggle = document.getElementById('vad-toggle');
-                const vadEnabled = vadToggle && vadToggle.checked;
-
                 if (isActive) {
-                    // Start recording (VAD or manual)
+                    // Start recording
                     try {
-                        if (vadEnabled) {
-                            window.logDebug('🎤 Starting VAD recording (auto-stop on silence)');
-                            this.voiceBtn.classList.add('vad-listening');
-
-                            const transcription = await this.audioManager.startRecordingWithVAD();
-
-                            this.voiceBtn.classList.remove('vad-listening', 'vad-recording');
-                            window.logDebug('🎤 VAD recording complete, transcription:', transcription);
-
-                            // Populate input field with transcription for user review
-                            if (transcription && transcription.trim()) {
-                                this.chatInput.value = transcription.trim();
-                                this.chatInput.focus();
-
-                                // Show success feedback
-                                if (typeof showToast === 'function') {
-                                    showToast('🎤 Transcription ready - review and press Enter to send', 'success');
-                                }
-
-                                window.logDebug('✓ Transcription populated in input field');
-                            } else {
-                                window.logWarn('⚠️ Empty transcription received');
-                                if (typeof showToast === 'function') {
-                                    showToast('No speech detected - please try again', 'warning');
-                                }
-                            }
-
-                            // Reset button to inactive state
-                            this.voiceBtn.classList.remove('active');
-                            this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
-                        } else {
-                            window.logDebug('🎤 Starting manual recording');
-                            await this.audioManager.startRecording();
+                        window.logDebug('🎤 Starting recording...');
+                        await this.audioManager.startRecording();
+                        if (typeof showToast === 'function') {
+                            showToast('🎤 Recording... Click again to stop', 'info');
                         }
                     } catch (error) {
                         console.error('Failed to start recording:', error);
@@ -2005,40 +1972,42 @@ class VisualResponseApp {
                         }
 
                         // Revert button state on error
-                        this.voiceBtn.classList.remove('active', 'vad-listening', 'vad-recording');
+                        this.voiceBtn.classList.remove('active');
                         return;
                     }
                 } else {
-                    // Stop manual recording and populate input field (VAD auto-stops)
-                    if (!vadEnabled) {
-                        try {
-                            const transcription = await this.audioManager.stopRecording();
-                            window.logDebug('🎤 Recording stopped, transcription:', transcription);
+                    // Stop recording and get transcription from backend
+                    try {
+                        if (typeof showToast === 'function') {
+                            showToast('⏳ Processing audio...', 'info');
+                        }
 
-                            // Populate input field with transcription for user review
-                            if (transcription && transcription.trim()) {
-                                this.chatInput.value = transcription.trim();
-                                this.chatInput.focus();
+                        const transcription = await this.audioManager.stopRecording();
+                        window.logDebug('🎤 Recording stopped, transcription:', transcription);
 
-                                // Show success feedback
-                                if (typeof showToast === 'function') {
-                                    showToast('🎤 Transcription ready - review and press Enter to send', 'success');
-                                }
+                        // Populate input field with transcription for user review
+                        if (transcription && transcription.trim()) {
+                            this.chatInput.value = transcription.trim();
+                            this.chatInput.focus();
 
-                                window.logDebug('✓ Transcription populated in input field');
-                            } else {
-                                window.logWarn('⚠️ Empty transcription received');
-                                if (typeof showToast === 'function') {
-                                    showToast('No speech detected - please try again', 'warning');
-                                }
-                            }
-                        } catch (error) {
-                            console.error('Failed to stop recording:', error);
-
-                            // Show user-friendly error message
+                            // Show success feedback
                             if (typeof showToast === 'function') {
-                                showToast(`❌ Recording failed: ${error.message || 'Unknown error'}`, 'error');
+                                showToast('✅ Transcription ready - review and press Enter to send', 'success');
                             }
+
+                            window.logDebug('✓ Transcription populated in input field');
+                        } else {
+                            window.logWarn('⚠️ Empty transcription received');
+                            if (typeof showToast === 'function') {
+                                showToast('⚠️ No speech detected - please try again', 'warning');
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to stop recording:', error);
+
+                        // Show user-friendly error message
+                        if (typeof showToast === 'function') {
+                            showToast(`❌ Transcription failed: ${error.message || 'Unknown error'}`, 'error');
                         }
                     }
                 }
