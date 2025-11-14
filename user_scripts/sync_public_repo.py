@@ -19,7 +19,7 @@ Usage:
     python user_scripts/sync_public_repo.py --prepare     # Prepare public branch
     python user_scripts/sync_public_repo.py --push        # Push to public remote
 
-See docs/RELEASE_WORKFLOW.md for complete workflow.
+See docs/deployment/PUBLIC_SYNC.md for complete workflow.
 """
 
 import argparse
@@ -305,7 +305,7 @@ def main():
         print("  4. python user_scripts/sync_public_repo.py --prepare")
         print("  5. Review: git diff public-sync..public-release")
         print("  6. python user_scripts/sync_public_repo.py --push")
-        print("\nSee docs/RELEASE_WORKFLOW.md for details")
+        print("\nSee docs/deployment/PUBLIC_SYNC.md for details")
 
     finally:
         if not args.dry_run and (args.prepare or args.push):

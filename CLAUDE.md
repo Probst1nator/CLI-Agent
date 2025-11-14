@@ -314,7 +314,7 @@ python user_scripts/sync_public_repo.py --prepare        # Filter
 python user_scripts/sync_public_repo.py --push           # Release
 ```
 
-See `docs/RELEASE_WORKFLOW.md` for full workflow.
+See `docs/deployment/PUBLIC_SYNC.md` for details.
 
 ## Documentation
 
@@ -322,7 +322,7 @@ See `docs/RELEASE_WORKFLOW.md` for full workflow.
 - `docs/ISOLATED_MODE.md` - Docker isolation
 - `docs/VISUALRESPONSE_ARCHITECTURE.md` - Web backend/frontend
 - `docs/INFRASTRUCTURE_STATUS.md` - Deployment options
-- `docs/RELEASE_WORKFLOW.md` - Public sync workflow
+- `docs/deployment/PUBLIC_SYNC.md` - Public sync workflow
 - `tools/CLAUDE.md` - Tool implementation guide
 - `INDEX.md` - Complete file index
 - `README.md` - Installation and usage
